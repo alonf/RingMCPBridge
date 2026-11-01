@@ -53,3 +53,12 @@ No decisions recorded yet.
 - **Launch Mode**: (none)
 - **Agent Response Snippet**: (none)
 - **Reason**: No persisted authorization matched intake -> specify.
+
+## 2026-11-01T19:46:49Z — Boundary sync: specify
+
+- **Boundary Type**: specify
+- **Feature Ref**: 001-ring-mcp-bridge
+- **Iteration Number**: (none)
+- **Task ID**: (none)
+- **Auth Commit Hash**: a847e72db8343481a9a622ca73e2ece91d7e7483
+- **Recorded At**: 2026-11-01T19:46:47Z

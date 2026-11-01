@@ -1,14 +1,16 @@
-updated_at: 2026-05-16T16:10:41Z
-focus_area: Feature 019 Phase 0 paused at T006
-active_issues: Feature 019 Iteration 001 execution is active for Phase 0 only. T001 is resolved with Option 1 explicit FileList allowlist semantics, T002 is resolved with Option A Git-style .conflict markers plus next-start mediated resolution, T003 is resolved with Option A Windows-first manual checklist/evidence for Iteration 001, T004 is resolved with Option A explicit dot-sourcing for Specrew.psm1, and T005 is resolved with Option A lightweight PSGallery API-key rotation guidance documented under docs/operations/psgallery-release-credentials.md. Do not auto-decide T006, do not start downstream implementation work in this run, and keep Ubuntu/macOS/WSL hardening plus broader embedded backslash cleanup deferred to Iteration 002
 ---
-
-What We're Focused On
-====================
-
-**Phase**: Feature 019 Iteration 001 Phase 0 execution is active. T001-T005 are resolved and execution is paused at the T006 human-handoff boundary.
-**Urgency**: Tier 1 — Deliver the T006 decision handoff without widening scope or auto-deciding it.
-
+**Phase**: "Feature 019 Iteration 001 Phase 0 execution is active. T001-T005 are resolved and execution is paused at the T006 human-handoff boundary."
+**Urgency**: "Tier 1 — Deliver the T006 decision handoff without widening scope or auto-deciding it."
+schema: v1
+updated_at: 2026-11-01T19:46:47Z
+session_state_active: true
+session_state_boundary: specify
+session_state_feature: 001-ring-mcp-bridge
+session_state_feature_path: "C:\Dev\RingMCPBridge\specs\001-ring-mcp-bridge"
+session_state_iteration: "(none)"
+session_state_task: "(none)"
+session_state_auth_commit: a847e72db8343481a9a622ca73e2ece91d7e7483
+session_state_recorded_at: 2026-11-01T19:46:47Z
 ---
 
 Current Status
