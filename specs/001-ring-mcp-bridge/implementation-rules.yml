@@ -568,8 +568,8 @@ reviewer_preference:
   mode: "human-selected"
   host: "codex"
   source: "code-implementation-workshop"
-  authorization_ref: null
-  rationale: "I8, the human picked codex: Claude writes the code, so codex gives an independent review. No model or effort pinned; Specrew uses the host default. authorization_ref stays null until the human approves running specrew review --host codex --authorization-ref workshop-001-ring-mcp-bridge (question 15, open)."
+  authorization_ref: "workshop-001-ring-mcp-bridge"
+  rationale: "I8, the human picked codex: Claude writes the code, so codex gives an independent review. No model or effort pinned; Specrew uses the host default. Question 15 answered 2026-11-01 (\"yes, run it, codex is the reviewer\"): specrew review --host codex --authorization-ref workshop-001-ring-mcp-bridge was run and wrote .specrew/reviewer-hosts.json."
 provenance:
   confirmation: "human-confirmed"
   confirmation_scope: "lens-question"

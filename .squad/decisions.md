@@ -31,3 +31,25 @@ No decisions recorded yet.
 - **Launch Mode**: (none)
 - **Agent Response Snippet**: (none)
 - **Reason**: No persisted authorization matched specify -> specify.
+
+## 2026-11-01T19:23:08Z — Boundary enforcement: specify
+
+- **Feature**: (none)
+- **Boundary Type**: specify
+- **Current Boundary**: intake
+- **Requested Boundary**: specify
+- **Enforcement Action**: blocked
+- **Launch Mode**: (none)
+- **Agent Response Snippet**: (none)
+- **Reason**: No persisted authorization matched intake -> specify.
+
+## 2026-11-01T19:35:09Z — Boundary enforcement: specify
+
+- **Feature**: (none)
+- **Boundary Type**: specify
+- **Current Boundary**: intake
+- **Requested Boundary**: specify
+- **Enforcement Action**: blocked
+- **Launch Mode**: (none)
+- **Agent Response Snippet**: (none)
+- **Reason**: No persisted authorization matched intake -> specify.

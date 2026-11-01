@@ -97,6 +97,7 @@
 ## Research: the best approach, and Specrew's defaults (2026-10-29)
 
 **What the web shows (evidence tags):**
+
 - **Node** (known, nodejs.org):
   - Node 26 became LTS on 28 Oct 2026; Node 24 and Node 22 are still LTS.
   - From Node 27, Node ships one major release a year.
@@ -201,24 +202,26 @@
 - **Either way, report the stale items to Specrew** (rows 5, 6, 7, 9, 10) as a need. The agent changes none of Specrew's own files.
 
 **Sources (checked 2026-10-29):**
-- https://nodejs.org/en/about/previous-releases
-- https://nodejs.org/api/typescript.md
-- https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/
-- https://devblogs.microsoft.com/typescript/announcing-typescript-7-1-beta/
-- https://devblogs.microsoft.com/typescript/announcing-typescript-6-0/
-- https://typescript-eslint.io/users/configs
-- https://typescript-eslint.io/getting-started/typed-linting
-- https://github.com/typescript-eslint/typescript-eslint/issues/12518
-- https://dev.to/gabrielanhaia/typescript-7-has-no-stable-compiler-api-yet-thats-why-typescript-eslint-wont-install-4pa
-- https://www.pkgpulse.com/guides/biome-vs-eslint-vs-oxlint-2026
-- https://tech-insider.org/eslint-vs-biome-vs-oxlint-2026/
-- https://google.github.io/styleguide/tsguide.html
+
+- <https://nodejs.org/en/about/previous-releases>
+- <https://nodejs.org/api/typescript.md>
+- <https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/>
+- <https://devblogs.microsoft.com/typescript/announcing-typescript-7-1-beta/>
+- <https://devblogs.microsoft.com/typescript/announcing-typescript-6-0/>
+- <https://typescript-eslint.io/users/configs>
+- <https://typescript-eslint.io/getting-started/typed-linting>
+- <https://github.com/typescript-eslint/typescript-eslint/issues/12518>
+- <https://dev.to/gabrielanhaia/typescript-7-has-no-stable-compiler-api-yet-thats-why-typescript-eslint-wont-install-4pa>
+- <https://www.pkgpulse.com/guides/biome-vs-eslint-vs-oxlint-2026>
+- <https://tech-insider.org/eslint-vs-biome-vs-oxlint-2026/>
+- <https://google.github.io/styleguide/tsguide.html>
 
 ## I1 decided (2026-10-29)
 
 **The human, verbatim:** "a"
 
 **The agent's reading:** I1 = (a), Specrew's defaults with the corrections in rows 2-10, and no external style guide (the Google TypeScript Style Guide, option (b), was not chosen).
+
 - **The enforced layer:** TypeScript strict, ESLint with typescript-eslint's type-checked configs, and Prettier, all checked in CI.
 - **(a) sets the direction only.** Rows 2, 5, 6 and 7 (modules, TypeScript 7 and the lint tools, Node running TypeScript, which Node) are decided at I2.
 - **Row 8 is decided now:** the first I7 exception. Baseline `code-rule.dtos-between-services` ("the calling service defines the DTO types it consumes") is overridden for this project: CD4 wins, so the component that declares a schema exports its DTOs. I7 records it and does not ask it again.
@@ -229,6 +232,7 @@
 ## I2 research (2026-10-29)
 
 **What the web shows (evidence tags):**
+
 - **Node** (nodejs.org):
   - Node 26 has been LTS since 28 Oct 2026; Node 24 and Node 22 are still LTS (known).
   - The page gives no end-of-life dates. Under the historic pattern for even releases (30 months of LTS from October), Node 26 would end about April 2029 and Node 24 about April 2028 (assumed).
@@ -271,6 +275,7 @@
 ```
 
 **The two real choices:**
+
 - **I2.2 Which TypeScript.**
   - **(a) Microsoft's recommended path:** TypeScript 7.0 (the Go compiler, installed as `@typescript/native`) type-checks and builds; `typescript` is aliased to `@typescript/typescript6` so typescript-eslint can run. Two compilers; faster checks. $0.
   - **(b) TypeScript 6.0 alone for now (the agent's lean).** One compiler. The settings stay 7-ready (no option that TypeScript 7 removed). The switch to 7.1 is one dev-dependency bump once typescript-eslint declares support, tracked as a follow-up. This departs from Microsoft's recommended path; the reasons are one compiler, a small codebase where speed matters little, and a cheap switch later. $0.
@@ -284,6 +289,7 @@
     - Affects I4: how the tests run is decided there.
 
 **Proposed as defaults (change any of them):**
+
 - **I2.1 Node:** Node 26 LTS on every part: the Azure core image, the home connector image and mode A. Node 24 is the fallback if a spike finds a break.
   - Both App Service and the home VM run our container, so App Service's own list of Node versions does not limit us.
   - Node 26 gets `node:sqlite` as a release candidate and `crypto.argon2` built in. That makes "no new dependency" for SQLite and for the PIN hash more credible at I6 (tagged above).
@@ -302,23 +308,25 @@
 - **Cost:** $0. All open source; no change to the Azure bill. The dev tools are recorded as dependencies at I6.
 
 **Sources (checked 2026-10-29):**
-- https://nodejs.org/en/about/previous-releases
-- https://nodejs.org/api/typescript.html
-- https://nodejs.org/api/crypto.html
-- https://nodejs.org/api/sqlite.html
-- https://raw.githubusercontent.com/dgreif/ring/main/packages/ring-client-api/package.json
-- https://registry.npmjs.org/@modelcontextprotocol/server
-- https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/main/packages/server/package.json
-- https://registry.npmjs.org/oidc-provider/latest
-- https://typescript-eslint.io/users/dependency-versions
-- https://devblogs.microsoft.com/typescript/announcing-typescript-7-1-beta/
-- https://zod.dev/json-schema
+
+- <https://nodejs.org/en/about/previous-releases>
+- <https://nodejs.org/api/typescript.html>
+- <https://nodejs.org/api/crypto.html>
+- <https://nodejs.org/api/sqlite.html>
+- <https://raw.githubusercontent.com/dgreif/ring/main/packages/ring-client-api/package.json>
+- <https://registry.npmjs.org/@modelcontextprotocol/server>
+- <https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/main/packages/server/package.json>
+- <https://registry.npmjs.org/oidc-provider/latest>
+- <https://typescript-eslint.io/users/dependency-versions>
+- <https://devblogs.microsoft.com/typescript/announcing-typescript-7-1-beta/>
+- <https://zod.dev/json-schema>
 
 ## I2 decided (2026-10-30)
 
 **The human, verbatim:** "I go with your recomandations"
 
 **The agent's reading:** the answer accepts I2 as proposed, all six parts. It does not answer I3-I8; each of those still gets its own turn.
+
 - **I2.1 Node:** Node 26 LTS on every part (the Azure core image, the home connector image, mode A). Node 24 is the fallback if a spike finds a break.
   - Refined 2026-11-01 (I6, the engine check): the fallback's floor is Node 24.11 for the dev tools (Babel 8, through Stryker); the Node 26 spike also covers ring-client-api 14.3.0 (I6 finding (1), confirmed by the human).
 - **I2.2 TypeScript:** (b), TypeScript 6.0 alone for now, with 7-ready settings. The switch to 7.1 is a tracked follow-up, made once typescript-eslint declares support. This departs from Microsoft's recommended two-compiler setup, knowingly.
@@ -331,6 +339,7 @@
 ## I3 in detail (proposal, awaiting the human)
 
 **Carried in, not asked again** (D7, D4, X2, CD4, integration-api):
+
 - The D7 error codes and the envelope: `code`, `message`, `retry_after_s`, and `outcome` (not_done, unknown or done) on control calls.
 - The 60 s deadline; TIMEOUT with outcome unknown; commands are never retried automatically.
 - INVALID_ARGUMENT comes from the edge parsers (CD4 Q2).
@@ -382,6 +391,7 @@
 - **(c) Other:** the human describes it.
 
 **Proposed with I3 whichever option is chosen (new, not carried):**
+
 1. **The message the caller sees is written by the bridge.** Raw text from Ring or a library goes only to the logs, redacted (OR1). Why: Ring strings are untrusted (Normalize), and an error message is one more path into an agent's context.
 2. **Each error is logged once, where it is handled** (at the client), with the correlation ID. Causes are chained with the standard `cause` option, so the log keeps the original.
 3. **Timeouts and cancellation use Node's AbortSignal,** passed down each async call, so the 60 s deadline also stops the work under it.
@@ -397,12 +407,14 @@
 **The human, verbatim:** "Exceptions: Any thing unexpected that you could not participated. Also any error that the issuer wants to tell the original caller. So anything known can be handled"
 
 **The agent's reading (awaiting the human's confirmation; I3 is not yet decided):**
+
 - The human chose exceptions, not the agent's lean (b). The Result type is dropped.
 - Exceptions are used for two things: anything unexpected that could not be anticipated, and any error that the raising component wants the original caller to see (the D7 kinds: home offline, Ring rejected, confirmation invalid, and the rest).
 - A known case that the caller handles on the spot (no cached frame, an event seen before) is an ordinary return value. Exceptions are never used for normal flow.
 - "The issuer" is read as the component that raises the error, not the Issuer sign-in component.
 
 **A correction to option (a)'s weakness, as the agent wrote it above:** the agent said the lint rule cannot flag a forgotten case under exceptions. That is wrong for the design below.
+
 - Each component's error class carries a closed `kind` union. The catcher narrows by class and then switches on `kind`, so `switch-exhaustiveness-check` still flags a missed kind.
 - The constructor of a control error requires `outcome`, so the compiler still refuses a control error without it.
 - What is really lost: the type system does not tell a caller which calls can throw. The client's catch-all (INTERNAL) and the tests cover that.
@@ -443,6 +455,7 @@
 - **Cost:** $0; no new dependency.
 
 **The four points proposed with I3, revised (still awaiting the human; not answered yet):**
+
 1. The message the caller sees is written by the bridge; raw text from Ring or a library goes only to the logs, redacted. (Unchanged.)
 2. Each error is logged once, by the client that handles it, with the correlation ID; a component that rethrows does not log. The original is kept as `cause`. (Tightened.)
 3. Timeouts and cancellation use Node's AbortSignal, passed down each async call. (Unchanged.)
@@ -466,6 +479,7 @@
 **Confirmation:** human-confirmed (lens-question, scope I3).
 
 **What was decided:**
+
 - **Exceptions** carry two things: anything unexpected that could not be anticipated, and any error the raising component wants the original caller to see.
 - **A known case the caller handles on the spot** is an ordinary return value. Exceptions are never used for normal flow.
 - **Each component declares the errors it throws, next to its DTOs** (CD4): one error class per component, with a closed list of kinds. A manager catches what lower components throw and passes on only its own declared errors, keeping the original as `cause`. A client never sees a resource-access error class. No change to the component map.
@@ -481,6 +495,7 @@
 ## I4 research (2026-10-30)
 
 **What the web shows (evidence tags):**
+
 - **Node's own test runner** (known, nodejs.org, v26 docs):
   - `node:test` is stable (since v20.0.0).
   - Snapshot testing is no longer experimental (v23.4.0); mock timers are stable (v23.1.0).
@@ -499,6 +514,7 @@
 **The human's input (2026-10-30):** "We need best test coverage with simulation of the real devices or services"
 
 **Carried in, not asked again:**
+
 - CD3's four test-only seams: the fake clock, the in-memory link pair, the simulated home with fixed test images, the fake Entra sign-in.
 - DS5: CI runs on SQLite and on SQL Server.
 - ui-ux: page smoke checks at three widths, in both themes.
@@ -570,12 +586,14 @@
   - This is not spike S1 (S1 is the official-API PoC); it is a separate step, run when the human chooses.
 
 **I4.2 The test runner:**
+
 - **(a) Node's built-in runner: no new dependency.** It runs the .ts directly; snapshots and mock timers are stable. But its coverage is still experimental, its threshold flags and .ts mapping are unknown, and mutation testing works only through Stryker's TAP runner.
 - **(b) Vitest 5 (the agent's lean).** Coverage with thresholds, fake timers, snapshots, watch mode, and a dedicated Stryker runner. The MCP SDK itself tests with it. It brings Vite as a dev dependency.
   - Why (b) over (a): the human asked for the best coverage, and coverage and mutation testing are where (a) is weakest today.
 - Either way, Playwright brings its own runner for the page checks, so there are two runners.
 
 **I4.3 The coverage bar:**
+
 - **A CI gate of 90% lines and 85% branches** on the measured code (the agent's lean). "Best" is not 100%: the last few percent buy tests of trivial code.
 - **Excluded, and listed so the numbers don't mislead:** the real Ring Adapter, Live Media, the Key Vault and the managed-identity SQL implementations, and the Host's wiring. The pilot tests these.
 - **A completeness check:** every MCP tool, every D7 error kind, every event kind and every page state has at least one test. Tests may import the Public Contract (CD4's import rule covers the product code, not the tests).
@@ -584,6 +602,7 @@
 **I4.4 Test-first:** the failing test comes first for the engines, the edge parsers, Normalize and every bug fix. Elsewhere, tests are written with the code. Review flags a behavior change that has no test.
 
 **I4.5 Where each layer runs:**
+
 - **Every PR (CI), about 12 minutes (an estimate):**
   - lint and types;
   - unit tests;
@@ -598,17 +617,19 @@
 - **The pilot,** run by the human at home and on production with disarm off (the agent never runs it): real devices, read-only, plus one light on and off; the real Entra sign-in; managed identity; Key Vault; WORM; the real agents and S7.
 
 **I4.6 Cost:**
+
 - $0 in Azure.
 - CI while the repository is private: about 100 PR runs at 12 minutes, 30 main runs at 15 minutes, and 4 weekly runs at 45 minutes, about 1,830 minutes a month. That is about $11 of the $18 included, so $0 extra (estimates; plan assumed). Beyond the included amount, about $0.36 an hour. Free once the repository is public.
 - Build effort: the scenario engine and the fake Entra, estimated at plan.
 
 **Sources (checked 2026-10-30):**
-- https://nodejs.org/api/test.html
-- https://registry.npmjs.org/vitest/latest
-- https://stryker-mutator.io/docs/stryker-js/vitest-runner/
-- https://deepwiki.com/stryker-mutator/stryker-js/4.1-test-runners
-- https://github.com/Azure/Azurite
-- https://docs.github.com/en/billing/concepts/product-billing/github-actions
+
+- <https://nodejs.org/api/test.html>
+- <https://registry.npmjs.org/vitest/latest>
+- <https://stryker-mutator.io/docs/stryker-js/vitest-runner/>
+- <https://deepwiki.com/stryker-mutator/stryker-js/4.1-test-runners>
+- <https://github.com/Azure/Azurite>
+- <https://docs.github.com/en/billing/concepts/product-billing/github-actions>
 
 ## I4 decided (2026-10-30)
 
@@ -619,6 +640,7 @@
 **Confirmation:** human-confirmed (lens-question, scope I4).
 
 **What was decided:**
+
 - **I4.1 A stand-in for every real device or service,** as in the table above. Two items go beyond CD3 and become component-design amendments at close:
   - the simulated home grows into a scenario engine: every device type the bridge supports, scripted scenarios and fault injection; generic in the repository, with the human's own home only as an optional local-only scenario file, kept out of git;
   - a second oidc-provider stands in for Entra in the integration tests; CD3's seam fake stays for the unit tests.
@@ -632,6 +654,7 @@
 ## I5 research (2026-10-30)
 
 **What the web shows (evidence tags):**
+
 - **Node and TypeScript files** (known, nodejs.org, the TypeScript page): Node refuses TypeScript files inside folders under a `node_modules` path. It ignores tsconfig `paths`; the closest feature is subpath imports, which must start with `#`.
 - **Symlinks** (known for `require`, nodejs.org, the modules page): Node resolves the real path of each module it loads, following symlinks. Whether type stripping checks the real path of a symlinked workspace package (so that it is not "under node_modules") is not stated (assumed; a spike if (c) is chosen).
 - **Conditions** (known, nodejs.org, the packages page): custom conditions in `exports` and `imports` are switched on with `--conditions` (`-C`). TypeScript's `customConditions` adds conditions for `nodenext` resolution (known, typescriptlang.org). This is how a workspace package would point at its .ts while coding and at its .js in an image.
@@ -641,6 +664,7 @@
 ## I5 in detail (proposal, awaiting the human)
 
 **Carried in, not asked again:**
+
 - One codebase in one repository; the core and the connector are the same code run in two modes; the run mode (core, connector or all-in-one) is a Config setting that the Host reads at start (architecture-core, CD3, CD5).
 - The deployables: the core image (amd64, the human's registry), the connector image (amd64 and arm64, ghcr.io), mode A (the dev PC and open-source users), the channel shim (started by Claude Code on the PC), and the Public Contract published as JSON Schema files. DO3: the same images everywhere; only config differs.
 - I2.3: Node runs the .ts while coding; tsc builds JS for the images.
@@ -750,6 +774,7 @@
 - **`schemas/` at the root** holds the published JSON Schema files, so open-source users find them without building. CI fails if they are stale.
 
 **I5.3 What the CI dependency check enforces (the tool itself is an I6 choice; it must check what is reachable from each start, not only direct imports):**
+
 - From the connector's wiring, no import path reaches the Azure libraries, oidc-provider or the SQL Server driver.
 - From the core's wiring, no import path reaches the Ring libraries, werift or ffmpeg.
 - Imports from another component go only through its entry file (CD4, carried). The one exception: the Host's wiring files import seam implementation files.
@@ -760,19 +785,21 @@
 **The component map is unchanged.** Packages and folders are where the code lives; the components and their calls stay as decided.
 
 **Not decided here (recorded for later):**
+
 - **Publishing on npm:** product-domain names the package `ring-mcp-bridge`; whether the bridge or the shim is also published on npm is decided at the public release (DO7). A published package ships built JS, because Node refuses .ts under `node_modules`.
 - **How open-source users run mode A and the shim** (the image with the run mode set to all-in-one, or a clone): the README path is a need for plan.
 
 **Cost:** $0 for all three; no Azure change; no new dependency. Build effort: (a) the least; (b) about the same (one more package.json); (c) the most (seven package.json files, the .ts/.js switch and two spikes).
 
 **Sources (checked 2026-10-30):**
-- https://nodejs.org/api/typescript.html
-- https://nodejs.org/api/modules.html
-- https://nodejs.org/api/packages.html
-- https://www.typescriptlang.org/tsconfig/#customConditions
-- https://docs.npmjs.com/cli/v11/using-npm/workspaces
-- https://docs.npmjs.com/cli/v11/commands/npm-ci
-- https://blog.openreplay.com/manage-package-managers-node-corepack/ (secondary)
+
+- <https://nodejs.org/api/typescript.html>
+- <https://nodejs.org/api/modules.html>
+- <https://nodejs.org/api/packages.html>
+- <https://www.typescriptlang.org/tsconfig/#customConditions>
+- <https://docs.npmjs.com/cli/v11/using-npm/workspaces>
+- <https://docs.npmjs.com/cli/v11/commands/npm-ci>
+- <https://blog.openreplay.com/manage-package-managers-node-corepack/> (secondary)
 
 ## I5 decided (2026-10-30)
 
@@ -783,6 +810,7 @@
 **Confirmation:** human-confirmed (lens-question, scope I5).
 
 **What was decided:**
+
 - **I5.1 (b):** one npm workspace with two packages: `bridge` (core and connector, one package, two modes, as CD3 and architecture-core decided) and `shim` (the channel shim, with the MCP SDK only). The root is private and holds the dev tools and one lockfile. No new dependency; $0.
 - **I5.2 The folders** as drawn above:
   - `bridge/src/` holds `host/`, `core/` and `connector/` (each by layer: clients, managers, engines, access), `utilities/` and `contract/`;
@@ -799,6 +827,7 @@
 **How it was gathered:** read-only queries of the npm registry (latest version, license, repository, publish dates, engines, install scripts, dependencies) and of GitHub's advisory database (`gh api /advisories`), checked against each latest version with semver. Nothing was installed. Advisories are shown as "affecting this version / ever recorded".
 
 **What the web shows (evidence tags):**
+
 - **ring-client-api** (known, the npm registry): the published 14.3.0 (2026-02-08) declares Node `^20 || ^22 || ^24`. **Correction to the I2 research,** which read the main branch's package.json (Node `^22.19.0 || ^24 || ^26`, werift 0.25.1): the main branch is unreleased. The repository is active (last commit 2026-10-25).
 - **werift 0.22.4,** pinned by ring-client-api 14.3.0, depends on `ip` 2.0.1. GHSA-2p57-rm9w-gvfp (high, SSRF through `isPublic`) affects `<= 2.0.1` with no fixed version (known, GitHub advisory database). werift 0.25.x no longer depends on `ip` (known, the registry). Whether werift's use of `ip` is exposed in the bridge is not known (unknown; checked at plan).
 - **ffmpeg:** ring-client-api depends on `@homebridge/camera-utils`, which depends on `ffmpeg-for-homebridge`. Its install script downloads a static ffmpeg (known, the registry). Its README shows build flags `--enable-nonfree`, `--enable-libfdk-aac`, `--enable-gpl` and states no license (known, its GitHub README). That FFmpeg calls a nonfree build unredistributable is assumed from FFmpeg's configure text; ffmpeg.org's legal page did not load this session.
@@ -959,6 +988,7 @@
 - **B12 CI containers.** GitHub Actions service containers for SQL Server and Azurite, and a compose file for the same containers on the dev PC. Not leaned: testcontainers 12.
 
 **Group C: the policy** (security T7 and B15):
+
 - **Exact versions** (`save-exact`), one lockfile, and `npm ci` everywhere.
 - **Install scripts off** in the CI and image install commands (`npm ci --ignore-scripts`), not in the committed `.npmrc`: there it would also stop npm's `prepare` script, which sets the git hooks on the dev PC (B10). With ffmpeg from the distribution, no runtime package is expected to need a script; protobufjs's postinstall is skipped harmlessly (assumed; checked in the first build). Any package that truly needs one is named in the record.
 - **No `engine-strict`,** or the Node 26 build would refuse ring-client-api 14.3.0 (finding 1). Explained to the human on 2026-11-01 (see "The human on I6").
@@ -978,41 +1008,43 @@
 **Cost:** $0 for every item; no Azure change; the audit, license and secret checks add seconds to each PR run.
 
 **The draft FR-013 records** (moved into `implementation-rules.yml` at close, for the human's picks). Fields: version; license; source; URL; upkeep; advisories; compatibility; cost; coupling; replaceability; tests.
-- **ring-client-api:** 14.3.0; MIT; dgreif (community); https://github.com/dgreif/ring; last release 2026-02-08, commits to 2026-10-25; 0 own, ip via werift (finding 2); Node 20/22/24 declared (finding 1); $0; heavy, the whole unofficial Ring protocol, but only inside Ring Adapter and Live Media; replaceable behind Ring Access, and later by the official API; never in CI (SC4), the simulated home stands in, the pilot tests it.
-- **werift (transitive):** 0.22.4, pinned by ring-client-api; MIT; shinyoshiaki; https://github.com/shinyoshiaki/werift-webrtc; 18 releases in a year; via ip (finding 2); Node >=16; $0; used only through ring-client-api; follows ring-client-api; fixed test images stand in.
-- **@eneris/push-receiver (transitive):** 4.3.0, pinned; MIT; eneris; https://github.com/eneris/push-receiver; 4.4.0 released 2026-09; 0/0; Node >=20; $0; only through ring-client-api; follows ring-client-api; the simulated home stands in.
-- **ffmpeg (system package):** the base image's distribution package; LGPL or GPL (assumed for the distribution's build); FFmpeg; https://ffmpeg.org; the distribution's security updates; the distribution's advisories; called by path; $0; a separate program; swapped by changing the package; the real ffmpeg runs on short test clips in CI (I4).
-- **@modelcontextprotocol/server:** 2.4.0; Apache-2.0; the MCP project; https://github.com/modelcontextprotocol/typescript-sdk; 15 releases in a year, 2026-10-23; 0/4; Node >=20; $0; MCP Endpoint and the shim only; replacing it means rewriting the endpoint; the SDK's own client drives the end-to-end tests.
+
+- **ring-client-api:** 14.3.0; MIT; dgreif (community); <https://github.com/dgreif/ring>; last release 2026-02-08, commits to 2026-10-25; 0 own, ip via werift (finding 2); Node 20/22/24 declared (finding 1); $0; heavy, the whole unofficial Ring protocol, but only inside Ring Adapter and Live Media; replaceable behind Ring Access, and later by the official API; never in CI (SC4), the simulated home stands in, the pilot tests it.
+- **werift (transitive):** 0.22.4, pinned by ring-client-api; MIT; shinyoshiaki; <https://github.com/shinyoshiaki/werift-webrtc>; 18 releases in a year; via ip (finding 2); Node >=16; $0; used only through ring-client-api; follows ring-client-api; fixed test images stand in.
+- **@eneris/push-receiver (transitive):** 4.3.0, pinned; MIT; eneris; <https://github.com/eneris/push-receiver>; 4.4.0 released 2026-09; 0/0; Node >=20; $0; only through ring-client-api; follows ring-client-api; the simulated home stands in.
+- **ffmpeg (system package):** the base image's distribution package; LGPL or GPL (assumed for the distribution's build); FFmpeg; <https://ffmpeg.org>; the distribution's security updates; the distribution's advisories; called by path; $0; a separate program; swapped by changing the package; the real ffmpeg runs on short test clips in CI (I4).
+- **@modelcontextprotocol/server:** 2.4.0; Apache-2.0; the MCP project; <https://github.com/modelcontextprotocol/typescript-sdk>; 15 releases in a year, 2026-10-23; 0/4; Node >=20; $0; MCP Endpoint and the shim only; replacing it means rewriting the endpoint; the SDK's own client drives the end-to-end tests.
 - **@modelcontextprotocol/client:** 2.4.0; Apache-2.0; the MCP project; same URL; 14 releases in a year; 0/2; Node >=20; $0; the shim and the tests; replacing it means rewriting the shim's link to the core; it is itself the end-to-end test driver.
 - **@modelcontextprotocol/hono (B1 lean):** 2.0.2; Apache-2.0; the MCP project; same URL; 11 releases in a year; 0/1; peer hono ^4.11.4; $0; MCP Endpoint only; swap for the SDK's Node or Express adapter; covered by the end-to-end tests.
-- **hono and @hono/node-server (B1 lean):** 4.13.14 and 2.1.5; MIT; honojs; https://github.com/honojs/hono; 67 and 31 releases in a year; 0/56 and 0/7; Node >=16.9 and >=20; $0; medium: MCP Endpoint's and Web's route handlers use its context object; Express 5 is the fallback; route tests through Hono's in-process requests (assumed), page checks through Playwright.
-- **oidc-provider:** 9.13.3; MIT; panva; https://github.com/panva/node-oidc-provider; 27 releases in a year, 2026-10-29; 0/0; no engines declared (Node 26 spike); $0; heavy: the OAuth server, the Issuer and Grants (X1); no drop-in TypeScript alternative; a second oidc-provider acts as the fake Entra (I4).
-- **ws (B2 lean):** 8.22.0; MIT; websockets; https://github.com/websockets/ws; 17 releases in a year; 0/7; Node >=10; $0; light: only inside the Link transport; replaced inside one utility; the real WSS on localhost with drops, delays and duplicates (I4).
-- **zod:** 4.6.7; MIT; colinhacks; https://github.com/colinhacks/zod; frequent; 0/2; no engines; $0; heavy by design: the one schema system for the edge parsers and the Public Contract, also the MCP SDK's own; replacing it means rewriting every edge parser; the schema snapshot test (D2).
-- **mssql (with tedious):** 12.7.13 (tedious 20.3.8); MIT; tediousjs; https://github.com/tediousjs/node-mssql; 35 releases in a year; 0/0; Node >=18.19 (tedious >=22); $0; light: only the Query layer's T-SQL implementation; tedious directly as the fallback; the SQL Server container in CI, managed identity only in the pilot.
-- **@azure/identity, @azure/keyvault-secrets, @azure/storage-blob:** 4.14.1, 4.12.0, 12.34.0; MIT; Microsoft; https://github.com/Azure/azure-sdk-for-js; released monthly or more; 0/1, 0/0, 0/0; Node >=22; $0; light: only inside Secrets, Media Cache, Audit and the Query layer's T-SQL side; Azure REST by hand is the fallback; Azurite in CI, Key Vault, WORM and managed identity only in the pilot (excluded from coverage, I4.3).
-- **typescript:** 6.0.3, pinned exactly (npm's latest tag is 7.0.2); Apache-2.0; Microsoft; https://github.com/microsoft/TypeScript; 2026-04-16; 0/0; $0; build and type check only; 7.1 later (tracked); not applicable.
-- **@types/node:** 26.6.6; MIT; DefinitelyTyped; https://github.com/DefinitelyTyped/DefinitelyTyped; frequent; 0/0; $0; types only; follows Node; not applicable.
+- **hono and @hono/node-server (B1 lean):** 4.13.14 and 2.1.5; MIT; honojs; <https://github.com/honojs/hono>; 67 and 31 releases in a year; 0/56 and 0/7; Node >=16.9 and >=20; $0; medium: MCP Endpoint's and Web's route handlers use its context object; Express 5 is the fallback; route tests through Hono's in-process requests (assumed), page checks through Playwright.
+- **oidc-provider:** 9.13.3; MIT; panva; <https://github.com/panva/node-oidc-provider>; 27 releases in a year, 2026-10-29; 0/0; no engines declared (Node 26 spike); $0; heavy: the OAuth server, the Issuer and Grants (X1); no drop-in TypeScript alternative; a second oidc-provider acts as the fake Entra (I4).
+- **ws (B2 lean):** 8.22.0; MIT; websockets; <https://github.com/websockets/ws>; 17 releases in a year; 0/7; Node >=10; $0; light: only inside the Link transport; replaced inside one utility; the real WSS on localhost with drops, delays and duplicates (I4).
+- **zod:** 4.6.7; MIT; colinhacks; <https://github.com/colinhacks/zod>; frequent; 0/2; no engines; $0; heavy by design: the one schema system for the edge parsers and the Public Contract, also the MCP SDK's own; replacing it means rewriting every edge parser; the schema snapshot test (D2).
+- **mssql (with tedious):** 12.7.13 (tedious 20.3.8); MIT; tediousjs; <https://github.com/tediousjs/node-mssql>; 35 releases in a year; 0/0; Node >=18.19 (tedious >=22); $0; light: only the Query layer's T-SQL implementation; tedious directly as the fallback; the SQL Server container in CI, managed identity only in the pilot.
+- **@azure/identity, @azure/keyvault-secrets, @azure/storage-blob:** 4.14.1, 4.12.0, 12.34.0; MIT; Microsoft; <https://github.com/Azure/azure-sdk-for-js>; released monthly or more; 0/1, 0/0, 0/0; Node >=22; $0; light: only inside Secrets, Media Cache, Audit and the Query layer's T-SQL side; Azure REST by hand is the fallback; Azurite in CI, Key Vault, WORM and managed identity only in the pilot (excluded from coverage, I4.3).
+- **typescript:** 6.0.3, pinned exactly (npm's latest tag is 7.0.2); Apache-2.0; Microsoft; <https://github.com/microsoft/TypeScript>; 2026-04-16; 0/0; $0; build and type check only; 7.1 later (tracked); not applicable.
+- **@types/node:** 26.6.6; MIT; DefinitelyTyped; <https://github.com/DefinitelyTyped/DefinitelyTyped>; frequent; 0/0; $0; types only; follows Node; not applicable.
 - **eslint, typescript-eslint, prettier, eslint-config-prettier:** 10.14.0, 8.72.1, 3.9.10, 10.1.8; MIT; eslint, typescript-eslint, prettier; their GitHub repositories; active (eslint-config-prettier last released 2025-07); 0/2, 0/0, 0/0, 0/1 (finding 6); typescript-eslint supports TypeScript <6.1.0; $0; dev only; swappable tools; not applicable.
-- **vitest, @vitest/coverage-v8, vite:** 5.0.5, 5.0.5, 8.3.5; MIT; vitest-dev and vitejs; https://github.com/vitest-dev/vitest; frequent; 0/3, 0/0, 0/29; Node ^22.12, ^24 or >=26; $0; dev only, but every test uses its API; tests move to another runner with effort; it is the runner.
-- **@stryker-mutator/core and vitest-runner:** 10.1.1; Apache-2.0; stryker-mutator; https://github.com/stryker-mutator/stryker-js; 7 releases in a year; 0/0; Node >=22; $0; the weekly job only; can be dropped; mutation testing itself.
-- **@playwright/test:** 1.64.1; Apache-2.0; Microsoft; https://github.com/microsoft/playwright; frequent; 0/0; Node >=20; $0, with browsers downloaded in CI; the page checks only; replaceable; the page smoke checks.
-- **dependency-cruiser (B9 lean):** 18.7.0; MIT; sverweij; https://github.com/sverweij/dependency-cruiser; 34 releases in a year; 0/0; Node ^22, ^24 or >=26; $0; dev only, one config file; a hand-written walk as the fallback; it is the check.
-- **gitleaks:** 8.30.1 (a binary); MIT; gitleaks; https://github.com/gitleaks/gitleaks; latest release 2026-03-21, repository active; not in the npm advisory database; any OS; $0 (no Action, no key); the hook and CI only; replaceable; a deliberately planted test secret checks it (assumed).
+- **vitest, @vitest/coverage-v8, vite:** 5.0.5, 5.0.5, 8.3.5; MIT; vitest-dev and vitejs; <https://github.com/vitest-dev/vitest>; frequent; 0/3, 0/0, 0/29; Node ^22.12, ^24 or >=26; $0; dev only, but every test uses its API; tests move to another runner with effort; it is the runner.
+- **@stryker-mutator/core and vitest-runner:** 10.1.1; Apache-2.0; stryker-mutator; <https://github.com/stryker-mutator/stryker-js>; 7 releases in a year; 0/0; Node >=22; $0; the weekly job only; can be dropped; mutation testing itself.
+- **@playwright/test:** 1.64.1; Apache-2.0; Microsoft; <https://github.com/microsoft/playwright>; frequent; 0/0; Node >=20; $0, with browsers downloaded in CI; the page checks only; replaceable; the page smoke checks.
+- **dependency-cruiser (B9 lean):** 18.7.0; MIT; sverweij; <https://github.com/sverweij/dependency-cruiser>; 34 releases in a year; 0/0; Node ^22, ^24 or >=26; $0; dev only, one config file; a hand-written walk as the fallback; it is the check.
+- **gitleaks:** 8.30.1 (a binary); MIT; gitleaks; <https://github.com/gitleaks/gitleaks>; latest release 2026-03-21, repository active; not in the npm advisory database; any OS; $0 (no Action, no key); the hook and CI only; replaceable; a deliberately planted test secret checks it (assumed).
 
 **Sources (checked 2026-10-30):**
-- https://registry.npmjs.org (each package's metadata)
-- https://github.com/advisories (via `gh api /advisories`)
-- https://github.com/advisories/GHSA-2p57-rm9w-gvfp
-- https://github.com/modelcontextprotocol/typescript-sdk/tree/main/packages/middleware/node
-- https://learn.microsoft.com/en-us/azure/azure-sql/database/azure-sql-passwordless-migration-nodejs
-- https://nodejs.org/api/sqlite.html
-- https://nodejs.org/api/crypto.html
-- https://github.com/sverweij/dependency-cruiser/blob/main/doc/rules-reference.md
-- https://github.com/gitleaks/gitleaks-action
-- https://github.com/homebridge/ffmpeg-for-homebridge
-- https://docs.npmjs.com/cli/v11/commands/npm-sbom
-- https://github.com/nikeee/kysely-sqlite (secondary, for the Kysely option)
+
+- <https://registry.npmjs.org> (each package's metadata)
+- <https://github.com/advisories> (via `gh api /advisories`)
+- <https://github.com/advisories/GHSA-2p57-rm9w-gvfp>
+- <https://github.com/modelcontextprotocol/typescript-sdk/tree/main/packages/middleware/node>
+- <https://learn.microsoft.com/en-us/azure/azure-sql/database/azure-sql-passwordless-migration-nodejs>
+- <https://nodejs.org/api/sqlite.html>
+- <https://nodejs.org/api/crypto.html>
+- <https://github.com/sverweij/dependency-cruiser/blob/main/doc/rules-reference.md>
+- <https://github.com/gitleaks/gitleaks-action>
+- <https://github.com/homebridge/ffmpeg-for-homebridge>
+- <https://docs.npmjs.com/cli/v11/commands/npm-sbom>
+- <https://github.com/nikeee/kysely-sqlite> (secondary, for the Kysely option)
 
 ## The human on I6 (2026-11-01)
 
@@ -1020,6 +1052,7 @@
 2 - explain the no Engine strict"
 
 **The agent's reading:**
+
 - "1. Yes, your lean" answers question 8 only: keep I2 (Node 26 everywhere, Node 24 as the fallback), with the tracked Node 26 spike widened to ring-client-api 14.3.0. **Confirmation:** human-confirmed (lens-question, scope I6 finding (1)).
 - "2 - explain the no Engine strict" asks for an explanation of the group C item "No `engine-strict`". It does not answer question 9: groups A, B and C are not yet accepted. Question 10 re-asks it after the explanation.
 
@@ -1058,6 +1091,7 @@
 - **The cost of leaving it off:** every Node 26 install prints one EBADENGINE warning for ring-client-api until a release declares 26. npm has no setting to silence it for one package (assumed, from npm's config reference). A dependency update that newly declares it does not support our Node would only warn, not fail; the tests on the image's Node catch real breaks.
 
 **One option added to group C (a proposal, the agent's lean; under question 10):**
+
 - **`devEngines.runtime` in the root package.json:** Node `^24.11 || ^26`, with onFail error (the default).
   - It checks only the Node that runs our own project's `npm install`, `npm ci` and `npm run`, not the dependencies' declarations.
   - A contributor or a CI runner on the wrong Node is stopped at once with a clear message, instead of failing later (for example on a missing `crypto.argon2` or `node:sqlite` class).
@@ -1115,6 +1149,7 @@
 **Confirmation:** human-confirmed (lens-question, scope I6; finding (1) was confirmed separately on 2026-11-01).
 
 **What was decided:**
+
 - **Group A:** recorded as listed, with findings (1)-(7) and their handling: I2 kept, with the Node 26 spike widened to ring-client-api 14.3.0 (finding 1); the `ip` advisory on the audit exception list (2); ffmpeg from the Linux package, with install scripts off (3); oidc-provider in the Node 26 spike (4); typescript 6.0.3 pinned exactly (5); exact pins (6); werift's parts pinned by overrides (7).
 - **Group B, the twelve leans:** B1 Hono 4.13 with the SDK's Hono adapter; B2 ws 8.22 on both ends; B3 our own JSON logger (allow-list); B4 hand-wired DI in the Host's wiring files; B5 `node:sqlite`; B6 hand-written SQL per dialect, with numbered migration files; B7 tagged templates that escape by default; B8 `crypto.argon2`; B9 dependency-cruiser 18.7 (dev only); B10 git's `core.hooksPath`, set by npm's `prepare`; B11 `npm sbom` with a license allow-list; B12 GitHub Actions service containers, with compose locally.
 - **Group C, the policy,** as listed under "Group C", plus `devEngines.runtime` at the root (Node `^24.11 || ^26`, onFail error).
@@ -1127,6 +1162,7 @@
 **How it was gathered:** Specrew's catalog `code-rules.yml` (the 19 `baseline-default` rules and the remaining `decision-prompt` rules) read in full; the earlier lens records checked for what each rule is already settled by; the docs below fetched; one local check on Node 24.13.0.
 
 **What was found (evidence tags):**
+
 - **node:sqlite is synchronous** (known, Node v26.13.0 docs): "All APIs exposed by this class execute synchronously", for `Database`, `Statement` and the SQL tag store; `DatabaseSync` is a deprecated alias of the same class. The page shows no promise or worker API. This meets `code-rule.never-block-event-loop`, so it is asked as question 11. better-sqlite3 is synchronous too, so B5 stands either way.
 - **ESLint's `max-depth`** (known, its source on the main branch): it counts `if` (not `else if`), `switch`, `try`, the loops and `with`; each function, arrow function and static block starts its own count; the default maximum is 4. So with I3's exceptions, a `try` at a client edge uses one level.
 - **ESLint's `no-restricted-exports`** (known, its docs): a built-in rule; its `restrictDefaultExports` option forbids default exports in all five forms. No new dependency.
@@ -1260,6 +1296,7 @@
 **The human, verbatim:** "I guess the syncronus call to SQLite is non blocking, just might take some time, if so it is OK. And I accept all"
 
 **The agent's reading:**
+
 - **The SQLite part is conditional:** the human accepts (a) "if so", that is, if a synchronous call is non-blocking. That premise is not correct, so (a) is not recorded as decided. The agent corrects the fact and re-asks it as question 13.
 - **"And I accept all" answers question 12:** I7.1-I7.4 as proposed, with N5 as `#private` fields (the agent's lean, shown). **Confirmation:** human-confirmed (lens-question, scope I7 question 12). I7 is not marked decided until question 13 is answered.
 
@@ -1286,6 +1323,7 @@
 **Confirmation:** human-confirmed (lens-question, scope I7: question 12 on I7.1-I7.4, question 13 on the SQLite posture).
 
 **What was decided:**
+
 - **I7.1 The baseline:** the 19 rules checked, except `code-rule.dtos-between-services` (exception 1, decided at I1: CD4's rule replaces it as a custom rule). Two changes to how a rule is checked, each with its reason: `avoid-deep-nesting` with ESLint `max-depth` 3 (ESLint counts a `try` as a level; I3 puts one at each client edge); `no-magic-numbers` by review only (the lint rule flags HTTP codes, 0 and 1, and test data).
 - **I7.2 The lighter choices** L1-L5 as proposed.
 - **I7.3 Naming and exports** N1-N5 as proposed, with N5 = JavaScript `#private` fields.
@@ -1452,7 +1490,7 @@ Record your pick in reviewer_preference as mode=human-selected with the chosen h
 12. I7: accept I7.1-I7.4 as proposed (with N5 as `#private` fields or `private readonly`); change any part; or step through the four parts one at a time? (Answered 2026-11-01: "And I accept all", read as I7.1-I7.4 as proposed, with `#private`.)
 13. I7, the SQLite posture, re-asked: knowing that each synchronous call pauses everything else in that process while it runs (on the dev PC, under 3 ms at p95, about 11 ms at worst), is (a) still OK, or (b) a worker thread? (Answered 2026-11-01: "a is fine".)
 14. I8: which host reviews the code (codex, the default and the agent's lean; copilot; cursor-agent; or claude), and may the agent run `specrew review --host <pick> --authorization-ref workshop-001-ring-mcp-bridge` to record it? (Answered 2026-11-01: "codex"; the second half was not answered, so it is question 15.)
-15. May the agent run `specrew review --host codex --authorization-ref workshop-001-ring-mcp-bridge` (it writes only `.specrew/reviewer-hosts.json`; no review runs)? (Still open: "move on" did not answer it. Not run; `authorization_ref` is null in the manifest.)
+15. May the agent run `specrew review --host codex --authorization-ref workshop-001-ring-mcp-bridge` (it writes only `.specrew/reviewer-hosts.json`; no review runs)? (Answered 2026-11-01, after the lens closed, when the specify sync refused to run without an authorized reviewer: "yes, run it, codex is the reviewer". Run; it wrote `.specrew/reviewer-hosts.json` with codex allowed, and `authorization_ref` in the manifest is now `workshop-001-ring-mcp-bridge`.)
 16. May the agent write `code-rules.local.yml` at the project root with the three rules shown? (Still open: "move on" did not answer it. Not written; the corrections live in the manifest's decisions meanwhile.)
 17. Lens 10: "move on" to close it, or change anything first? (Answered 2026-11-01: "move on".)
 
@@ -1468,5 +1506,5 @@ The lens has 8 decision points (I1-I8). The agent asks I1 first, as the lens req
   - `specs/001-ring-mcp-bridge/implementation-rules.yml`: 55 rule selections by id (two unchecked: `code-rule.dtos-between-services`, exception 1; `code-rule.cncf-maturity`, not applicable), 8 custom rules (CD4, N1-N5, the built-in-first choices, the supply-chain policy), 30 FR-013 dependency records, the reviewer preference, `resolved_stack` `typescript-javascript`. Validated with Specrew 0.40.0's `Test-SpecrewImplementationRulesManifest` against the schema and the catalog: no errors.
   - the `code-implementation` record in `lens-applicability.json`;
   - the two I4 amendments in `component-design.md`.
-- **Not done, awaiting the human:** question 15 (the reviewer recording command; until it runs, the co-review at implement finds no authorized host in `.specrew/reviewer-hosts.json`) and question 16 (`code-rules.local.yml`). Rows 2-6 of the corrections are in the manifest's decision for `code-rule.ts.strictness-posture`, row 7 in `code-rule.lts-version-check`, row 8 in the CD4 custom rule.
+- **Not done, awaiting the human:** question 16 (`code-rules.local.yml`). Rows 2-6 of the corrections are in the manifest's decision for `code-rule.ts.strictness-posture`, row 7 in `code-rule.lts-version-check`, row 8 in the CD4 custom rule.
 - **Next:** speckit-specify writes the spec from the ten lens records; then the agent stops at the specify boundary for "approved for specify".
