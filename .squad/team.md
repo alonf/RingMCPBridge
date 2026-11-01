@@ -12,6 +12,11 @@
 
 | Name | Role | Charter | Status |
 |------|------|---------|--------|
+| spec-steward | Spec Steward | `.squad/agents/spec-steward/charter.md` | baseline |
+| planner | Planner | `.squad/agents/planner/charter.md` | baseline |
+| implementer | Implementer | `.squad/agents/implementer/charter.md` | baseline |
+| reviewer | Reviewer | `.squad/agents/reviewer/charter.md` | baseline |
+| retro-facilitator | Retro Facilitator | `.squad/agents/retro-facilitator/charter.md` | baseline |
 
 ## Project Context
 

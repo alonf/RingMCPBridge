@@ -46,18 +46,16 @@ function Select-ContinuousCoReviewReviewerCandidate {
         }
     )
 
-    $preferredReviewerHost = switch -Regex ([string]$CodeWriterHost) {
-        '^claude$' { 'codex'; break }
-        '^codex$' { 'claude'; break }
-        default { $null }
-    }
-
     $rankedEligible = @($eligible | Sort-Object -Property @{ Expression = 'review_class_rank'; Descending = $true }, @{ Expression = 'host'; Descending = $false })
-    $selection = if ([string]::IsNullOrWhiteSpace($RequestedHost) -and -not [string]::IsNullOrWhiteSpace($preferredReviewerHost)) {
-        @($rankedEligible | Where-Object { $_.host -eq $preferredReviewerHost } | Select-Object -First 1)
-    }
-    else {
-        @()
+    # HOST-NEUTRAL independence preference (D-197-I010-002 / FR-016+SEC-004): prefer the STRONGEST
+    # eligible candidate on a DIFFERENT harness than the code-writer - a pure policy over catalog
+    # data, valid for any host including ones added later. Host specifics (names, binaries, flags)
+    # live ONLY in reviewer-host-catalog.ps1; this core never names a harness.
+    $preferredIndependent = $false
+    $selection = @()
+    if ([string]::IsNullOrWhiteSpace($RequestedHost) -and -not [string]::IsNullOrWhiteSpace($CodeWriterHost)) {
+        $selection = @($rankedEligible | Where-Object { $_.host -ne $CodeWriterHost } | Select-Object -First 1)
+        if (@($selection).Count -gt 0) { $preferredIndependent = $true }
     }
 
     if (@($selection).Count -eq 0) {
@@ -68,9 +66,64 @@ function Select-ContinuousCoReviewReviewerCandidate {
         return $null
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($preferredReviewerHost) -and $selection[0].host -eq $preferredReviewerHost) {
+    if (-not [string]::IsNullOrWhiteSpace($RequestedHost)) {
+        # honour-or-surface --host (T093/FR-035): an explicit request is HONOURED (the filter above
+        # restricted eligibility to it); the caller surfaces the reason when it cannot be.
+        $selection[0].selection_reason = 'requested-host-honoured'
+    }
+    elseif ($preferredIndependent) {
         $selection[0].selection_reason = 'preferred-independent-reviewer-for-code-writer-host'
     }
 
+    # T093/FR-035 + SEC-004 (iter-009 D1): INDEPENDENCE is first-class selection evidence - a same-host
+    # review fires immediately as a LABELLED fallback (never blocks, never silently substitutes), and
+    # the label feeds the D4 tiered-evidence gate. 'unverified' = the code-writer host is unknown, so
+    # independence cannot be asserted (the gate treats it as NOT independent - conservative).
+    $independence = if ([string]::IsNullOrWhiteSpace($CodeWriterHost)) { 'unverified' }
+    elseif ($selection[0].host -ne $CodeWriterHost) { 'independent' }
+    else { 'same-host' }
+    $selection[0] | Add-Member -NotePropertyName 'independence' -NotePropertyValue $independence -Force
+    if ($independence -eq 'same-host' -and [string]::IsNullOrWhiteSpace($RequestedHost)) {
+        $selection[0].selection_reason = 'same-host-fallback-no-independent-authorized'
+    }
+
     return $selection[0]
+}
+
+function Resolve-ContinuousCoReviewConfiguredReviewerCandidate {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string] $RepoRoot,
+
+        [AllowNull()]
+        [string] $ReviewerConfigPath,
+
+        [AllowNull()]
+        [string] $RequestedHost,
+
+        [AllowNull()]
+        [string] $RequestedModel,
+
+        [AllowNull()]
+        [string] $CodeWriterHost
+    )
+
+    $root = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
+    $configPath = if ([string]::IsNullOrWhiteSpace($ReviewerConfigPath)) {
+        Join-Path $root '.specrew/reviewer-hosts.json'
+    }
+    else {
+        (Resolve-Path -LiteralPath $ReviewerConfigPath -ErrorAction Stop).Path
+    }
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { return $null }
+
+    try {
+        $configuration = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -Depth 100 -ErrorAction Stop
+        $catalog = Get-ContinuousCoReviewReviewerHostCatalog -Configuration $configuration
+        return Select-ContinuousCoReviewReviewerCandidate -Catalog $catalog -RequestedHost $RequestedHost -RequestedModel $RequestedModel -CodeWriterHost $CodeWriterHost
+    }
+    catch {
+        throw ("reviewer-host-config-invalid:{0}:{1}" -f $configPath, $_.Exception.Message)
+    }
 }

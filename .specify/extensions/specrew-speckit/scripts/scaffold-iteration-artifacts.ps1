@@ -204,16 +204,22 @@ function Get-DefaultRequirementRefsForGate {
         [string]$GateId
     )
 
+    # W46: the Requirement column in a downstream quality table used to cite Specrew's own FR ids,
+    # which collide with the consumer's FR namespace - a downstream human maps 'FR-027' onto THEIR
+    # spec. The column now names the quality dimension the gate enforces, in consumer terms.
+    # Maintainer citations for the original mapping: dead-field FR-011/FR-027/FR-030; anti-pattern
+    # FR-011/FR-028/FR-030; test-integrity FR-011/FR-029/FR-030; stack-tooling FR-011; lens-review
+    # FR-011/FR-012; concurrency/resiliency/retry FR-011/FR-012/FR-015.
     switch ($GateId) {
-        'dead-field' { return @('FR-011', 'FR-027', 'FR-030') }
-        'anti-pattern' { return @('FR-011', 'FR-028', 'FR-030') }
-        'test-integrity' { return @('FR-011', 'FR-029', 'FR-030') }
-        'stack-tooling-evidence' { return @('FR-011') }
-        'quality-lens-review' { return @('FR-011', 'FR-012') }
-        'concurrency-correctness-review' { return @('FR-011', 'FR-012', 'FR-015') }
-        'resiliency-semantics-review' { return @('FR-011', 'FR-012', 'FR-015') }
-        'retry-idempotency-review' { return @('FR-011', 'FR-012', 'FR-015') }
-        default { return @('FR-011') }
+        'dead-field' { return @('mechanical quality bar', 'unused-state hygiene') }
+        'anti-pattern' { return @('mechanical quality bar', 'deterministic anti-pattern scan') }
+        'test-integrity' { return @('mechanical quality bar', 'assertion-driven tests') }
+        'stack-tooling-evidence' { return @('stack tooling evidence') }
+        'quality-lens-review' { return @('quality-lens review') }
+        'concurrency-correctness-review' { return @('quality-lens review', 'concurrency correctness') }
+        'resiliency-semantics-review' { return @('quality-lens review', 'resiliency semantics') }
+        'retry-idempotency-review' { return @('quality-lens review', 'retry and idempotency') }
+        default { return @('quality bar') }
     }
 }
 
@@ -643,7 +649,7 @@ $baselineRef = Get-BaselineRef -SpecDirectory $resolvedSpecDirectory
 $stateContent = @"
 # Iteration State: $IterationNumber
 
-**Schema**: v1
+**Schema**: v2
 **Last Completed Task**: (none)
 **Tasks Remaining**: $tasksRemaining
 **In Progress**: (none)
@@ -679,7 +685,7 @@ $stateContent = @"
 $driftLogContent = @"
 # Drift Log: Iteration $IterationNumber
 
-**Schema**: v1
+**Schema**: v2
 
 <!--
   Markdown authoring note (Specrew lifecycle convention):
@@ -708,6 +714,15 @@ $driftLogContent = @"
 ## Events
 
 No specification drift detected during Iteration $IterationNumber execution to date.
+
+<!--
+  Every new `### DRIFT-...` event includes:
+
+  - **Class closure**: the executable mechanism that makes the next instance impossible or loud
+
+  If the change fixes only this instance, write `NONE — <why class closure is not in scope>`.
+  A bare `Resolution: FIXED` is not class closure.
+-->
 
 ### Resolution Strategies (Unused)
 
@@ -747,46 +762,48 @@ $qualityContractPath = Join-Path $resolvedSpecDirectory 'contracts\quality-gover
 $qualityGateRows = @(Get-MarkdownSectionTable -Lines $planLines -Heading 'Required Quality Gates')
 $hasQualityEvidenceContract = $qualityGateRows.Count -gt 0 -or (Test-Path -LiteralPath $qualityContractPath -PathType Leaf)
 $phaseTwoQualityArtifactsRequired = Test-PhaseTwoQualityArtifactScaffold -PlanLines $planLines -QualityContractPath $qualityContractPath
-if ($hasQualityEvidenceContract -or $phaseTwoQualityArtifactsRequired) {
-    $qualityDirectory = Join-Path $iterationDirectory 'quality'
-    $featureId = Split-Path -Leaf $resolvedSpecDirectory
-    $featureRef = Convert-ToRepoRelativePath -BasePath $projectRoot -TargetPath (Join-Path $resolvedSpecDirectory 'spec.md')
-    $iterationRef = Convert-ToRepoRelativePath -BasePath $projectRoot -TargetPath $iterationDirectory
-    $hardeningGatePath = Join-Path $qualityDirectory 'hardening-gate.md'
-    $lensesDirectory = Join-Path $qualityDirectory 'lenses'
-    $trapReapplicationPath = Join-Path $qualityDirectory 'trap-reapplication.md'
-    $qualityEvidencePath = Join-Path $qualityDirectory 'quality-evidence.md'
-    $mechanicalFindingsPath = Join-Path $qualityDirectory 'mechanical-findings.json'
-    $qualityEvidenceRef = Convert-ToRepoRelativePath -BasePath $projectRoot -TargetPath $qualityEvidencePath
-    $mechanicalFindingsRef = Convert-ToRepoRelativePath -BasePath $projectRoot -TargetPath $mechanicalFindingsPath
 
-    Ensure-Directory -Path $qualityDirectory -Actions $actions
-    if ($phaseTwoQualityArtifactsRequired) {
-        Ensure-Directory -Path $lensesDirectory -Actions $actions
-        Write-MissingFile -TargetPath $hardeningGatePath -Content (Get-HardeningGateContent `
-                -FeatureRef $featureRef `
-                -IterationRef $iterationRef `
-                -IterationNumber $IterationNumber `
-                -ReviewedAt $timestamp) -Actions $actions
-        Write-MissingFile -TargetPath $trapReapplicationPath -Content (Get-TrapReapplicationContent `
-                -IterationNumber $IterationNumber `
-                -RecordedAt $timestamp) -Actions $actions
-    }
+# Pre-tag slice #2 (testbeta3): the quality/ subtree was emitted only behind Phase-2/contract
+# gating, while the launch-contract quick-reference claims the scaffold "already carries" a ready
+# hardening-gate.md — consumers trusted the claim and met a missing file at before-implement. The
+# claimed set (hardening-gate.md, quality-evidence.md, mechanical-findings.json, lenses/) is now
+# unconditional; only trap-reapplication.md remains genuinely Phase-2-scoped.
+$qualityDirectory = Join-Path $iterationDirectory 'quality'
+$featureId = Split-Path -Leaf $resolvedSpecDirectory
+$featureRef = Convert-ToRepoRelativePath -BasePath $projectRoot -TargetPath (Join-Path $resolvedSpecDirectory 'spec.md')
+$iterationRef = Convert-ToRepoRelativePath -BasePath $projectRoot -TargetPath $iterationDirectory
+$hardeningGatePath = Join-Path $qualityDirectory 'hardening-gate.md'
+$lensesDirectory = Join-Path $qualityDirectory 'lenses'
+$trapReapplicationPath = Join-Path $qualityDirectory 'trap-reapplication.md'
+$qualityEvidencePath = Join-Path $qualityDirectory 'quality-evidence.md'
+$mechanicalFindingsPath = Join-Path $qualityDirectory 'mechanical-findings.json'
+$qualityEvidenceRef = Convert-ToRepoRelativePath -BasePath $projectRoot -TargetPath $qualityEvidencePath
+$mechanicalFindingsRef = Convert-ToRepoRelativePath -BasePath $projectRoot -TargetPath $mechanicalFindingsPath
 
-    if ($hasQualityEvidenceContract) {
-        Write-MissingFile -TargetPath $qualityEvidencePath -Content (Get-QualityEvidenceContent `
-                -PlanPath $planPath `
-                -FeatureId $featureId `
-                -IterationNumber $IterationNumber `
-                -FindingsRef $mechanicalFindingsRef `
-                -EvidenceRef $qualityEvidenceRef `
-                -ReviewedAt $timestamp) -Actions $actions
-        Write-MissingFile -TargetPath $mechanicalFindingsPath -Content (Get-MechanicalFindingsScaffoldJson `
-                -FeatureRef $featureRef `
-                -IterationRef $iterationRef `
-                -GeneratedAt $timestamp) -Actions $actions
-    }
+Ensure-Directory -Path $qualityDirectory -Actions $actions
+Ensure-Directory -Path $lensesDirectory -Actions $actions
+Write-MissingFile -TargetPath $hardeningGatePath -Content (Get-HardeningGateContent `
+        -FeatureRef $featureRef `
+        -IterationRef $iterationRef `
+        -IterationNumber $IterationNumber `
+        -ReviewedAt $timestamp) -Actions $actions
+if ($phaseTwoQualityArtifactsRequired) {
+    Write-MissingFile -TargetPath $trapReapplicationPath -Content (Get-TrapReapplicationContent `
+            -IterationNumber $IterationNumber `
+            -RecordedAt $timestamp) -Actions $actions
 }
+
+Write-MissingFile -TargetPath $qualityEvidencePath -Content (Get-QualityEvidenceContent `
+        -PlanPath $planPath `
+        -FeatureId $featureId `
+        -IterationNumber $IterationNumber `
+        -FindingsRef $mechanicalFindingsRef `
+        -EvidenceRef $qualityEvidenceRef `
+        -ReviewedAt $timestamp) -Actions $actions
+Write-MissingFile -TargetPath $mechanicalFindingsPath -Content (Get-MechanicalFindingsScaffoldJson `
+        -FeatureRef $featureRef `
+        -IterationRef $iterationRef `
+        -GeneratedAt $timestamp) -Actions $actions
 
 if ($PassThru) {
     $actions
@@ -796,3 +813,4 @@ if ($PassThru) {
 $actions | Select-Object Action, Path | Format-Table -AutoSize
 Write-Host ("Iteration artifact scaffold {0} for {1}" -f ($(if ($DryRun) { 'previewed' } else { 'completed' }), $iterationDirectory)) -ForegroundColor Green
 exit 0
+# specrew-self-provenance-ok: F-033,F-040; implementation history is recorded for maintainers and is never emitted as consumer instruction

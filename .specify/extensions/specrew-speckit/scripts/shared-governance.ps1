@@ -19,6 +19,194 @@ function Resolve-ProjectPath {
     return [System.IO.Path]::GetFullPath((Join-Path -Path $cwd -ChildPath $Path))
 }
 
+function Get-SpecrewReleaseModelScalar {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Content,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    $match = [regex]::Match($Content, ('(?m)^{0}:\s*(?<value>[^#\r\n]*)' -f [regex]::Escape($Name)))
+    if (-not $match.Success) { return $null }
+    $value = $match.Groups['value'].Value.Trim()
+    if ($value.Length -ge 2 -and $value.StartsWith('"') -and $value.EndsWith('"')) {
+        $value = $value.Substring(1, $value.Length - 2).Replace('\"', '"').Replace('\\', '\')
+    }
+    elseif ($value.Length -ge 2 -and $value.StartsWith("'") -and $value.EndsWith("'")) {
+        $value = $value.Substring(1, $value.Length - 2).Replace("''", "'")
+    }
+    if ([string]::IsNullOrWhiteSpace($value) -or $value -in @('null', '~')) { return $null }
+    return $value
+}
+
+function Resolve-SpecrewReleaseModel {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [ValidateSet('auto', 'local-only', 'push-only', 'pr-flow', 'beta-stable')]
+        [string]$RequestedModel = 'auto',
+        [AllowNull()][string]$PublishTarget
+    )
+
+    $resolvedRoot = Resolve-ProjectPath -Path $ProjectRoot
+    $governancePath = Join-Path $resolvedRoot '.specrew\repository-governance.yml'
+    $content = if (Test-Path -LiteralPath $governancePath -PathType Leaf) {
+        Get-Content -LiteralPath $governancePath -Raw -Encoding UTF8
+    }
+    else { '' }
+
+    $recordedModel = Get-SpecrewReleaseModelScalar -Content $content -Name 'release_model'
+    $recordedProvenance = Get-SpecrewReleaseModelScalar -Content $content -Name 'release_model_provenance'
+    $recordedPublishTarget = Get-SpecrewReleaseModelScalar -Content $content -Name 'publish_target'
+    if (-not [string]::IsNullOrWhiteSpace($recordedModel)) {
+        if ($recordedModel -notin @('local-only', 'push-only', 'pr-flow', 'beta-stable')) {
+            throw "Unsupported release_model '$recordedModel' in '$governancePath'."
+        }
+        if (-not [string]::IsNullOrWhiteSpace($recordedProvenance) -and $recordedProvenance -notin @('recorded', 'inferred')) {
+            throw "Unsupported release_model_provenance '$recordedProvenance' in '$governancePath'."
+        }
+        if ($recordedModel -eq 'beta-stable' -and [string]::IsNullOrWhiteSpace($recordedPublishTarget)) {
+            throw "release_model 'beta-stable' requires publish_target in '$governancePath'."
+        }
+        return [pscustomobject]@{
+            Model = $recordedModel
+            Provenance = if ($recordedProvenance) { $recordedProvenance } else { 'recorded' }
+            PublishTarget = $recordedPublishTarget
+            Source = 'repository-governance'
+            GovernancePath = $governancePath
+        }
+    }
+
+    $effectivePublishTarget = if (-not [string]::IsNullOrWhiteSpace($PublishTarget)) {
+        $PublishTarget.Trim()
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($recordedPublishTarget)) {
+        $recordedPublishTarget
+    }
+    else { $null }
+
+    if ($RequestedModel -ne 'auto') {
+        if ($RequestedModel -eq 'beta-stable' -and [string]::IsNullOrWhiteSpace($effectivePublishTarget)) {
+            throw "Requested release model 'beta-stable' requires -PublishTarget."
+        }
+        if ($RequestedModel -ne 'beta-stable' -and -not [string]::IsNullOrWhiteSpace($effectivePublishTarget)) {
+            throw "PublishTarget is only valid with release model 'beta-stable'."
+        }
+        return [pscustomobject]@{
+            Model = $RequestedModel
+            Provenance = 'recorded'
+            PublishTarget = $effectivePublishTarget
+            Source = 'init-selection'
+            GovernancePath = $governancePath
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($effectivePublishTarget)) {
+        return [pscustomobject]@{
+            Model = 'beta-stable'
+            Provenance = $(if (-not [string]::IsNullOrWhiteSpace($PublishTarget)) { 'recorded' } else { 'inferred' })
+            PublishTarget = $effectivePublishTarget
+            Source = 'publish-target'
+            GovernancePath = $governancePath
+        }
+    }
+
+    $providerMatch = [regex]::Match($content, '(?m)^(?:\s{2})?provider:\s*(?<value>[^#\r\n]+)')
+    $provider = if ($providerMatch.Success) { $providerMatch.Groups['value'].Value.Trim().Trim([char[]]@('"', "'")).ToLowerInvariant() } else { '' }
+    $remoteNames = @(& git -C $resolvedRoot remote 2>$null)
+    if ($LASTEXITCODE -ne 0) { $remoteNames = @() }
+    $remoteUrls = @()
+    foreach ($remoteName in $remoteNames) {
+        $url = @(& git -C $resolvedRoot remote get-url ([string]$remoteName) 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $url.Count -gt 0) { $remoteUrls += [string]$url[0] }
+    }
+
+    $hasForge = $provider -notin @('', 'none', 'local', 'manual') -or
+        @($remoteUrls | Where-Object { $_ -match '(?i)(github\.com|gitlab\.com|bitbucket\.org|dev\.azure\.com|visualstudio\.com)' }).Count -gt 0
+    $model = if ($hasForge) { 'pr-flow' } elseif ($remoteUrls.Count -gt 0) { 'push-only' } else { 'local-only' }
+    return [pscustomobject]@{
+        Model = $model
+        Provenance = 'inferred'
+        PublishTarget = $null
+        Source = if ($hasForge) { 'forge' } elseif ($remoteUrls.Count -gt 0) { 'remote' } else { 'no-remote' }
+        GovernancePath = $governancePath
+    }
+}
+
+function Initialize-SpecrewReleaseModelRecord {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [ValidateSet('auto', 'local-only', 'push-only', 'pr-flow', 'beta-stable')]
+        [string]$RequestedModel = 'auto',
+        [AllowNull()][string]$PublishTarget,
+        [switch]$PreviewOnly
+    )
+
+    $resolved = Resolve-SpecrewReleaseModel -ProjectRoot $ProjectRoot -RequestedModel $RequestedModel -PublishTarget $PublishTarget
+    $path = $resolved.GovernancePath
+    $existingContent = if (Test-Path -LiteralPath $path -PathType Leaf) { Get-Content -LiteralPath $path -Raw -Encoding UTF8 } else { '' }
+    if (-not [string]::IsNullOrWhiteSpace((Get-SpecrewReleaseModelScalar -Content $existingContent -Name 'release_model'))) {
+        return [pscustomobject]@{ Action = 'preserved'; Path = $path; Record = $resolved }
+    }
+
+    if ($PreviewOnly) {
+        return [pscustomobject]@{ Action = 'would-record'; Path = $path; Record = $resolved }
+    }
+
+    $lines = @(
+        '# >>> specrew-managed release-model >>>'
+        ('release_model: {0}' -f $resolved.Model)
+        ('release_model_provenance: {0}' -f $resolved.Provenance)
+        ('publish_target: {0}' -f $(if ($resolved.PublishTarget) { '"' + $resolved.PublishTarget.Replace('\', '\\').Replace('"', '\"') + '"' } else { 'null' }))
+        '# <<< specrew-managed release-model <<<'
+    )
+    $prefix = if ([string]::IsNullOrWhiteSpace($existingContent)) { '' } else { $existingContent.TrimEnd() + [Environment]::NewLine + [Environment]::NewLine }
+    Write-Utf8FileAtomic -Path $path -Content ($prefix + ($lines -join [Environment]::NewLine) + [Environment]::NewLine)
+    return [pscustomobject]@{ Action = 'recorded'; Path = $path; Record = $resolved }
+}
+
+function Format-SpecrewFeatureCloseoutReleaseGuidance {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot
+    )
+
+    $record = Resolve-SpecrewReleaseModel -ProjectRoot $ProjectRoot
+    $header = 'Resolved feature-closeout release model: {0} (provenance: {1}).' -f $record.Model, $record.Provenance
+    switch ($record.Model) {
+        'local-only' {
+            return @(
+                $header
+                'AGENT NEXT ACTION: finalize the local commit and closeout evidence only.'
+                'N/A: remote delivery and release publication do not apply because no remote or publish target is recorded.'
+                'HUMAN ACTION NEEDED: approve the local closeout; no external delivery validation is requested.'
+            ) -join [Environment]::NewLine
+        }
+        'push-only' {
+            return @(
+                $header
+                'AGENT NEXT ACTION: push the reviewed commit to the recorded remote after human approval.'
+                'N/A: PR/MR review and release publication do not apply because no forge configuration or publish target is recorded.'
+                'HUMAN ACTION NEEDED: approve the push and validate the delivered remote commit.'
+            ) -join [Environment]::NewLine
+        }
+        'pr-flow' {
+            return @(
+                $header
+                'AGENT NEXT ACTION: push, open the forge review, address the recorded review gate, and merge per the branch model after human approval.'
+                'N/A: release publication and staged package validation do not apply because no publish target is recorded.'
+                'HUMAN ACTION NEEDED: approve each external mutation and provide any required human review.'
+            ) -join [Environment]::NewLine
+        }
+        'beta-stable' {
+            return @(
+                $header
+                ('Publish target: {0}.' -f $record.PublishTarget)
+                # specrew-applicability: project-detected; emitted only after repository governance resolves beta-stable with a publish target
+                'AGENT NEXT ACTION: complete push/review/merge as configured, publish a prerelease, verify it, pause for human runtime validation, then publish stable only after PASS.'
+                'HUMAN ACTION NEEDED: approve each external mutation and report PASS or FAIL from the installed prerelease before stable promotion.'
+            ) -join [Environment]::NewLine
+        }
+    }
+}
+
 function Get-SpecrewSupportedStateSchemas {
     return @('v1', 'v2')
 }
@@ -926,6 +1114,66 @@ function Get-SpecrewBoundaryOrder {
     return @(Get-SpecrewCanonicalBoundaryTypes)
 }
 
+function Get-SpecrewBoundaryCycleReset {
+    # FEATURE 202 T011 (FR-026, B4F-109): THE ONE CYCLE-RESET RULE. The canonical order is linear, but the lifecycle
+    # loops twice: iterations loop inside a feature, and features follow one another in a project. Read as a plain
+    # order, both look like a move backward. The rule lived in two copies (the pending-crossing deriver and the
+    # authorization writer), and both knew only the iteration loop - so 202's specify, after 199's authorized
+    # feature-closeout, opened no crossing and the writer refused it as backward. 202 had to be recorded out of band.
+    #   - iteration: the last authorized boundary is iteration-closeout and the working boundary is plan or later,
+    #     up to it. The new cycle's first ask is iteration-closeout -> plan.
+    #   - feature: the last authorized boundary is feature-closeout and the working boundary is specify or later,
+    #     for a different feature. The new cycle's first ask is feature-closeout -> specify. A re-sync of the SAME
+    #     feature is never a reset; a closed feature the ledger did not name (a legacy entry) cannot be shown to be
+    #     the same feature, and a closed feature does not specify again, so it counts as different.
+    [OutputType([pscustomobject])]
+    param(
+        [AllowNull()][string]$LastAuthorizedBoundary,
+        [AllowNull()][string]$WorkingBoundary,
+        [AllowNull()][string]$ClosedFeatureRef,
+        [AllowNull()][string]$WorkingFeatureRef
+    )
+    $none = [pscustomobject]@{ IsReset = $false; Kind = ''; FromBoundary = $null; ToBoundary = $null; IsMultiBoundaryGap = $false }
+    if ([string]::IsNullOrWhiteSpace($LastAuthorizedBoundary) -or [string]::IsNullOrWhiteSpace($WorkingBoundary)) { return $none }
+    $order = @(Get-SpecrewBoundaryOrder)
+    $last = Normalize-SpecrewCanonicalBoundaryType -Boundary $LastAuthorizedBoundary
+    $working = Normalize-SpecrewCanonicalBoundaryType -Boundary $WorkingBoundary
+    $lastIdx = [Array]::IndexOf($order, $last)
+    $workingIdx = [Array]::IndexOf($order, $working)
+    if ($lastIdx -lt 0 -or $workingIdx -lt 0) { return $none }
+    if ($last -eq 'iteration-closeout') {
+        $planIdx = [Array]::IndexOf($order, 'plan')
+        if ($workingIdx -ge $planIdx -and $workingIdx -le $lastIdx) {
+            return [pscustomobject]@{ IsReset = $true; Kind = 'iteration'; FromBoundary = 'iteration-closeout'; ToBoundary = 'plan'; IsMultiBoundaryGap = ($workingIdx -gt $planIdx) }
+        }
+    }
+    if ($last -eq 'feature-closeout') {
+        $specifyIdx = [Array]::IndexOf($order, 'specify')
+        $sameFeature = -not [string]::IsNullOrWhiteSpace($ClosedFeatureRef) -and -not [string]::IsNullOrWhiteSpace($WorkingFeatureRef) -and
+            ((Split-Path -Leaf $ClosedFeatureRef) -ceq (Split-Path -Leaf $WorkingFeatureRef))
+        if (-not $sameFeature -and $workingIdx -ge $specifyIdx -and $workingIdx -lt $lastIdx) {
+            return [pscustomobject]@{ IsReset = $true; Kind = 'feature'; FromBoundary = 'feature-closeout'; ToBoundary = 'specify'; IsMultiBoundaryGap = ($workingIdx -gt $specifyIdx) }
+        }
+    }
+    return $none
+}
+
+function Get-SpecrewClosedFeatureRef {
+    # The feature whose feature-closeout was authorized most recently, from the ledger's own entry (new entries carry
+    # feature_ref, 202 T011). $null for a legacy entry that does not name it - never inferred from other state.
+    [OutputType([string])]
+    param([AllowNull()]$VerdictHistory)
+    $entries = @($VerdictHistory)
+    for ($i = $entries.Count - 1; $i -ge 0; $i--) {
+        $entry = ConvertTo-SpecrewBoundaryMap -Value $entries[$i]
+        if ($null -eq $entry) { continue }
+        if ((Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$entry['to_boundary'])) -ne 'feature-closeout') { continue }
+        if ($entry.Contains('feature_ref') -and -not [string]::IsNullOrWhiteSpace([string]$entry['feature_ref'])) { return [string]$entry['feature_ref'] }
+        return $null
+    }
+    return $null
+}
+
 function Get-SpecrewPendingBoundaryCrossing {
     # Derive the ONE boundary crossing the human can authorize next from the authoritative cursor state.
     # `intake` is marker-only: it names the pre-specify side of the first rendered verdict marker, but it is not
@@ -936,7 +1184,12 @@ function Get-SpecrewPendingBoundaryCrossing {
         [string]$LastAuthorizedBoundary,
 
         [AllowNull()]
-        [string]$WorkingBoundary
+        [string]$WorkingBoundary,
+
+        # 202 T011: the features either side of a feature-closeout, for the one cycle-reset rule. Callers that do not
+        # know them pass nothing, and an unnamed closed feature counts as a different one (see the rule).
+        [AllowNull()][string]$ClosedFeatureRef,
+        [AllowNull()][string]$WorkingFeatureRef
     )
 
     $result = [pscustomobject]@{
@@ -963,7 +1216,31 @@ function Get-SpecrewPendingBoundaryCrossing {
 
         $workingIdx = [Array]::IndexOf($order, $workingCanonical)
         $authIdx = if ([string]::IsNullOrWhiteSpace($lastAuthCanonical)) { -1 } else { [Array]::IndexOf($order, $lastAuthCanonical) }
-        if ($workingIdx -lt 0 -or $workingIdx -le $authIdx) { return $result }
+        if ($workingIdx -lt 0) { return $result }
+
+        # ITERATION CYCLE RESET (FR-004 of the hardening feature, field-found 2026-07-11): the canonical order is
+        # linear but iterations LOOP - after an authorized `iteration-closeout`, the next
+        # iteration re-enters at an earlier-phase boundary (plan/tasks/...). The old
+        # `workingIdx -le authIdx` guard read that as "backward", so NO pending artifact was
+        # written for any new-cycle crossing and the verdict capture refused with
+        # MARKER_CURSOR_MISMATCH (two live instances: this feature's own iteration-002 plan and
+        # before-implement). When the cursor sits at iteration-closeout and the working
+        # boundary is an earlier-phase crossing, the pending ask is the new cycle's earliest
+        # un-authorized boundary, from-side iteration-closeout.
+        # 202 T011: the iteration loop and the feature loop, from the one rule (Get-SpecrewBoundaryCycleReset).
+        $cycleReset = Get-SpecrewBoundaryCycleReset -LastAuthorizedBoundary $lastAuthCanonical -WorkingBoundary $workingCanonical -ClosedFeatureRef $ClosedFeatureRef -WorkingFeatureRef $WorkingFeatureRef
+        if ($workingIdx -le $authIdx -and -not [bool]$cycleReset.IsReset) { return $result }
+
+        if ([bool]$cycleReset.IsReset) {
+            $result.HasPendingVerdict = $true
+            $result.PendingFromBoundary = [string]$cycleReset.FromBoundary
+            $result.PendingToBoundary = [string]$cycleReset.ToBoundary
+            $result.PendingFromMarkerBoundary = [string]$cycleReset.FromBoundary
+            $result.PendingToMarkerBoundary = [string]$cycleReset.ToBoundary
+            $result.IsFirstBoundary = $false
+            $result.IsMultiBoundaryGap = [bool]$cycleReset.IsMultiBoundaryGap
+            return $result
+        }
 
         $toIdx = $authIdx + 1
         if ($toIdx -lt 0 -or $toIdx -ge $order.Count) { return $result }
@@ -1167,9 +1444,316 @@ function New-SpecrewBoundaryEnforcementState {
         enabled                  = $true
         last_authorized_boundary = $normalizedCurrentBoundary
         pending_next_boundary    = $null
+        pending_crossing         = $null
         policy_classes           = Get-SpecrewBoundaryPolicyClassMap -ProjectRoot $ProjectRoot
         verdict_history          = @()
+        correction_history       = @()
         bypass_history           = @()
+    }
+}
+
+function ConvertTo-SpecrewBoundaryMap {
+    param([AllowNull()]$Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [System.Collections.IDictionary]) { return $Value }
+    return ($Value | ConvertTo-Json -Depth 24 | ConvertFrom-Json -AsHashtable -Depth 24)
+}
+
+function Get-SpecrewBoundarySha256 {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Text)
+        return ([System.BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+    }
+    finally { $sha.Dispose() }
+}
+
+function Get-SpecrewBoundaryAuthorizationEntryId {
+    # Legacy authorization entries predate stable IDs. Their full immutable evidence tuple is hashed so a
+    # correction can name the exact historical fact without editing it. New writers persist the same ID.
+    param(
+        [Parameter(Mandatory = $true)]$Entry,
+        [switch]$Derive
+    )
+    $map = ConvertTo-SpecrewBoundaryMap -Value $Entry
+    if ($null -eq $map) { return $null }
+    if (-not $Derive -and $map.Contains('authorization_id') -and [string]$map['authorization_id'] -match '^auth-[0-9a-f]{64}$') {
+        return [string]$map['authorization_id']
+    }
+    $parts = foreach ($field in @('from_boundary', 'to_boundary', 'verdict_text', 'authorizing_human', 'recorded_at', 'auth_commit_hash', 'evidence_source', 'kind')) {
+        if (-not $map.Contains($field) -or $null -eq $map[$field]) { ''; continue }
+        $value = $map[$field]
+        if ($field -eq 'recorded_at') {
+            try { ([datetimeoffset]$value).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ', [System.Globalization.CultureInfo]::InvariantCulture) }
+            catch { ([string]$value).Trim() }
+        }
+        elseif ($field -eq 'auth_commit_hash') { ([string]$value).Trim().ToLowerInvariant() }
+        elseif ($field -in @('from_boundary', 'to_boundary')) { Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$value) }
+        else { [string]$value }
+    }
+    return ('auth-{0}' -f (Get-SpecrewBoundarySha256 -Text ($parts -join "`u{001f}")))
+}
+
+function Get-SpecrewCrossingOwnerIdentity {
+    # FR-032 (iteration 002, T023): the identity a pending crossing is OWNED by - the same `host|session`
+    # shape the conformance provider already scopes material-turn attribution to, so one project has one
+    # notion of "which actor is this". Resolution order: an explicit -SessionId (the hook path, where the
+    # host supplies it), then $env:SPECREW_SESSION_ID, then the SessionStart marker on disk (the sync path,
+    # which runs as a child process of the session that started it). No source -> 'unknown', which is a
+    # first-class value here, never an error: a host that does not identify sessions must keep working.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [AllowNull()][string]$SessionId,
+        [AllowNull()][string]$HostKind
+    )
+    $session = $SessionId
+    $hostName = $HostKind
+    if ([string]::IsNullOrWhiteSpace($session) -and -not [string]::IsNullOrWhiteSpace($env:SPECREW_SESSION_ID)) { $session = [string]$env:SPECREW_SESSION_ID }
+    # ROUND-2 FINDING `global-marker-misassigns-owner`. session-marker.json is PROJECT-WIDE and
+    # last-writer-wins: SessionBootstrapManager rewrites it on every SessionStart. With two sessions in one
+    # worktree, session A running boundary sync reads B as the owner; the provider then SUPPRESSES the packet
+    # in A - the session that did the work - and DEMANDS it from B. FR-032/SC-019 is not defeated by that, it
+    # is INVERTED, and a governance stop lands in the wrong window. The exposed configuration is the one this
+    # project runs in.
+    #
+    # So the marker is trusted for attribution only when it cannot be ambiguous: exactly one live session in
+    # this project. With more than one, ownership reads `unknown`, which resolves to indeterminate and renders
+    # the demand project-wide - noisy, and the pre-FR-032 behaviour, but never wrong about who owes what.
+    # Method rule 12, fail open on the diagnosis and out loud: A WRONG OWNER IS WORSE THAN NO OWNER.
+    #
+    # This is the sound fallback, not the complete fix. Exact binding means threading a session id from each
+    # host's hook into the sync chain, which today carries none at all - no parameter and no env seam.
+    # `Set-SpecrewPendingBoundaryCrossingScope` now accepts -SessionId, so a caller that KNOWS its identity
+    # binds exactly and never reaches this fallback; wiring the hosts to pass it is beta4.
+    if ([string]::IsNullOrWhiteSpace($session)) {
+        $liveSessionCount = Get-SpecrewLiveConformanceSessionCount -ProjectRoot $ProjectRoot
+        if ($liveSessionCount -gt 1) {
+            [Console]::Error.WriteLine(("[specrew-governance] NOTE CROSSING_OWNER_UNKNOWN_CONCURRENT {0} live sessions in this project, so the shared session marker cannot say which one is asking; recording the crossing owner as unknown rather than guessing. The packet renders for every session until one of them is identified." -f $liveSessionCount))
+        }
+        else {
+            try {
+                $markerPath = Join-Path (Resolve-ProjectPath -Path $ProjectRoot) '.specrew/runtime/session-marker.json'
+                if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
+                    $raw = Get-Content -LiteralPath $markerPath -Raw -Encoding UTF8
+                    if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                        $marker = $raw | ConvertFrom-Json
+                        if ($marker -isnot [System.Array]) {
+                            if ($null -ne $marker.PSObject.Properties['session_id']) { $session = [string]$marker.session_id }
+                            if ([string]::IsNullOrWhiteSpace($hostName) -and $null -ne $marker.PSObject.Properties['host']) { $hostName = [string]$marker.host }
+                        }
+                    }
+                }
+            }
+            catch { $null = $_ }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($session)) { return 'unknown' }
+    $safeHost = if ([string]::IsNullOrWhiteSpace($hostName)) { 'unknown' } else { (($hostName -replace '[^a-zA-Z0-9-]+', '-').Trim('-').ToLowerInvariant()) }
+    $safeSession = (($session -replace '[^a-zA-Z0-9-]+', '-').Trim('-'))
+    if ([string]::IsNullOrWhiteSpace($safeSession)) { return 'unknown' }
+    return ('{0}|{1}' -f $safeHost, $safeSession)
+}
+
+function Resolve-SpecrewCrossingOwnership {
+    # FR-032 (T023): ownership resolves to exactly THREE states, and only one of them suppresses the demand.
+    #
+    #   owner-matches       -> this session recorded the arrival; it owes the packet.
+    #   owner-differs       -> a DIFFERENT, identified session owns it; this one gets one informational line.
+    #   owner-indeterminate -> no session id on this host, or a recorded owner this session cannot be
+    #                          compared against (the owner resumed or compacted into a new id). The demand
+    #                          RENDERS, plus one sentence saying ownership could not be confirmed.
+    #
+    # Indeterminate fails OPEN by construction (method rule 12, maintainer ruling 2026-08-29): a session must
+    # never be locked out of its own crossing by an identity it cannot prove - that turns a diagnosis gap into
+    # an outage, which is worse than the defect being fixed.
+    [CmdletBinding()]
+    param(
+        [AllowNull()][string]$RecordedOwner,
+        [AllowNull()][string]$CurrentOwner
+    )
+    $recorded = if ([string]::IsNullOrWhiteSpace($RecordedOwner)) { '' } else { $RecordedOwner.Trim() }
+    $current = if ([string]::IsNullOrWhiteSpace($CurrentOwner)) { '' } else { $CurrentOwner.Trim() }
+    $result = [pscustomobject]@{ State = 'owner-indeterminate'; RecordedOwner = $recorded; CurrentOwner = $current; DemandRenders = $true; Note = $null }
+    if ([string]::IsNullOrWhiteSpace($recorded) -or $recorded -eq 'unknown') {
+        $result.Note = 'This crossing was recorded without a session identity, so this demand may have reached a session that did not produce the work.'
+        return $result
+    }
+    if ([string]::IsNullOrWhiteSpace($current) -or $current -eq 'unknown') {
+        $result.Note = 'This host does not identify sessions here, so ownership could not be confirmed and this demand may have reached a session that did not produce the work.'
+        return $result
+    }
+    if ($recorded -ceq $current) {
+        $result.State = 'owner-matches'
+        return $result
+    }
+    # Same host, different session id: a resumed or compacted session comes back with a new id, and it must
+    # not be locked out of its own crossing. Only a DIFFERENT HOST, or a live sibling on the same host, is a
+    # confident mismatch. The host prefix is the part that survives a resume.
+    $recordedHost = ($recorded -split '\|', 2)[0]
+    $currentHost = ($current -split '\|', 2)[0]
+    if ($recordedHost -ceq $currentHost -and (Test-SpecrewCrossingOwnerSessionLive -Owner $recorded) -eq $false) {
+        $result.Note = ("The session that recorded this crossing ({0}) is not answering here - it may have resumed or compacted into a new identity - so ownership could not be confirmed." -f $recorded)
+        return $result
+    }
+    $result.State = 'owner-differs'
+    $result.DemandRenders = $false
+    $result.Note = ("A crossing is pending, owed by session '{0}'; this session owes nothing for it." -f $recorded)
+    return $result
+}
+
+function Get-SpecrewLiveConformanceSessionCount {
+    # How many DISTINCT sessions have been active in this project inside the liveness window.
+    #
+    # The conformance provider touches `.specrew/runtime/conformance-sessions/<sha256(owner)>` for the
+    # session it runs in, so this directory count is the only per-session signal the project keeps. It
+    # answers ONE question - whether the shared, last-writer-wins session marker can be trusted to name the
+    # session that is asking. Never WHICH session; only how many.
+    [CmdletBinding()]
+    param([AllowNull()][string]$ProjectRoot, [int]$MaxAgeMinutes = 180)
+    try {
+        $root = if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { (Get-Location).Path } else { Resolve-ProjectPath -Path $ProjectRoot }
+        $dir = Join-Path $root '.specrew/runtime/conformance-sessions'
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return 0 }
+        $cutoff = (Get-Date).ToUniversalTime().AddMinutes(-1 * [Math]::Abs($MaxAgeMinutes))
+        $live = 0
+        foreach ($sessionDir in @(Get-ChildItem -LiteralPath $dir -Directory -ErrorAction SilentlyContinue)) {
+            $newest = @(Get-ChildItem -LiteralPath $sessionDir.FullName -File -ErrorAction SilentlyContinue |
+                    Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+            if ($newest.Count -gt 0 -and $newest[0].LastWriteTimeUtc -ge $cutoff) { $live++ }
+        }
+        return $live
+    }
+    catch { return 0 }
+}
+
+function Test-SpecrewCrossingOwnerSessionLive {
+    # A recorded owner is "live" when its own conformance session state exists and has been touched inside the
+    # liveness window. A resumed/compacted session leaves a stale directory behind, so its crossing reads
+    # indeterminate (fail open) rather than differs (suppressed) - the difference the maintainer named.
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Owner, [int]$MaxAgeMinutes = 180, [AllowNull()][string]$ProjectRoot)
+    if ([string]::IsNullOrWhiteSpace($Owner) -or $Owner -eq 'unknown') { return $false }
+    try {
+        $root = if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { (Get-Location).Path } else { Resolve-ProjectPath -Path $ProjectRoot }
+        $hash = Get-SpecrewBoundarySha256 -Text $Owner
+        $dir = Join-Path (Join-Path $root '.specrew/runtime/conformance-sessions') $hash
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return $false }
+        $newest = @(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+        if ($newest.Count -eq 0) { return $false }
+        return ((Get-Date).ToUniversalTime() - $newest[0].LastWriteTimeUtc).TotalMinutes -le $MaxAgeMinutes
+    }
+    catch { return $false }
+}
+
+function New-SpecrewBoundaryCrossingIdentity {
+    param(
+        [Parameter(Mandatory = $true)][string]$FromBoundary,
+        [Parameter(Mandatory = $true)][string]$ToBoundary,
+        [Parameter(Mandatory = $true)][string]$BoundaryCommitHash,
+        [Parameter(Mandatory = $true)][string]$ArtifactStateId,
+        [AllowNull()][string]$WorkingBoundary,
+        [AllowNull()][string]$RecordedAt,
+        [AllowNull()][string]$Owner,
+        # Co-review round 5 (202, FR-026): identity version 2 hashes the crossing's feature too, so two features at the
+        # same boundary against the same committed tree are two crossings. A crossing without the version is legacy
+        # (the five-field tuple) and still verifies as it was minted.
+        [AllowNull()][string]$FeatureRef,
+        [AllowNull()][string]$IdentityVersion
+    )
+    $normalizedFrom = Normalize-SpecrewCanonicalBoundaryType -Boundary $FromBoundary
+    $from = if ($normalizedFrom -eq 'intake') { 'intake' } else { Resolve-SpecrewCanonicalBoundaryType -Boundary $FromBoundary -ParameterName 'FromBoundary' }
+    $to = Resolve-SpecrewCanonicalBoundaryType -Boundary $ToBoundary -ParameterName 'ToBoundary'
+    $working = if ([string]::IsNullOrWhiteSpace($WorkingBoundary)) { $to } else { Resolve-SpecrewCanonicalBoundaryType -Boundary $WorkingBoundary -ParameterName 'WorkingBoundary' }
+    $commit = $BoundaryCommitHash.Trim().ToLowerInvariant()
+    $artifact = $ArtifactStateId.Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($commit) -or [string]::IsNullOrWhiteSpace($artifact)) { throw 'Boundary commit hash and artifact-state ID are required for a scoped crossing.' }
+    $tuple = @($from, $to, $working, $commit, $artifact)
+    $feature = if ([string]::IsNullOrWhiteSpace($FeatureRef)) { '' } else { Split-Path -Leaf $FeatureRef.Trim() }
+    $versioned = ([string]$IdentityVersion).Trim() -eq '2'
+    if ($versioned) {
+        if ([string]::IsNullOrWhiteSpace($feature)) { throw 'A version-2 crossing identity names its feature.' }
+        $tuple += ('feature:' + $feature)
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace([string]$IdentityVersion)) { throw "Crossing identity version '$IdentityVersion' is not known." }
+    $crossingId = 'crossing-{0}' -f (Get-SpecrewBoundarySha256 -Text ($tuple -join "`u{001f}"))
+    $identity = [ordered]@{
+        crossing_id          = $crossingId
+        from_boundary        = $from
+        to_boundary          = $to
+        working_boundary     = $working
+        boundary_commit_hash = $commit
+        artifact_state_kind  = 'git-tree'
+        artifact_state_id    = $artifact
+        recorded_at          = if ([string]::IsNullOrWhiteSpace($RecordedAt)) { (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $RecordedAt.Trim() }
+        # FR-032 (T023): the OWNER of the pending crossing - the session that recorded the arrival. It is
+        # deliberately OUTSIDE the hashed crossing_id: an idempotent re-sync from a different session must
+        # produce the same identity (the whole re-mint contract rests on that), so ownership travels beside
+        # the identity rather than inside it.
+        owner                = if ([string]::IsNullOrWhiteSpace($Owner)) { 'unknown' } else { $Owner.Trim() }
+    }
+    if ($versioned) { $identity['identity_version'] = '2'; $identity['feature_ref'] = $feature }
+    return $identity
+}
+
+function Get-SpecrewCrossingIdentityFeatureArgs {
+    # The feature inputs a stored crossing was minted with, for a verifier re-deriving its ID: version-2 crossings only.
+    # A legacy crossing (no identity_version) re-derives from the five-field tuple, even when it carries a feature_ref.
+    param([AllowNull()]$Map)
+    if ($null -eq $Map -or -not $Map.Contains('identity_version') -or [string]::IsNullOrWhiteSpace([string]$Map['identity_version'])) { return @{} }
+    return @{ IdentityVersion = [string]$Map['identity_version']; FeatureRef = $(if ($Map.Contains('feature_ref')) { [string]$Map['feature_ref'] } else { '' }) }
+}
+
+function Get-SpecrewGitArtifactStateId {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$BoundaryCommitHash
+    )
+    $commit = $BoundaryCommitHash.Trim()
+    $tree = @(& git -C (Resolve-ProjectPath -Path $ProjectRoot) rev-parse --verify ("{0}^{{tree}}" -f $commit) 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $tree.Count -ne 1 -or [string]$tree[0] -notmatch '^[0-9a-fA-F]{40,64}$') {
+        throw "Boundary commit '$BoundaryCommitHash' does not resolve to one Git tree; scoped verdict state was not written."
+    }
+    return ([string]$tree[0]).Trim().ToLowerInvariant()
+}
+
+function Get-SpecrewEffectiveBoundaryEnforcementState {
+    # Corrections invalidate an authorization only for the crossing identity they name. The historical verdict
+    # remains in raw verdict_history; readers consume this filtered projection for the active scoped crossing.
+    param([Parameter(Mandatory = $true)]$BoundaryEnforcement)
+    $raw = ConvertTo-SpecrewBoundaryMap -Value $BoundaryEnforcement
+    if ($null -eq $raw) { return $null }
+    $pendingCrossing = if ($raw.Contains('pending_crossing')) { ConvertTo-SpecrewBoundaryMap -Value $raw['pending_crossing'] } else { $null }
+    $scopeId = if ($null -ne $pendingCrossing -and $pendingCrossing.Contains('crossing_id')) { [string]$pendingCrossing['crossing_id'] } else { $null }
+    $invalidated = New-Object 'System.Collections.Generic.HashSet[string]'
+    $lastAuthorized = $raw['last_authorized_boundary']
+    $pendingNext = $raw['pending_next_boundary']
+    $corrections = if ($raw.Contains('correction_history')) { @($raw['correction_history']) } else { @() }
+    foreach ($correction in $corrections) {
+        $map = ConvertTo-SpecrewBoundaryMap -Value $correction
+        if ($null -eq $map -or [string]$map['event_kind'] -ne 'invalidation' -or [string]$map['scope_crossing_id'] -ne $scopeId) { continue }
+        [void]$invalidated.Add([string]$map['original_entry_id'])
+        $resultState = ConvertTo-SpecrewBoundaryMap -Value $map['resulting_boundary_state']
+        if ($null -ne $resultState) {
+            if ($resultState.Contains('last_authorized_boundary')) { $lastAuthorized = $resultState['last_authorized_boundary'] }
+            if ($resultState.Contains('pending_next_boundary')) { $pendingNext = $resultState['pending_next_boundary'] }
+        }
+    }
+    $effectiveVerdicts = New-Object System.Collections.Generic.List[object]
+    foreach ($entry in @($raw['verdict_history'])) {
+        $entryId = Get-SpecrewBoundaryAuthorizationEntryId -Entry $entry
+        if (-not $invalidated.Contains($entryId)) { $effectiveVerdicts.Add($entry) | Out-Null }
+    }
+    return [ordered]@{
+        enabled                  = [bool]$raw['enabled']
+        last_authorized_boundary = $lastAuthorized
+        pending_next_boundary    = $pendingNext
+        pending_crossing         = $pendingCrossing
+        policy_classes           = if ($raw.Contains('policy_classes')) { $raw['policy_classes'] } else { $null }
+        verdict_history          = @($effectiveVerdicts.ToArray())
+        correction_history       = @($corrections)
+        bypass_history           = @($raw['bypass_history'])
     }
 }
 
@@ -1274,6 +1858,7 @@ function Test-SpecrewBoundaryEnforcementStateShape {
         }
     }
 
+    $verdictEntryIds = New-Object 'System.Collections.Generic.HashSet[string]'
     foreach ($verdict in @($state['verdict_history'])) {
         $verdictMap = if ($verdict -is [System.Collections.IDictionary]) {
             $verdict
@@ -1293,6 +1878,126 @@ function Test-SpecrewBoundaryEnforcementStateShape {
                 $normalized = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$verdictMap[$field])
                 if ($normalized -notin (Get-SpecrewCanonicalBoundaryTypes)) {
                     $issues.Add("boundary_enforcement.verdict_history.$field value '$($verdictMap[$field])' is not canonical.") | Out-Null
+                }
+            }
+        }
+
+        if ($verdictMap.Contains('from_boundary') -and $verdictMap.Contains('to_boundary')) {
+            $fromBoundary = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$verdictMap['from_boundary'])
+            $toBoundary = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$verdictMap['to_boundary'])
+            if (-not [string]::IsNullOrWhiteSpace($fromBoundary) -and $fromBoundary -eq $toBoundary) {
+                $issues.Add("boundary_enforcement.verdict_history contains a self-edge '$fromBoundary -> $toBoundary'; a boundary cannot authorize itself.") | Out-Null
+            }
+        }
+        if ($verdictMap.Contains('authorizing_human') -and
+            ($verdictMap['authorizing_human'] -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$verdictMap['authorizing_human']))) {
+            $issues.Add('boundary_enforcement.verdict_history.authorizing_human must be a non-empty string.') | Out-Null
+        }
+
+        if ($verdictMap.Contains('authorization_id') -and [string]$verdictMap['authorization_id'] -notmatch '^auth-[0-9a-f]{64}$') {
+            $issues.Add("boundary_enforcement.verdict_history.authorization_id '$($verdictMap['authorization_id'])' is malformed.") | Out-Null
+        }
+        $derivedVerdictId = Get-SpecrewBoundaryAuthorizationEntryId -Entry $verdictMap -Derive
+        [void]$verdictEntryIds.Add($derivedVerdictId)
+        if ($verdictMap.Contains('authorization_id') -and [string]$verdictMap['authorization_id'] -match '^auth-[0-9a-f]{64}$' -and [string]$verdictMap['authorization_id'] -ne $derivedVerdictId) {
+            $issues.Add('boundary_enforcement.verdict_history.authorization_id does not match its immutable evidence tuple.') | Out-Null
+        }
+    }
+
+    if ($state.Contains('pending_crossing') -and $null -ne $state['pending_crossing']) {
+        $crossingMap = ConvertTo-SpecrewBoundaryMap -Value $state['pending_crossing']
+        foreach ($field in @('crossing_id', 'from_boundary', 'to_boundary', 'working_boundary', 'boundary_commit_hash', 'artifact_state_kind', 'artifact_state_id', 'recorded_at')) {
+            if (-not $crossingMap.Contains($field) -or [string]::IsNullOrWhiteSpace([string]$crossingMap[$field])) {
+                $issues.Add("boundary_enforcement.pending_crossing.$field is missing or blank.") | Out-Null
+            }
+        }
+        if ($crossingMap.Contains('crossing_id') -and [string]$crossingMap['crossing_id'] -notmatch '^crossing-[0-9a-f]{64}$') {
+            $issues.Add('boundary_enforcement.pending_crossing.crossing_id is malformed.') | Out-Null
+        }
+        if ($crossingMap.Contains('artifact_state_kind') -and [string]$crossingMap['artifact_state_kind'] -ne 'git-tree') {
+            $issues.Add('boundary_enforcement.pending_crossing.artifact_state_kind must be git-tree.') | Out-Null
+        }
+        foreach ($field in @('from_boundary', 'to_boundary', 'working_boundary')) {
+            $allowedBoundaries = if ($field -eq 'from_boundary') { @('intake') + @(Get-SpecrewCanonicalBoundaryTypes) } else { @(Get-SpecrewCanonicalBoundaryTypes) }
+            if ($crossingMap.Contains($field) -and (Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$crossingMap[$field])) -notin $allowedBoundaries) {
+                $issues.Add("boundary_enforcement.pending_crossing.$field is not canonical.") | Out-Null
+            }
+        }
+        if (@('crossing_id', 'from_boundary', 'to_boundary', 'working_boundary', 'boundary_commit_hash', 'artifact_state_id') | Where-Object { -not $crossingMap.Contains($_) -or [string]::IsNullOrWhiteSpace([string]$crossingMap[$_]) } | Measure-Object | Select-Object -ExpandProperty Count) {
+            # Missing-field issues are already recorded above; do not invoke the identity constructor on them.
+        }
+        else {
+            try {
+                $crossingFeatureArgs = Get-SpecrewCrossingIdentityFeatureArgs -Map $crossingMap
+                $derivedCrossing = New-SpecrewBoundaryCrossingIdentity -FromBoundary ([string]$crossingMap['from_boundary']) -ToBoundary ([string]$crossingMap['to_boundary']) -WorkingBoundary ([string]$crossingMap['working_boundary']) -BoundaryCommitHash ([string]$crossingMap['boundary_commit_hash']) -ArtifactStateId ([string]$crossingMap['artifact_state_id']) -RecordedAt ([string]$crossingMap['recorded_at']) @crossingFeatureArgs
+                if ([string]$derivedCrossing['crossing_id'] -ne [string]$crossingMap['crossing_id']) {
+                    $issues.Add('boundary_enforcement.pending_crossing.crossing_id does not match its immutable evidence tuple.') | Out-Null
+                }
+            }
+            catch { $issues.Add("boundary_enforcement.pending_crossing identity is invalid: $($_.Exception.Message)") | Out-Null }
+        }
+    }
+
+    if ($state.Contains('correction_history')) {
+        if ($null -eq $state['correction_history'] -or $state['correction_history'] -is [string]) {
+            $issues.Add('boundary_enforcement.correction_history must be an array.') | Out-Null
+        }
+        else {
+            foreach ($correction in @($state['correction_history'])) {
+                $correctionMap = ConvertTo-SpecrewBoundaryMap -Value $correction
+                if ($null -eq $correctionMap) {
+                    $issues.Add('boundary_enforcement.correction_history contains a null entry.') | Out-Null
+                    continue
+                }
+                foreach ($field in @('correction_id', 'event_kind', 'original_entry_id', 'original_entry_identity', 'scope_crossing_id', 'correcting_authority', 'authority_verdict_text', 'authority_auth_commit_hash', 'reason', 'recorded_at', 'scope_identity', 'resulting_boundary_state')) {
+                    if (-not $correctionMap.Contains($field) -or $null -eq $correctionMap[$field] -or ($correctionMap[$field] -is [string] -and [string]::IsNullOrWhiteSpace([string]$correctionMap[$field]))) {
+                        $issues.Add("boundary_enforcement.correction_history.$field is missing or blank.") | Out-Null
+                    }
+                }
+                if ([string]$correctionMap['correction_id'] -notmatch '^correction-[0-9a-f]{64}$' -or [string]$correctionMap['event_kind'] -ne 'invalidation') {
+                    $issues.Add('boundary_enforcement.correction_history identity or event_kind is malformed.') | Out-Null
+                }
+                if ([string]$correctionMap['original_entry_id'] -notmatch '^auth-[0-9a-f]{64}$' -or [string]$correctionMap['scope_crossing_id'] -notmatch '^crossing-[0-9a-f]{64}$') {
+                    $issues.Add('boundary_enforcement.correction_history target identity is malformed.') | Out-Null
+                }
+                $scopeMap = ConvertTo-SpecrewBoundaryMap -Value $correctionMap['scope_identity']
+                $originalMap = ConvertTo-SpecrewBoundaryMap -Value $correctionMap['original_entry_identity']
+                $resultMap = ConvertTo-SpecrewBoundaryMap -Value $correctionMap['resulting_boundary_state']
+                if ($null -eq $scopeMap -or [string]$scopeMap['crossing_id'] -ne [string]$correctionMap['scope_crossing_id']) {
+                    $issues.Add('boundary_enforcement.correction_history.scope_identity does not match scope_crossing_id.') | Out-Null
+                }
+                if ($null -eq $resultMap -or -not $resultMap.Contains('last_authorized_boundary') -or -not $resultMap.Contains('pending_next_boundary')) {
+                    $issues.Add('boundary_enforcement.correction_history.resulting_boundary_state is incomplete.') | Out-Null
+                }
+                if ($null -eq $originalMap -or [string]$originalMap['authorization_id'] -ne [string]$correctionMap['original_entry_id']) {
+                    $issues.Add('boundary_enforcement.correction_history.original_entry_identity does not match original_entry_id.') | Out-Null
+                }
+                if (-not $verdictEntryIds.Contains([string]$correctionMap['original_entry_id'])) {
+                    $issues.Add('boundary_enforcement.correction_history targets an authorization entry that is not present in verdict_history.') | Out-Null
+                }
+                $expectedCorrectionId = 'correction-{0}' -f (Get-SpecrewBoundarySha256 -Text (@([string]$correctionMap['original_entry_id'], [string]$correctionMap['scope_crossing_id'], 'invalidation') -join "`u{001f}"))
+                if ([string]$correctionMap['correction_id'] -ne $expectedCorrectionId) {
+                    $issues.Add('boundary_enforcement.correction_history.correction_id does not match its immutable evidence tuple.') | Out-Null
+                }
+                if ([string]$correctionMap['authority_auth_commit_hash'] -notmatch '^[0-9a-fA-F]{40,64}$') {
+                    $issues.Add('boundary_enforcement.correction_history.authority_auth_commit_hash is malformed.') | Out-Null
+                }
+                if ($null -ne $scopeMap) {
+                    try {
+                        $scopeFeatureArgs = Get-SpecrewCrossingIdentityFeatureArgs -Map $scopeMap
+                        $derivedScope = New-SpecrewBoundaryCrossingIdentity -FromBoundary ([string]$scopeMap['from_boundary']) -ToBoundary ([string]$scopeMap['to_boundary']) -WorkingBoundary ([string]$scopeMap['working_boundary']) -BoundaryCommitHash ([string]$scopeMap['boundary_commit_hash']) -ArtifactStateId ([string]$scopeMap['artifact_state_id']) -RecordedAt ([string]$scopeMap['recorded_at']) @scopeFeatureArgs
+                        if ([string]$derivedScope['crossing_id'] -ne [string]$scopeMap['crossing_id']) {
+                            $issues.Add('boundary_enforcement.correction_history.scope_identity crossing ID is not derived from its immutable evidence tuple.') | Out-Null
+                        }
+                    }
+                    catch { $issues.Add("boundary_enforcement.correction_history.scope_identity is invalid: $($_.Exception.Message)") | Out-Null }
+                }
+                if ($null -ne $resultMap -and $resultMap.Contains('last_authorized_boundary')) {
+                    $resultBoundary = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$resultMap['last_authorized_boundary'])
+                    $authorityVerdict = Parse-SpecrewBoundaryVerdict -VerdictText ([string]$correctionMap['authority_verdict_text'])
+                    if ($resultBoundary -notin (Get-SpecrewCanonicalBoundaryTypes) -or -not $authorityVerdict.Authorized -or @($authorityVerdict.Boundaries).Count -ne 1 -or [string]$authorityVerdict.Boundaries[0] -ne $resultBoundary) {
+                        $issues.Add('boundary_enforcement.correction_history authority verdict does not explicitly authorize the resulting boundary.') | Out-Null
+                    }
                 }
             }
         }
@@ -1348,9 +2053,593 @@ function Get-SpecrewBoundaryEnforcementState {
         Schema         = $contextState.Schema
         Context        = $context
         State          = $boundaryEnforcement
+        EffectiveState = if ($null -eq $boundaryEnforcement) { $null } else { Get-SpecrewEffectiveBoundaryEnforcementState -BoundaryEnforcement $boundaryEnforcement }
         NeedsMigration = ($contextState.Exists -and $contextState.Schema -in @('v0', 'v1') -and $null -eq $boundaryEnforcement)
         Issues         = $shapeIssues
     }
+}
+
+function Select-SpecrewProductSourcePaths {
+    # W48 (2026-08-23): PRODUCT SOURCE IS THE CLASSIFIER'S ANSWER MINUS THE MACHINERY SPECREW ITSELF
+    # DEPLOYS. Found live on the first downstream firing of the no-code guard: the refusal named
+    # `scripts/internal/continuous-co-review/*` - Specrew's own review bundle, refreshed by the human's
+    # own `specrew update` - as "product source written without approval". The shared classifier calls
+    # those paths source because in the Specrew repository they ARE the product; in a DOWNSTREAM
+    # project they are deployed machinery. This is DRIFT-104's blind spot in its fifth consumer, and
+    # the fix is the same: the ONE machinery resolver (Get-ContinuousCoReviewMachineryPaths, ladder-
+    # loaded from the project's own deployed bundle), never a parallel list. In the Specrew source
+    # repository the resolver answers with the source-repo list, so engine code stays product THERE.
+    #
+    # Fail direction: resolver unavailable -> no exclusion, paths stay product. That direction is safe
+    # because deployed-machinery edits are the INTEGRITY markers' jurisdiction, not this filter's -
+    # excluding machinery here loses no coverage, and failing to exclude it merely nags, which the
+    # named-exemption above it can absorb until the resolver loads.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [AllowEmptyCollection()][object[]]$Paths = @()
+    )
+
+    $candidates = @($Paths | ForEach-Object { ([string]$_).Replace([char]92, [char]47) } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-SpecrewReviewAuthorshipSourcePath -Path $_) })
+    if ($candidates.Count -eq 0) { return @() }
+
+    if (-not (Get-Command -Name 'Get-ContinuousCoReviewMachineryPaths' -ErrorAction SilentlyContinue)) {
+        $resolverPath = Join-Path $ProjectRoot 'scripts/internal/continuous-co-review/worktree-reviewer.ps1'
+        if (Test-Path -LiteralPath $resolverPath -PathType Leaf) { try { . $resolverPath } catch { $null = $_ } }
+    }
+    $machineryRoots = @()
+    if (Get-Command -Name 'Get-ContinuousCoReviewMachineryPaths' -ErrorAction SilentlyContinue) {
+        try {
+            $machineryRoots = @(Get-ContinuousCoReviewMachineryPaths -RepoRoot $ProjectRoot |
+                    ForEach-Object { (([string]$_).Replace([char]92, [char]47)).Trim('/') } |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        }
+        catch { $machineryRoots = @() }
+    }
+    if ($machineryRoots.Count -eq 0) { return @($candidates) }
+
+    return @($candidates | Where-Object {
+            $path = $_
+            $isMachinery = $false
+            foreach ($root in $machineryRoots) {
+                if ($path -eq $root -or $path.StartsWith($root + '/', [System.StringComparison]::OrdinalIgnoreCase)) { $isMachinery = $true; break }
+            }
+            -not $isMachinery
+        })
+}
+
+function Get-SpecrewUnauthorizedSourceDrift {
+    # W47 (2026-08-23): THE NO-CODE-WITHOUT-APPROVAL PROMISE, ENFORCED RATHER THAN ASSUMED.
+    #
+    # On the 2026-08-23 walk a session committed product source (7 files) while
+    # last_authorized_boundary was `tasks`, the hardening gate was blocked, and no before-implement
+    # crossing had even been minted. Nothing fired: state-advance-without-verdict watches the STATE,
+    # and the state never advanced - the session just wrote code where it stood. The gate checks fire
+    # at sync time, and a session that never runs the sync never meets them. The flagship guarantee
+    # rested on agent compliance alone, and the first weak-model implement walk exposed it.
+    #
+    # The detector: product source (as the shared classifier defines it - the same one W33 coverage,
+    # W34-B authorship, DRIFT-007 staleness and FR-009 records-only already use) that changed since the
+    # last authorized boundary's own commit, while that boundary is still pre-implement. Consumed by
+    # BOTH the validator (FAIL) and the conformance layer (live refusal), so the same fact is checked
+    # at rest and in flight.
+    #
+    # FAIL-OPEN where the anchor is missing: no enforcement state, no verdict history, or an auth
+    # commit git cannot resolve all return checked=$false and claim nothing - "could not tell" must
+    # never manufacture a violation. STATED LIMIT: a history rewrite that discards the auth commit
+    # silences this check; the boundary ledger itself still names the commit, so the rewrite is
+    # visible there.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+
+    $result = [pscustomobject]@{
+        checked = $false
+        pre_implement = $false
+        authorized_boundary = $null
+        anchor_commit = $null
+        committed_source = @()
+        uncommitted_source = @()
+        reason = 'not-evaluated'
+    }
+
+    if (-not (Get-Command -Name 'Get-SpecrewBoundaryEnforcementState' -ErrorAction SilentlyContinue)) { $result.reason = 'state-reader-unavailable'; return $result }
+    $enforcement = $null
+    try { $enforcement = Get-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot } catch { $result.reason = 'state-unreadable'; return $result }
+    if ($null -eq $enforcement -or -not [bool]$enforcement.Exists -or $null -eq $enforcement.State) { $result.reason = 'no-enforcement-state'; return $result }
+    $state = $enforcement.State
+    $enabled = if ($state.Contains('enabled')) { [bool]$state['enabled'] } else { $false }
+    if (-not $enabled) { $result.reason = 'enforcement-disabled'; return $result }
+
+    $lastAuthorized = [string]$state['last_authorized_boundary']
+    if ([string]::IsNullOrWhiteSpace($lastAuthorized)) { $result.reason = 'no-authorized-boundary'; return $result }
+    $order = @(Get-SpecrewBoundaryOrder)
+    $authIdx = [Array]::IndexOf($order, (Normalize-SpecrewCanonicalBoundaryType -Boundary $lastAuthorized))
+    $implementIdx = [Array]::IndexOf($order, 'before-implement')
+    if ($authIdx -lt 0 -or $implementIdx -lt 0) { $result.reason = 'boundary-unrecognized'; return $result }
+    $result.authorized_boundary = $lastAuthorized
+    if ($authIdx -ge $implementIdx) {
+        # Implementation is licensed: the before-implement verdict (or a later one) is on the ledger.
+        $result.checked = $true
+        $result.reason = 'implementation-authorized'
+        return $result
+    }
+    $result.pre_implement = $true
+
+    # The anchor: the commit the newest authorization was recorded against. Source that existed AT the
+    # authorization was in front of the human when they approved; source that arrived AFTER it was not.
+    $history = @($state['verdict_history'])
+    if ($history.Count -eq 0) { $result.reason = 'no-verdict-history'; return $result }
+    $newest = $history[-1]
+    $newestMap = if ($newest -is [System.Collections.IDictionary]) { $newest } else { $newest | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable -Depth 12 }
+    $anchor = ([string]$newestMap['auth_commit_hash']).Trim()
+    if ([string]::IsNullOrWhiteSpace($anchor)) { $result.reason = 'no-anchor-commit'; return $result }
+    $result.anchor_commit = $anchor
+
+    $null = & git -C $ProjectRoot cat-file -e ("{0}^{{commit}}" -f $anchor) 2>$null
+    if ($LASTEXITCODE -ne 0) { $result.reason = 'anchor-commit-unresolvable'; return $result }
+
+    $committedRaw = @(& git -C $ProjectRoot diff --name-only ("{0}..HEAD" -f $anchor) 2>$null)
+    if ($LASTEXITCODE -ne 0) { $result.reason = 'diff-failed'; return $result }
+    $uncommittedRaw = @(& git -C $ProjectRoot status --porcelain --untracked-files=all 2>$null | ForEach-Object {
+            $line = [string]$_
+            if ($line.Length -gt 3) { $line.Substring(3).Trim('"') } })
+
+    # W48: machinery-aware - a `specrew update` refreshing the deployed bundle is not the project
+    # writing product code, and the first downstream firing proved the difference matters.
+    $result.committed_source = @(Select-SpecrewProductSourcePaths -ProjectRoot $ProjectRoot -Paths $committedRaw)
+    $result.uncommitted_source = @(Select-SpecrewProductSourcePaths -ProjectRoot $ProjectRoot -Paths $uncommittedRaw)
+    $result.checked = $true
+    $result.reason = 'evaluated'
+    return $result
+}
+
+function Get-SpecrewBoundaryStageEvidenceContract {
+    <#
+    FR-068 (T090). The boundary -> required-evidence contract.
+
+    THIS DID NOT EXIST BEFORE. Nothing in the repository mapped the nine canonical boundaries to the
+    artifacts each stage owes: the work-kind lifecycle contract names evidence CATEGORIES and names
+    only `spec.md` as a file; the canonical boundary list in this file carries no artifact
+    information; the governance validator's requirements are keyed on `plan.md`'s Status (five
+    statuses against nine boundaries, with no mapping between the axes); and its one hard-coded
+    artifact list is git-diff-gated, so it cannot answer a static "what does stage X owe".
+
+    So this table is AUTHORED, not derived, and its provenance is recorded per row. It decides
+    product-wide gate semantics, and every row is deliberately MINIMAL: the gate exists to catch "the
+    stage produced nothing", not to audit completeness. A too-eager row here becomes a false block on
+    a legitimate boundary, which is the failure mode this requirement's own correction must not
+    introduce.
+
+    `Kind` values:
+      'iteration-file' - a file under specs/<feature>/iterations/<NNN>/
+      'feature-file'   - a file under specs/<feature>/
+      'content'        - a section that must exist INSIDE a feature file (clarify owns no file)
+      'none'           - this boundary owes no checkable artifact; the gate never suppresses it
+    #>
+    return @(
+        # specify: the spec itself. The only artifact named as a file in the work-kind contract.
+        [pscustomobject]@{ Boundary = 'specify'; Kind = 'feature-file'; Paths = @('spec.md'); Marker = $null; Provenance = 'work-kind lifecycle contract (names spec.md explicitly)' }
+
+        # clarify: owns NO file of its own - its output lands INSIDE spec.md. TWO arms satisfy it, and
+        # EITHER is enough (maintainer ruling 2026-08-06): a dated Clarifications session block, OR a
+        # recorded skip-with-rationale. Both are lived practice, and the skip arm is load-bearing: a
+        # contract with only the session arm would force ceremony on projects whose workshop
+        # legitimately resolved everything - the exact noise class this requirement exists to remove.
+        #
+        # STRICT, per the maintainer ruling of 2026-08-06 (DRIFT-198-I011-006). The first
+        # implementation accepted `##\s+Clarifications` (ANY heading, including an empty placeholder)
+        # and `clarif\w*[^.\r\n]{0,40}\bskip` — loose enough that NEGATED PROSE satisfied it: the
+        # sentence "Clarifications must not be skipped" marked the stage done and re-enabled the
+        # approval options this requirement exists to withhold. The contract rows were ruled CORRECT;
+        # the gap was between the authored rows and the matcher.
+        #
+        # The ruling is asymmetric on purpose: over-blocking is VISIBLE and correctable (a human sees
+        # a boundary refuse and fixes the spec), while under-blocking silently re-enables approval —
+        # the exact defect class this iteration exists to kill. So each arm demands positive structure.
+        #
+        #   arm 1: the `## Clarifications` heading AND a dated `### Session YYYY-MM-DD` beneath it,
+        #          confined to that section by `(?!^##[ \t])` so a dated session under some OTHER
+        #          heading cannot satisfy clarify from across the document.
+        #   arm 2: the structured `**Clarify Disposition**: skip ...` record with an actual rationale
+        #          following it — a positive record of the decision, which prose about skipping is not.
+        [pscustomobject]@{ Boundary = 'clarify'; Kind = 'content'; Paths = @('spec.md'); Markers = @(
+                '(?ms)^##[ \t]+Clarifications[ \t]*\r?$(?:(?!^##[ \t]).)*?^###[ \t]+Session[ \t]+\d{4}-\d{2}-\d{2}',
+                '(?im)^[ \t]*[-*][ \t]+\*\*Clarify Disposition\*\*[ \t]*:[ \t]*skip\b[^\r\n]{20,}'
+            ); MarkerMatch = 'any'
+            # AcceptedForms is CONSUMER-FACING and exists because the refusal used to say only
+            # "spec.md required content". Measured on the Copilot walk: a hand-authored,
+            # semantically-correct zero-question Clarifications record was refused, the message named
+            # neither the expected form nor the mismatch, and the agent recovered by running the
+            # validator and re-running the flow rather than by reading the refusal. The markers above are
+            # regexes; a human cannot be asked to read them. This is the same standard already settled
+            # for refusals - name the thing that actually failed - applied to a content contract.
+            AcceptedForms = @(
+                'a "## Clarifications" section containing a dated "### Session YYYY-MM-DD" subheading (what the governed clarify flow writes)',
+                'or a line reading "- **Clarify Disposition**: skip <reason>", where the reason is at least 20 characters'
+            )
+            # The Provenance field is maintainer-facing rule-table data (who ruled what, when);
+            # no consumer surface renders it.
+            # specrew-internal-id-ok: maintainer-facing rule-table provenance data
+            Provenance = 'MAINTAINER-RULED 2026-08-06 - session block OR recorded skip-with-rationale; STRICT forms ruled 2026-08-06 after DRIFT-198-I011-006' }
+
+        # plan / tasks: the iteration plan. `tasks` records its breakdown in the SAME plan.md table in
+        # this methodology, so both rows point at it rather than inventing a per-iteration tasks file.
+        [pscustomobject]@{ Boundary = 'plan'; Kind = 'iteration-file'; Paths = @('plan.md'); Marker = $null; Provenance = 'scaffold-iteration-artifacts.ps1 emits plan/state/drift-log' }
+        [pscustomobject]@{ Boundary = 'tasks'; Kind = 'iteration-file'; Paths = @('plan.md'); Marker = $null; Provenance = 'AUTHORED - the task breakdown lives in plan.md''s Tasks table' }
+
+        # before-implement: hardening-gate.md AND the iteration plan, per the launch-contract
+        # documentation table. Reconstructed from documentation rather than derived from code - and
+        # the authoring act here is what promotes it to contract from this point forward (maintainer
+        # ruling 2026-08-06). Consistency note: the validator already demands hardening-gate
+        # follow-through at `complete` status, so this pair was half-enforced at the BACK door; the
+        # contract makes the front door match it.
+        [pscustomobject]@{ Boundary = 'before-implement'; Kind = 'iteration-file'; Paths = @('quality/hardening-gate.md', 'plan.md'); Marker = $null; Provenance = 'RECONSTRUCTED from launch-contract.ps1''s documentation table; promoted to contract 2026-08-06' }
+
+        # review-signoff: review.md. This is the boundary the 2026-07-25 transcript demanded a verdict
+        # for while the stage had produced nothing, so it is the row the reproduction exercises.
+        [pscustomobject]@{ Boundary = 'review-signoff'; Kind = 'iteration-file'; Paths = @('review.md'); Marker = $null; Provenance = 'validator Test-ReviewArtifact treats review.md as required' }
+
+        # retro: retro.md.
+        [pscustomobject]@{ Boundary = 'retro'; Kind = 'iteration-file'; Paths = @('retro.md'); Marker = $null; Provenance = 'validator Test-RetroArtifact treats retro.md as required' }
+
+        # iteration-closeout: state.md is the closeout's own record.
+        [pscustomobject]@{ Boundary = 'iteration-closeout'; Kind = 'iteration-file'; Paths = @('state.md'); Marker = $null; Provenance = 'validator Test-StateArtifact treats state.md as required' }
+
+        # feature-closeout: NOT gated. The closeout record's name and location come from the project's
+        # repository-governance (release model, publish target), which this layer must not assume -
+        # guessing here would block a legitimate closeout on a forge convention the project rejected.
+        [pscustomobject]@{ Boundary = 'feature-closeout'; Kind = 'none'; Paths = @(); Marker = $null; Provenance = 'DELIBERATELY UNGATED - the closeout record is governance-defined, never assumed' }
+    )
+}
+
+function Get-SpecrewReviewCampaignId {
+    <#
+    Resolve the public campaign identity used by the review engine from the lifecycle-owned
+    feature and iteration identities. This intentionally mirrors the review engine's filesystem
+    identity contract so boundary/validator readers inspect only the active campaign, never an
+    unrelated valid result elsewhere in the store.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$FeatureRef,
+        [Parameter(Mandatory = $true)][string]$IterationNumber
+    )
+
+    $feature = (Split-Path -Leaf $FeatureRef.Trim()).ToLowerInvariant()
+    $slug = ($feature -replace '[^a-z0-9]+', '-').Trim('-')
+    if ([string]::IsNullOrWhiteSpace($slug)) { $slug = 'review' }
+    if ($slug.Length -gt 44) {
+        $bytes = [Text.Encoding]::UTF8.GetBytes((Split-Path -Leaf $FeatureRef.Trim()))
+        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant().Substring(0, 12)
+        $slug = $slug.Substring(0, 31).TrimEnd('-') + '-' + $hash
+    }
+    return 'cmp-{0}-i{1}' -f $slug, $IterationNumber
+}
+
+function Get-SpecrewReviewCampaignEvidenceState {
+    <#
+    Lightweight review-existence floor for boundary and artifact readers. It does not replace the
+    signoff gate's freshness, coverage, disposition, or finalization checks. It answers the narrower
+    question exposed by dogfood: did the active feature/iteration campaign produce even one completed,
+    valid result, or is review.md claiming outcomes for a review that never existed?
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$FeatureRef,
+        [Parameter(Mandatory = $true)][string]$IterationNumber
+    )
+
+    $result = [pscustomobject][ordered]@{
+        Checked = $true
+        Satisfied = $false
+        Unverifiable = $false
+        CampaignId = $null
+        ResultCount = 0
+        ValidResultCount = 0
+        Reason = 'no-campaign-result'
+        Message = 'the active review campaign has no completed, valid campaign result'
+    }
+
+    try {
+        if ([string]::IsNullOrWhiteSpace($FeatureRef) -or $IterationNumber -cnotmatch '^[0-9]{3,}$') {
+            $result.Unverifiable = $true
+            $result.Reason = 'campaign-scope-unresolvable'
+            $result.Message = 'the active feature or iteration identity is missing, so its review campaign cannot be verified'
+            return $result
+        }
+
+        $root = Resolve-ProjectPath -Path $ProjectRoot
+        $result.CampaignId = Get-SpecrewReviewCampaignId -FeatureRef $FeatureRef -IterationNumber $IterationNumber
+        $runsRoot = Join-Path $root ('.specrew/review/authority/campaigns/{0}/runs' -f $result.CampaignId)
+        if (-not (Test-Path -LiteralPath $runsRoot -PathType Container)) { return $result }
+
+        $runDirectories = @(Get-ChildItem -LiteralPath $runsRoot -Directory -ErrorAction Stop)
+        foreach ($runDirectory in $runDirectories) {
+            $resultPath = Join-Path $runDirectory.FullName 'result.json'
+            if (-not (Test-Path -LiteralPath $resultPath -PathType Leaf)) { continue }
+            $result.ResultCount++
+
+            try { $fact = Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
+            catch {
+                $result.Unverifiable = $true
+                $result.Reason = 'campaign-result-unreadable'
+                $result.Message = "the active review campaign contains an unreadable result fact ('$($runDirectory.Name)')"
+                return $result
+            }
+
+            if ($null -eq $fact -or -not $fact.ContainsKey('campaign_id') -or -not $fact.ContainsKey('run_id') -or
+                [string]$fact['campaign_id'] -cne [string]$result.CampaignId -or
+                [string]$fact['run_id'] -cne [string]$runDirectory.Name) {
+                $result.Unverifiable = $true
+                $result.Reason = 'campaign-result-identity-invalid'
+                $result.Message = "the active review campaign contains a result whose campaign/run identity does not match its store path ('$($runDirectory.Name)')"
+                return $result
+            }
+
+            if ([string]$fact['completion'] -ceq 'complete' -and [string]$fact['validation'] -ceq 'valid') {
+                $result.ValidResultCount++
+            }
+        }
+
+        if ($result.ValidResultCount -gt 0) {
+            $result.Satisfied = $true
+            $result.Reason = 'completed-valid-campaign-result'
+            $result.Message = 'the active review campaign contains a completed, valid result'
+        }
+        elseif ($result.ResultCount -gt 0) {
+            $result.Reason = 'campaign-results-not-usable'
+            $result.Message = ("the active review campaign has {0} result(s), but none completed with validation=valid" -f $result.ResultCount)
+        }
+        return $result
+    }
+    catch {
+        $result.Unverifiable = $true
+        $result.Reason = 'campaign-store-unreadable'
+        $result.Message = 'the active review campaign store could not be read safely: ' + [string]$_.Exception.Message
+        return $result
+    }
+}
+
+function Get-SpecrewBoundaryStageEvidence {
+    <#
+    FR-068 (T090, re-cut T092). Does the stage being approved actually have its evidence in the tree
+    the crossing is bound to?
+
+    Returns Satisfied/Checked/Unverifiable/Missing.
+
+    FAILS CLOSED on anything it cannot verify. This docstring previously read "FAIL-OPEN by
+    construction ... any read error returns Satisfied=$true" — that was the pre-re-cut posture and
+    DRIFT-198-I011-005 is exactly what it produced: "I could not check" spelled identically to "it
+    exists", so a demand was emitted against evidence nobody had verified. The text is corrected here
+    rather than left to contradict the code beneath it, because a stale contract comment on an
+    authorization-integrity function is how the next reader reintroduces the defect.
+
+    Three distinct outcomes, deliberately not two:
+      Satisfied=$true,  Checked=$false -> this boundary owes nothing checkable (unknown row, 'none')
+      Satisfied=$false, Unverifiable=$true  -> could NOT be checked; the caller must SUPPRESS
+      Satisfied=$false, Unverifiable=$false -> checked, and the evidence is genuinely absent
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [AllowNull()][string]$Boundary,
+        [AllowNull()][string]$FeaturePath,
+        [AllowNull()][string]$IterationNumber,
+        [AllowNull()][string]$ArtifactStateId
+    )
+
+    # RE-CUT 2026-08-06 after certification round 1 (DRIFT-198-I011-003/-005, both blocking/major).
+    #
+    # The first version checked `Test-Path` against the MUTABLE LIVE filesystem while the marker it
+    # gates authorizes an IMMUTABLE BOUND tree. Produce the missing artifact, stop again, and the same
+    # old pending_crossing was still valid while the live file now passed — so the marker could
+    # authorize a commit that never contained the artifact, possibly one still uncommitted. It also
+    # ignored $ProjectRoot entirely and trusted a persisted ABSOLUTE feature_path, so a stale path
+    # into another checkout could satisfy the gate with foreign artifacts.
+    #
+    # Evidence is now read FROM THE BOUND TREE by its artifact_state_id, using the same tree-reading
+    # the review machinery already uses for digests. Paths are TREE-RELATIVE and resolved through
+    # `git -C $ProjectRoot`, so there is no absolute live path left to redirect — the foreign-checkout
+    # hole closes structurally rather than by validation. And it FAILS CLOSED: a tree that cannot be
+    # read is malformed state, not "assume the evidence exists".
+    $result = [pscustomobject]@{ Satisfied = $true; Checked = $false; Unverifiable = $false; Missing = @(); Boundary = $Boundary }
+    try {
+        if ([string]::IsNullOrWhiteSpace($Boundary)) { return $result }
+        $row = @(Get-SpecrewBoundaryStageEvidenceContract | Where-Object { $_.Boundary -ceq $Boundary })
+        if ($row.Count -ne 1) { return $result }
+        $row = $row[0]
+        if ([string]$row.Kind -ceq 'none') { return $result }
+
+        # UNVERIFIABLE is its own outcome, and it SUPPRESSES rather than waves through. "I could not
+        # check" is not "it exists" — that conflation is DRIFT-198-I011-005.
+        $unverifiable = {
+            param([string]$Why)
+            [pscustomobject]@{ Satisfied = $false; Checked = $true; Unverifiable = $true; Missing = @($Why); Boundary = $Boundary }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($ArtifactStateId) -or [string]$ArtifactStateId -notmatch '^[0-9a-fA-F]{40,64}$') {
+            return (& $unverifiable 'the crossing carries no readable bound tree id, so its evidence cannot be verified')
+        }
+
+        $root = Resolve-ProjectPath -Path $ProjectRoot
+        # TREE-RELATIVE, derived from the project root — never the persisted absolute feature path.
+        # certify slice #4 (feature-path-prefix-false-containment, run-f198-beta2-4e7d002c-certify):
+        # in-project resolution is CANONICAL RELATIVE containment with a separator boundary, not a
+        # string prefix — the prefix check accepted a prefix sibling (repo-other vs repo) and, on a
+        # case-sensitive volume, a case-distinct sibling checkout (/tmp/Repo vs /tmp/repo), mapping a
+        # foreign feature onto this tree's paths. GetRelativePath compares with the platform's own
+        # path semantics — the volume-correct identity for same-root containment — and an escape
+        # leaves $featureRel null, which reads as UNVERIFIABLE below (fail-closed, never foreign).
+        $featureRel = $null
+        if (-not [string]::IsNullOrWhiteSpace($FeaturePath)) {
+            try {
+                $featureFull = [System.IO.Path]::GetFullPath($FeaturePath)
+                $rootFull = [System.IO.Path]::GetFullPath($root)
+                $relCandidate = [System.IO.Path]::GetRelativePath($rootFull, $featureFull)
+                if (-not [System.IO.Path]::IsPathRooted($relCandidate) -and
+                    $relCandidate -ne '.' -and $relCandidate -ne '..' -and
+                    -not $relCandidate.StartsWith('..' + [System.IO.Path]::DirectorySeparatorChar) -and
+                    -not $relCandidate.StartsWith('../')) {
+                    $featureRel = ($relCandidate -replace '\\', '/')
+                }
+            }
+            catch { $featureRel = $null }
+        }
+        if ([string]::IsNullOrWhiteSpace($featureRel)) {
+            return (& $unverifiable 'the active feature could not be resolved inside this project, so its evidence cannot be verified')
+        }
+
+        $lsTree = @(& git -C $root ls-tree -r --name-only $ArtifactStateId 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $lsTree.Count -eq 0) {
+            return (& $unverifiable ("the bound tree {0} could not be read, so the evidence cannot be verified" -f $ArtifactStateId.Substring(0, [Math]::Min(12, $ArtifactStateId.Length))))
+        }
+        # certify f4 (run-f198-beta2-c0c3cda6-certify): git tree entry names are CASE-SENSITIVE, and
+        # for file-only rows this set membership is the only check — an OrdinalIgnoreCase comparer
+        # let a committed Review.md satisfy the canonical review.md while the canonical artifact was
+        # genuinely absent from the bound tree. Ordinal, matching the medium being read.
+        $tracked = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($line in $lsTree) { $null = $tracked.Add((($line -replace '\\', '/').Trim())) }
+
+        $missing = New-Object System.Collections.Generic.List[string]
+        foreach ($rel in @($row.Paths)) {
+            $relNorm = ($rel -replace '\\', '/')
+            $treePath = if ([string]$row.Kind -ceq 'iteration-file') {
+                if ([string]::IsNullOrWhiteSpace($IterationNumber)) { $null } else { ('{0}/iterations/{1}/{2}' -f $featureRel, $IterationNumber, $relNorm) }
+            }
+            else { ('{0}/{1}' -f $featureRel, $relNorm) }
+
+            if ($null -eq $treePath) {
+                return (& $unverifiable 'the iteration identity is missing, so the stage evidence cannot be located in the bound tree')
+            }
+
+            if (-not $tracked.Contains($treePath)) { $missing.Add($rel) | Out-Null; continue }
+
+            if ([string]$row.Kind -ceq 'content') {
+                $markers = @()
+                if ($row.PSObject.Properties.Name -contains 'Markers') { $markers = @($row.Markers) }
+                elseif (-not [string]::IsNullOrWhiteSpace([string]$row.Marker)) { $markers = @([regex]::Escape([string]$row.Marker)) }
+                if ($markers.Count -eq 0) { continue }
+
+                # Content comes from the BOUND TREE too, not the working copy.
+                $raw = (@(& git -C $root show ("{0}:{1}" -f $ArtifactStateId, $treePath) 2>$null) -join "`n")
+                if ($LASTEXITCODE -ne 0) {
+                    return (& $unverifiable ("'{0}' could not be read from the bound tree, so its content cannot be verified" -f $relNorm))
+                }
+                $hits = @($markers | Where-Object { $raw -imatch $_ })
+                $mode = if ($row.PSObject.Properties.Name -contains 'MarkerMatch') { [string]$row.MarkerMatch } else { 'all' }
+                # 'any' is the clarify case: either a dated session block OR a recorded skip satisfies
+                # it, so one hit is enough and reporting "missing" needs ALL arms absent.
+                $satisfiedHere = if ($mode -ceq 'any') { $hits.Count -gt 0 } else { $hits.Count -eq $markers.Count }
+                if (-not $satisfiedHere) {
+                    $desc = if ($mode -ceq 'any') { 'a Clarifications session block or a recorded clarify skip-with-rationale' } else { ($markers -join ' + ') }
+                    $missing.Add(("{0} ({1})" -f $rel, $desc)) | Out-Null
+                }
+            }
+        }
+
+        if ([string]$Boundary -ceq 'review-signoff') {
+            $featureRef = if ([string]::IsNullOrWhiteSpace($FeaturePath)) { $null } else { Split-Path -Leaf $FeaturePath }
+            $campaignEvidence = Get-SpecrewReviewCampaignEvidenceState -ProjectRoot $root -FeatureRef $featureRef -IterationNumber $IterationNumber
+            if (-not [bool]$campaignEvidence.Satisfied) {
+                $missing.Add([string]$campaignEvidence.Message) | Out-Null
+                $result.Unverifiable = [bool]$campaignEvidence.Unverifiable
+            }
+        }
+
+        $result.Checked = $true
+        $result.Missing = @($missing)
+        $result.Satisfied = ($missing.Count -eq 0)
+        return $result
+    }
+    catch {
+        # RESIDUAL FAIL-OPEN, closed 2026-08-06 while landing DRIFT-198-I011-006.
+        #
+        # This catch-all returned Satisfied=$true / Checked=$false, and Set-SpecrewStageEvidenceGate
+        # reads Checked=$false as "nothing to say" and leaves the ordinary verdict demand intact. So
+        # ANY unexpected throw inside the tree read re-armed a demand against evidence that was never
+        # verified — the same conflation DRIFT-198-I011-005 was raised for, surviving in the one path
+        # the re-cut did not rewrite. The named unverifiable returns above were converted; this was not.
+        return [pscustomobject]@{
+            Satisfied    = $false
+            Checked      = $true
+            Unverifiable = $true
+            Missing      = @(("the stage evidence check failed unexpectedly, so it could not be verified: {0}" -f [string]$_.Exception.Message))
+            Boundary     = $Boundary
+        }
+    }
+}
+
+function Set-SpecrewStageEvidenceGate {
+    <#
+    FR-068 (T090). Applied to BOTH branches of Get-SpecrewPendingVerdictState, from one place, so the
+    two can never drift apart. Leaves HasPendingVerdict and IntegrityStatus untouched: only the DEMAND
+    is suppressed, never the pending crossing itself.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Result,
+        [AllowNull()]$Enforcement,
+        [AllowNull()][string]$TargetBoundary,
+        [Parameter(Mandatory = $true)][string]$ProjectRoot
+    )
+
+    try {
+        if ([string]::IsNullOrWhiteSpace($TargetBoundary)) { return $Result }
+        $featurePath = $null; $iterationNumber = $null
+        $ctx = if ($null -ne $Enforcement) { $Enforcement.Context } else { $null }
+        if ($null -ne $ctx) {
+            if ($ctx.Contains('feature_path')) { $featurePath = [string]$ctx['feature_path'] }
+            if ($ctx.Contains('session_state') -and $null -ne $ctx['session_state']) {
+                $ss = $ctx['session_state']
+                if ($ss.Contains('iteration_number')) { $iterationNumber = [string]$ss['iteration_number'] }
+            }
+        }
+
+        # The evidence is read from the crossing's OWN bound tree — the same tree the marker would
+        # authorize — so producing an artifact after the fact cannot retro-satisfy an older crossing.
+        $ev = Get-SpecrewBoundaryStageEvidence -ProjectRoot $ProjectRoot -Boundary $TargetBoundary -FeaturePath $featurePath -IterationNumber $iterationNumber -ArtifactStateId ([string]$Result.ArtifactStateId)
+        if ($null -eq $ev -or -not [bool]$ev.Checked -or [bool]$ev.Satisfied) { return $Result }
+
+        $Result.StageEvidenceAbsent = $true
+        # Pre-tag slice #4: the three-outcome distinction travels. Both outcomes SUPPRESS the demand
+        # (unchanged), but only CHECKED-AND-ABSENT may refuse a verdict capture — "could not verify"
+        # is not "verified absent", and refusing capture on an unverifiable read would drop
+        # legitimate verdicts on a component hiccup (the exact loss T090's design forbids).
+        $Result.StageEvidenceUnverifiable = [bool]$ev.Unverifiable
+        $Result.StageEvidenceMissing = @($ev.Missing)
+        $Result.Message = if ([bool]$ev.Unverifiable) {
+            # Suppress, and say why. "Could not verify" must never read as "verified".
+            ("BOUNDARY EVIDENCE COULD NOT BE VERIFIED: '{0}' cannot be approved because its stage evidence could not be checked against the tree this crossing is bound to — {1}. No approval options and no verdict marker are offered: an unverifiable increment must not be authorized, and a verdict recorded now could not be shown to cover any particular work. Fix the recorded state, then stop for the verdict." -f $TargetBoundary, (@($ev.Missing) -join '; '))
+        }
+        else {
+            ("BOUNDARY NOT READY FOR A VERDICT: the tree this crossing is bound to does not contain the evidence '{0}' owes, so there is nothing to approve yet. Missing from the bound tree: {1}. A verdict recorded now would authorize an increment that does not contain the work, and the ledger could not tell it apart from an approval of real work — so no approval options and no verdict marker are offered. Produce the missing artifact(s), COMMIT them, and stop again so the crossing rebinds to a tree that contains them." -f $TargetBoundary, (@($ev.Missing) -join ', '))
+        }
+        return $Result
+    }
+    catch { return $Result }
+}
+
+function Get-SpecrewReplyRecordingHealthLine {
+    # Feature 202 T004 (FR-007): ONE line, shown only while reply recording is degraded - outage-buffer files
+    # are pending, a legacy unhealthy file from an older version is present, or the hook-output health journal's
+    # latest transition is 'degraded' (T003). $null otherwise, so a healthy project shows nothing. Project terms,
+    # and it never implies loss: the buffered records are kept and replies are still checked against them.
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    try {
+        $runtime = Join-Path ([IO.Path]::GetFullPath($ProjectRoot)) '.specrew/runtime'
+        $pending = @(Get-ChildItem -LiteralPath (Join-Path $runtime 'hook-output-buffer') -File -Filter '*.jsonl' -ErrorAction SilentlyContinue).Count
+        $legacy = Test-Path -LiteralPath (Join-Path $runtime 'hook-output-authority.jsonl.unhealthy') -PathType Leaf
+        $last = $null
+        $healthPath = Join-Path $runtime 'hook-output-health.jsonl'
+        if (Test-Path -LiteralPath $healthPath -PathType Leaf) {
+            $stream = [IO.File]::Open($healthPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+            try { $reader = [IO.StreamReader]::new($stream); $lines = @($reader.ReadToEnd() -split "`r?`n" | Where-Object { $_.Trim() }); $reader.Dispose() } finally { $stream.Dispose() }
+            if ($lines.Count -gt 0) { $last = $lines[$lines.Count - 1] | ConvertFrom-Json -ErrorAction Stop }
+        }
+        $lastDegraded = ($null -ne $last -and [string]$last.state -eq 'degraded')
+        if (-not ($pending -gt 0 -or $legacy -or $lastDegraded)) { return $null }
+        $since = if ($lastDegraded -and -not [string]::IsNullOrWhiteSpace([string]$last.first_seen)) { [string]$last.first_seen } else { 'an earlier session' }
+        return ('Reply recording: degraded since {0}. Specrew could not write its usual record of its own output, so it is checking your replies against a backup record instead; it returns to normal on its own at the next successful write, and nothing is lost.' -f $since)
+    }
+    catch { return $null }
 }
 
 function Get-SpecrewPendingVerdictState {
@@ -1374,13 +2663,127 @@ function Get-SpecrewPendingVerdictState {
         PendingToMarkerBoundary   = $null
         IsFirstBoundary        = $false
         IsMultiBoundaryGap     = $false
+        CrossingId             = $null
+        CrossingOwner          = $null
+        BoundaryCommitHash     = $null
+        ArtifactStateKind      = $null
+        ArtifactStateId        = $null
+        IntegrityStatus        = 'unreadable'
+        # FR-068 (T090). Deliberately SEPARATE from HasPendingVerdict and from IntegrityStatus.
+        # Setting HasPendingVerdict=$false when evidence is missing would break verdict CAPTURE, not
+        # just the demand: ConversationCaptureAccessor returns early when the state is not pending and
+        # skips its marker cross-check, so a human's real verdict on a legitimately-pending boundary
+        # would be silently dropped. That converts an over-demanding gate into a lost authorization —
+        # worse than the defect. The crossing stays pending; only the DEMAND is suppressed.
+        StageEvidenceAbsent    = $false
+        StageEvidenceUnverifiable = $false
+        StageEvidenceMissing   = @()
         Message                = $null
     }
     try {
         $enforcement = Get-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot
-        if ($null -eq $enforcement -or $null -eq $enforcement.State -or -not [bool]$enforcement.State['enabled']) { return $result }
 
-        $lastAuth = [string]$enforcement.State['last_authorized_boundary']
+        # FR-066 (amended 2026-08-03), T089. A project that reached a boundary before boundary
+        # enforcement was ever bootstrapped has NO ledger to record the crossing in. That used to
+        # return the default `unreadable` state — indistinguishable from "no enforcement configured"
+        # and from "nothing pending" — so every surface downstream stayed silent and the consumer's
+        # very first boundary passed with no enforcement surface at all (measured in T087).
+        #
+        # It is now its own status. The crossing genuinely CANNOT be recorded, so HasPendingVerdict
+        # stays false and no marker or approval phrase is ever synthesized — but the state says WHY,
+        # so a surface can speak to it instead of falling silent. Fail-open still holds: this never
+        # fabricates a pending verdict.
+        if ($null -ne $enforcement -and [bool]$enforcement.NeedsMigration) {
+            $workingUnrecordable = $null
+            $ctxUnrecordable = $enforcement.Context
+            if ($null -ne $ctxUnrecordable -and $ctxUnrecordable.Contains('session_state') -and $null -ne $ctxUnrecordable['session_state']) {
+                $ssUnrecordable = $ctxUnrecordable['session_state']
+                if ($ssUnrecordable.Contains('boundary_type')) { $workingUnrecordable = [string]$ssUnrecordable['boundary_type'] }
+            }
+            if (-not [string]::IsNullOrWhiteSpace($workingUnrecordable)) {
+                $result.IntegrityStatus = 'boundary-unrecordable'
+                $result.IsFirstBoundary = $true
+                $result.WorkingBoundary = $workingUnrecordable
+                $result.Message = ("BOUNDARY REACHED BUT NOT RECORDABLE: this project arrived at '{0}' before its boundary approval ledger was initialized, so the crossing could not be recorded and no verdict can be captured for it yet. Missing: the project's boundary-enforcement state (run the Specrew start/bootstrap path for this project to create it). Until it exists there is nothing to approve — no approval options and no verdict marker are offered, deliberately, because approving an unrecorded crossing would authorize nothing." -f $workingUnrecordable)
+            }
+            return $result
+        }
+
+        if ($null -eq $enforcement -or $null -eq $enforcement.State -or -not [bool]$enforcement.State['enabled']) { return $result }
+        if ($enforcement.Issues.Count -gt 0) {
+            $result.IntegrityStatus = 'state-invalid'
+            return $result
+        }
+
+        $effective = $enforcement.EffectiveState
+        $lastAuth = [string]$effective['last_authorized_boundary']
+        $result.LastAuthorizedBoundary = $lastAuth
+
+        # New state is crossing-scoped. Once the field exists, session_state is never authority for a pending
+        # verdict: null means clean, and a populated scope must verify against its immutable Git tree.
+        if ($enforcement.State.Contains('pending_crossing')) {
+            $scope = ConvertTo-SpecrewBoundaryMap -Value $enforcement.State['pending_crossing']
+            if ($null -eq $scope) {
+                $result.IntegrityStatus = 'scoped-clean'
+                return $result
+            }
+
+            $result.CrossingId = [string]$scope['crossing_id']
+            $result.CrossingOwner = if ($scope.Contains('owner')) { [string]$scope['owner'] } else { 'unknown' }
+            $result.BoundaryCommitHash = [string]$scope['boundary_commit_hash']
+            $result.ArtifactStateKind = [string]$scope['artifact_state_kind']
+            $result.ArtifactStateId = [string]$scope['artifact_state_id']
+            $result.WorkingBoundary = [string]$scope['working_boundary']
+            if ($result.ArtifactStateKind -ne 'git-tree') {
+                $result.IntegrityStatus = 'scope-invalid'
+                return $result
+            }
+
+            $resolvedArtifactState = Get-SpecrewGitArtifactStateId -ProjectRoot $ProjectRoot -BoundaryCommitHash $result.BoundaryCommitHash
+            if ($resolvedArtifactState -ne $result.ArtifactStateId) {
+                $result.IntegrityStatus = 'artifact-state-mismatch'
+                return $result
+            }
+            $expectedFeatureArgs = Get-SpecrewCrossingIdentityFeatureArgs -Map $scope
+            $expectedScope = New-SpecrewBoundaryCrossingIdentity `
+                -FromBoundary ([string]$scope['from_boundary']) `
+                -ToBoundary ([string]$scope['to_boundary']) `
+                -WorkingBoundary ([string]$scope['working_boundary']) `
+                -BoundaryCommitHash $result.BoundaryCommitHash `
+                -ArtifactStateId $resolvedArtifactState `
+                -RecordedAt ([string]$scope['recorded_at']) @expectedFeatureArgs
+            if ([string]$expectedScope['crossing_id'] -ne $result.CrossingId) {
+                $result.IntegrityStatus = 'crossing-id-mismatch'
+                return $result
+            }
+
+            # 202 T011: verified with the same inputs the mint used - the closed feature from the ledger, the crossing's own feature.
+            $scopeFeature = if ($scope.Contains('feature_ref')) { [string]$scope['feature_ref'] } else { $null }
+            $crossing = Get-SpecrewPendingBoundaryCrossing -LastAuthorizedBoundary $lastAuth -WorkingBoundary ([string]$scope['working_boundary']) `
+                -ClosedFeatureRef (Get-SpecrewClosedFeatureRef -VerdictHistory @($effective['verdict_history'])) -WorkingFeatureRef $scopeFeature
+            if (-not [bool]$crossing.HasPendingVerdict -or
+                [string]$crossing.PendingFromMarkerBoundary -ne [string]$scope['from_boundary'] -or
+                [string]$crossing.PendingToMarkerBoundary -ne [string]$scope['to_boundary']) {
+                $result.IntegrityStatus = 'scope-state-mismatch'
+                return $result
+            }
+            $result.PendingFromBoundary = $crossing.PendingFromBoundary
+            $result.PendingToBoundary = $crossing.PendingToBoundary
+            $result.PendingFromMarkerBoundary = $crossing.PendingFromMarkerBoundary
+            $result.PendingToMarkerBoundary = $crossing.PendingToMarkerBoundary
+            $result.IsFirstBoundary = [bool]$crossing.IsFirstBoundary
+            $result.IsMultiBoundaryGap = [bool]$crossing.IsMultiBoundaryGap
+            $result.HasPendingVerdict = $true
+            $result.IntegrityStatus = 'scoped-verified'
+            $authLabel = if ([string]::IsNullOrWhiteSpace([string]$crossing.LastAuthorizedBoundary)) { '(none recorded yet)' } else { [string]$crossing.LastAuthorizedBoundary }
+            $result.Message = ("AWAITING YOUR VERDICT: crossing '{0}' ({1} -> {2}) at commit {3}, Git tree {4}, is NOT human-authorized (last authorized: {5}). Give the explicit verdict 'approved for {2}' to authorize this exact crossing; numeric replies are not authority." -f $result.CrossingId, $crossing.PendingFromMarkerBoundary, $crossing.PendingToMarkerBoundary, $result.BoundaryCommitHash, $result.ArtifactStateId, $authLabel)
+            $result = Set-SpecrewStageEvidenceGate -Result $result -Enforcement $enforcement -TargetBoundary ([string]$crossing.PendingToMarkerBoundary) -ProjectRoot $ProjectRoot
+            return $result
+        }
+
+        # Backward-compatible read for pre-scope ledgers and fixtures. A subsequent sync writes pending_crossing
+        # and permanently leaves this legacy path.
+        $result.IntegrityStatus = 'legacy-unscoped'
         $working = $null
         $ctx = $enforcement.Context
         if ($null -ne $ctx -and $ctx.Contains('session_state') -and $null -ne $ctx['session_state']) {
@@ -1402,9 +2805,16 @@ function Get-SpecrewPendingVerdictState {
             $result.HasPendingVerdict = $true
             $authLabel = if ([string]::IsNullOrWhiteSpace([string]$crossing.LastAuthorizedBoundary)) { '(none recorded yet)' } else { [string]$crossing.LastAuthorizedBoundary }
             $result.Message = ("AWAITING YOUR VERDICT: '{0}' is committed / in-progress but NOT human-authorized (last authorized: {1}). A committed boundary is not an approved one — the gate advances only when you confirm. Give the boundary verdict to authorize it; if you already approved, the session may have ended before your verdict was captured, so please re-confirm." -f $crossing.WorkingBoundary, $authLabel)
+            # BOTH branches gate. Fixing only the scoped one would leave the identical demand reachable
+            # through this path — the T082 shape (partial coverage under a complete-sounding claim).
+            $result = Set-SpecrewStageEvidenceGate -Result $result -Enforcement $enforcement -TargetBoundary ([string]$crossing.PendingToMarkerBoundary) -ProjectRoot $ProjectRoot
         }
     }
-    catch { $null = $_ }
+    catch {
+        $result.HasPendingVerdict = $false
+        $result.IntegrityStatus = 'unreadable'
+        $result.Message = $null
+    }
     return $result
 }
 
@@ -1457,12 +2867,18 @@ function Set-SpecrewBoundaryEnforcementState {
         Get-SpecrewBoundaryPolicyClassMap -ProjectRoot $ProjectRoot
     }
 
+    $existingBoundaryEnforcement = if ($effectiveContext.Contains('boundary_enforcement')) { ConvertTo-SpecrewBoundaryMap -Value $effectiveContext['boundary_enforcement'] } else { $null }
+    $pendingCrossing = if ($BoundaryEnforcement.Contains('pending_crossing')) { $BoundaryEnforcement['pending_crossing'] } elseif ($null -ne $existingBoundaryEnforcement -and $existingBoundaryEnforcement.Contains('pending_crossing')) { $existingBoundaryEnforcement['pending_crossing'] } else { $null }
+    $correctionHistory = if ($BoundaryEnforcement.Contains('correction_history')) { @($BoundaryEnforcement['correction_history']) } elseif ($null -ne $existingBoundaryEnforcement -and $existingBoundaryEnforcement.Contains('correction_history')) { @($existingBoundaryEnforcement['correction_history']) } else { @() }
+
     $effectiveContext['boundary_enforcement'] = [ordered]@{
         enabled                  = [bool]$BoundaryEnforcement['enabled']
         last_authorized_boundary = if ([string]::IsNullOrWhiteSpace([string]$BoundaryEnforcement['last_authorized_boundary'])) { $null } else { Resolve-SpecrewCanonicalBoundaryType -Boundary ([string]$BoundaryEnforcement['last_authorized_boundary']) -ParameterName 'last_authorized_boundary' }
         pending_next_boundary    = if ([string]::IsNullOrWhiteSpace([string]$BoundaryEnforcement['pending_next_boundary'])) { $null } else { Resolve-SpecrewCanonicalBoundaryType -Boundary ([string]$BoundaryEnforcement['pending_next_boundary']) -ParameterName 'pending_next_boundary' }
+        pending_crossing         = $pendingCrossing
         policy_classes           = $policyClasses
         verdict_history          = @($BoundaryEnforcement['verdict_history'])
+        correction_history       = @($correctionHistory)
         bypass_history           = @($BoundaryEnforcement['bypass_history'])
     }
 
@@ -1472,6 +2888,423 @@ function Set-SpecrewBoundaryEnforcementState {
 
     Write-Utf8FileAtomic -Path $contextState.Path -Content (([pscustomobject]$effectiveContext | ConvertTo-Json -Depth 24) + [Environment]::NewLine)
     return $contextState.Path
+}
+
+function Test-SpecrewBoundaryOwedArtifactsOnDisk {
+    # FR-024 (iteration 002, T014): the LIVE-FILESYSTEM owed-artifact check consulted at MINT time.
+    #
+    # The bound-tree evidence readers (Get-SpecrewBoundaryStageEvidence) answer "did the tree the
+    # verdict binds to carry the artifact"; at mint time there is no tree to bind yet, and a measured
+    # case read as UNVERIFIABLE on that path because the iteration directory did not exist - which is exactly
+    # the state a mint must call ABSENT. So this check asks the disk: does the boundary being ENTERED
+    # have the artifacts its contract owes, under the directory the crossing would open? Missing
+    # directory = missing artifact. Unverifiable is reserved for "no feature identity at all".
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$Boundary,
+        [AllowNull()][string]$FromBoundary,
+        [AllowNull()][string]$FeatureRef,
+        [AllowNull()][string]$IterationNumber
+    )
+    $result = [pscustomobject]@{ Boundary = $Boundary; Kind = $null; Absent = $false; Unverifiable = $false; Missing = @(); ExpectedUnder = $null; Iteration = $null; Reason = 'present' }
+    $canonical = Normalize-SpecrewCanonicalBoundaryType -Boundary $Boundary
+    $contract = @(Get-SpecrewBoundaryStageEvidenceContract | Where-Object { [string]$_.Boundary -ceq [string]$canonical })
+    if ($contract.Count -ne 1) { $result.Unverifiable = $true; $result.Reason = 'no-contract'; return $result }
+    $result.Kind = [string]$contract[0].Kind
+    if ($result.Kind -eq 'none') { $result.Reason = 'ungated'; return $result }
+    $root = Resolve-ProjectPath -Path $ProjectRoot
+    $feature = $FeatureRef
+    $iteration = $IterationNumber
+    if ([string]::IsNullOrWhiteSpace($feature) -or [string]::IsNullOrWhiteSpace($iteration)) {
+        try {
+            $ctxPath = Join-Path $root '.specrew/start-context.json'
+            if (Test-Path -LiteralPath $ctxPath -PathType Leaf) {
+                $ctx = Get-Content -LiteralPath $ctxPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                $ssProp = $ctx.PSObject.Properties['session_state']
+                $ss = if ($null -ne $ssProp) { $ssProp.Value } else { $null }
+                if ($null -ne $ss) {
+                    if ([string]::IsNullOrWhiteSpace($feature) -and $null -ne $ss.PSObject.Properties['feature_ref']) { $feature = [string]$ss.feature_ref }
+                    if ([string]::IsNullOrWhiteSpace($iteration) -and $null -ne $ss.PSObject.Properties['iteration_number']) { $iteration = [string]$ss.iteration_number }
+                }
+            }
+        }
+        catch { $null = $_ }
+    }
+    if ([string]::IsNullOrWhiteSpace($feature)) { $result.Unverifiable = $true; $result.Reason = 'no-feature-identity'; return $result }
+    $featurePath = Join-Path $root ('specs/' + (Split-Path -Leaf $feature))
+    $base = $featurePath
+    if ($result.Kind -eq 'iteration-file') {
+        # THE ITERATION HANDED IN IS THE ITERATION THE ENTERED STAGE OWES. This check used to add one for
+        # iteration-closeout -> plan ("the next iteration's directory is what plan owes"), which was right for
+        # the closeout authorization's rebind - the cursor still on the closed iteration - and wrong for the
+        # plan sync, whose cursor already names the target: the sync recorded 002 and this check asked for
+        # 003, in one invocation (fix 6, B4F-066, verbatim from the router-skill project). Two callers hand in
+        # "the cursor"; this function cannot tell which; so it no longer guesses. The ONE place that resolves
+        # the target is New-SpecrewPendingCrossingScope, from the crossing's working boundary.
+        if ([string]::IsNullOrWhiteSpace($iteration)) { $result.Unverifiable = $true; $result.Reason = 'no-iteration-identity'; return $result }
+        $result.Iteration = $iteration
+        $base = Join-Path $featurePath ('iterations/' + $iteration)
+    }
+    $result.ExpectedUnder = $base
+    $missing = New-Object System.Collections.Generic.List[string]
+    foreach ($relative in @($contract[0].Paths)) {
+        $candidate = Join-Path $base ([string]$relative)
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { $missing.Add([string]$relative) | Out-Null }
+    }
+    if ($result.Kind -eq 'content' -and $missing.Count -eq 0) {
+        $content = Get-Content -LiteralPath (Join-Path $base ([string]$contract[0].Paths[0])) -Raw -Encoding UTF8
+        $markerMatches = @($contract[0].Markers | Where-Object { $content -match [string]$_ })
+        if ($markerMatches.Count -eq 0) {
+            # NAME THE EXPECTED FORM, not merely that content is missing. "spec.md required content" tells
+            # a human that something is wrong with a file they are looking at and nothing about what would
+            # satisfy it - so the only available move is trial and error, which is what the field walk did.
+            $formText = ''
+            if ($contract[0].PSObject.Properties.Name -contains 'AcceptedForms') {
+                $formText = (@($contract[0].AcceptedForms) -join ' ')
+            }
+            $entry = if ([string]::IsNullOrWhiteSpace($formText)) {
+                ([string]$contract[0].Paths[0] + ' required content')
+            }
+            else {
+                ('{0} does not yet carry the record this boundary needs. It accepts {1}. The file itself is fine and nothing you wrote is lost - what is missing is one of those two forms.' -f [string]$contract[0].Paths[0], $formText)
+            }
+            $missing.Add($entry) | Out-Null
+        }
+    }
+    $result.Missing = $missing.ToArray()
+    if ($missing.Count -gt 0) { $result.Absent = $true; $result.Reason = 'absent' }
+    return $result
+}
+
+function Write-SpecrewCrossingMintRefusal {
+    # FR-024 (T014): the refusal names what failed, the instance, and the one thing that resumes the
+    # work - and it is loud (stderr + journal), never a silent $null.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$FromBoundary,
+        [Parameter(Mandatory = $true)][string]$ToBoundary,
+        [AllowNull()][string[]]$Missing,
+        [AllowNull()][string]$ExpectedUnder,
+        [AllowNull()][string]$Iteration,
+        [AllowNull()][string]$NowUtc
+    )
+    $when = if ([string]::IsNullOrWhiteSpace($NowUtc)) { (Get-Date).ToUniversalTime().ToString('o') } else { $NowUtc }
+    $iterationText = if ([string]::IsNullOrWhiteSpace($Iteration)) { '' } else { (' for iteration {0}' -f $Iteration) }
+    $whereText = if ([string]::IsNullOrWhiteSpace($ExpectedUnder)) { '' } else { (' (expected under {0})' -f $ExpectedUnder) }
+    $message = ("The '{0}' -> '{1}' crossing was not opened: '{1}' owes {2}{3}{4} and it does not exist. The approvals already recorded are unchanged, and no new verdict is being asked for. Produce {2} through the '{1}' stage's own step, then run that boundary's sync again." -f $FromBoundary, $ToBoundary, (@($Missing) -join ', '), $iterationText, $whereText)
+    try { [Console]::Error.WriteLine('[specrew-governance] WARN CROSSING_NOT_MINTED_OWED_ARTIFACTS_ABSENT ' + $message) } catch { $null = $_ }
+    try {
+        $journal = Join-Path (Resolve-ProjectPath -Path $ProjectRoot) '.specrew/runtime/handover-journal.jsonl'
+        $dir = Split-Path -Parent $journal
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        (([pscustomobject]@{ event = 'crossing-not-minted-owed-artifacts-absent'; recorded_at = $when; from = $FromBoundary; to = $ToBoundary; missing = @($Missing); expected_under = $ExpectedUnder; iteration = $Iteration; message = $message }) | ConvertTo-Json -Compress) | Add-Content -LiteralPath $journal -Encoding UTF8
+    }
+    catch { $null = $_ }
+    return $message
+}
+
+function Get-SpecrewVerdictMarkerText {
+    # FR-024 (T014): the verdict marker carries the crossing identity, so a marker rendered against one
+    # crossing cannot capture against a successor wearing the same <from> -> <to> label.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$FromBoundary,
+        [Parameter(Mandatory = $true)][string]$ToBoundary,
+        [AllowNull()][string]$CrossingId
+    )
+    if ([string]::IsNullOrWhiteSpace($CrossingId)) { return ('<!-- SPECREW-VERDICT-BOUNDARY: {0} -> {1} -->' -f $FromBoundary, $ToBoundary) }
+    return ('<!-- SPECREW-VERDICT-BOUNDARY: {0} -> {1} @ {2} -->' -f $FromBoundary, $ToBoundary, $CrossingId)
+}
+
+function New-SpecrewPendingCrossingScope {
+    param(
+        [AllowNull()][string]$LastAuthorizedBoundary,
+        [AllowNull()][string]$WorkingBoundary,
+        [Parameter(Mandatory = $true)][string]$BoundaryCommitHash,
+        [Parameter(Mandatory = $true)][string]$ArtifactStateId,
+        [AllowNull()][string]$RecordedAt,
+        [AllowNull()]$ExistingScope,
+        [switch]$OpenNextCrossingWhenBoundaryAuthorized,
+        [AllowNull()][string]$ProjectRoot,
+        [AllowNull()][string]$FeatureRef,
+        [AllowNull()][string]$IterationNumber,
+        [AllowNull()][string]$Owner
+    )
+    $effectiveWorkingBoundary = $WorkingBoundary
+    if ($OpenNextCrossingWhenBoundaryAuthorized) {
+        $lastAuthorizedCanonical = Normalize-SpecrewCanonicalBoundaryType -Boundary $LastAuthorizedBoundary
+        $workingCanonical = Normalize-SpecrewCanonicalBoundaryType -Boundary $WorkingBoundary
+        if (-not [string]::IsNullOrWhiteSpace($lastAuthorizedCanonical) -and $lastAuthorizedCanonical -eq $workingCanonical) {
+            $order = @(Get-SpecrewBoundaryOrder)
+            if ($lastAuthorizedCanonical -eq 'iteration-closeout') {
+                $effectiveWorkingBoundary = 'plan'
+            }
+            else {
+                $completedIndex = [Array]::IndexOf($order, $lastAuthorizedCanonical)
+                if ($completedIndex -lt 0 -or $completedIndex -ge ($order.Count - 1)) { return $null }
+                $effectiveWorkingBoundary = $order[$completedIndex + 1]
+            }
+        }
+    }
+    # 202 T011: the one cycle-reset rule needs the feature the last feature-closeout closed (from the ledger's own
+    # entry) and the feature being synced.
+    $closedFeatureRef = $null
+    if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
+        try { $closedFeatureRef = Get-SpecrewClosedFeatureRef -VerdictHistory @((Get-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot).EffectiveState['verdict_history']) } catch { $closedFeatureRef = $null }
+    }
+    $crossing = Get-SpecrewPendingBoundaryCrossing -LastAuthorizedBoundary $LastAuthorizedBoundary -WorkingBoundary $effectiveWorkingBoundary -ClosedFeatureRef $closedFeatureRef -WorkingFeatureRef $FeatureRef
+    if (-not [bool]$crossing.HasPendingVerdict) { return $null }
+    # FR-024 (T014): a crossing is not minted until the stage it enters has its owed artifacts ON DISK.
+    # This is the ONE constructor every minting mechanism goes through - the sync's successor auto-open
+    # and the authorization writer's rebind both arrive here - so the gate lives here and nowhere else.
+    # A positive ABSENT reading refuses (loudly, journaled); UNVERIFIABLE (no feature identity) keeps
+    # today's behavior, the fail-open-on-diagnosis direction of method rule 12.
+    if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
+        # ONE DERIVATION OF THE TARGET ITERATION (fix 6, B4F-066). iteration-closeout -> plan opens the NEXT
+        # iteration, and the cursor names the closed one only while the CALLER'S working boundary is still
+        # iteration-closeout (the authorization's rebind; the successor auto-open on a closeout sync). Once
+        # the plan sync has moved the cursor - working boundary plan - the cursor IS the target, and adding
+        # one asks for an iteration nobody is opening. The value the sync recorded is the value the check
+        # reads. The CALLER'S $WorkingBoundary, not the crossing's: -OpenNextCrossingWhenBoundaryAuthorized
+        # rewrites the latter to plan on the successor auto-open, where the cursor is still the closed one
+        # (crossing-mint-gate Case 1 measured that on the first cut of this rule).
+        $owedIteration = $IterationNumber
+        $workingCanonicalForOwed = Normalize-SpecrewCanonicalBoundaryType -Boundary $WorkingBoundary
+        if ([string]$crossing.PendingToMarkerBoundary -eq 'plan' -and [string]$crossing.PendingFromMarkerBoundary -eq 'iteration-closeout' -and
+            $workingCanonicalForOwed -eq 'iteration-closeout' -and $owedIteration -match '^\d+$') {
+            $owedIteration = ('{0:000}' -f ([int]$owedIteration + 1))
+        }
+        $owed = Test-SpecrewBoundaryOwedArtifactsOnDisk -ProjectRoot $ProjectRoot `
+            -Boundary ([string]$crossing.PendingToMarkerBoundary) -FromBoundary ([string]$crossing.PendingFromMarkerBoundary) `
+            -FeatureRef $FeatureRef -IterationNumber $owedIteration
+        if ([bool]$owed.Absent) {
+            $null = Write-SpecrewCrossingMintRefusal -ProjectRoot $ProjectRoot `
+                -FromBoundary ([string]$crossing.PendingFromMarkerBoundary) -ToBoundary ([string]$crossing.PendingToMarkerBoundary) `
+                -Missing @($owed.Missing) -ExpectedUnder ([string]$owed.ExpectedUnder) -Iteration ([string]$owed.Iteration) -NowUtc $RecordedAt
+            return $null
+        }
+    }
+    $effectiveOwner = $Owner
+    if ([string]::IsNullOrWhiteSpace($effectiveOwner) -and -not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
+        $effectiveOwner = Get-SpecrewCrossingOwnerIdentity -ProjectRoot $ProjectRoot
+    }
+    $identityArgs = @{
+        FromBoundary       = [string]$crossing.PendingFromMarkerBoundary
+        ToBoundary         = [string]$crossing.PendingToMarkerBoundary
+        WorkingBoundary    = [string]$crossing.WorkingBoundary
+        BoundaryCommitHash = $BoundaryCommitHash
+        ArtifactStateId    = $ArtifactStateId
+        RecordedAt         = $RecordedAt
+        Owner              = $effectiveOwner
+    }
+    # Co-review round 5 (202, FR-026): a NEW crossing hashes its feature (identity version 2), so feature B synced at the
+    # same boundary and tree as feature A is its own crossing - its own arrival, owner and marker - instead of taking
+    # over A's. A crossing already pending keeps the identity it was minted with: a legacy crossing re-synced for the
+    # same feature (or one minted before crossings named a feature) stays legacy, so an in-flight marker and any
+    # correction scoped to it keep matching across an upgrade.
+    $existing = ConvertTo-SpecrewBoundaryMap -Value $ExistingScope
+    $featureLeaf = if ([string]::IsNullOrWhiteSpace($FeatureRef)) { '' } else { Split-Path -Leaf $FeatureRef.Trim() }
+    $scope = New-SpecrewBoundaryCrossingIdentity @identityArgs
+    if (-not [string]::IsNullOrWhiteSpace($featureLeaf)) {
+        $existingFeature = if ($null -ne $existing -and $existing.Contains('feature_ref')) { [string]$existing['feature_ref'] } else { '' }
+        $keepLegacy = $null -ne $existing -and [string]$existing['crossing_id'] -eq [string]$scope['crossing_id'] -and
+            -not ($existing.Contains('identity_version') -and -not [string]::IsNullOrWhiteSpace([string]$existing['identity_version'])) -and
+            ([string]::IsNullOrWhiteSpace($existingFeature) -or $existingFeature -eq $featureLeaf)
+        if (-not $keepLegacy) { $scope = New-SpecrewBoundaryCrossingIdentity @identityArgs -FeatureRef $featureLeaf -IdentityVersion '2' }
+    }
+    if ($null -ne $existing -and [string]$existing['crossing_id'] -eq [string]$scope['crossing_id'] -and -not [string]::IsNullOrWhiteSpace([string]$existing['recorded_at'])) {
+        $scope['recorded_at'] = [string]$existing['recorded_at']
+        # The same crossing re-synced keeps its ORIGINAL owner: the arrival was recorded once, by one session.
+        if ($existing.Contains('owner') -and -not [string]::IsNullOrWhiteSpace([string]$existing['owner'])) { $scope['owner'] = [string]$existing['owner'] }
+    }
+    # 202 T011 (FR-026): a new crossing names its feature; it keys per-feature state (the resolver, the coverage line).
+    # Co-review round 5: it is also part of a new crossing's identity (version 2, above); a legacy crossing still verifies.
+    if (-not [string]::IsNullOrWhiteSpace($FeatureRef)) { $scope['feature_ref'] = (Split-Path -Leaf $FeatureRef) }
+    return $scope
+}
+
+function Set-SpecrewPendingBoundaryCrossingScope {
+    # Called by boundary sync after it writes the mechanical session cursor. The pending ask is now one immutable
+    # crossing identity over (from, to, working boundary, boundary commit, Git tree), never a stale session label.
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$WorkingBoundary,
+        [Parameter(Mandatory = $true)][string]$BoundaryCommitHash,
+        [AllowNull()][string]$RecordedAt,
+        # The invoking session's identity, when the caller knows it. Supplied, ownership is BOUND rather
+        # than inferred and Get-SpecrewCrossingOwnerIdentity never consults the shared project-wide marker.
+        # Omitted, the sound fallback applies (one live session -> marker; more than one -> unknown).
+        [AllowNull()][string]$SessionId,
+        [AllowNull()][string]$HostKind,
+        [switch]$OpenNextCrossingWhenBoundaryAuthorized
+    )
+    $state = Get-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot
+    if ($state.NeedsMigration -or $state.Issues.Count -gt 0 -or $null -eq $state.State) {
+        throw "Boundary enforcement state cannot accept a scoped crossing: $(@($state.Issues) -join '; ')"
+    }
+    $artifactStateId = Get-SpecrewGitArtifactStateId -ProjectRoot $ProjectRoot -BoundaryCommitHash $BoundaryCommitHash
+    $effective = $state.EffectiveState
+    $existingScope = if ($state.State.Contains('pending_crossing')) { $state.State['pending_crossing'] } else { $null }
+    $mintSession = if ($state.Context.Contains('session_state') -and $null -ne $state.Context['session_state']) { ConvertTo-SpecrewBoundaryMap -Value $state.Context['session_state'] } else { $null }
+    $mintFeature = if ($null -ne $mintSession -and $mintSession.Contains('feature_ref')) { [string]$mintSession['feature_ref'] } else { $null }
+    $mintIteration = if ($null -ne $mintSession -and $mintSession.Contains('iteration_number')) { [string]$mintSession['iteration_number'] } else { $null }
+    $scope = New-SpecrewPendingCrossingScope `
+        -LastAuthorizedBoundary ([string]$effective['last_authorized_boundary']) `
+        -WorkingBoundary $WorkingBoundary `
+        -BoundaryCommitHash $BoundaryCommitHash `
+        -ArtifactStateId $artifactStateId `
+        -RecordedAt $RecordedAt `
+        -ExistingScope $existingScope `
+        -OpenNextCrossingWhenBoundaryAuthorized:$OpenNextCrossingWhenBoundaryAuthorized `
+        -Owner $(if (-not [string]::IsNullOrWhiteSpace($SessionId)) { Get-SpecrewCrossingOwnerIdentity -ProjectRoot $ProjectRoot -SessionId $SessionId -HostKind $HostKind } else { '' }) `
+        -ProjectRoot $ProjectRoot -FeatureRef $mintFeature -IterationNumber $mintIteration
+    $updated = [ordered]@{
+        enabled                  = [bool]$state.State['enabled']
+        last_authorized_boundary = $state.State['last_authorized_boundary']
+        pending_next_boundary    = if ($null -eq $scope) { $null } else { [string]$scope['to_boundary'] }
+        pending_crossing         = $scope
+        verdict_history          = @($state.State['verdict_history'])
+        correction_history       = if ($state.State.Contains('correction_history')) { @($state.State['correction_history']) } else { @() }
+        bypass_history           = @($state.State['bypass_history'])
+    }
+    Set-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot -BoundaryEnforcement $updated -Context $state.Context | Out-Null
+    return $scope
+}
+
+function Add-SpecrewBoundaryAuthorizationCorrection {
+    # Append-only, human-bound correction of one historical authorization USE for one exact crossing. The
+    # original verdict remains immutable and valid in its original lifecycle cycle.
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$OriginalEntryId,
+        [Parameter(Mandatory = $true)][string]$ScopeFromBoundary,
+        [Parameter(Mandatory = $true)][string]$ScopeToBoundary,
+        [Parameter(Mandatory = $true)][string]$WorkingBoundary,
+        [Parameter(Mandatory = $true)][string]$ScopeBoundaryCommitHash,
+        [Parameter(Mandatory = $true)][string]$ScopeArtifactStateId,
+        [Parameter(Mandatory = $true)][string]$ResultingLastAuthorizedBoundary,
+        [Parameter(Mandatory = $true)][string]$CorrectingAuthority,
+        [Parameter(Mandatory = $true)][string]$AuthorityVerdictText,
+        [Parameter(Mandatory = $true)][string]$AuthorityAuthCommitHash,
+        [Parameter(Mandatory = $true)][string]$Reason,
+        [AllowNull()][string]$RecordedAt
+    )
+    if ($OriginalEntryId -notmatch '^auth-[0-9a-f]{64}$') { throw 'OriginalEntryId must be a stable auth-<sha256> identity.' }
+    if ([string]::IsNullOrWhiteSpace($CorrectingAuthority) -or [string]::IsNullOrWhiteSpace($Reason) -or [string]::IsNullOrWhiteSpace($AuthorityAuthCommitHash)) {
+        throw 'Correcting authority, authority commit, and reason are required.'
+    }
+    $resultingBoundary = Resolve-SpecrewCanonicalBoundaryType -Boundary $ResultingLastAuthorizedBoundary -ParameterName 'ResultingLastAuthorizedBoundary'
+    $verdict = Parse-SpecrewBoundaryVerdict -VerdictText $AuthorityVerdictText
+    if (-not $verdict.Authorized -or @($verdict.Boundaries).Count -ne 1 -or [string]$verdict.Boundaries[0] -ne $resultingBoundary) {
+        throw "Correction authority must be an explicit 'approved for $resultingBoundary' verdict; numeric aliases and other phrases are not authority."
+    }
+    $resolvedArtifactState = Get-SpecrewGitArtifactStateId -ProjectRoot $ProjectRoot -BoundaryCommitHash $ScopeBoundaryCommitHash
+    if ($resolvedArtifactState -ne $ScopeArtifactStateId.Trim().ToLowerInvariant()) {
+        throw "Scope artifact state '$ScopeArtifactStateId' does not match boundary commit '$ScopeBoundaryCommitHash' tree '$resolvedArtifactState'."
+    }
+    $null = Get-SpecrewGitArtifactStateId -ProjectRoot $ProjectRoot -BoundaryCommitHash $AuthorityAuthCommitHash
+    $state = Get-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot
+    if ($state.NeedsMigration -or $state.Issues.Count -gt 0 -or $null -eq $state.State) { throw "Boundary enforcement state is not correctable: $(@($state.Issues) -join '; ')" }
+
+    $target = $null
+    foreach ($entry in @($state.State['verdict_history'])) {
+        if ((Get-SpecrewBoundaryAuthorizationEntryId -Entry $entry) -eq $OriginalEntryId) { $target = $entry; break }
+    }
+    if ($null -eq $target) { throw "Authorization entry '$OriginalEntryId' was not found; no correction was appended." }
+    $targetMap = ConvertTo-SpecrewBoundaryMap -Value $target
+    $targetFrom = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$targetMap['from_boundary'])
+    $targetTo = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$targetMap['to_boundary'])
+    $scopeFrom = Resolve-SpecrewCanonicalBoundaryType -Boundary $ScopeFromBoundary -ParameterName 'ScopeFromBoundary'
+    $scopeTo = Resolve-SpecrewCanonicalBoundaryType -Boundary $ScopeToBoundary -ParameterName 'ScopeToBoundary'
+    if ($targetFrom -ne $scopeFrom -or $targetTo -ne $scopeTo) {
+        throw "Authorization entry '$OriginalEntryId' records '$targetFrom -> $targetTo', not the requested correction crossing '$scopeFrom -> $scopeTo'."
+    }
+    # Co-review round 5 (202, FR-026): the correction names its crossing the way a sync of the active feature mints it
+    # (identity version 2 when the feature is known), so a later re-sync of that feature at the same tree still matches
+    # the correction's scope and the correction keeps applying.
+    # When the crossing being corrected is the one pending, the correction takes its identity form (legacy or version 2).
+    $correctionSession = if ($state.Context.Contains('session_state') -and $null -ne $state.Context['session_state']) { ConvertTo-SpecrewBoundaryMap -Value $state.Context['session_state'] } else { $null }
+    $correctionFeature = if ($null -ne $correctionSession -and $correctionSession.Contains('feature_ref')) { [string]$correctionSession['feature_ref'] } else { '' }
+    $correctionIdentityArgs = @{
+        FromBoundary = $scopeFrom; ToBoundary = $scopeTo; WorkingBoundary = $WorkingBoundary
+        BoundaryCommitHash = $ScopeBoundaryCommitHash; ArtifactStateId = $resolvedArtifactState; RecordedAt = $RecordedAt
+    }
+    $legacyScope = New-SpecrewBoundaryCrossingIdentity @correctionIdentityArgs
+    $pendingForCorrection = if ($state.State.Contains('pending_crossing')) { ConvertTo-SpecrewBoundaryMap -Value $state.State['pending_crossing'] } else { $null }
+    $pendingFeatureArgs = Get-SpecrewCrossingIdentityFeatureArgs -Map $pendingForCorrection
+    $scope = if ($null -ne $pendingForCorrection -and $pendingFeatureArgs.Count -gt 0) {
+        $candidate = New-SpecrewBoundaryCrossingIdentity @correctionIdentityArgs @pendingFeatureArgs
+        if ([string]$candidate['crossing_id'] -eq [string]$pendingForCorrection['crossing_id']) { $candidate } else { $null }
+    }
+    else { $null }
+    if ($null -eq $scope) {
+        $pendingIsLegacyHere = $null -ne $pendingForCorrection -and [string]$pendingForCorrection['crossing_id'] -eq [string]$legacyScope['crossing_id']
+        $scope = if ($pendingIsLegacyHere -or [string]::IsNullOrWhiteSpace($correctionFeature)) { $legacyScope }
+        else { New-SpecrewBoundaryCrossingIdentity @correctionIdentityArgs -FeatureRef $correctionFeature -IdentityVersion '2' }
+    }
+    $scopeId = [string]$scope['crossing_id']
+    $existingCorrections = if ($state.State.Contains('correction_history')) { @($state.State['correction_history']) } else { @() }
+    foreach ($existing in $existingCorrections) {
+        $map = ConvertTo-SpecrewBoundaryMap -Value $existing
+        if ([string]$map['original_entry_id'] -ne $OriginalEntryId -or [string]$map['scope_crossing_id'] -ne $scopeId) { continue }
+        $existingResult = ConvertTo-SpecrewBoundaryMap -Value $map['resulting_boundary_state']
+        if ([string]$existingResult['last_authorized_boundary'] -eq $resultingBoundary -and [string]$map['correcting_authority'] -eq $CorrectingAuthority.Trim() -and [string]$map['authority_verdict_text'] -eq $AuthorityVerdictText.Trim() -and [string]$map['reason'] -eq $Reason.Trim()) {
+            return [pscustomobject]@{ Appended = $false; Correction = $map; EffectiveState = $state.EffectiveState }
+        }
+        throw "A conflicting correction already exists for '$OriginalEntryId' in crossing '$scopeId'."
+    }
+
+    $nextScope = New-SpecrewPendingCrossingScope `
+        -LastAuthorizedBoundary $resultingBoundary `
+        -WorkingBoundary $WorkingBoundary `
+        -BoundaryCommitHash $ScopeBoundaryCommitHash `
+        -ArtifactStateId $resolvedArtifactState `
+        -RecordedAt $RecordedAt `
+        -ExistingScope $scope `
+        -FeatureRef $correctionFeature
+    $pendingNext = if ($null -eq $nextScope) { $null } else { [string]$nextScope['to_boundary'] }
+    $correctionId = 'correction-{0}' -f (Get-SpecrewBoundarySha256 -Text (@($OriginalEntryId, $scopeId, 'invalidation') -join "`u{001f}"))
+    $correction = [ordered]@{
+        correction_id             = $correctionId
+        event_kind                = 'invalidation'
+        original_entry_id         = $OriginalEntryId
+        original_entry_identity   = [ordered]@{
+            authorization_id = $OriginalEntryId
+            from_boundary    = $targetMap['from_boundary']
+            to_boundary      = $targetMap['to_boundary']
+            recorded_at      = $targetMap['recorded_at']
+            auth_commit_hash = $targetMap['auth_commit_hash']
+        }
+        scope_crossing_id          = $scopeId
+        scope_identity             = $scope
+        correcting_authority       = $CorrectingAuthority.Trim()
+        authority_verdict_text     = $AuthorityVerdictText.Trim()
+        authority_auth_commit_hash = $AuthorityAuthCommitHash.Trim().ToLowerInvariant()
+        reason                     = $Reason.Trim()
+        recorded_at                = if ([string]::IsNullOrWhiteSpace($RecordedAt)) { (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $RecordedAt.Trim() }
+        resulting_boundary_state   = [ordered]@{
+            last_authorized_boundary = $resultingBoundary
+            pending_next_boundary    = $pendingNext
+            pending_crossing_id      = if ($null -eq $nextScope) { $null } else { [string]$nextScope['crossing_id'] }
+        }
+    }
+    $correctionHistory = New-Object System.Collections.Generic.List[object]
+    foreach ($entry in $existingCorrections) { $correctionHistory.Add($entry) | Out-Null }
+    $correctionHistory.Add($correction) | Out-Null
+    $updated = [ordered]@{
+        enabled                  = [bool]$state.State['enabled']
+        last_authorized_boundary = $resultingBoundary
+        pending_next_boundary    = $pendingNext
+        pending_crossing         = $nextScope
+        verdict_history          = @($state.State['verdict_history'])
+        correction_history       = @($correctionHistory.ToArray())
+        bypass_history           = @($state.State['bypass_history'])
+    }
+    Set-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot -BoundaryEnforcement $updated -Context $state.Context | Out-Null
+    $after = Get-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot
+    return [pscustomobject]@{ Appended = $true; Correction = $correction; EffectiveState = $after.EffectiveState }
 }
 
 function Initialize-SpecrewBoundaryEnforcementState {
@@ -1656,6 +3489,27 @@ function Parse-SpecrewBoundaryVerdict {
         }
     }
 
+    # A hook-captured verdict may carry binding instructions after the canonical boundary. Accept only a leading
+    # exact canonical boundary followed by an explicit instruction delimiter; arbitrary trailing prose still fails
+    # closed. The original VerdictText is stored by Add-SpecrewBoundaryAuthorization for the audit trail.
+    $instructionVerdict = [regex]::Match(
+        $lowerVerdict,
+        '^approved\s+for\s+(?<boundary>before-implement|review-signoff|iteration-closeout|feature-closeout|specify|clarify|plan|tasks|retro)(?<instruction>(?:\s+with\s+instructions?\b[\s\S]*|\s*[,;:]\s*\S[\s\S]*|\s*[-\u2013\u2014]\s*\S[\s\S]*))$'
+    )
+    if ($instructionVerdict.Success) {
+        $boundary = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$instructionVerdict.Groups['boundary'].Value)
+        if ($boundary -in $CanonicalBoundaries) {
+            return [pscustomobject]@{
+                Authorized        = $true
+                Action            = 'approved'
+                Boundaries        = @($boundary)
+                NormalizedVerdict = "approved for $boundary-boundary entry"
+                DirectiveSentinel = 'SPECREW_BOUNDARY_AUTHORIZED'
+                FailureReason     = $null
+            }
+        }
+    }
+
     if ($lowerVerdict -match '^approved\s+for\s+(.+)$') {
         $payload = $Matches[1].Trim()
         if ($payload -match '\band\b') {
@@ -1749,12 +3603,30 @@ function Test-SpecrewBoundaryAuthorization {
         throw "Boundary enforcement state is malformed: $($enforcementState.Issues -join '; ')"
     }
 
+    # DRIFT-198-I011-012 (first-crossing translation): the first crossing is representable
+    # everywhere except this gate — the detector emits marker-from 'intake'
+    # (Get-SpecrewPendingBoundaryCrossing), the capture writer mints {from: null, to: order[0]}
+    # (Invoke-SpecrewBoundaryVerdictCapture -> Add-SpecrewBoundaryAuthorization), and the
+    # unreconciled primitive already matches with NO from-side (the matcher's null-targetFrom arm,
+    # its existing convention). The only call shape a first boundary can produce here is the
+    # self-transition ask (current == requested == the first canonical boundary): no writer ever
+    # mints a self-edge entry for it, so without translation the ask is unsatisfiable even AFTER
+    # the human approves. In exactly that shape, match on the to-side alone — the cycle-scoped
+    # walk stays the sole authority on which entries are reachable — and report the crossing in
+    # marker vocabulary ('intake -> <first>'). 'intake' is never accepted as an input boundary
+    # here and is never written to verdict_history; ordering enforcement stays in the sync
+    # ratchet, which this gate defers to.
+    $boundaryOrder = @(Get-SpecrewBoundaryOrder)
+    $isFirstCrossingAsk = ($requestedCanonical -eq $boundaryOrder[0] -and $currentCanonical -eq $boundaryOrder[0])
+    $matchFromBoundary = if ($isFirstCrossingAsk) { $null } else { $currentCanonical }
+    $displayCurrentBoundary = if ($isFirstCrossingAsk) { 'intake' } else { $currentCanonical }
+
     if ($EmergencyBypassActive) {
-        Add-SpecrewBoundaryEnforcementLedgerEntry -ProjectRoot $ProjectRoot -Boundary $requestedCanonical -EnforcementAction 'bypassed' -CurrentBoundary $currentCanonical -RequestedBoundary $requestedCanonical -LaunchMode $launchMode -AgentResponseSnippet $snippet -Reason 'Emergency bypass is active for this session.'
+        Add-SpecrewBoundaryEnforcementLedgerEntry -ProjectRoot $ProjectRoot -Boundary $requestedCanonical -EnforcementAction 'bypassed' -CurrentBoundary $displayCurrentBoundary -RequestedBoundary $requestedCanonical -LaunchMode $launchMode -AgentResponseSnippet $snippet -Reason 'Emergency bypass is active for this session.'
         return [pscustomobject]@{
             Authorized            = $true
             Decision              = 'bypassed'
-            CurrentBoundary       = $currentCanonical
+            CurrentBoundary       = $displayCurrentBoundary
             RequestedBoundary     = $requestedCanonical
             MatchedVerdict        = $null
             DirectiveSentinel     = 'SPECREW_BOUNDARY_BYPASS_ACTIVE'
@@ -1764,22 +3636,19 @@ function Test-SpecrewBoundaryAuthorization {
         }
     }
 
-    $matchedVerdict = $null
-    foreach ($verdict in @($enforcementState.State['verdict_history'])) {
-        $verdictMap = if ($verdict -is [System.Collections.IDictionary]) { $verdict } else { $verdict | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable -Depth 12 }
-        $fromBoundary = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$verdictMap['from_boundary'])
-        $toBoundary = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$verdictMap['to_boundary'])
-        if ($fromBoundary -eq $currentCanonical -and $toBoundary -eq $requestedCanonical) {
-            $matchedVerdict = $verdictMap
-        }
-    }
+    # FR-001/FR-002/FR-004: this live gate must NOT match (from, to) by NAME across the
+    # ENTIRE unscoped history - because lifecycles loop, a prior iteration cycle's approval
+    # would otherwise authorize the current cycle's same-named crossing with zero human
+    # involvement. It consumes THE shared cycle-scoped matcher the unreconciled primitive
+    # uses - one read, no per-site copy to drift.
+    $matchedVerdict = Find-SpecrewCycleScopedAuthorization -History @($enforcementState.EffectiveState['verdict_history']) -ToBoundary $requestedCanonical -FromBoundary $matchFromBoundary -LastAuthorizedBoundary ([string]$enforcementState.EffectiveState['last_authorized_boundary'])
 
     if ($null -ne $matchedVerdict) {
-        Add-SpecrewBoundaryEnforcementLedgerEntry -ProjectRoot $ProjectRoot -Boundary $requestedCanonical -EnforcementAction 'authorized' -CurrentBoundary $currentCanonical -RequestedBoundary $requestedCanonical -LaunchMode $launchMode -AgentResponseSnippet $snippet -Reason 'Persisted authorization matched the requested boundary.'
+        Add-SpecrewBoundaryEnforcementLedgerEntry -ProjectRoot $ProjectRoot -Boundary $requestedCanonical -EnforcementAction 'authorized' -CurrentBoundary $displayCurrentBoundary -RequestedBoundary $requestedCanonical -LaunchMode $launchMode -AgentResponseSnippet $snippet -Reason 'Persisted authorization matched the requested boundary.'
         return [pscustomobject]@{
             Authorized            = $true
             Decision              = 'authorized'
-            CurrentBoundary       = $currentCanonical
+            CurrentBoundary       = $displayCurrentBoundary
             RequestedBoundary     = $requestedCanonical
             MatchedVerdict        = [pscustomobject]$matchedVerdict
             DirectiveSentinel     = 'SPECREW_BOUNDARY_AUTHORIZED'
@@ -1793,22 +3662,482 @@ function Test-SpecrewBoundaryAuthorization {
         enabled                  = [bool]$enforcementState.State['enabled']
         last_authorized_boundary = $enforcementState.State['last_authorized_boundary']
         pending_next_boundary    = $requestedCanonical
+        pending_crossing         = if ($enforcementState.State.Contains('pending_crossing')) { $enforcementState.State['pending_crossing'] } else { $null }
         verdict_history          = @($enforcementState.State['verdict_history'])
+        correction_history       = if ($enforcementState.State.Contains('correction_history')) { @($enforcementState.State['correction_history']) } else { @() }
         bypass_history           = @($enforcementState.State['bypass_history'])
     }
     Set-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot -BoundaryEnforcement $mutableState -Context $enforcementState.Context | Out-Null
-    Add-SpecrewBoundaryEnforcementLedgerEntry -ProjectRoot $ProjectRoot -Boundary $requestedCanonical -EnforcementAction 'blocked' -CurrentBoundary $currentCanonical -RequestedBoundary $requestedCanonical -LaunchMode $launchMode -AgentResponseSnippet $snippet -Reason "No persisted authorization matched $currentCanonical -> $requestedCanonical."
+    Add-SpecrewBoundaryEnforcementLedgerEntry -ProjectRoot $ProjectRoot -Boundary $requestedCanonical -EnforcementAction 'blocked' -CurrentBoundary $displayCurrentBoundary -RequestedBoundary $requestedCanonical -LaunchMode $launchMode -AgentResponseSnippet $snippet -Reason "No persisted authorization matched $displayCurrentBoundary -> $requestedCanonical."
     return [pscustomobject]@{
         Authorized            = $false
         Decision              = 'blocked'
-        CurrentBoundary       = $currentCanonical
+        CurrentBoundary       = $displayCurrentBoundary
         RequestedBoundary     = $requestedCanonical
         MatchedVerdict        = $null
         DirectiveSentinel     = 'SPECREW_BOUNDARY_BLOCKED'
         BypassAttemptDetected = $bypassAttemptDetected
-        Reason                = "No persisted authorization matched $currentCanonical -> $requestedCanonical."
+        Reason                = "No persisted authorization matched $displayCurrentBoundary -> $requestedCanonical."
         PolicyClass           = $policyClass
     }
+}
+
+function Find-SpecrewCycleScopedAuthorization {
+    # FR-001/FR-004: THE cycle-scoped reconciliation read, shared by every consumer that asks
+    # "does a recorded human authorization cover this crossing IN THE CURRENT iteration
+    # cycle?" (the unreconciled primitive, the live Test-SpecrewBoundaryAuthorization gate).
+    # Lifecycles loop, so boundary names recur every
+    # iteration: a bare name match across unscoped history re-uses a PRIOR cycle's approval.
+    # Rules, walking the append-ordered history newest-to-oldest:
+    #   - The cursor invariant first: every authorization write moves last_authorized_boundary,
+    #     so cursor == 'iteration-closeout' proves NO post-closeout authorization exists - a
+    #     closed cycle authorizes nothing further; only its own closeout crossing may match.
+    #   - An entry whose to_boundary cannot be read canonically ends the walk: unreadable
+    #     identity fails CLOSED (no match), never open.
+    #   - An entry with to == 'iteration-closeout' terminates a cycle: it may itself match
+    #     (the current cycle's own closeout, only when nothing mid-cycle is newer), and
+    #     everything older belongs to a closed cycle - stop.
+    #   - A cycle-reset edge (from == 'iteration-closeout' into plan-or-later-before-closeout)
+    #     starts the current cycle: the edge itself may match, and everything older stops.
+    param(
+        [AllowNull()]
+        [object[]]$History,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ToBoundary,
+
+        [AllowNull()]
+        [string]$FromBoundary,
+
+        [switch]$RequireAuthorizingHuman,
+
+        [AllowNull()]
+        [string]$LastAuthorizedBoundary
+    )
+
+    $boundaryOrder = @(Get-SpecrewBoundaryOrder)
+    $planIdx = [Array]::IndexOf($boundaryOrder, 'plan')
+    $closeoutIdx = [Array]::IndexOf($boundaryOrder, 'iteration-closeout')
+    $targetTo = Normalize-SpecrewCanonicalBoundaryType -Boundary $ToBoundary
+    $targetFrom = if ([string]::IsNullOrWhiteSpace($FromBoundary)) { $null } else { Normalize-SpecrewCanonicalBoundaryType -Boundary $FromBoundary }
+    $cursor = if ([string]::IsNullOrWhiteSpace($LastAuthorizedBoundary)) { $null } else { Normalize-SpecrewCanonicalBoundaryType -Boundary $LastAuthorizedBoundary }
+    if ($cursor -eq 'iteration-closeout' -and $targetTo -ne 'iteration-closeout') { return $null }
+
+    $items = @($History)
+    $walkedMidCycle = $false
+    for ($i = $items.Count - 1; $i -ge 0; $i--) {
+        $entryMap = if ($items[$i] -is [System.Collections.IDictionary]) { $items[$i] } else { $items[$i] | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable -Depth 12 }
+        $to = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$entryMap['to_boundary'])
+        if ([string]::IsNullOrWhiteSpace($to) -or $to -notin $boundaryOrder) { return $null }
+        $from = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$entryMap['from_boundary'])
+        $human = [string]$entryMap['authorizing_human']
+        $entryMatches = ($to -eq $targetTo) -and
+        ($null -eq $targetFrom -or $from -eq $targetFrom) -and
+        ((-not $RequireAuthorizingHuman) -or (-not [string]::IsNullOrWhiteSpace($human)))
+        if ($to -eq 'iteration-closeout') {
+            if (-not $walkedMidCycle -and $entryMatches) { return $entryMap }
+            return $null
+        }
+        if ($entryMatches) { return $entryMap }
+        $toIdx = [Array]::IndexOf($boundaryOrder, $to)
+        if ($from -eq 'iteration-closeout' -and $toIdx -ge $planIdx -and $toIdx -lt $closeoutIdx) {
+            # A reset edge normally walls off the prior cycle - EXCEPT when the target IS
+            # 'iteration-closeout': the closing cycle's own closeout authorization legitimately
+            # sits just below its exit edge (post-closeout sync-lag shape: cursor already at the
+            # new cycle's plan while the working record still says iteration-closeout). Continue
+            # past exactly this edge; the closeout-terminator rule above still guards the walk -
+            # if the closing cycle's closeout entry is absent, walkedMidCycle is true by the time
+            # an OLDER cycle's closeout entry is reached, and the walk stops without matching.
+            if ($targetTo -eq 'iteration-closeout') { continue }
+            return $null
+        }
+        if ($toIdx -lt $closeoutIdx) { $walkedMidCycle = $true }
+    }
+    return $null
+}
+
+function Get-SpecrewUnreconciledBoundary {
+    # FR-001/FR-002: the ONE shared read answering "is there a human-judgment boundary
+    # crossing that was mechanically recorded but never human-authorized?" Consumed by the sync
+    # ratchet, the governance validator, the resume/start re-confirm surface, and the hard gates
+    # (the A2 covering set) so the answer cannot drift between call sites. Pure read - never
+    # mutates state. Returns $null when clean, else a pscustomobject:
+    #   Boundary        - the unauthorized crossing (canonical name)
+    #   LastAuthorized  - the cursor (canonical name or $null)
+    #   RevertAnchor    - the auth_commit_hash of the newest authorization (the rollback target)
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectRoot
+    )
+
+    $enforcementState = Get-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot
+    if ($enforcementState.NeedsMigration) { return $null }
+    # FR-002/NFR-001 (fail-closed): malformed enforcement state must fail CLOSED at every
+    # consumer of this read, not read as "nothing unreconciled". A corrupt ledger passing the
+    # ratchet is the same fail-open class as cycle-name blindness.
+    if ($enforcementState.Issues.Count -gt 0) {
+        throw ("The boundary approval ledger cannot be read ({0}). Fix the recorded state before advancing; no boundary step can be verified while the ledger is unreadable." -f (@($enforcementState.Issues) -join '; '))
+    }
+
+    $contextState = Get-SpecrewStartContextState -ProjectRoot $ProjectRoot
+    $working = $null
+    if ($enforcementState.State.Contains('pending_crossing')) {
+        $scope = ConvertTo-SpecrewBoundaryMap -Value $enforcementState.State['pending_crossing']
+        if ($null -eq $scope) { return $null }
+        $working = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$scope['working_boundary'])
+    }
+    elseif ($contextState.Context.Contains('session_state')) {
+        $session = $contextState.Context['session_state']
+        if ($session -is [System.Collections.IDictionary] -and $session.Contains('boundary_type')) {
+            $working = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$session['boundary_type'])
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($working)) { return $null }
+    # A session boundary that does not normalize to a canonical human-judgment boundary
+    # (e.g. a legacy 'implement' alias) cannot be a skipped APPROVAL - the ratchet only
+    # guards the policy-classed gates. Malformed enforcement STATE still hard-fails
+    # upstream (the enforcement-state Issues path).
+    if ($working -notin @(Get-SpecrewCanonicalBoundaryTypes)) { return $null }
+
+    $policyClass = Get-SpecrewBoundaryPolicyClass -ProjectRoot $ProjectRoot -Boundary $working
+    if ($policyClass -ne 'human-judgment-required') { return $null }
+
+    $lastAuthorized = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$enforcementState.EffectiveState['last_authorized_boundary'])
+    if ($lastAuthorized -eq $working) { return $null }
+
+    $history = @($enforcementState.EffectiveState['verdict_history'])
+    $revertAnchor = $null
+    foreach ($entry in $history) {
+        $entryMap = if ($entry -is [System.Collections.IDictionary]) { $entry } else { $entry | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable -Depth 12 }
+        if (-not [string]::IsNullOrWhiteSpace([string]$entryMap['auth_commit_hash'])) {
+            $revertAnchor = [string]$entryMap['auth_commit_hash']   # newest wins (history is append-ordered)
+        }
+    }
+
+    # FR-004: reconciliation binds to the CURRENT iteration cycle and ordered occurrence,
+    # never the bare boundary name - lifecycles loop, so every boundary name recurs each
+    # iteration and a prior iteration's same-named approval must not satisfy the current
+    # iteration's crossing. The cycle scoping lives in Find-SpecrewCycleScopedAuthorization,
+    # THE shared matcher this primitive and the live authorization gate both consume - a
+    # per-site copy of the scan is exactly how a live gate can stay cycle-blind.
+    $reconciledEntry = Find-SpecrewCycleScopedAuthorization -History $history -ToBoundary $working -RequireAuthorizingHuman -LastAuthorizedBoundary $lastAuthorized
+    if ($null -ne $reconciledEntry) { return $null }
+
+    return [pscustomobject]@{
+        Boundary       = $working
+        LastAuthorized = $lastAuthorized
+        RevertAnchor   = $revertAnchor
+    }
+}
+
+function Invoke-SpecrewBoundaryRatchetGate {
+    # FR-002: the ratchet. On a host whose agent never stops, the FIRST unapproved
+    # crossing still records mechanically (F-174 preserved - a human was not present to ask),
+    # but a SECOND advance while that crossing is unapproved is refused here, loudly. The
+    # refusal message is consumer-legible by contract (FR-018 as amended): it names the waiting
+    # step and both ways forward, tells the assistant to ask an approve/decline question, and
+    # carries no internal rule identifiers. Re-recording the SAME boundary is not an advance
+    # (idempotent re-sync stays allowed).
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RequestedBoundary
+    )
+
+    $requestedCanonical = Resolve-SpecrewCanonicalBoundaryType -Boundary $RequestedBoundary -ParameterName 'RequestedBoundary'
+    # The ratchet consumes the authorization ledger, so malformed ledger state must be refused before
+    # the convenience projection below can collapse it to "nothing unreconciled". The dogfood failure
+    # was an agent-authored specify -> specify entry with a boolean authorizing_human; Get-Unreconciled
+    # could not use it and returned null, which accidentally made the malformed state look clean.
+    $enforcementState = Get-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot
+    if (-not $enforcementState.Exists) {
+        # A brand-new project has no authorization ledger until this first crossing is recorded.
+        # Absence before the first write is initialization, not malformed v2 state.
+        return $true
+    }
+    if ($enforcementState.NeedsMigration) {
+        # A recognized v0/v1 pre-bootstrap state is not a malformed authorization ledger. Let the
+        # first crossing reach Set-SpecrewPendingBoundaryCrossingScope; boundary sync converts that
+        # recordability failure into the explicit, branchable `unrecordable` state. Malformed v2
+        # authorization state still refuses below.
+        return $true
+    }
+    if ($enforcementState.Issues.Count -gt 0) {
+        throw "Boundary enforcement state is malformed: $($enforcementState.Issues -join '; ')"
+    }
+    $unreconciled = Get-SpecrewUnreconciledBoundary -ProjectRoot $ProjectRoot
+    if ($null -eq $unreconciled) { return $true }
+    if ($unreconciled.Boundary -eq $requestedCanonical) { return $true }
+
+    $contextState = Get-SpecrewStartContextState -ProjectRoot $ProjectRoot
+    $launchMode = if ($contextState.Context.Contains('launch_mode')) { [string]$contextState.Context['launch_mode'] } else { $null }
+    Add-SpecrewBoundaryEnforcementLedgerEntry -ProjectRoot $ProjectRoot -Boundary $requestedCanonical -EnforcementAction 'blocked' -CurrentBoundary $unreconciled.Boundary -RequestedBoundary $requestedCanonical -LaunchMode $launchMode -AgentResponseSnippet $null -Reason ("Ratchet refusal: '{0}' is recorded but not human-approved; a second advance to '{1}' is refused until it is reconciled." -f $unreconciled.Boundary, $requestedCanonical)
+
+    $anchorText = if ([string]::IsNullOrWhiteSpace([string]$unreconciled.RevertAnchor)) { 'the last approved commit' } else { ("commit {0}" -f ([string]$unreconciled.RevertAnchor).Substring(0, [Math]::Min(8, ([string]$unreconciled.RevertAnchor).Length))) }
+    throw ("Cannot continue to '{0}': the earlier '{1}' step is still waiting for your approval. One approval advances one step, so the assistant must not move past an unapproved step. Two ways forward: (1) approve the waiting '{1}' step - the assistant will ask you to approve or decline it; or (2) roll back to the last approved point ({2}) - the assistant will ask for your explicit confirmation first, because rolling back discards the unapproved work. Re-running the same command will not bypass this stop." -f $requestedCanonical, $unreconciled.Boundary, $anchorText)
+}
+
+function Get-SpecrewCrossingMirrorMap {
+    # FR-030 (iteration 002, T021): the enumerated COPIES of last_authorized_boundary and the vocabulary each
+    # file already speaks. state.md Current Phase is the boundary name itself; plan.md Status is the
+    # validator's own enum, mapped. state.md Iteration Status is NOT a copy - it is derived from task
+    # progress by task-progress.ps1 in its own enum - and the crossing writer touches it only at
+    # iteration-closeout (-> complete). No value is migrated; no upgrade breaks.
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Boundary)
+    $canonical = Normalize-SpecrewCanonicalBoundaryType -Boundary $Boundary
+    $planStatus = switch ($canonical) {
+        'plan' { 'planning' }
+        'tasks' { 'planning' }
+        'before-implement' { 'executing' }
+        'review-signoff' { 'reviewing' }
+        'retro' { 'retro' }
+        'iteration-closeout' { 'complete' }
+        default { $null }
+    }
+    $iterationScoped = $canonical -in @('plan', 'tasks', 'before-implement', 'review-signoff', 'retro', 'iteration-closeout')
+    return [pscustomobject]@{
+        Boundary        = $canonical
+        IterationScoped = $iterationScoped
+        CurrentPhase    = if ($iterationScoped) { $canonical } else { $null }
+        PlanStatus      = $planStatus
+        IterationStatus = if ($canonical -eq 'iteration-closeout') { 'complete' } else { $null }
+    }
+}
+
+function Get-SpecrewPlanStatusRank {
+    [CmdletBinding()]
+    param([AllowNull()][string]$Status)
+    $order = @('planning', 'executing', 'reviewing', 'retro', 'complete')
+    $value = if ([string]::IsNullOrWhiteSpace($Status)) { '' } else { $Status.Trim().ToLowerInvariant() }
+    return [Array]::IndexOf($order, $value)
+}
+
+function Set-SpecrewMarkdownMetadataLine {
+    # Rewrites one `**Label**: value` metadata line in place. Never invents a line: a file without the label
+    # is left alone and reported, so a mirror write can never fabricate a field the writer does not own.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][string]$Value
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return [pscustomobject]@{ Path = $Path; Label = $Label; Found = $false; Changed = $false; Previous = $null } }
+    $content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    # CRLF-safe: .NET's multiline `$` matches before \n only, so the value must be allowed to end before an optional \r.
+    $pattern = '(?m)^(\*\*' + [regex]::Escape($Label) + '\*\*:[ \t]*)(?<value>[^\r\n]*)\r?$'
+    $match = [regex]::Match($content, $pattern)
+    if (-not $match.Success) { return [pscustomobject]@{ Path = $Path; Label = $Label; Found = $false; Changed = $false; Previous = $null } }
+    $previous = $match.Groups['value'].Value.Trim()
+    if ($previous -ceq $Value) { return [pscustomobject]@{ Path = $Path; Label = $Label; Found = $true; Changed = $false; Previous = $previous } }
+    $updated = $content.Substring(0, $match.Groups['value'].Index) + $Value + $content.Substring($match.Groups['value'].Index + $match.Groups['value'].Length)
+    [IO.File]::WriteAllText($Path, $updated, [Text.UTF8Encoding]::new($false))
+    return [pscustomobject]@{ Path = $Path; Label = $Label; Found = $true; Changed = $true; Previous = $previous }
+}
+
+function Get-SpecrewMirrorMetadataValue {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Label)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    $content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    $match = [regex]::Match($content, '(?m)^\*\*' + [regex]::Escape($Label) + '\*\*:[ \t]*(?<value>[^\r\n]*)\r?$')
+    if ($match.Success) { return $match.Groups['value'].Value.Trim() }
+    return $null
+}
+
+function Resolve-SpecrewCrossingMirrorPaths {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [AllowNull()][string]$FeatureRef,
+        [AllowNull()][string]$IterationNumber
+    )
+    $root = Resolve-ProjectPath -Path $ProjectRoot
+    $feature = $FeatureRef
+    $iteration = $IterationNumber
+    if ([string]::IsNullOrWhiteSpace($feature) -or [string]::IsNullOrWhiteSpace($iteration)) {
+        try {
+            $ctxPath = Join-Path $root '.specrew/start-context.json'
+            if (Test-Path -LiteralPath $ctxPath -PathType Leaf) {
+                $ctx = Get-Content -LiteralPath $ctxPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                $ssProp = $ctx.PSObject.Properties['session_state']
+                $ss = if ($null -ne $ssProp) { $ssProp.Value } else { $null }
+                if ($null -ne $ss) {
+                    if ([string]::IsNullOrWhiteSpace($feature) -and $null -ne $ss.PSObject.Properties['feature_ref']) { $feature = [string]$ss.feature_ref }
+                    if ([string]::IsNullOrWhiteSpace($iteration) -and $null -ne $ss.PSObject.Properties['iteration_number']) { $iteration = [string]$ss.iteration_number }
+                }
+            }
+        }
+        catch { $null = $_ }
+    }
+    if ([string]::IsNullOrWhiteSpace($feature) -or [string]::IsNullOrWhiteSpace($iteration)) { return $null }
+    $iterationDir = Join-Path (Join-Path $root ('specs/' + (Split-Path -Leaf $feature))) ('iterations/' + $iteration)
+    return [pscustomobject]@{
+        Feature      = $feature
+        Iteration    = $iteration
+        IterationDir = $iterationDir
+        StatePath    = Join-Path $iterationDir 'state.md'
+        PlanPath     = Join-Path $iterationDir 'plan.md'
+    }
+}
+
+function Sync-SpecrewCrossingMirrors {
+    # FR-030 (T021): the crossing writer owns every enumerated COPY of the authority it writes. Writes are
+    # FORWARD-ONLY: a copy that is behind the store is brought up to it; a copy that is AHEAD of the store
+    # is never rewritten here - that shape is what a forged advance looks like, and the truth gate refuses
+    # it by name (Get-SpecrewCrossingMirrorIssues). A copy may lead the store by exactly the pending
+    # crossing during the arrival-to-verdict window; that lead is left alone too.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$AuthorizedBoundary,
+        [AllowNull()][string]$FeatureRef,
+        [AllowNull()][string]$IterationNumber,
+        [AllowNull()][string]$Reason,
+        [AllowNull()][string]$NowUtc
+    )
+    $result = [pscustomobject]@{ Attempted = $false; Wrote = @(); Left = @(); Reason = $Reason; StatePath = $null; PlanPath = $null }
+    $map = Get-SpecrewCrossingMirrorMap -Boundary $AuthorizedBoundary
+    if (-not [bool]$map.IterationScoped) { $result.Reason = 'feature-level boundary: no iteration copy to write'; return $result }
+    $paths = Resolve-SpecrewCrossingMirrorPaths -ProjectRoot $ProjectRoot -FeatureRef $FeatureRef -IterationNumber $IterationNumber
+    if ($null -eq $paths) { $result.Reason = 'no iteration identity: nothing to mirror'; return $result }
+    $result.StatePath = $paths.StatePath
+    $result.PlanPath = $paths.PlanPath
+    $result.Attempted = $true
+    $wrote = New-Object System.Collections.Generic.List[string]
+    $left = New-Object System.Collections.Generic.List[string]
+    $order = @(Get-SpecrewBoundaryOrder)
+
+    # state.md Current Phase: the boundary name, forward-only.
+    if (Test-Path -LiteralPath $paths.StatePath -PathType Leaf) {
+        $currentPhase = Get-SpecrewMirrorMetadataValue -Path $paths.StatePath -Label 'Current Phase'
+        $currentCanonical = if ([string]::IsNullOrWhiteSpace($currentPhase)) { $null } else { Normalize-SpecrewCanonicalBoundaryType -Boundary $currentPhase }
+        $currentRank = if ([string]::IsNullOrWhiteSpace($currentCanonical)) { -1 } else { [Array]::IndexOf($order, $currentCanonical) }
+        $targetRank = [Array]::IndexOf($order, [string]$map.CurrentPhase)
+        if ($currentRank -gt $targetRank) {
+            $left.Add(('state.md Current Phase is ahead of the store ({0} > {1}); not rewritten' -f $currentPhase, $map.CurrentPhase)) | Out-Null
+        }
+        else {
+            $w = Set-SpecrewMarkdownMetadataLine -Path $paths.StatePath -Label 'Current Phase' -Value ([string]$map.CurrentPhase)
+            if ([bool]$w.Changed) { $wrote.Add(('state.md Current Phase: {0} -> {1}' -f $w.Previous, $map.CurrentPhase)) | Out-Null }
+            elseif (-not [bool]$w.Found) { $left.Add('state.md has no Current Phase line; not invented') | Out-Null }
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$map.IterationStatus)) {
+            $w2 = Set-SpecrewMarkdownMetadataLine -Path $paths.StatePath -Label 'Iteration Status' -Value ([string]$map.IterationStatus)
+            if ([bool]$w2.Changed) { $wrote.Add(('state.md Iteration Status: {0} -> {1}' -f $w2.Previous, $map.IterationStatus)) | Out-Null }
+        }
+    }
+    else { $left.Add('state.md does not exist; nothing to mirror') | Out-Null }
+
+    # plan.md Status: the validator's enum, mapped, forward-only; `abandoned` is terminal and never touched.
+    if ((Test-Path -LiteralPath $paths.PlanPath -PathType Leaf) -and -not [string]::IsNullOrWhiteSpace([string]$map.PlanStatus)) {
+        $planStatus = Get-SpecrewMirrorMetadataValue -Path $paths.PlanPath -Label 'Status'
+        if ($null -ne $planStatus -and $planStatus.Trim().ToLowerInvariant() -eq 'abandoned') {
+            $left.Add('plan.md Status is abandoned (terminal); not rewritten') | Out-Null
+        }
+        elseif ((Get-SpecrewPlanStatusRank -Status $planStatus) -gt (Get-SpecrewPlanStatusRank -Status ([string]$map.PlanStatus))) {
+            $left.Add(('plan.md Status is ahead of the store ({0} > {1}); not rewritten' -f $planStatus, $map.PlanStatus)) | Out-Null
+        }
+        else {
+            $w3 = Set-SpecrewMarkdownMetadataLine -Path $paths.PlanPath -Label 'Status' -Value ([string]$map.PlanStatus)
+            if ([bool]$w3.Changed) { $wrote.Add(('plan.md Status: {0} -> {1}' -f $w3.Previous, $map.PlanStatus)) | Out-Null }
+            elseif (-not [bool]$w3.Found) { $left.Add('plan.md has no Status line; not invented') | Out-Null }
+        }
+    }
+    $result.Wrote = $wrote.ToArray()
+    $result.Left = $left.ToArray()
+    # The iteration directory these copies live in, returned so the closeout authorization can seal it as
+    # its last act - AFTER this advance, never before it (B4F-063: sealing at arrival froze `retro` in and
+    # flagged the verdict's own `complete` as tampering).
+    $result | Add-Member -NotePropertyName 'IterationDir' -NotePropertyValue ([string]$paths.IterationDir) -Force
+    if ($wrote.Count -gt 0) {
+        try {
+            $journal = Join-Path (Resolve-ProjectPath -Path $ProjectRoot) '.specrew/runtime/handover-journal.jsonl'
+            $dir = Split-Path -Parent $journal
+            if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+            $when = if ([string]::IsNullOrWhiteSpace($NowUtc)) { (Get-Date).ToUniversalTime().ToString('o') } else { $NowUtc }
+            (([pscustomobject]@{ event = 'crossing-mirrors-written'; recorded_at = $when; boundary = [string]$map.Boundary; iteration = [string]$paths.Iteration; wrote = @($wrote); left = @($left); reason = $Reason }) | ConvertTo-Json -Compress) | Add-Content -LiteralPath $journal -Encoding UTF8
+        }
+        catch { $null = $_ }
+    }
+    return $result
+}
+
+function Get-SpecrewCrossingMirrorIssues {
+    # FR-030 (T021): the truth check over every enumerated mirror. A copy may equal the store or lead it by
+    # exactly the pending crossing; anything else is named, with the one action that repairs it.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [AllowNull()][string]$FeatureRef,
+        [AllowNull()][string]$IterationNumber,
+        # THE SAME CAP THE WRITER TAKES, because the CHECKER had the same confusion one layer over.
+        # Found by replaying a real cycle end to end rather than by a fixture: with the writer capped, a
+        # fresh iteration's copies were correctly left alone - and this checker then compared them against
+        # the GLOBAL `iteration-closeout` and reported them "behind the authority record", advising the
+        # human to "re-run the boundary sync for 'iteration-closeout'". That advice re-creates the wedge the
+        # writer's cap had just prevented. The silent forward-write had become a loud, wrong refusal.
+        [AllowNull()][string]$BoundaryCeiling
+    )
+    $issues = New-Object System.Collections.Generic.List[string]
+    $paths = Resolve-SpecrewCrossingMirrorPaths -ProjectRoot $ProjectRoot -FeatureRef $FeatureRef -IterationNumber $IterationNumber
+    if ($null -eq $paths) { return @() }
+    $enforcement = $null
+    try { $enforcement = Get-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot } catch { return @() }
+    if ($null -eq $enforcement -or $null -eq $enforcement.EffectiveState) { return @() }
+    $lastAuthorized = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$enforcement.EffectiveState['last_authorized_boundary'])
+    if (-not [string]::IsNullOrWhiteSpace($BoundaryCeiling)) {
+        $ceilingOrder = @(Get-SpecrewCanonicalBoundaryTypes)
+        $lastIdx = [Array]::IndexOf($ceilingOrder, $lastAuthorized)
+        $ceilIdx = [Array]::IndexOf($ceilingOrder, (Normalize-SpecrewCanonicalBoundaryType -Boundary $BoundaryCeiling))
+        if ($lastIdx -ge 0 -and $ceilIdx -ge 0 -and $lastIdx -gt $ceilIdx) {
+            $lastAuthorized = Normalize-SpecrewCanonicalBoundaryType -Boundary $BoundaryCeiling
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($lastAuthorized)) { return @() }
+    $pendingTo = $null
+    $lastRecordedAt = $null
+    try {
+        $pc = if ($enforcement.State.Contains('pending_crossing')) { ConvertTo-SpecrewBoundaryMap -Value $enforcement.State['pending_crossing'] } else { $null }
+        if ($null -ne $pc -and $pc.Contains('to_boundary')) { $pendingTo = Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$pc['to_boundary']) }
+        $history = @($enforcement.EffectiveState['verdict_history'])
+        if ($history.Count -gt 0) { $last = ConvertTo-SpecrewBoundaryMap -Value $history[$history.Count - 1]; if ($null -ne $last -and $last.Contains('recorded_at')) { $lastRecordedAt = [string]$last['recorded_at'] } }
+    }
+    catch { $null = $_ }
+    # The active iteration is the only one whose copies the store speaks for; a closed iteration keeps its record.
+    $mapLast = Get-SpecrewCrossingMirrorMap -Boundary $lastAuthorized
+    $mapPending = if ([string]::IsNullOrWhiteSpace($pendingTo)) { $null } else { Get-SpecrewCrossingMirrorMap -Boundary $pendingTo }
+    $approvedText = if ([string]::IsNullOrWhiteSpace($lastRecordedAt)) { '' } else { (' (approved {0})' -f $lastRecordedAt) }
+    $action = "Re-run the boundary sync for '{0}' to re-mirror the phase; if state.md is ahead of the record rather than behind it, correct the line by hand and record why in the drift log." -f $lastAuthorized
+
+    if ((Test-Path -LiteralPath $paths.StatePath -PathType Leaf) -and [bool]$mapLast.IterationScoped) {
+        $currentPhase = Get-SpecrewMirrorMetadataValue -Path $paths.StatePath -Label 'Current Phase'
+        if (-not [string]::IsNullOrWhiteSpace($currentPhase)) {
+            $currentCanonical = Normalize-SpecrewCanonicalBoundaryType -Boundary $currentPhase
+            $allowed = @([string]$mapLast.CurrentPhase)
+            if ($null -ne $mapPending -and -not [string]::IsNullOrWhiteSpace([string]$mapPending.CurrentPhase)) { $allowed += [string]$mapPending.CurrentPhase }
+            if (-not [string]::IsNullOrWhiteSpace($currentCanonical) -and $currentCanonical -notin $allowed) {
+                $issues.Add(("state.md for iteration {0} says Current Phase '{1}', but the last authorized boundary is '{2}'{3}. The page a human opens to learn where the work stands is behind the authority record. {4}" -f $paths.Iteration, $currentPhase, $lastAuthorized, $approvedText, $action)) | Out-Null
+            }
+        }
+        $iterationStatus = Get-SpecrewMirrorMetadataValue -Path $paths.StatePath -Label 'Iteration Status'
+        if (-not [string]::IsNullOrWhiteSpace($iterationStatus) -and $iterationStatus.Trim().ToLowerInvariant() -eq 'complete' -and $lastAuthorized -ne 'iteration-closeout' -and $pendingTo -ne 'iteration-closeout') {
+            $issues.Add(("state.md for iteration {0} says Iteration Status 'complete', but the last authorized boundary is '{1}'{2} and no closeout is pending: an iteration is complete only when its closeout is authorized or being asked for. {3}" -f $paths.Iteration, $lastAuthorized, $approvedText, $action)) | Out-Null
+        }
+    }
+    if ((Test-Path -LiteralPath $paths.PlanPath -PathType Leaf) -and -not [string]::IsNullOrWhiteSpace([string]$mapLast.PlanStatus)) {
+        $planStatus = Get-SpecrewMirrorMetadataValue -Path $paths.PlanPath -Label 'Status'
+        if (-not [string]::IsNullOrWhiteSpace($planStatus) -and $planStatus.Trim().ToLowerInvariant() -ne 'abandoned') {
+            $allowedPlan = @([string]$mapLast.PlanStatus)
+            if ($null -ne $mapPending -and -not [string]::IsNullOrWhiteSpace([string]$mapPending.PlanStatus)) { $allowedPlan += [string]$mapPending.PlanStatus }
+            if ($planStatus.Trim().ToLowerInvariant() -notin $allowedPlan) {
+                $issues.Add(("plan.md for iteration {0} says Status '{1}', but the last authorized boundary is '{2}'{3}, which reads '{4}' in plan.md's own vocabulary. The page a human opens to learn where the work stands is out of step with the authority record. {5}" -f $paths.Iteration, $planStatus, $lastAuthorized, $approvedText, $mapLast.PlanStatus, $action)) | Out-Null
+            }
+        }
+    }
+    return $issues.ToArray()
 }
 
 function Add-SpecrewBoundaryAuthorization {
@@ -1842,7 +4171,35 @@ function Add-SpecrewBoundaryAuthorization {
         # 'unspecified'. Recorded on the verdict_history entry so the audit trail is honest about each
         # authorization's provenance strength. It is NEVER 'fabricated' — sync no longer writes authorizations.
         [AllowNull()]
-        [string]$EvidenceSource
+        [string]$EvidenceSource,
+
+        # AN AGENT-WRITTEN AUTHORIZATION MUST NOT BE INDISTINGUISHABLE FROM A CAPTURED ONE
+        # (maintainer ruling 2026-08-12, from frozen dogfood evidence).
+        #
+        # Measured: verdict_history [2], bypass_history [0], on a run where capture failed three times
+        # and the agent - having read this file and found this function - called it directly. Both
+        # entries were stamped evidence_source 'human-confirmed-at-resume', kind 'standard': a REAL,
+        # documented provenance label, self-asserted, with nothing verifying it. The ledger's entire
+        # value is that a recorded human authorization means a human authorized.
+        #
+        # The label alone cannot be the discriminator, precisely because the agent chose a legitimate
+        # one. So: only the CAPTURE PATH may claim a captured source, and any other caller must declare
+        # itself here. A declared call is still recorded - the human's intent is not thrown away - but it
+        # is ALSO written to bypass_history with this reason, so provenance is visible instead of silently
+        # equivalent. An undeclared non-capture call is REFUSED.
+        #
+        # Same fabrication direction refused when a placeholder authorization reference arrived; here the
+        # product's own failure induced it, which is why the guarantee moves from the agent's discipline
+        # into the writer.
+        [AllowNull()]
+        [string]$OutOfBandReason,
+
+        # FR-005: 'standard' (the verdict answered the live pending ask) | 'retroactive'
+        # (the human reconciled an already-crossed boundary after the fact - the resume/re-confirm
+        # surface, or a capture that missed its original stop). Recorded on the entry so
+        # retroactive approvals are auditably distinct.
+        [AllowNull()]
+        [string]$Kind
     )
 
     $currentCanonical = if ([string]::IsNullOrWhiteSpace($CurrentBoundary)) { $null } else { Resolve-SpecrewCanonicalBoundaryType -Boundary $CurrentBoundary -ParameterName 'CurrentBoundary' }
@@ -1850,7 +4207,25 @@ function Add-SpecrewBoundaryAuthorization {
     $boundaryOrder = @(Get-SpecrewBoundaryOrder)
     $currentIndex = if ([string]::IsNullOrWhiteSpace($currentCanonical)) { -1 } else { [Array]::IndexOf($boundaryOrder, $currentCanonical) }
     $authorizedIndex = [Array]::IndexOf($boundaryOrder, $authorizedCanonical)
-    if ($authorizedIndex -lt $currentIndex) {
+    # Cycle resets (FR-004 iterations; 202 T011 / FR-026 features): authorizing an earlier-phase boundary FROM a
+    # closeout is the next cycle beginning, not a backward move. ONE rule, shared with the crossing deriver
+    # (Get-SpecrewBoundaryCycleReset). The feature this authorization belongs to - the pending crossing's own, else
+    # the active session's - is recorded on the entry too, so the next feature's reset can name what was closed.
+    $authorizationFeatureRef = $null
+    $closedFeatureRefForReset = $null
+    try {
+        $preState = Get-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot
+        $preScope = if ($null -ne $preState.EffectiveState -and $preState.EffectiveState.Contains('pending_crossing')) { ConvertTo-SpecrewBoundaryMap -Value $preState.EffectiveState['pending_crossing'] } else { $null }
+        if ($null -ne $preScope -and $preScope.Contains('feature_ref') -and -not [string]::IsNullOrWhiteSpace([string]$preScope['feature_ref'])) { $authorizationFeatureRef = [string]$preScope['feature_ref'] }
+        elseif ($null -ne $preState.Context -and $preState.Context.Contains('session_state') -and $null -ne $preState.Context['session_state']) {
+            $preSession = ConvertTo-SpecrewBoundaryMap -Value $preState.Context['session_state']
+            if ($null -ne $preSession -and $preSession.Contains('feature_ref') -and -not [string]::IsNullOrWhiteSpace([string]$preSession['feature_ref'])) { $authorizationFeatureRef = Split-Path -Leaf ([string]$preSession['feature_ref']) }
+        }
+        if ($null -ne $preState.EffectiveState) { $closedFeatureRefForReset = Get-SpecrewClosedFeatureRef -VerdictHistory @($preState.EffectiveState['verdict_history']) }
+    }
+    catch { $authorizationFeatureRef = $null; $closedFeatureRefForReset = $null }
+    $cycleReset = Get-SpecrewBoundaryCycleReset -LastAuthorizedBoundary $currentCanonical -WorkingBoundary $authorizedCanonical -ClosedFeatureRef $closedFeatureRefForReset -WorkingFeatureRef $authorizationFeatureRef
+    if ($authorizedIndex -lt $currentIndex -and -not [bool]$cycleReset.IsReset) {
         throw "Cannot authorize '$authorizedCanonical' from '$currentCanonical' because it moves backward in the canonical order."
     }
 
@@ -1878,12 +4253,73 @@ function Add-SpecrewBoundaryAuthorization {
         throw "Boundary enforcement state is malformed: $($enforcementState.Issues -join '; ')"
     }
 
+    # IDEMPOTENCE ON (CROSSING + VERDICT TEXT) - T004/FR-010, maintainer constraint 2026-08-10.
+    #
+    # ONE human verdict reaches this writer TWICE BY DESIGN: Invoke-SpecrewBoundaryVerdictCapture is
+    # called from the UserPromptSubmit/PreInvocation hook AND again from Stop at end-of-turn, and both
+    # read the same transcript. Two history entries for one verdict is the FABRICATION direction and
+    # the unrecoverable one - in the ledger, two authorizations are indistinguishable from two real
+    # approvals.
+    #
+    # The key is the crossing's DESTINATION plus the VERDICT TEXT, matched against the NEWEST entry.
+    # Three things about that, each load-bearing:
+    #
+    #   * NOT keyed on the cursor. The previous form required the cursor to ALREADY sit on the
+    #     authorized boundary, so it was only correct once the first write had landed and moved it -
+    #     it relied on the two paths never overlapping, which is precisely the wiring that drifts.
+    #   * NOT keyed on from_boundary. The second write arrives AFTER the cursor advanced, so its
+    #     from_boundary is the destination itself (a self-transition); comparing it would miss every
+    #     real duplicate.
+    #   * NOT the authorization entry id. Get-SpecrewBoundaryAuthorizationEntryId hashes recorded_at,
+    #     which necessarily differs between a prompt-submit write and a Stop write of the same
+    #     verdict, so it can never recognise the duplicate it would need to catch.
+    #
+    # Comparing the VERDICT TEXT is what makes this narrower than what it replaces: a genuinely
+    # different verdict for the same boundary is no longer swallowed as a duplicate.
+    #
+    # NEWEST-ENTRY-ONLY is what keeps it from eating a legitimate repeat: a later iteration cycle
+    # re-approving the same boundary with byte-identical text has other entries appended in between,
+    # so it appends normally. Only a verdict that is its own immediate predecessor is a duplicate.
+    $existingHistory = @($enforcementState.EffectiveState['verdict_history'])
+    if ($existingHistory.Count -gt 0) {
+        $newestEntry = $existingHistory[-1]
+        $newestMap = if ($newestEntry -is [System.Collections.IDictionary]) { $newestEntry } else { $newestEntry | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable -Depth 12 }
+        if ((Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$newestMap['to_boundary'])) -eq $authorizedCanonical -and
+            [string]$newestMap['verdict_text'] -ceq [string]$VerdictText) {
+            return [pscustomobject]@{
+                AuthorizedBoundary = $authorizedCanonical
+                StoredVerdict      = [string]$newestMap['verdict_text']
+                RecordedAt         = [string]$newestMap['recorded_at']
+                DirectiveSentinel  = 'SPECREW_BOUNDARY_AUTHORIZED'
+            }
+        }
+    }
+
     $verdictHistory = New-Object System.Collections.Generic.List[object]
     foreach ($entry in @($enforcementState.State['verdict_history'])) {
         $verdictHistory.Add($entry) | Out-Null
     }
     $effectiveEvidenceSource = if ([string]::IsNullOrWhiteSpace($EvidenceSource)) { 'unspecified' } else { $EvidenceSource.Trim() }
-    $verdictHistory.Add([ordered]@{
+
+    # The sources the capture path actually emits, read from HandoverStore.ps1 rather than composed.
+    # W45 added 'hook-captured-user-prompt': the prompt-entry event's own text, on hosts whose prompt
+    # event carries no transcript path - the same channel and label the partial-signoff, workshop-repair
+    # and round-approval writers use. It is captured provenance, not out-of-band: the hook saw the
+    # human's typed turn at the moment they submitted it.
+    $capturedEvidenceSources = @('hook-captured-from-transcript', 'hook-captured-from-transcript-pending-artifact', 'hook-captured-user-prompt')
+    $isCapturedProvenance = $capturedEvidenceSources -ccontains $effectiveEvidenceSource
+    $isOutOfBand = -not $isCapturedProvenance
+    if ($isOutOfBand -and [string]::IsNullOrWhiteSpace($OutOfBandReason)) {
+        throw ("This authorization was not recorded by Specrew's verdict capture, so it cannot be recorded as one. " +
+            "If a human approved and capture did not take it, say so explicitly by passing -OutOfBandReason with what happened; " +
+            "it will be recorded as an authorization AND as a bypass, so the audit trail shows how it was made. " +
+            "Evidence source seen: '$effectiveEvidenceSource'.")
+    }
+    $effectiveKind = if ([string]::IsNullOrWhiteSpace($Kind)) { 'standard' } else { $Kind.Trim().ToLowerInvariant() }
+    if ($effectiveKind -notin @('standard', 'retroactive')) {
+        throw "Authorization kind '$Kind' is not recognized (standard | retroactive)."
+    }
+    $newAuthorization = [ordered]@{
         from_boundary     = $currentCanonical
         to_boundary       = $authorizedCanonical
         verdict_text      = $VerdictText
@@ -1891,22 +4327,140 @@ function Add-SpecrewBoundaryAuthorization {
         recorded_at       = $effectiveRecordedAt
         auth_commit_hash  = $effectiveAuthCommitHash
         evidence_source   = $effectiveEvidenceSource
-    }) | Out-Null
+        kind              = $effectiveKind
+        # Carried ON the entry, not only in bypass_history, so a reader of verdict_history alone can
+        # still tell a captured authorization from a declared out-of-band one.
+        out_of_band       = [bool]$isOutOfBand
+    }
+    $newAuthorization['authorization_id'] = Get-SpecrewBoundaryAuthorizationEntryId -Entry $newAuthorization
+    # 202 T011 (FR-026): new entries name their feature. Added after the id, which hashes a fixed field list, so the
+    # id derivation is unchanged; legacy entries are never rewritten.
+    if (-not [string]::IsNullOrWhiteSpace($authorizationFeatureRef)) { $newAuthorization['feature_ref'] = $authorizationFeatureRef }
+    $verdictHistory.Add($newAuthorization) | Out-Null
+
+    # THE BYPASS RECORD IS THE POINT. Without this, a declared out-of-band authorization would still
+    # leave bypass_history at zero - which is the exact state the frozen evidence shows and the reason
+    # nobody could tell the run had gone off the sanctioned path.
+    $bypassHistoryForAuthorization = New-Object System.Collections.Generic.List[object]
+    foreach ($existingBypass in @($enforcementState.State['bypass_history'])) { $bypassHistoryForAuthorization.Add($existingBypass) | Out-Null }
+    if ($isOutOfBand) {
+        $bypassHistoryForAuthorization.Add([ordered]@{
+                session_id             = $null
+                reason                 = ('authorization-recorded-out-of-band: ' + $OutOfBandReason.Trim())
+                recorded_at            = $effectiveRecordedAt
+                boundary               = $authorizedCanonical
+                launch_mode            = $null
+                agent_response_snippet = Get-SpecrewBoundaryEnforcementSnippet -Value $VerdictText
+                auth_commit_hash       = $effectiveAuthCommitHash
+            }) | Out-Null
+    }
+
+    $nextScope = $null
+    $scope = if ($enforcementState.State.Contains('pending_crossing')) { ConvertTo-SpecrewBoundaryMap -Value $enforcementState.State['pending_crossing'] } else { $null }
+    $rebindSession = if ($enforcementState.Context.Contains('session_state') -and $null -ne $enforcementState.Context['session_state']) { ConvertTo-SpecrewBoundaryMap -Value $enforcementState.Context['session_state'] } else { $null }
+    $rebindFeature = if ($null -ne $rebindSession -and $rebindSession.Contains('feature_ref')) { [string]$rebindSession['feature_ref'] } else { $null }
+    $rebindIteration = if ($null -ne $rebindSession -and $rebindSession.Contains('iteration_number')) { [string]$rebindSession['iteration_number'] } else { $null }
+    if ($null -ne $scope) {
+        # FR-024 (T014): the rebind mints the NEXT crossing through the same gated constructor.
+        $nextScope = New-SpecrewPendingCrossingScope `
+            -LastAuthorizedBoundary $authorizedCanonical `
+            -WorkingBoundary ([string]$scope['working_boundary']) `
+            -BoundaryCommitHash ([string]$scope['boundary_commit_hash']) `
+            -ArtifactStateId ([string]$scope['artifact_state_id']) `
+            -RecordedAt $effectiveRecordedAt `
+            -ExistingScope $null `
+            -ProjectRoot $ProjectRoot -FeatureRef $rebindFeature -IterationNumber $rebindIteration
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($effectiveAuthCommitHash)) {
+        $legacyWorking = $null
+        if ($enforcementState.Context.Contains('session_state') -and $null -ne $enforcementState.Context['session_state']) {
+            $legacySession = ConvertTo-SpecrewBoundaryMap -Value $enforcementState.Context['session_state']
+            if ($legacySession.Contains('boundary_type')) { $legacyWorking = [string]$legacySession['boundary_type'] }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($legacyWorking)) {
+            try {
+                $authTree = Get-SpecrewGitArtifactStateId -ProjectRoot $ProjectRoot -BoundaryCommitHash $effectiveAuthCommitHash
+                $nextScope = New-SpecrewPendingCrossingScope -LastAuthorizedBoundary $authorizedCanonical -WorkingBoundary $legacyWorking -BoundaryCommitHash $effectiveAuthCommitHash -ArtifactStateId $authTree -RecordedAt $effectiveRecordedAt -ExistingScope $null -ProjectRoot $ProjectRoot -FeatureRef $rebindFeature -IterationNumber $rebindIteration
+            }
+            catch { $nextScope = $null }
+        }
+    }
 
     $updatedState = [ordered]@{
         enabled                  = [bool]$enforcementState.State['enabled']
         last_authorized_boundary = $authorizedCanonical
-        pending_next_boundary    = if ((Normalize-SpecrewCanonicalBoundaryType -Boundary ([string]$enforcementState.State['pending_next_boundary'])) -eq $authorizedCanonical) { $null } else { $enforcementState.State['pending_next_boundary'] }
+        pending_next_boundary    = if ($null -eq $nextScope) { $null } else { [string]$nextScope['to_boundary'] }
+        pending_crossing         = $nextScope
         verdict_history          = @($verdictHistory.ToArray())
-        bypass_history           = @($enforcementState.State['bypass_history'])
+        correction_history       = if ($enforcementState.State.Contains('correction_history')) { @($enforcementState.State['correction_history']) } else { @() }
+        # The list built above, not the pre-existing state: an out-of-band authorization appends a bypass
+        # entry, and writing the original array back would discard it and leave bypass_history at zero -
+        # the very reading that made the frozen evidence look like a clean run.
+        bypass_history           = @($bypassHistoryForAuthorization.ToArray())
     }
+    # 202 T032 (B4F-146's class): an approved feature closeout is where the feature stops being active - in the
+    # session state this capture writes, never when the closeout is asked for.
+    $featureCloseoutApproved = ($authorizedCanonical -ceq 'feature-closeout')
+    if ($featureCloseoutApproved -and $null -ne $rebindSession -and $null -ne $enforcementState.Context) {
+        $rebindSession['active'] = $false
+        $enforcementState.Context['session_state'] = $rebindSession
+    }
+
     Set-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot -BoundaryEnforcement $updatedState -Context $enforcementState.Context | Out-Null
+
+    # 202 T032: and the rest of what the feature closeout releases - the pointer, the lock, the claim, the
+    # frontmatter copies of the active flag. A failure is loud but never un-records the verdict.
+    if ($featureCloseoutApproved -and -not [string]::IsNullOrWhiteSpace($rebindFeature)) {
+        try { $null = Invoke-SpecrewFeatureCloseoutRelease -ProjectRoot $ProjectRoot -FeatureRef $rebindFeature -SessionState $rebindSession -ApprovedAt $effectiveRecordedAt }
+        catch {
+            try { [Console]::Error.WriteLine(('[specrew-governance] WARN FEATURE_CLOSEOUT_NOT_RELEASED the feature-closeout approval for {0} is recorded but its release failed: {1}' -f $rebindFeature, $_.Exception.Message)) } catch { $null = $_ }
+        }
+    }
+
+    # 202 T031 (B4F-146): the iteration is listed as closed HERE, when the human's closeout approval is recorded -
+    # never by the sync that asks for it. The entry is idempotent and lives outside the iteration, so the seal
+    # below still pins exactly what the verdict accepted. A failure is loud but never un-records the verdict.
+    if ($authorizedCanonical -ceq 'iteration-closeout' -and -not [string]::IsNullOrWhiteSpace($rebindFeature) -and -not [string]::IsNullOrWhiteSpace($rebindIteration)) {
+        try {
+            Add-SpecrewClosedIterationEntry -ProjectRoot $ProjectRoot -Feature $rebindFeature -Iteration $rebindIteration -ClosedAt $effectiveRecordedAt
+        }
+        catch {
+            try { [Console]::Error.WriteLine(('[specrew-governance] WARN CLOSED_INDEX_NOT_WRITTEN the closeout verdict for {0}/{1} is recorded but the closed-iteration index could not be updated: {2}. Run: validate-governance.ps1 -RebuildClosedIndex' -f $rebindFeature, $rebindIteration, $_.Exception.Message)) } catch { $null = $_ }
+        }
+    }
+
+    # FR-030 (T021): the authority is written; now every enumerated copy of it is written by the SAME writer,
+    # in the same act. The mirror write is subordinate to the authority write - a failure here is loud but
+    # never un-records the verdict - and the truth gate at the next sync compares every copy it names.
+    $mirrorResult = $null
+    try {
+        $mirrorResult = Sync-SpecrewCrossingMirrors -ProjectRoot $ProjectRoot -AuthorizedBoundary $authorizedCanonical `
+            -FeatureRef $rebindFeature -IterationNumber $rebindIteration -Reason 'authorization' -NowUtc $effectiveRecordedAt
+        # THE SEAL IS THIS CAPTURE'S LAST ACT at iteration-closeout (fix 5, B4F-063). The advance above has
+        # written `complete` into the copies; what is on disk now is what the human's verdict accepted, and
+        # that is what the seal pins. Written here, after the mirrors, and never at the boundary's arrival.
+        if ($authorizedCanonical -ceq 'iteration-closeout' -and $null -ne $mirrorResult -and [bool]$mirrorResult.Attempted -and
+            $mirrorResult.PSObject.Properties['IterationDir'] -and -not [string]::IsNullOrWhiteSpace([string]$mirrorResult.IterationDir) -and
+            (Get-Command -Name 'Invoke-SpecrewCloseoutSeal' -ErrorAction SilentlyContinue)) {
+            try {
+                $sealPath = Invoke-SpecrewCloseoutSeal -ProjectRoot $ProjectRoot -IterationDirectory ([string]$mirrorResult.IterationDir) -Feature $rebindFeature -Iteration $rebindIteration
+                if (-not [string]::IsNullOrWhiteSpace([string]$sealPath)) { $mirrorResult | Add-Member -NotePropertyName 'SealPath' -NotePropertyValue ([string]$sealPath) -Force }
+            }
+            catch {
+                try { [Console]::Error.WriteLine(('[specrew-governance] WARN ITERATION_NOT_SEALED the closeout verdict for {0}/{1} is recorded but the iteration could not be sealed: {2}. Run: specrew reseal --feature {0} --iteration {1}' -f $rebindFeature, $rebindIteration, $_.Exception.Message)) } catch { $null = $_ }
+            }
+        }
+    }
+    catch {
+        try { [Console]::Error.WriteLine(('[specrew-governance] WARN CROSSING_MIRRORS_NOT_WRITTEN the verdict for {0} is recorded but its copies in state.md/plan.md could not be written: {1}. Re-run the boundary sync to re-mirror.' -f $authorizedCanonical, $_.Exception.Message)) } catch { $null = $_ }
+    }
 
     return [pscustomobject]@{
         AuthorizedBoundary = $authorizedCanonical
         StoredVerdict      = $VerdictText
         RecordedAt         = $effectiveRecordedAt
         DirectiveSentinel  = 'SPECREW_BOUNDARY_AUTHORIZED'
+        Mirrors            = $mirrorResult
     }
 }
 
@@ -1928,7 +4482,11 @@ function Write-SpecrewBoundaryAuthorizationDirective {
         [string]$BypassReason
     )
 
-    $currentCanonical = Resolve-SpecrewCanonicalBoundaryType -Boundary $CurrentBoundary -ParameterName 'CurrentBoundary'
+    # DRIFT-198-I011-012: the gate reports first crossings in marker vocabulary, so the from-side
+    # may be the marker-only 'intake' — the same tolerance New-SpecrewBoundaryCrossingIdentity
+    # already has. 'intake' is display vocabulary here; it is never a canonical boundary.
+    $normalizedCurrent = Normalize-SpecrewCanonicalBoundaryType -Boundary $CurrentBoundary
+    $currentCanonical = if ($normalizedCurrent -eq 'intake') { 'intake' } else { Resolve-SpecrewCanonicalBoundaryType -Boundary $CurrentBoundary -ParameterName 'CurrentBoundary' }
     $requestedCanonical = Resolve-SpecrewCanonicalBoundaryType -Boundary $RequestedBoundary -ParameterName 'RequestedBoundary'
     $sentinel = $DirectiveSentinel.Trim()
     if ($sentinel -notin @('SPECREW_BOUNDARY_BLOCKED', 'SPECREW_BOUNDARY_AUTHORIZED', 'SPECREW_BOUNDARY_BYPASS_ACTIVE', 'SPECREW_BOUNDARY_VERDICT_UNRECOGNIZED')) {
@@ -1939,7 +4497,7 @@ function Write-SpecrewBoundaryAuthorizationDirective {
         'SPECREW_BOUNDARY_AUTHORIZED' {
             return @(
                 'SPECREW_BOUNDARY_AUTHORIZED'
-                "Boundary `$currentCanonical -> $requestedCanonical` is authorized."
+                ('Boundary `{0} -> {1}` is authorized.' -f $currentCanonical, $requestedCanonical)
             ) -join [Environment]::NewLine
         }
         'SPECREW_BOUNDARY_BYPASS_ACTIVE' {
@@ -1952,14 +4510,14 @@ function Write-SpecrewBoundaryAuthorizationDirective {
         'SPECREW_BOUNDARY_VERDICT_UNRECOGNIZED' {
             return @(
                 'SPECREW_BOUNDARY_VERDICT_UNRECOGNIZED'
-                "Boundary `$currentCanonical -> $requestedCanonical` still requires explicit human authorization."
+                ('Boundary `{0} -> {1}` still requires explicit human authorization.' -f $currentCanonical, $requestedCanonical)
                 'Recognized verdicts:'
             ) + @(Get-SpecrewBoundaryEnforcementRecognizedVerdicts -RequestedBoundary $requestedCanonical | ForEach-Object { "- $_" }) -join [Environment]::NewLine
         }
         default {
             return @(
                 'SPECREW_BOUNDARY_BLOCKED'
-                "Boundary `$currentCanonical -> $requestedCanonical` requires explicit human authorization."
+                ('Boundary `{0} -> {1}` requires explicit human authorization.' -f $currentCanonical, $requestedCanonical)
                 'Recognized verdicts:'
             ) + @(Get-SpecrewBoundaryEnforcementRecognizedVerdicts -RequestedBoundary $requestedCanonical | ForEach-Object { "- $_" }) -join [Environment]::NewLine
         }
@@ -2020,7 +4578,9 @@ function Add-SpecrewBoundaryBypassRecord {
         enabled                  = [bool]$enforcementState.State['enabled']
         last_authorized_boundary = $enforcementState.State['last_authorized_boundary']
         pending_next_boundary    = $enforcementState.State['pending_next_boundary']
+        pending_crossing         = if ($enforcementState.State.Contains('pending_crossing')) { $enforcementState.State['pending_crossing'] } else { $null }
         verdict_history          = @($enforcementState.State['verdict_history'])
+        correction_history       = if ($enforcementState.State.Contains('correction_history')) { @($enforcementState.State['correction_history']) } else { @() }
         bypass_history           = @($bypassHistory.ToArray())
     }
     Set-SpecrewBoundaryEnforcementState -ProjectRoot $ProjectRoot -BoundaryEnforcement $updatedState -Context $enforcementState.Context | Out-Null
@@ -2042,10 +4602,13 @@ function Get-SpecrewBoundaryEnforcementSummary {
             LastEnforcementAt      = $null
             EnforcementEventCount  = 0
             BypassEventCount       = 0
+            CorrectionEventCount   = 0
         }
     }
 
-    $verdictHistory = @($state.State['verdict_history'])
+    $verdictHistory = @($state.EffectiveState['verdict_history'])
+    $correctionHistory = @()
+    if ($state.State.Contains('correction_history')) { $correctionHistory = @($state.State['correction_history']) }
     $bypassHistory = @($state.State['bypass_history'])
     $latestTimestamp = @(
         $verdictHistory | ForEach-Object { [string]($_.recorded_at) }
@@ -2053,12 +4616,13 @@ function Get-SpecrewBoundaryEnforcementSummary {
     ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object | Select-Object -Last 1
 
     return [pscustomobject]@{
-        Enabled                = [bool]$state.State['enabled']
-        LastAuthorizedBoundary = $state.State['last_authorized_boundary']
-        PendingNextBoundary    = $state.State['pending_next_boundary']
+        Enabled                = [bool]$state.EffectiveState['enabled']
+        LastAuthorizedBoundary = $state.EffectiveState['last_authorized_boundary']
+        PendingNextBoundary    = $state.EffectiveState['pending_next_boundary']
         LastEnforcementAt      = $latestTimestamp
         EnforcementEventCount  = ($verdictHistory.Count + $bypassHistory.Count)
         BypassEventCount       = $bypassHistory.Count
+        CorrectionEventCount   = $correctionHistory.Count
     }
 }
 
@@ -2250,7 +4814,10 @@ function Invoke-MarkdownLintAutoFix {
         $checkText = ($checkOutput | ForEach-Object { [string]$_ }) -join "`n"
         $violations = New-Object System.Collections.Generic.List[string]
         foreach ($line in ($checkText -split "`r?`n")) {
-            if ($line -match '^(.+\.md):(\d+)(?::\d+)?\s+(MD\d+/\S+)') {
+            # markdownlint-cli prints `file:line error MD001/heading-increment ...` (the `error` column since
+            # 0.3x); the pattern without it matched nothing, so unfixable violations were never detected and
+            # this branch was dead (B4F-087, found building PRED-BETA4-043's unfixable case). Optional column.
+            if ($line -match '^(.+\.md):(\d+)(?::\d+)?\s+(?:error\s+|warning\s+)?(MD\d+/\S+)') {
                 $null = $violations.Add(("{0}:{1}: {2}" -f $matches[1], $matches[2], $matches[3]))
             }
         }
@@ -2289,7 +4856,10 @@ function Resolve-SpecrewGitBaseRefCandidate {
         $normalizedCandidate = "origin/$normalizedCandidate"
     }
 
-    $null = @(& git -C $resolvedProjectRoot rev-parse --verify "$normalizedCandidate" 2>$null)
+    # `^{commit}`: a bare 40-hex string passes `rev-parse --verify` whether or not the object exists (found by
+    # PRED-BETA4-039's fall-through case); requiring a commit object makes an unfetched or mistyped SHA fall
+    # through to the next candidate instead of "resolving" and failing the diff.
+    $null = @(& git -C $resolvedProjectRoot rev-parse --verify "$normalizedCandidate^{commit}" 2>$null)
     if ($LASTEXITCODE -ne 0) {
         return $null
     }
@@ -2329,6 +4899,15 @@ function Get-SpecrewLocalScopeBaseRef {
     }
 
     $candidates = New-Object System.Collections.Generic.List[string]
+
+    # SPECREW_SCOPE_BASE_REF FIRST (B4F-079 / PRED-BETA4-039). GitHub does not let a workflow overwrite its own
+    # GITHUB_* variables, so a push job's `env: GITHUB_BASE_REF: ${{ github.event.before }}` is inert: the step
+    # log showed the SHA and the step read an empty string, and every push validation scoped to origin/main -
+    # full-repo on any branch whose .specrew/config.yml differs from main. A Specrew-owned name carries the base
+    # the caller means; GITHUB_BASE_REF stays next for pull requests, where GitHub sets it itself.
+    if (-not [string]::IsNullOrWhiteSpace($env:SPECREW_SCOPE_BASE_REF)) {
+        $null = $candidates.Add([string]$env:SPECREW_SCOPE_BASE_REF)
+    }
 
     if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_BASE_REF)) {
         $null = $candidates.Add([string]$env:GITHUB_BASE_REF)
@@ -3649,6 +6228,14 @@ function Test-SpecrewHandoffBlockPresent {
         if ($candidateText -match '(?ms)===\s*SPECREW HANDOFF\s*===.+?===\s*END SPECREW HANDOFF\s*===') {
             return $true
         }
+        # Pre-tag slice #2 (testbeta3): the Rule 46 six-section packet (and the 46A five-section
+        # variant) IS the primary stop contract — on packet hosts the legacy block above is
+        # explicitly forbidden as a duplicate, so demanding it produced a WARN at every healthy
+        # boundary stop. Three anchored headings in order keep the recognizer from going vacuous
+        # on ordinary prose.
+        if ($candidateText -match '(?ms)^##\s+What I Just Did\b.+^##\s+Why I Stopped\b.+^##\s+What I Need From You\b') {
+            return $true
+        }
     }
 
     return $false
@@ -3956,7 +6543,7 @@ function Get-ApprovalReferenceRecord {
     }
 
     $decisionId = Convert-ToDecisionReferenceId -ApprovalRef $normalizedRef
-    $matches = @(
+    $matchedItems = @(
         Get-DecisionsLedgerEntries -ProjectRoot $ProjectRoot |
             Where-Object {
                 ($_.DecisionId -eq $decisionId -or $_.Title -eq $normalizedRef) -and
@@ -3965,7 +6552,7 @@ function Get-ApprovalReferenceRecord {
             Select-Object -First 1
     )
 
-    if ($matches.Count -eq 0) {
+    if ($matchedItems.Count -eq 0) {
         return [pscustomobject]@{
             ApprovalRef      = $normalizedRef
             DecisionId       = $decisionId
@@ -3976,7 +6563,7 @@ function Get-ApprovalReferenceRecord {
         }
     }
 
-    $entry = $matches[0]
+    $entry = $matchedItems[0]
     return [pscustomobject]@{
         ApprovalRef      = $normalizedRef
         DecisionId       = $entry.DecisionId
@@ -4748,3 +7335,1613 @@ function Test-SpecrewWorkshopRecordsPresent {
         return [pscustomobject]@{ Present = $false; Reason = ("Workshop-records check could not complete ({0}) - blocking; verify the workshop ran and lens-applicability.json is valid." -f $_.Exception.Message) }
     }
 }
+
+# ---------------------------------------------------------------------------------------------------
+# W34-B: WHO WROTE THE VERDICT IS OBSERVED, NEVER DECLARED.
+#
+# W31 checks that a review record's cited run is complete, current, valid and a reviewed outcome.
+# W33 checks that the cited run examined code. Neither asks who wrote the verdict, and that gap has
+# now produced the same record twice on two projects:
+#
+#   specrew beta3, 2026-08-17 - the implementing session scaffolded review.md and wrote its own 13
+#     task verdicts and an overall `accepted`, committed before the corroborating round finished.
+#   KeyContextAI, 2026-08-19 - the session that wrote the code wrote the record claiming "the
+#     independent review ran and passed against this exact tree".
+#
+# The second is caught now, because its cited run was partial and the store says so. THE FIRST IS
+# NOT: its evidence was genuine, and a clean run plus an implementer-authored verdict passes every
+# check that exists. DRIFT-199-I001-037 recorded this signature once already and only the
+# campaign-evidence half was ever fixed.
+#
+# OBSERVED, NOT ASSERTED. An `authored_by` field written into review.md by the writing agent is this
+# same class one level up - a claim about authority made by the thing whose authority is in
+# question. So the fact is minted by the hook from what it watched the session write, exactly as
+# typed-turn receipts and the W25 orientation receipt are, and the agent never supplies it.
+# ---------------------------------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------------------------------
+# W43: THE REST OF THE DEPLOYED RUNTIME GETS THE INTEGRITY CHECK THE CO-REVIEW BUNDLE ALREADY HAD.
+#
+# `scripts/internal/continuous-co-review/` ships a `.specrew-runtime.json` with per-file hashes, and
+# `review-engine-project-runtime-drifted` refuses when the deployed copy no longer matches. The other
+# half of the deployed runtime - `.specify/extensions/specrew-speckit/`, which holds
+# validate-governance.ps1, shared-governance.ps1 and every scaffold - had no marker and no check.
+#
+# During the 2026-08-21 walk a downstream agent hand-patched a deployed scaffold to clear a blocker.
+# Its fix was right and it said so. Nothing stopped it, and nothing would have detected it had it
+# edited the VALIDATOR instead - the file every guarantee from this iteration assumes runs as shipped.
+#
+# HONEST LIMIT, stated rather than implied: this is a self-check. An agent that edits the validator
+# could also edit the marker, or this function. It raises the cost of an undetected edit from zero to
+# three coordinated ones, and it catches every accidental or single-file edit - which is what actually
+# happened. The stronger form, comparing the deployed copy against the INSTALLED module, is what the
+# review engine already does for its own bundle; this deliberately mirrors the marker pattern instead
+# so it still works when the module is absent.
+function Get-SpecrewDeployedExtensionMarkerPath {
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    return (Join-Path $ProjectRoot '.specify/extensions/specrew-speckit/.specrew-extension-runtime.json')
+}
+
+function Get-SpecrewDeployedExtensionManifest {
+    # Sorted relative path + per-file content hash, the same shape the co-review marker uses. The
+    # marker file itself is excluded because it is about to contain the result.
+    param([Parameter(Mandatory)][string]$ExtensionRoot)
+    $root = (Resolve-Path -LiteralPath $ExtensionRoot -ErrorAction Stop).Path
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $entries = [System.Collections.Generic.List[object]]::new()
+        $files = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force -ErrorAction Stop |
+                Where-Object { $_.Name -cne '.specrew-extension-runtime.json' } |
+                Sort-Object { ([IO.Path]::GetRelativePath($root, $_.FullName)) -replace '\\', '/' })
+        foreach ($file in $files) {
+            $relative = ([IO.Path]::GetRelativePath($root, $file.FullName)) -replace '\\', '/'
+            # LINE-ENDING NORMALISED, and the code has to actually do it. The comment here used to claim
+            # normalisation while the line below hashed raw bytes - a false refusal waiting for the first
+            # project that commits .specify/ (they all do) and is cloned with different line endings.
+            # Git would hand one checkout CRLF and another LF, the hashes would differ, and the validator
+            # would report tampering to someone who had touched nothing. A refusal that fires on innocent
+            # state is worse than the gap it closes, because it teaches the reader to route around it.
+            #
+            # CR bytes are stripped for text; anything containing a NUL is treated as binary and hashed
+            # whole, since stripping bytes from a binary would be corruption, not normalisation.
+            $bytes = [IO.File]::ReadAllBytes($file.FullName)
+            if ([Array]::IndexOf($bytes, [byte]0) -lt 0) {
+                $text = [Text.Encoding]::UTF8.GetString($bytes).Replace("`r`n", "`n")
+                $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+            }
+            $hash = ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+            [void]$entries.Add([pscustomobject][ordered]@{ path = $relative; sha256 = $hash })
+        }
+        return @($entries)
+    }
+    finally { $sha.Dispose() }
+}
+
+function Write-SpecrewDeployedExtensionMarker {
+    param([Parameter(Mandatory)][string]$ProjectRoot, [string]$SpecrewVersion = 'unknown')
+    $extensionRoot = Join-Path $ProjectRoot '.specify/extensions/specrew-speckit'
+    if (-not (Test-Path -LiteralPath $extensionRoot -PathType Container)) { return $null }
+    $manifest = @(Get-SpecrewDeployedExtensionManifest -ExtensionRoot $extensionRoot)
+    $payload = [ordered]@{
+        schema_version = '1.0'
+        specrew_version = [string]$SpecrewVersion
+        managed_files = @($manifest)
+        source = 'specrew-init-or-update'
+    } | ConvertTo-Json -Depth 12
+    $markerPath = Get-SpecrewDeployedExtensionMarkerPath -ProjectRoot $ProjectRoot
+    [IO.File]::WriteAllText($markerPath, ($payload + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+    return $markerPath
+}
+
+function Test-SpecrewDeployedExtensionIntegrity {
+    # Returns the drifted relative paths. FAIL-OPEN on absence: a project deployed before the marker
+    # existed has none, and refusing every one of them would wedge the installed base for a check they
+    # never had. `specrew update` writes the marker, which is also the remedy for real drift.
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    $result = [pscustomobject]@{ checked = $false; drifted = @(); missing = @(); marker = $null }
+    $markerPath = Get-SpecrewDeployedExtensionMarkerPath -ProjectRoot $ProjectRoot
+    if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) { return $result }
+    $marker = $null
+    try { $marker = Get-Content -LiteralPath $markerPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 12 }
+    catch { return $result }
+    if ($null -eq $marker -or -not $marker.PSObject.Properties['managed_files']) { return $result }
+
+    $extensionRoot = Join-Path $ProjectRoot '.specify/extensions/specrew-speckit'
+    if (-not (Test-Path -LiteralPath $extensionRoot -PathType Container)) { return $result }
+    $actual = @{}
+    foreach ($entry in (Get-SpecrewDeployedExtensionManifest -ExtensionRoot $extensionRoot)) { $actual[[string]$entry.path] = [string]$entry.sha256 }
+
+    $drifted = [System.Collections.Generic.List[string]]::new()
+    $missing = [System.Collections.Generic.List[string]]::new()
+    foreach ($entry in @($marker.managed_files)) {
+        $relative = [string]$entry.path
+        if (-not $actual.ContainsKey($relative)) { [void]$missing.Add($relative); continue }
+        if ($actual[$relative] -cne [string]$entry.sha256) { [void]$drifted.Add($relative) }
+    }
+    return [pscustomobject]@{ checked = $true; drifted = @($drifted); missing = @($missing); marker = $markerPath }
+}
+
+function Get-SpecrewReviewAuthorshipPath {
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    return (Join-Path $ProjectRoot '.specrew/runtime/review-authorship.json')
+}
+
+function Test-SpecrewReviewAuthorshipSourcePath {
+    # The same negative rule W33 uses on declared coverage: everything is source unless it is
+    # recognisably a record or a document, so an unanticipated language is never mistaken for
+    # paperwork. Kept deliberately identical in shape - if the two ever disagree, a session could
+    # author code that this rule cannot see.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    $p = ([string]$Path).Trim().Replace([char]92, [char]47)
+    while ($p.StartsWith('./')) { $p = $p.Substring(2) }
+    if ([string]::IsNullOrWhiteSpace($p)) { return $false }
+    if ($p -match '(?i)^(specs|docs)/') { return $false }
+    # Round-16 finding (DRIFT-199-I001-126): .github/ was non-source WHOLESALE, so a commit
+    # touching only .github/workflows/publish.yml read as records-only and signoff reused a review
+    # of a tree that never held the executable change - while reviewed-state-digest already treated
+    # workflows as reviewable, so the two consumers disagreed. The exemption now names the
+    # GOVERNANCE RECORDS and host mirrors it was always about; everything else under .github,
+    # workflows and composite actions included, is reviewable source.
+    if ($p -match '(?i)^(?:\.specrew|\.squad|\.specify|\.agents|\.cursor|\.copilot|\.claude)/') { return $false }
+    if ($p -match '(?i)^\.github/(?:skills|agents|prompts|instructions|chatmodes|ISSUE_TEMPLATE)/') { return $false }
+    if ($p -match '(?i)^\.github/[^/]+\.md$') { return $false }
+    # W37 REVERTED HERE, DELIBERATELY. Excluding scripts/internal/continuous-co-review/ as "a deployed
+    # copy of Specrew's machinery" is wrong in the one repository where those paths ARE the product,
+    # and this predicate is shared with W33's coverage classifier - so the blanket rule silently
+    # recounted a real review's coverage from 17 source paths to 9, weakening a genuine independence
+    # claim. A quiet degradation of a true claim is the exact failure this week has been about.
+    #
+    # The residual downstream case - a redeploy landing inside an EXACTLY attributed turn - needs a
+    # project-aware discriminator (a downstream project has no Specrew.psd1 at its root), not a path
+    # rule. That is a design decision, recorded rather than smuggled in. The attribution fix below
+    # covers the case that actually occurred.
+    if ($p -match '(?i)\.(md|markdown|txt|rst|adoc)$') { return $false }
+    return $true
+}
+
+function Get-SpecrewReviewRecordPathMatch {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    $p = ([string]$Path).Trim().Replace([char]92, [char]47)
+    while ($p.StartsWith('./')) { $p = $p.Substring(2) }
+    if ($p -match '(?i)^specs/[^/]+/iterations/[^/]+/review\.md$') { return $p }
+    return $null
+}
+
+function Write-SpecrewReviewAuthorshipObservation {
+    # Called from the Stop path with what the hook watched this turn change. Records two things and
+    # judges neither: which (host, session) wrote a review record and when, and which (host, session)
+    # was seen writing source and when. The verdict is derived at read time from those observations.
+    #
+    # FAIL-SILENT: this is bookkeeping on a hot path. Any error leaves the file as it was, because a
+    # missing observation reads as `unattributed` - which is honest - while a thrown Stop is not.
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [AllowNull()][string]$HostKind,
+        [AllowNull()][string]$SessionId,
+        [AllowEmptyCollection()][string[]]$ChangedPaths = @(),
+        # W37: how the turn delta was attributed. 'exact-turn' means the paths ARE what this turn
+        # wrote; anything else means they are whatever happened to be dirty.
+        [AllowNull()][string]$AttributionMode
+    )
+    if ([string]::IsNullOrWhiteSpace($SessionId)) { return }
+
+    # W37: MINT NOTHING WHEN ATTRIBUTION IS DEGRADED.
+    #
+    # This function's own header says the fact is minted "from what it watched the session write".
+    # In degraded-worktree mode it was minted from what happened to be DIRTY. On the KeyContextAI
+    # walk a SessionStart redeploy rewrote 15 files under the project's deployed copy of Specrew's
+    # runtime at 09:42; they stayed dirty all session, and a session that wrote only governance
+    # artifacts was labelled `review-authored-by-implementer`.
+    #
+    # `conformance-turn-delta.ps1` already computes exactly the signal that names this problem, and
+    # emits `changed_paths` identically in both modes. Its ONLY consumer outside that file picks a
+    # display label - so a computed control decided wording and nothing else, while a FACTUAL
+    # assertion about who wrote what never consulted it. Sixth instance of that pattern this week.
+    #
+    # NEITHER HALF IS MINTED, not just the source-writer half. Refusing only the source half would
+    # let a degraded session's review-record write stand while its code writes vanished, and the
+    # reader derives `independent-session` from the ABSENCE of source writes - turning an
+    # unsupportable fact into a false CLEAN one, which is the dangerous direction. Minting nothing
+    # leaves the record `unattributed`: unknown, which is what is actually true, and which the
+    # validator already reports out loud as "unknown is not independent".
+    #
+    # FAIL-CLOSED ON ABSENCE, deliberately inverting W33's posture: an unstated mode is treated as
+    # degraded, because a caller that does not say how it attributed cannot support a claim about
+    # who wrote what.
+    if ([string]::IsNullOrWhiteSpace($AttributionMode) -or $AttributionMode -cne 'exact-turn') { return }
+    $paths = @(@($ChangedPaths) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    if ($paths.Count -eq 0) { return }
+    $reviewPaths = @($paths | ForEach-Object { Get-SpecrewReviewRecordPathMatch -Path $_ } | Where-Object { $null -ne $_ })
+    $wroteSource = @($paths | Where-Object { Test-SpecrewReviewAuthorshipSourcePath -Path $_ }).Count -gt 0
+    if ($reviewPaths.Count -eq 0 -and -not $wroteSource) { return }
+
+    try {
+        $statePath = Get-SpecrewReviewAuthorshipPath -ProjectRoot $ProjectRoot
+        $stateDir = Split-Path -Parent $statePath
+        if (-not (Test-Path -LiteralPath $stateDir -PathType Container)) {
+            New-Item -ItemType Directory -Path $stateDir -Force -ErrorAction Stop | Out-Null
+        }
+        $state = $null
+        if (Test-Path -LiteralPath $statePath -PathType Leaf) {
+            try { $state = Get-Content -LiteralPath $statePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 12 } catch { $state = $null }
+        }
+        $records = [ordered]@{}
+        $sourceSessions = [ordered]@{}
+        if ($null -ne $state) {
+            if ($state.PSObject.Properties['records'] -and $null -ne $state.records) {
+                foreach ($prop in $state.records.PSObject.Properties) { $records[$prop.Name] = $prop.Value }
+            }
+            if ($state.PSObject.Properties['source_sessions'] -and $null -ne $state.source_sessions) {
+                foreach ($prop in $state.source_sessions.PSObject.Properties) { $sourceSessions[$prop.Name] = $prop.Value }
+            }
+        }
+        # A SORTABLE UTC DIGIT STAMP, not ISO-8601, and not by preference. ConvertFrom-Json parses an
+        # ISO string into a LOCAL [datetime], so a round-trip through this file rewrote '...+00:00'
+        # as '...+03:00' - and the ordering rule then compared 13:07+03:00 against 10:07+00:00 and
+        # read a later source write as an earlier one, turning an independent record into an
+        # implementing one. Digits are never date-converted, and lexicographic order is
+        # chronological order. Found by reading the file the writer produced, not the writer.
+        $observedAt = [DateTimeOffset]::UtcNow.ToString('yyyyMMddHHmmssfffffff')
+        $safeHost = if ([string]::IsNullOrWhiteSpace($HostKind)) { 'unknown' } else { ([string]$HostKind).ToLowerInvariant() }
+        $owner = '{0}|{1}' -f $safeHost, $SessionId
+
+        if ($wroteSource) {
+            $existing = if ($sourceSessions.Contains($owner)) { $sourceSessions[$owner] } else { $null }
+            $first = if ($null -ne $existing -and $existing.PSObject.Properties['first_observed_at']) { [string]$existing.first_observed_at } else { $observedAt }
+            $sourceSessions[$owner] = [ordered]@{ first_observed_at = $first; last_observed_at = $observedAt }
+        }
+        # NO DEDUP HERE ON PURPOSE. These are PATHS, and Sort-Object -Unique folds both case and
+        # culture - so on a case-sensitive volume two genuinely different records would collapse
+        # into one. The permanent path-identity class guard caught the first spelling of this line.
+        # A repeat is harmless: the body is idempotent per owner, so the same path twice in one
+        # turn just refreshes last_observed_at.
+        foreach ($reviewPath in $reviewPaths) {
+            $writers = [System.Collections.Generic.List[object]]::new()
+            if ($records.Contains($reviewPath) -and $null -ne $records[$reviewPath] -and
+                $records[$reviewPath].PSObject.Properties['writers']) {
+                foreach ($w in @($records[$reviewPath].writers)) { if ($null -ne $w) { [void]$writers.Add($w) } }
+            }
+            $already = @($writers | Where-Object { [string]$_.owner -ceq $owner })
+            if ($already.Count -gt 0) {
+                foreach ($w in $already) { $w.last_observed_at = $observedAt }
+            }
+            else {
+                [void]$writers.Add([ordered]@{ owner = $owner; host = $safeHost; session_id = [string]$SessionId; first_observed_at = $observedAt; last_observed_at = $observedAt })
+            }
+            $records[$reviewPath] = [ordered]@{ writers = @($writers) }
+        }
+
+        $payload = [ordered]@{ schema_version = '1.0'; records = $records; source_sessions = $sourceSessions } |
+            ConvertTo-Json -Depth 12
+        [IO.File]::WriteAllText($statePath, ($payload + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+    }
+    catch { return }
+}
+
+function Get-SpecrewReviewAuthorship {
+    # THE RULE, stated here rather than left to a reader's inference, because this is the field a
+    # future reader will lean on:
+    #
+    #   implementing-session  - the same (host, session) that wrote this review record was ALSO
+    #                           observed writing source in this project, at or before the write.
+    #                           PARTIAL authorship counts: judging one's own output is the concern,
+    #                           and having written some of it is still having written it.
+    #   independent-session   - a writer was observed, and no writer of this record was ever
+    #                           observed writing source.
+    #   unattributed          - no observation exists. An older record, another host, or a hook that
+    #                           never fired. NOT the same as clean, and reported as its own state.
+    #
+    # A record written after a restart, by a NEW session with the same operator at the keyboard,
+    # reads as `independent-session`. That is deliberate and is what the name means: session identity
+    # is observable and operator identity is not, so claiming to measure the second would be the
+    # assertion this whole rule exists to remove.
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$ReviewPath
+    )
+    $unattributed = [pscustomobject]@{ state = 'unattributed'; writers = @(); implementing_writers = @() }
+    $normalized = Get-SpecrewReviewRecordPathMatch -Path $ReviewPath
+    if ([string]::IsNullOrWhiteSpace($normalized)) { return $unattributed }
+    $statePath = Get-SpecrewReviewAuthorshipPath -ProjectRoot $ProjectRoot
+    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { return $unattributed }
+    $state = $null
+    try { $state = Get-Content -LiteralPath $statePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 12 } catch { return $unattributed }
+    if ($null -eq $state -or -not $state.PSObject.Properties['records'] -or $null -eq $state.records) { return $unattributed }
+    $record = $state.records.PSObject.Properties | Where-Object { $_.Name -ceq $normalized } | Select-Object -First 1
+    if ($null -eq $record -or $null -eq $record.Value -or -not $record.Value.PSObject.Properties['writers']) { return $unattributed }
+    $writers = @(@($record.Value.writers) | Where-Object { $null -ne $_ })
+    if ($writers.Count -eq 0) { return $unattributed }
+
+    $sourceOwners = @()
+    if ($state.PSObject.Properties['source_sessions'] -and $null -ne $state.source_sessions) {
+        $sourceOwners = @($state.source_sessions.PSObject.Properties | ForEach-Object {
+                [pscustomobject]@{ owner = [string]$_.Name; first = [string]$_.Value.first_observed_at }
+            })
+    }
+    $implementing = @($writers | Where-Object {
+            $writer = $_
+            @($sourceOwners | Where-Object {
+                    $_.owner -ceq [string]$writer.owner -and
+                    # "at or before the write" - source seen for the first time only AFTER this record
+                    # was written cannot have been what the record judged.
+                    (([string]$_.first) -le ([string]$writer.last_observed_at))
+                }).Count -gt 0
+        })
+    $verdict = if ($implementing.Count -gt 0) { 'implementing-session' } else { 'independent-session' }
+    return [pscustomobject]@{ state = $verdict; writers = @($writers); implementing_writers = @($implementing) }
+}
+
+# ---------------------------------------------------------------------------------------------------
+# W34-A: THE INDEPENDENCE CLAIM IS DERIVED FROM THE STORE. THE JUDGEMENT AROUND IT IS AUTHORED.
+#
+# W27 established the principle - remove the decision rather than authenticate it - and the sharper
+# statement of it is: remove the decision the machinery already makes, and do not delete judgement it
+# cannot make. Both halves matter here.
+#
+# The KeyContextAI falsity was one sentence: "the independent review ran and passed against this exact
+# tree". That is entirely a function of the authority store, so nobody should be writing it by hand,
+# and this derives it instead.
+#
+# The per-task verdicts are NOT derivable and are deliberately left authored. A campaign result carries
+# verdict, completion, findings, summary and examined_paths - nothing that reconstructs "T007 | FR-012,
+# FR-013 | pass | named verification errors observed live on 2026-08-17: the runner named the failing
+# command and the store named the exact contract violation". Generating that table from a run that
+# never saw the tasks would trade a false independence claim for a false evidence table, which is the
+# worse trade: it would manufacture exactly the confident-looking record this whole class is about.
+#
+# INTEGRITY COMES FROM RECOMPUTATION, not from trusting the writer. Anything may emit the block; the
+# validator derives it again from the store and refuses a mismatch, so a hand-edited claim fails.
+# ---------------------------------------------------------------------------------------------------
+
+$script:SpecrewDerivedIndependenceOpen = '<!-- SPECREW-DERIVED-INDEPENDENT-REVIEW v1 -->'
+$script:SpecrewDerivedIndependenceClose = '<!-- /SPECREW-DERIVED-INDEPENDENT-REVIEW -->'
+
+function Test-SpecrewDerivedCoverageSourcePath {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    return (Test-SpecrewReviewAuthorshipSourcePath -Path $Path)
+}
+
+# ---------------------------------------------------------------------------------------------------
+# W51 part 3 (2026-08-24): A CLOSED ITERATION'S RECORDS ARE PRESERVED HISTORY, AND HISTORY REFUSES
+# SILENT EDITS. Second live instance on the walk: a session reopened a closed iteration's review.md to
+# chase a green validator, undoing the maintainer's explicit preserved-state ruling - and nothing
+# noticed. The W43 shape applied: a seal written at iteration-closeout, after the records have landed,
+# verified at validation, refusing on drift with the reachable paths named. Fail-open on absence -
+# iterations closed before the seal existed have none, and refusing history for a check it never had
+# would wedge every existing project.
+#
+# HONEST LIMIT, same as W43: a self-check. It catches every accidental or single-file edit - which is
+# what happened - and turns a silent edit into three coordinated ones. The governed REOPEN mechanism
+# (supersede) is the beta4 item this incident is the second live argument for; until it exists, the
+# refusal names the paths that exist today.
+# ---------------------------------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------------------------------
+# W52 (2026-08-24, maintainer ruling): EXHAUSTION IS A DECISION, NOT A CONDITION. The human must know
+# when they need to replenish or authorize - and there is NO situation of no-review without the human
+# saying so. Chosen absence is honest; accumulated absence is the thing this release exists to
+# prevent. Two halves: a one-time decision stop when the allowance is exhausted AND source drift
+# exists (the moment coverage is actually falling behind), and a standing coverage line in every
+# re-entry packet, so the number climbing is its own alarm without any new interruption.
+# ---------------------------------------------------------------------------------------------------
+
+function Get-SpecrewReviewCoverageState {
+    # The one coverage question, answered from the store and the tree: what was last DELIVERED, what
+    # tree it covered, what product source has moved since, and how many rounds remain. Fail-open
+    # everywhere - a project with no campaigns, no digest, or no loadable engine answers
+    # available=$false and nothing downstream fires.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        # R1: the conformance provider's Stop-hook coverage line is advisory and passes this; nothing else does.
+        [switch]$AllowCache
+    )
+
+    $state = [pscustomobject]@{
+        available = $false
+        campaign_id = $null
+        last_delivered_run = $null
+        covered_tree = $null
+        current_tree = $null
+        source_drift = @()
+        source_drift_count = 0
+        rounds_used = $null
+        budget_total = $null
+        exhausted = $false
+        # PRED-BETA4-051: the campaign this state was read from belongs to ONE iteration; the allowance that
+        # governs the ACTIVE iteration is its own campaign's. Carried here so the label and the predicate read
+        # one fact (field: the block demanded an allowance reset while its own line said the allowance was fresh).
+        campaign_iteration = $null
+        active_iteration = $null
+        campaign_is_active = $true
+        reason = 'not-evaluated'
+    }
+    $campaignsRoot = Join-Path $ProjectRoot '.specrew/review/authority/campaigns'
+    if (-not (Test-Path -LiteralPath $campaignsRoot -PathType Container)) { $state.reason = 'no-campaigns'; return $state }
+
+    # Latest DELIVERED run (completion complete) across campaigns - the same all-campaign walk the
+    # derived-independence reader uses, keyed on DELIVERY per the W50 entitlement rule.
+    #
+    # Round-12 finding (DRIFT-199-I001-120): "latest" is a TIME claim, and run ids are not a
+    # chronological contract - callers may mint any valid `run-[a-z0-9-]+` identifier, so the
+    # case-sensitive lexicographic max let an older `run-z...` permanently outrank every newer
+    # timestamped delivery and answer the coverage question with the wrong covered tree and the
+    # wrong campaign's meter. Order by the result fact's own ended_at; an unparseable or absent
+    # stamp sorts before every parseable one, and the ordinal run id is only the deterministic
+    # tie-breaker.
+    $delivered = $null
+    $deliveredEnded = [System.DateTimeOffset]::MinValue
+    # 202 T011 (FR-026, SC-009; B4F-109): only the RESOLVED feature's campaigns (cmp-<feature>-iNNN). The all-campaign
+    # walk showed 199's campaign on 202's clarify stop: a closed feature's review answered the new feature's coverage
+    # question. With no feature resolved, every campaign is read, as before.
+    $coverageFeature = ''
+    try { $coverageFeature = Resolve-SpecrewActiveFeatureRef -ProjectRoot $ProjectRoot } catch { $coverageFeature = '' }
+    foreach ($campaign in @(Get-ChildItem -LiteralPath $campaignsRoot -Directory -ErrorAction SilentlyContinue)) {
+        if (-not [string]::IsNullOrWhiteSpace($coverageFeature) -and -not $campaign.Name.StartsWith(('cmp-{0}-i' -f $coverageFeature), [StringComparison]::Ordinal)) { continue }
+        $runsRoot = Join-Path $campaign.FullName 'runs'
+        if (-not (Test-Path -LiteralPath $runsRoot -PathType Container)) { continue }
+        foreach ($run in @(Get-ChildItem -LiteralPath $runsRoot -Directory -ErrorAction SilentlyContinue)) {
+            $resultPath = Join-Path $run.FullName 'result.json'
+            if (-not (Test-Path -LiteralPath $resultPath -PathType Leaf)) { continue }
+            $result = $null
+            try { $result = Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 } catch { continue }
+            if ($null -eq $result -or [string]$result.completion -cne 'complete') { continue }
+            $resultEnded = [System.DateTimeOffset]::MinValue
+            # ConvertFrom-Json hands ended_at back as a [datetime]: read it as that instant, not through a [string]
+            # cast that drops the fraction and so ties two results that ended in the same second.
+            $endedValue = if ($result.PSObject.Properties['ended_at']) { $result.ended_at } else { $null }
+            if ($endedValue -is [datetime] -or $endedValue -is [System.DateTimeOffset]) { $resultEnded = [System.DateTimeOffset]$endedValue }
+            elseif (-not [string]::IsNullOrWhiteSpace([string]$endedValue)) {
+                $parsedEnded = [System.DateTimeOffset]::MinValue
+                if ([System.DateTimeOffset]::TryParse([string]$endedValue, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsedEnded)) { $resultEnded = $parsedEnded }
+            }
+            $newer = ($null -eq $delivered) -or ($resultEnded -gt $deliveredEnded) -or
+                (($resultEnded -eq $deliveredEnded) -and ([string]::CompareOrdinal([string]$result.run_id, [string]$delivered.run_id) -gt 0))
+            if ($newer) { $delivered = $result; $deliveredEnded = $resultEnded }
+        }
+    }
+    if ($null -eq $delivered) { $state.reason = 'no-delivered-review'; return $state }
+    $state.last_delivered_run = [string]$delivered.run_id
+    $state.covered_tree = [string]$delivered.target_digest
+    $state.campaign_id = [string]$delivered.campaign_id
+
+    # Source drift since the covered tree, on the ONE refined classification (machinery-aware,
+    # execution-records-quiet, standard-artifacts-stale).
+    if (-not (Get-Command -Name 'Get-ContinuousCoReviewReviewedStateDigest' -ErrorAction SilentlyContinue)) {
+        $digestHelper = Join-Path $ProjectRoot 'scripts/internal/continuous-co-review/reviewed-state-digest.ps1'
+        if (Test-Path -LiteralPath $digestHelper -PathType Leaf) { try { . $digestHelper } catch { $null = $_ } }
+    }
+    if (Get-Command -Name 'Get-ContinuousCoReviewReviewedStateDigest' -ErrorAction SilentlyContinue) {
+        try {
+            $digest = Get-ContinuousCoReviewReviewedStateDigest -RepoRoot $ProjectRoot -AllowCache:$AllowCache
+            if ($null -ne $digest -and [bool]$digest.ok) { $state.current_tree = [string]$digest.tree_id }
+            if ($null -ne $digest -and [bool]$digest.ok -and -not [string]::IsNullOrWhiteSpace([string]$state.covered_tree)) {
+                $drift = Get-SpecrewReviewedTreeSourceDrift -ProjectRoot $ProjectRoot -CitedTreeId $state.covered_tree -CurrentTreeId ([string]$digest.tree_id)
+                if ([bool]$drift.comparable) {
+                    $state.source_drift = @($drift.source)
+                    $state.source_drift_count = @($drift.source).Count
+                }
+            }
+        }
+        catch { $null = $_ }
+    }
+
+    # Rounds remaining, from the ONE production counter - never a parallel reimplementation. The
+    # engine ladder-loads from the project's own deployed bundle (or this repository's source).
+    if (-not (Get-Command -Name 'Get-ReviewCampaignRoundBudgetState' -ErrorAction SilentlyContinue)) {
+        $engineLoad = Join-Path $ProjectRoot 'scripts/internal/continuous-co-review/_load.ps1'
+        if (Test-Path -LiteralPath $engineLoad -PathType Leaf) { try { . $engineLoad } catch { $null = $_ } }
+    }
+    if (Get-Command -Name 'Get-ReviewCampaignRoundBudgetState' -ErrorAction SilentlyContinue) {
+        try {
+            $budget = Get-ReviewCampaignRoundBudgetState -StoreRoot (Join-Path $ProjectRoot '.specrew/review/authority') `
+                -CampaignId $state.campaign_id -RepoRoot $ProjectRoot
+            $state.rounds_used = [int]$budget.rounds_used
+            $state.budget_total = [int]$budget.budget_total
+            $state.exhausted = [bool]$budget.budget_exhausted
+        }
+        catch { $null = $_ }
+    }
+    # PRED-BETA4-051: a delivered review's campaign belongs to one iteration (`…-i<NNN>`). When the active
+    # iteration is a different one, the counter above is the PREVIOUS campaign's, and the active iteration's
+    # allowance is fresh - so `exhausted` is false here, and the coverage-decision stop does not fire on a
+    # budget the human cannot be asked to reset (they did, twice, on the router-skill project: two inert
+    # reset facts on the new campaign and one unspent capture). The rounds figures stay the delivered
+    # campaign's, and the line says whose they are.
+    $campaignIteration = if ([string]$state.campaign_id -match '-i(?<n>\d+)$') { [string]$Matches['n'] } else { '' }
+    $activeIteration = ''
+    try {
+        $ctxPath = Join-Path $ProjectRoot '.specrew/start-context.json'
+        if (Test-Path -LiteralPath $ctxPath -PathType Leaf) {
+            $ctx = Get-Content -LiteralPath $ctxPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $ss = $ctx.PSObject.Properties['session_state']
+            if ($null -ne $ss -and $null -ne $ss.Value -and $null -ne $ss.Value.PSObject.Properties['iteration_number']) {
+                $activeIteration = [string]$ss.Value.iteration_number
+            }
+        }
+    }
+    catch { $activeIteration = '' }
+    $state.campaign_iteration = $(if ([string]::IsNullOrWhiteSpace($campaignIteration)) { $null } else { $campaignIteration })
+    $state.active_iteration = $(if ([string]::IsNullOrWhiteSpace($activeIteration)) { $null } else { $activeIteration })
+    if (-not [string]::IsNullOrWhiteSpace($campaignIteration) -and -not [string]::IsNullOrWhiteSpace($activeIteration) -and
+        $campaignIteration.TrimStart('0') -ne $activeIteration.TrimStart('0')) {
+        $state.campaign_is_active = $false
+        $state.exhausted = $false
+    }
+    $state.available = $true
+    $state.reason = 'evaluated'
+    return $state
+}
+
+function Get-SpecrewReviewCoverageLine {
+    # W52 part 2: THE STANDING COVERAGE LINE, one sentence for every re-entry packet. The human sees
+    # coverage drift at every stop they already read; the number climbing is its own alarm.
+    # Deviation from the ruling's wording, stated: it counts source FILES changed, not commits - the
+    # covered identity is a digest TREE, which has no commit ancestry to count along.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    $state = $null
+    try { $state = Get-SpecrewReviewCoverageState -ProjectRoot $ProjectRoot } catch { return '' }
+    if ($null -eq $state -or -not [bool]$state.available) { return '' }
+    # The figure in a packet's decision slot must be the figure that governs the
+    # decision. The allowance is PER CAMPAIGN, and a campaign belongs to one iteration; when the active
+    # iteration has no campaign of its own, this line was reporting the PREVIOUS campaign's remainder in the
+    # position a reader takes the current constraint from - and it nearly produced a wrong split decision.
+    #
+    # Labelling only, as the maintainer's condition required: campaign_id is already in the state and the
+    # active iteration is already in session_state, so nothing about WHICH campaign is selected changes -
+    # only what the line SAYS about the one it found.
+    $campaignId = [string]$state.campaign_id
+    # PRED-BETA4-051: the distinction is the STATE's now (campaign_iteration / active_iteration /
+    # campaign_is_active), read here rather than re-derived, so this line and the predicate agree by construction.
+    $campaignIteration = [string]$state.campaign_iteration
+    $activeIteration = [string]$state.active_iteration
+    $roundsText = if ($null -ne $state.rounds_used -and $null -ne $state.budget_total) {
+        $remaining = ('{0} of {1} rounds remaining' -f ([Math]::Max(0, [int]$state.budget_total - [int]$state.rounds_used)), [int]$state.budget_total)
+        if (-not [bool]$state.campaign_is_active -and -not [string]::IsNullOrWhiteSpace($campaignIteration) -and -not [string]::IsNullOrWhiteSpace($activeIteration)) {
+            ('{0} in campaign {1} (iteration {2}); iteration {3} has no campaign yet, so it starts with a fresh allowance' -f $remaining, $campaignId, $campaignIteration, $activeIteration)
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($campaignId)) {
+            ('{0} in campaign {1}' -f $remaining, $campaignId)
+        }
+        else { $remaining }
+    } else { 'rounds remaining unknown' }
+    $shortTree = ([string]$state.covered_tree)
+    if ($shortTree.Length -gt 8) { $shortTree = $shortTree.Substring(0, 8) }
+    return ('Review coverage: last delivered review {0} covered tree {1}; {2} source file(s) changed since; {3}.' -f `
+            [string]$state.last_delivered_run, $shortTree, [int]$state.source_drift_count, $roundsText)
+}
+
+# ---------------------------------------------------------------------------------------------------
+# The chosen-absence disposition: `continue without coverage until the review phase`, the human's own
+# words, recorded so the signoff gate can later distinguish deliberate deferral from nobody noticing.
+# ---------------------------------------------------------------------------------------------------
+
+function Get-SpecrewCoverageAuthorityHash {
+    # Same algorithm as the bootstrap authority store's hash; defined here so the READER works in any
+    # process that loads shared-governance alone (the validator), not only under the hook co-load.
+    param([AllowEmptyString()][string]$Text)
+    return ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$Text)))).ToLowerInvariant()
+}
+
+function Get-SpecrewCoverageDeferralRoot {
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    return Join-Path ([IO.Path]::GetFullPath($ProjectRoot)) '.specrew/review/coverage-disposition'
+}
+
+function Test-SpecrewCoverageDeferralPhrase {
+    [OutputType([pscustomobject])]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    $r = [pscustomobject]@{ Matched = $false; Phrase = $null; Reason = $null }
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $r }
+    $trimmed = $Text.Trim()
+    if ($trimmed -match '(?is)^\s*<(?:hook_prompt\b|task-notification\b|turn_aborted\b|system-reminder\b|environment_context\b|command-name\b|local-command\b|bash-stdout\b)') { return $r }
+    # W56 (DRIFT-199-I001-125) decided on the decision's OWN LINE. PRED-BETA4-022 (B4F-065) narrows
+    # what may follow that line: nothing. A verdict is one line - the phrase, plus at most a same-line
+    # instruction - and a message that continues into content is refused BY REASON, so the capture
+    # table can disclose it. Defined locally rather than laddered from the bootstrap store, because
+    # this recognizer must work when only shared-governance is loaded; the shared case matrix runs the
+    # SAME cases against every copy, which is what rule 6 actually demands of a rule in more than one file.
+    $parts = [regex]::new('\r\n|\n|\r').Split($trimmed, 2)
+    $firstLine = $parts[0]
+    $lower = (($firstLine -replace '\s+', ' ').Trim()).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($lower)) { return $r }
+    if ($lower.EndsWith('?')) { return $r }
+    $anchor = [regex]::Match($lower, '^\s*(?:(?:yes|confirmed)\s*[,;:\-]\s*)?continue\s+without\s+coverage(?:\s+until\s+the\s+review\s+phase)?\b')
+    if (-not $anchor.Success) { return $r }
+    if ($parts.Count -ge 2 -and -not [string]::IsNullOrWhiteSpace([string]$parts[1])) { $r.Reason = 'multi-line-refused'; return $r }
+    $tail = $lower.Substring($anchor.Length)
+    if (-not ([string]::IsNullOrWhiteSpace($tail) -or $tail -match '^\s*[-,.;:]')) { return $r }
+    # W56: this copy never had the round-14 deferral scan at all - found by running the shared matrix
+    # against all three recognizers rather than against the two the finding named. A deferred
+    # disposition ("continue without coverage, once the walk finishes") must not silence the
+    # coverage stop before the human's stated condition holds.
+    # Co-review round 7 (iteration 002 of 202): every condition the shared guard names, not six of them. 'continue without
+    # coverage until the review phase, provided the security checks pass' was saved at once. The shared guard is used when
+    # it is loaded; this recognizer must also work alone, so the same words stand here as its fallback, and the shared
+    # matrix runs every one of them against every recognizer.
+    $conditional = if (Get-Command Test-SpecrewConditionalDeferralClause -ErrorAction SilentlyContinue) { Test-SpecrewConditionalDeferralClause -Text $tail }
+    else { $tail -match '\b(?:later|after|once|when|unless|if|provided|providing|assuming|contingent|subject\s+to|as\s+long\s+as|so\s+long\s+as|pending)\b' }
+    if ($conditional) { return $r }
+    if ($lower -match '^\s*(?:do\s*not|never|not)\b') { return $r }
+    # Round-16 (DRIFT-199-I001-126): a reversal AFTER the anchor is the same refusal as one before
+    # it. The negation check was anchored to the start of the utterance and could not see
+    # "..., but do not run it" - which minted authority against the human's explicit refusal.
+    if ($tail -match "\b(?:do\s*not|don''t|dont|never|not\s+yet|no\s+longer|cancel|withdraw|revoke|rescind|retract|hold\s+off|stand\s+down|stop|abort|scratch\s+that|never\s+mind|nevermind|actually\s+(?:stop|no|not)|disregard|ignore\s+that)\b") { return $r }
+    $r.Matched = $true; $r.Phrase = $trimmed
+    return $r
+}
+
+function Write-SpecrewCoverageDeferralAuthorization {
+    # SPECREW-AUTHORITY-CONTROL: coverage-deferral
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$Response,
+        [AllowNull()][string]$HostKind,
+        [AllowNull()][string]$SourceEvent,
+        [string]$NowUtc = ([DateTimeOffset]::UtcNow.ToString('o'))
+    )
+    if (-not (Get-Command -Name 'ConvertTo-SpecrewHumanAuthoritySourceEvent' -ErrorAction SilentlyContinue)) { return $null }
+    $event = ConvertTo-SpecrewHumanAuthoritySourceEvent -SourceEvent $SourceEvent
+    $evidenceSource = 'hook-captured-user-prompt'
+    if ($null -eq $event) {
+        if (([string]$SourceEvent).Trim().ToLowerInvariant() -in @('stop', 'stop-transcript')) { $event = 'Stop'; $evidenceSource = 'hook-captured-from-transcript' }
+        else { return $null }
+    }
+    $recognized = Test-SpecrewCoverageDeferralPhrase -Text $Response
+    if (-not [bool]$recognized.Matched) { return $null }
+    $root = Get-SpecrewCoverageDeferralRoot -ProjectRoot $ProjectRoot
+    [IO.Directory]::CreateDirectory($root) | Out-Null
+    $path = Join-Path $root 'coverage-deferral.json'
+    $coverage = $null
+    try { $coverage = Get-SpecrewReviewCoverageState -ProjectRoot $ProjectRoot } catch { $coverage = $null }
+    $fact = [pscustomobject][ordered]@{
+        schema_version = '1.0'; fact_type = 'coverage-deferral'; authority_kind = 'human'
+        authorized_by = 'unattributed-human'; verdict_text = [string]$recognized.Phrase
+        response_hash = Get-SpecrewCoverageAuthorityHash -Text ([string]$recognized.Phrase)
+        evidence_source = $evidenceSource; source_event = $event; host_kind = [string]$HostKind
+        campaign_id = $(if ($null -ne $coverage) { [string]$coverage.campaign_id } else { '' })
+        covered_tree_at_deferral = $(if ($null -ne $coverage) { [string]$coverage.covered_tree } else { '' })
+        # Round-12 finding (DRIFT-199-I001-120): the tree the human actually SAW when they deferred -
+        # the identity later drift is measured against, so one deferral cannot silently cover work
+        # that came after it.
+        current_tree_at_deferral = $(if ($null -ne $coverage) { [string]$coverage.current_tree } else { '' })
+        source_drift_at_deferral = $(if ($null -ne $coverage) { [int]$coverage.source_drift_count } else { 0 })
+        observed_at = $NowUtc
+    }
+    $json = $fact | ConvertTo-Json -Depth 8
+    if (Get-Command Write-SpecrewFileAtomic -ErrorAction SilentlyContinue) { Write-SpecrewFileAtomic -Path $path -Content $json }
+    else { [IO.File]::WriteAllText($path, $json, [Text.UTF8Encoding]::new($false)) }
+    # W54: the human typed it in the chat, so any standing picker diagnosis is now history.
+    if (Get-Command Clear-SpecrewQuestionUiPhraseObservation -ErrorAction SilentlyContinue) {
+        Clear-SpecrewQuestionUiPhraseObservation -ProjectRoot $ProjectRoot
+    }
+    return $fact
+}
+
+function Get-SpecrewCoverageDeferralAuthorization {
+    # The standing deferral, or $null. A deferral is SUPERSEDED by a review delivered after it - a
+    # fresh delivered review resets coverage, so the old choice no longer describes the state.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    $path = Join-Path (Get-SpecrewCoverageDeferralRoot -ProjectRoot $ProjectRoot) 'coverage-deferral.json'
+    if (-not [IO.File]::Exists($path)) { return $null }
+    $fact = $null
+    try { $fact = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 8 -ErrorAction Stop } catch { return $null }
+    foreach ($name in @('schema_version', 'fact_type', 'authority_kind', 'verdict_text', 'response_hash', 'observed_at')) {
+        $property = $fact.PSObject.Properties[$name]
+        if (-not $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) { return $null }
+    }
+    if ([string]$fact.fact_type -cne 'coverage-deferral' -or [string]$fact.authority_kind -cne 'human') { return $null }
+    if ([string]$fact.response_hash -cne (Get-SpecrewCoverageAuthorityHash -Text ([string]$fact.verdict_text))) { return $null }
+    if (-not [bool](Test-SpecrewCoverageDeferralPhrase -Text ([string]$fact.verdict_text)).Matched) { return $null }
+    return $fact
+}
+
+function Test-SpecrewCoverageDeferralCurrent {
+    # W52's binding, made real (round-12 finding, DRIFT-199-I001-120): the human deferred the drift
+    # in front of them, not all future drift. A deferral therefore holds only while (a) it was
+    # recorded against the SAME delivered review the coverage state now names, and (b) NO product
+    # source has moved past the tree they saw when they deferred. Records moving stays deferred -
+    # coverage is about source, on W51's one classification. Anything unverifiable - a fact without
+    # the deferral tree, a state without the current tree, an incomparable diff - re-arms the stop,
+    # because the human re-decides with one typed phrase and silence-by-default is the class W52
+    # exists to prevent.
+    [OutputType([bool])]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [AllowNull()]$Deferral,
+        [AllowNull()]$CoverageState
+    )
+    if ($null -eq $Deferral -or $null -eq $CoverageState) { return $false }
+    if ([string]$Deferral.covered_tree_at_deferral -cne [string]$CoverageState.covered_tree) { return $false }
+    $deferralTree = if ($Deferral.PSObject.Properties['current_tree_at_deferral']) { [string]$Deferral.current_tree_at_deferral } else { '' }
+    if ([string]::IsNullOrWhiteSpace($deferralTree)) { return $false }
+    $currentTree = if ($CoverageState.PSObject.Properties['current_tree']) { [string]$CoverageState.current_tree } else { '' }
+    if ([string]::IsNullOrWhiteSpace($currentTree)) { return $false }
+    if ($deferralTree -ceq $currentTree) { return $true }
+    $since = $null
+    try { $since = Get-SpecrewReviewedTreeSourceDrift -ProjectRoot $ProjectRoot -CitedTreeId $deferralTree -CurrentTreeId $currentTree } catch { return $false }
+    return ($null -ne $since -and [bool]$since.comparable -and @($since.source).Count -eq 0)
+}
+
+function Get-SpecrewIterationSealPath {
+    param([Parameter(Mandatory)][string]$IterationDirectory)
+    return Join-Path $IterationDirectory '.specrew-iteration-seal.json'
+}
+
+function Get-SpecrewIterationSealManifest {
+    # Line-ending-normalised hashes (the W43 lesson, learned once already: a CRLF/LF checkout
+    # difference must never read as tampering). Files with a NUL byte hash whole.
+    param([Parameter(Mandatory)][string]$IterationDirectory)
+    $root = (Resolve-Path -LiteralPath $IterationDirectory -ErrorAction Stop).Path
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $entries = [System.Collections.Generic.List[object]]::new()
+        $files = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force -ErrorAction Stop |
+                Where-Object { $_.Name -cne '.specrew-iteration-seal.json' } |
+                Sort-Object { ([IO.Path]::GetRelativePath($root, $_.FullName)) -replace '\\', '/' })
+        foreach ($file in $files) {
+            $relative = ([IO.Path]::GetRelativePath($root, $file.FullName)) -replace '\\', '/'
+            $bytes = [IO.File]::ReadAllBytes($file.FullName)
+            if ([Array]::IndexOf($bytes, [byte]0) -lt 0) {
+                $text = [Text.Encoding]::UTF8.GetString($bytes).Replace("`r`n", "`n")
+                $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+            }
+            $hash = ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+            [void]$entries.Add([pscustomobject][ordered]@{ path = $relative; sha256 = $hash })
+        }
+        return @($entries)
+    }
+    finally { $sha.Dispose() }
+}
+
+function Write-SpecrewIterationSeal {
+    # Written LAST at iteration-closeout, after every record has landed, so the seal describes what is
+    # actually on disk - the closed truth the human's verdict accepted.
+    #
+    # THE RULE AROUND THE SEAL (fix 5, reversed onto beta4 on measured cost - B4F-063, three post-seal
+    # writers, one illness): the seal is written at AUTHORIZATION, as the closeout verdict capture's last act
+    # after its own advance, and never at arrival; an UNAUTHORIZED writer skips sealed iterations and
+    # journals the skip; a human re-seals with `specrew reseal`. Sealing at arrival froze the iteration one
+    # boundary early - `retro` sealed in, the verdict's `complete` then flagged as tampering, and the next
+    # session's resume flagged again. The seal records WHO sealed it
+    # (`source`), so the capture's seal is distinguishable from a human's re-seal.
+    param(
+        [Parameter(Mandatory)][string]$IterationDirectory,
+        [AllowNull()][string]$Feature,
+        [AllowNull()][string]$Iteration,
+        [AllowNull()][string]$Source = 'iteration-closeout'
+    )
+    if (-not (Test-Path -LiteralPath $IterationDirectory -PathType Container)) { return $null }
+    $manifest = @(Get-SpecrewIterationSealManifest -IterationDirectory $IterationDirectory)
+    $payload = [ordered]@{
+        schema_version = '1.0'
+        feature = [string]$Feature
+        iteration = [string]$Iteration
+        sealed_at = ([DateTimeOffset]::UtcNow.ToString('o'))
+        sealed_files = @($manifest)
+        source = $(if ([string]::IsNullOrWhiteSpace($Source)) { 'iteration-closeout' } else { $Source })
+    } | ConvertTo-Json -Depth 12
+    $sealPath = Get-SpecrewIterationSealPath -IterationDirectory $IterationDirectory
+    [IO.File]::WriteAllText($sealPath, ($payload + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+    return $sealPath
+}
+
+function Test-SpecrewIterationSealed {
+    # Whether an iteration directory carries a seal at all. This is the question every writer asks before
+    # touching records: sealed means the human's verdict accepted what is there, and the writer is either
+    # authorized to move it (and re-seals) or is not (and skips).
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$IterationDirectory)
+    if ([string]::IsNullOrWhiteSpace($IterationDirectory)) { return $false }
+    return (Test-Path -LiteralPath (Get-SpecrewIterationSealPath -IterationDirectory $IterationDirectory) -PathType Leaf)
+}
+
+function Add-SpecrewSealJournalEvent {
+    # One row in the handover journal for every seal event a writer produces - a re-seal by an authorized
+    # writer, or a skip by an unauthorized one - so "who moved a sealed iteration, and who declined to" is
+    # a fact on disk rather than a reconstruction from timestamps (which is how B4F-063's three witnesses
+    # had to be told apart).
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$Event,
+        [Parameter(Mandatory)][string]$Writer,
+        [AllowNull()][string]$IterationDirectory,
+        [AllowNull()][string]$Detail
+    )
+    try {
+        $journal = Join-Path (Resolve-ProjectPath -Path $ProjectRoot) '.specrew/runtime/handover-journal.jsonl'
+        $dir = Split-Path -Parent $journal
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $relative = $IterationDirectory
+        try { $relative = ([IO.Path]::GetRelativePath((Resolve-ProjectPath -Path $ProjectRoot), $IterationDirectory)).Replace([char]92, [char]47) } catch { $null = $_ }
+        (([pscustomobject]@{ event = $Event; recorded_at = (Get-Date).ToUniversalTime().ToString('o'); writer = $Writer; iteration_directory = [string]$relative; detail = [string]$Detail } | ConvertTo-Json -Compress)) |
+            Add-Content -LiteralPath $journal -Encoding UTF8
+    }
+    catch { $null = $_ }
+}
+
+function Invoke-SpecrewCloseoutSeal {
+    # THE SEAL, AT AUTHORIZATION - the closeout verdict capture's LAST act, after its own advance has
+    # written `complete` into state.md and plan.md. Written here and nowhere else in the lifecycle: the
+    # arrival-time seal in the boundary sync is gone. What it seals is what the human's verdict accepted,
+    # as it stands the moment the verdict is recorded; nothing the lifecycle itself does afterwards touches
+    # it, and the next iteration's plan sync finds it intact.
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$IterationDirectory,
+        [AllowNull()][string]$Feature,
+        [AllowNull()][string]$Iteration
+    )
+    if (-not (Test-Path -LiteralPath $IterationDirectory -PathType Container)) { return $null }
+    $sealPath = Write-SpecrewIterationSeal -IterationDirectory $IterationDirectory -Feature $Feature -Iteration $Iteration -Source 'iteration-closeout-authorization'
+    Add-SpecrewSealJournalEvent -ProjectRoot $ProjectRoot -Event 'iteration-sealed-at-authorization' -Writer 'boundary-authorization:iteration-closeout' -IterationDirectory $IterationDirectory -Detail 'sealed as the closeout verdict capture''s last act, after its advance'
+    return $sealPath
+}
+
+function Test-SpecrewIterationSealIntegrity {
+    # Returns drifted/missing relative paths. FAIL-OPEN on absence: an iteration closed before the
+    # seal existed has none. New files ADDED after the seal are also drift - history does not grow.
+    param([Parameter(Mandatory)][string]$IterationDirectory)
+    $result = [pscustomobject]@{ checked = $false; drifted = @(); missing = @(); added = @(); seal = $null }
+    $sealPath = Get-SpecrewIterationSealPath -IterationDirectory $IterationDirectory
+    if (-not (Test-Path -LiteralPath $sealPath -PathType Leaf)) { return $result }
+    $seal = $null
+    try { $seal = Get-Content -LiteralPath $sealPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 12 }
+    catch { return $result }
+    if ($null -eq $seal -or -not $seal.PSObject.Properties['sealed_files']) { return $result }
+    if (-not (Test-Path -LiteralPath $IterationDirectory -PathType Container)) { return $result }
+
+    $actual = @{}
+    foreach ($entry in (Get-SpecrewIterationSealManifest -IterationDirectory $IterationDirectory)) { $actual[[string]$entry.path] = [string]$entry.sha256 }
+    $sealed = @{}
+    foreach ($entry in @($seal.sealed_files)) { $sealed[[string]$entry.path] = [string]$entry.sha256 }
+
+    $drifted = [System.Collections.Generic.List[string]]::new()
+    $missing = [System.Collections.Generic.List[string]]::new()
+    $added = [System.Collections.Generic.List[string]]::new()
+    foreach ($path in $sealed.Keys) {
+        if (-not $actual.ContainsKey($path)) { [void]$missing.Add($path); continue }
+        if ($actual[$path] -cne $sealed[$path]) { [void]$drifted.Add($path) }
+    }
+    foreach ($path in $actual.Keys) {
+        if (-not $sealed.ContainsKey($path)) { [void]$added.Add($path) }
+    }
+    return [pscustomobject]@{ checked = $true; drifted = @($drifted); missing = @($missing); added = @($added); seal = $sealPath }
+}
+
+function Get-SpecrewCurrentBranch {
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    try {
+        $branch = ([string](& git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>$null)).Trim()
+        if ($LASTEXITCODE -ne 0 -or $branch -eq 'HEAD') { return '' }
+        return $branch
+    }
+    catch { return '' }
+}
+
+function Test-SpecrewWorkshopControllerInFlight {
+    # A feature's design workshop is in flight while its controller's agenda awaits confirmation, or is confirmed
+    # with selected lenses not yet moved on - the same reading the conformance provider applies.
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$ControllerPath)
+    try {
+        $controller = Get-Content -LiteralPath $ControllerPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 10 -ErrorAction Stop
+        $status = [string]$controller.agenda_status
+        if ($status -eq 'pending-confirmation') { return $true }
+        if ($status -ne 'confirmed') { return $false }
+        $selected = @($controller.selected).Count
+        $done = 0
+        if ($controller.PSObject.Properties['workshop'] -and $null -ne $controller.workshop) {
+            $done = @($controller.workshop.PSObject.Properties | Where-Object { $_.Value.PSObject.Properties['moved_on'] -and [bool]$_.Value.moved_on }).Count
+        }
+        return ($done -lt $selected)
+    }
+    catch { return $false }
+}
+
+function Resolve-SpecrewActiveFeature {
+    # FEATURE 202 T010 (FR-017, FR-018, DA-5; B4F-105): ONE ANSWER TO "WHAT ARE WE WORKING ON". Status, orientation and
+    # resume each picked the feature their own way - the dashboard fell back to the lowest-numbered feature when the
+    # pointer was empty, so a project in the middle of feature 201 showed 001 (Shipped) as active. Every reader now
+    # asks this one resolver, which decides in the agreed order and says which source decided:
+    #   1. the work in flight: a pending decision, the active lifecycle session (unless that feature is closed), or a
+    #      design workshop still open. Two different features in flight is the one case that ASKS (resolved_by
+    #      'ambiguous'); a pending decision outranks the rest, because it is authority state.
+    #   2. the feature pointer (.specify/feature.json), only when it was written for the current branch;
+    #   3. the branch name, as a hint only, when specs/<branch>/ exists;
+    #   4. a pointer from before pointers recorded their branch, labelled as such.
+    # "The branch is not the feature" (the DA-5 correction): 199 ran on branch 201-first-run-experience, so the branch
+    # is never ahead of in-flight work or a matching pointer.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+
+    $result = [pscustomobject]@{ feature_ref = ''; resolved_by = 'none'; candidates = @(); branch = '' }
+    $root = [IO.Path]::GetFullPath($ProjectRoot)
+    $branch = Get-SpecrewCurrentBranch -ProjectRoot $root
+    $result.branch = $branch
+    $specsRoot = Join-Path $root 'specs'
+
+    # 1. In flight.
+    $context = $null
+    try { $context = Get-Content -LiteralPath (Join-Path $root '.specrew/start-context.json') -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 -ErrorAction Stop } catch { $context = $null }
+    $session = if ($null -ne $context -and $context.PSObject.Properties['session_state']) { $context.session_state } else { $null }
+    $enforcement = if ($null -ne $context -and $context.PSObject.Properties['boundary_enforcement']) { $context.boundary_enforcement } else { $null }
+    $sessionFeature = if ($null -ne $session -and $session.PSObject.Properties['feature_ref']) { ([string]$session.feature_ref).Trim() } else { '' }
+    $pendingFeature = ''
+    if ($null -ne $enforcement -and $enforcement.PSObject.Properties['pending_crossing'] -and $null -ne $enforcement.pending_crossing) {
+        $crossing = $enforcement.pending_crossing
+        $pendingFeature = if ($crossing.PSObject.Properties['feature_ref'] -and -not [string]::IsNullOrWhiteSpace([string]$crossing.feature_ref)) { [string]$crossing.feature_ref } else { $sessionFeature }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($pendingFeature)) {
+        $result.feature_ref = $pendingFeature; $result.resolved_by = 'pending-decision'; $result.candidates = @($pendingFeature)
+        return $result
+    }
+    $inFlight = [System.Collections.Generic.List[pscustomobject]]::new()
+    $lastAuthorized = if ($null -ne $enforcement -and $enforcement.PSObject.Properties['last_authorized_boundary']) { [string]$enforcement.last_authorized_boundary } else { '' }
+    $sessionActive = $null -ne $session -and $session.PSObject.Properties['active'] -and [bool]$session.active
+    if ($sessionActive -and -not [string]::IsNullOrWhiteSpace($sessionFeature) -and $lastAuthorized -ne 'feature-closeout') {
+        $inFlight.Add([pscustomobject]@{ feature = $sessionFeature; source = 'active-session' })
+    }
+    if (Test-Path -LiteralPath $specsRoot -PathType Container) {
+        foreach ($featureDir in @(Get-ChildItem -LiteralPath $specsRoot -Directory -ErrorAction SilentlyContinue)) {
+            # A workshop is the step BEFORE the spec, so it is in flight only while the spec is still the scaffold's
+            # unauthored stub. A shipped feature whose controller never marked a lens moved on is not in flight.
+            $controllerPath = Join-Path $featureDir.FullName 'lens-applicability.json'
+            $specPath = Join-Path $featureDir.FullName 'spec.md'
+            $specUnauthored = -not (Test-Path -LiteralPath $specPath -PathType Leaf)
+            if (-not $specUnauthored) {
+                try { $specUnauthored = (Get-Content -LiteralPath $specPath -Raw -Encoding UTF8) -match '<!--\s*specrew:spec-not-yet-authored\s*-->' } catch { $specUnauthored = $false }
+            }
+            if ($specUnauthored -and (Test-Path -LiteralPath $controllerPath -PathType Leaf) -and (Test-SpecrewWorkshopControllerInFlight -ControllerPath $controllerPath)) {
+                $inFlight.Add([pscustomobject]@{ feature = $featureDir.Name; source = 'open-workshop' })
+            }
+        }
+    }
+    $distinct = @($inFlight | ForEach-Object { $_.feature } | Select-Object -Unique)
+    if ($distinct.Count -eq 1) {
+        $result.feature_ref = [string]$distinct[0]
+        $result.resolved_by = [string](@($inFlight | Where-Object { $_.feature -eq $distinct[0] })[0].source)
+        $result.candidates = @($distinct)
+        return $result
+    }
+    if ($distinct.Count -gt 1) {
+        $result.resolved_by = 'ambiguous'; $result.candidates = @($distinct)
+        return $result
+    }
+
+    # 2 and 4. The pointer: trusted only when written for this branch; a pre-branch pointer comes last.
+    $pointerFeature = ''; $pointerBranch = $null
+    try {
+        $pointer = Get-Content -LiteralPath (Join-Path $root '.specify/feature.json') -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        if ($pointer.PSObject.Properties['feature_directory'] -and -not [string]::IsNullOrWhiteSpace([string]$pointer.feature_directory)) { $pointerFeature = Split-Path -Leaf ([string]$pointer.feature_directory) }
+        if ($pointer.PSObject.Properties['branch']) { $pointerBranch = [string]$pointer.branch }
+    }
+    catch { $pointerFeature = '' }
+    if (-not [string]::IsNullOrWhiteSpace($pointerFeature) -and $null -ne $pointerBranch -and -not [string]::IsNullOrWhiteSpace($branch) -and $pointerBranch -ceq $branch) {
+        $result.feature_ref = $pointerFeature; $result.resolved_by = 'pointer'; $result.candidates = @($pointerFeature)
+        return $result
+    }
+
+    # 3. The branch, as a hint.
+    if (-not [string]::IsNullOrWhiteSpace($branch) -and $branch -notmatch '[\\/]' -and (Test-Path -LiteralPath (Join-Path $specsRoot $branch) -PathType Container)) {
+        $result.feature_ref = $branch; $result.resolved_by = 'branch-hint'; $result.candidates = @($branch)
+        return $result
+    }
+    if (-not [string]::IsNullOrWhiteSpace($pointerFeature) -and $null -eq $pointerBranch) {
+        $result.feature_ref = $pointerFeature; $result.resolved_by = 'pointer-without-branch'; $result.candidates = @($pointerFeature)
+        return $result
+    }
+    return $result
+}
+
+function Resolve-SpecrewModuleInternalDirectory {
+    # 202 T032: the module's scripts/internal folder, for a writer that runs outside the boundary sync (the approval
+    # capture runs in the hook). In order: SPECREW_MODULE_PATH; the module tree this file belongs to, when it runs from
+    # a module or Specrew's own repository (its helpers are then the same version as its own code); the project itself
+    # when it is Specrew's own repository; then the installed modules - first the one whose version the deployed
+    # extension records in .specrew-extension-runtime.json, so a consumer's capture pairs with the module its extension
+    # was deployed from (iteration 003 round 1, finding-e1a26d059e3c7e32), then the newest. $null when none holds the
+    # helpers. -ExtensionScriptsRoot and -InstalledModules exist for tests; callers omit them.
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [string]$ExtensionScriptsRoot = $PSScriptRoot,
+        [AllowNull()][object[]]$InstalledModules
+    )
+
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    if (-not [string]::IsNullOrWhiteSpace($env:SPECREW_MODULE_PATH)) { $candidates.Add((Join-Path $env:SPECREW_MODULE_PATH 'scripts/internal')) }
+    if (-not [string]::IsNullOrWhiteSpace($ExtensionScriptsRoot)) { $candidates.Add((Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ExtensionScriptsRoot))) 'scripts/internal')) }
+    $candidates.Add((Join-Path $ProjectRoot 'scripts/internal'))
+
+    $modules = if ($null -ne $InstalledModules) { @($InstalledModules) } else {
+        try {
+            @(Get-Module -Name 'Specrew' -ListAvailable -ErrorAction SilentlyContinue | ForEach-Object {
+                    $prerelease = try { [string]$_.PrivateData.PSData.Prerelease } catch { '' }
+                    [pscustomobject]@{ ModuleBase = $_.ModuleBase; Version = $_.Version; Prerelease = $prerelease }
+                })
+        }
+        catch { @() }
+    }
+    $deployedVersion = ''
+    if (-not [string]::IsNullOrWhiteSpace($ExtensionScriptsRoot)) {
+        try {
+            $record = Join-Path (Split-Path -Parent $ExtensionScriptsRoot) '.specrew-extension-runtime.json'
+            if (Test-Path -LiteralPath $record -PathType Leaf) { $deployedVersion = [string](Get-Content -LiteralPath $record -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop).specrew_version }
+        }
+        catch { $deployedVersion = '' }
+    }
+    $ordered = @($modules | Sort-Object -Property @{ Expression = { [version]$_.Version }; Descending = $true })
+    if (-not [string]::IsNullOrWhiteSpace($deployedVersion)) {
+        $matching = @($ordered | Where-Object {
+                $label = if ([string]::IsNullOrWhiteSpace([string]$_.Prerelease)) { [string]$_.Version } else { '{0}-{1}' -f $_.Version, $_.Prerelease }
+                $label -ceq $deployedVersion.Trim()
+            })
+        $ordered = @($matching) + @($ordered | Where-Object { $matching -notcontains $_ })
+    }
+    foreach ($module in $ordered) { $candidates.Add((Join-Path ([string]$module.ModuleBase) 'scripts/internal')) }
+
+    foreach ($candidate in $candidates) {
+        if ((Test-Path -LiteralPath (Join-Path $candidate 'session-management.ps1') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $candidate 'feature-claims.ps1') -PathType Leaf)) { return $candidate }
+    }
+    return $null
+}
+function Get-SpecrewInactivePromptBody {
+    # The launch prompt's body once no feature is active. Shared by the boundary sync and the feature-closeout
+    # approval's capture (202 T032), so both write the same text.
+    [OutputType([string])]
+    param([AllowNull()][string]$FeatureRef, [AllowNull()][string]$Boundary, [AllowNull()][string]$RecordedAt, [AllowNull()][string]$AuthCommitHash)
+    return @"
+# Specrew Session State
+
+- No active feature.
+- Last feature: $(if ($FeatureRef) { $FeatureRef } else { '(none)' })
+- Last boundary: $Boundary
+- Recorded at: $RecordedAt
+- Authorization commit: $(if ($AuthCommitHash) { $AuthCommitHash } else { '(none)' })
+"@
+}
+
+function Get-SpecrewClosedFeatureIdentityBody {
+    # The identity file's body once the human has approved a feature's closeout (202 T032).
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$FeatureRef, [AllowNull()][string]$ApprovedAt)
+    $label = if ($FeatureRef -match '^(?<number>\d{3})') { 'Feature {0}' -f $Matches['number'] } else { $FeatureRef }
+    return @"
+# What We're Focused On
+
+No active feature. Last completed: $label ($FeatureRef), its closeout approved at $ApprovedAt.
+"@
+}
+
+function Set-SpecrewStateFileInactive {
+    # 202 T032: a state file (the launch prompt, the identity file) rewritten for a feature whose closeout the human
+    # has approved: the named frontmatter keys set (added when absent) and, when -Body is given, the body after the
+    # frontmatter replaced. Every other frontmatter line is kept. A file without frontmatter is left as it is.
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][System.Collections.IDictionary]$Frontmatter, [AllowNull()][string]$Body)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    $text = [IO.File]::ReadAllText($Path)
+    $match = [regex]::Match($text, '\A---\r?\n(?<fm>[\s\S]*?)\r?\n---[^\r\n]*(\r?\n|\z)')
+    if (-not $match.Success) { return $false }
+    $nl = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in ($match.Groups['fm'].Value -split '\r?\n')) { $lines.Add($line) }
+    foreach ($key in $Frontmatter.Keys) {
+        $value = '{0}: {1}' -f $key, $Frontmatter[$key]
+        $index = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match ('^' + [regex]::Escape([string]$key) + ':')) { $index = $i; break } }
+        if ($index -ge 0) { $lines[$index] = $value } else { $lines.Add($value) }
+    }
+    $rest = $text.Substring($match.Index + $match.Length)
+    if (-not [string]::IsNullOrWhiteSpace($Body)) { $rest = $nl + (($Body.Trim()) -replace '\r?\n', $nl) + $nl }
+    $updated = '---' + $nl + ($lines -join $nl) + $nl + '---' + $nl + $rest
+    if ($updated -ceq $text) { return $false }
+    [IO.File]::WriteAllText($Path, $updated, [Text.UTF8Encoding]::new($false))
+    return $true
+}
+function Invoke-SpecrewFeatureCloseoutRelease {
+    # 202 T032 (B4F-146's class): what a feature closeout releases, done when the human's approval is recorded and
+    # never when the closeout is asked for. The capture itself writes the session state's `active: false`; this
+    # writes the rest: the launch prompt and the identity file rewritten as inactive (their copy of the flag and
+    # their text, which the closeout step now writes as awaiting approval), the active-feature
+    # pointer (only when it names this feature), this machine's session lock for the feature, and the feature's
+    # claim once its branch is merged to main. Each step is separate, so one failure leaves the others done; the
+    # caller reports a failure without un-recording the approval.
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$ProjectRoot, [Parameter(Mandatory)][string]$FeatureRef,
+        [AllowNull()][System.Collections.IDictionary]$SessionState, [AllowNull()][string]$ApprovedAt)
+
+    $root = [IO.Path]::GetFullPath($ProjectRoot)
+    $released = [System.Collections.Generic.List[string]]::new()
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $session = if ($null -ne $SessionState) { $SessionState } else { @{} }
+    $sessionValue = { param([string]$Key) if ($session.Contains($Key) -and $null -ne $session[$Key]) { [string]$session[$Key] } else { '' } }
+    $approvedAt = if ([string]::IsNullOrWhiteSpace($ApprovedAt)) { (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $ApprovedAt }
+    $stateFiles = @(
+        [pscustomobject]@{ Relative = '.specrew/last-start-prompt.md'; Frontmatter = [ordered]@{ session_state_active = 'false' }
+            Body = (Get-SpecrewInactivePromptBody -FeatureRef $FeatureRef -Boundary 'feature-closeout' -RecordedAt $approvedAt -AuthCommitHash (& $sessionValue 'auth_commit_hash')) }
+        [pscustomobject]@{ Relative = '.squad/identity/now.md'; Frontmatter = [ordered]@{ focus_area = '"No active feature"'; active_issues = '"[]"'; session_state_active = 'false' }
+            Body = (Get-SpecrewClosedFeatureIdentityBody -FeatureRef $FeatureRef -ApprovedAt $approvedAt) }
+    )
+    foreach ($file in $stateFiles) {
+        try { if (Set-SpecrewStateFileInactive -Path (Join-Path $root $file.Relative) -Frontmatter $file.Frontmatter -Body $file.Body) { $released.Add($file.Relative) } }
+        catch { $problems.Add(('{0}: {1}' -f $file.Relative, $_.Exception.Message)) }
+    }
+
+    $pointerPath = Join-Path $root '.specify/feature.json'
+    try {
+        if (Test-Path -LiteralPath $pointerPath -PathType Leaf) {
+            $pointer = [ordered]@{}
+            $existing = Get-Content -LiteralPath $pointerPath -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            foreach ($key in $existing.Keys) { $pointer[$key] = $existing[$key] }
+            $current = if ($pointer.Contains('feature_directory')) { [string]$pointer['feature_directory'] } else { '' }
+            if (-not [string]::IsNullOrWhiteSpace($current) -and (Split-Path -Leaf $current) -ceq (Split-Path -Leaf $FeatureRef)) {
+                $pointer['feature_directory'] = ''
+                if (-not $pointer.Contains('schema')) { $pointer['schema'] = 'v1' }
+                $temp = $pointerPath + '.tmp-' + [guid]::NewGuid().ToString('N')
+                try {
+                    [IO.File]::WriteAllText($temp, ((([pscustomobject]$pointer) | ConvertTo-Json -Depth 5) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+                    [IO.File]::Move($temp, $pointerPath, $true)
+                }
+                finally { if (Test-Path -LiteralPath $temp -PathType Leaf) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue } }
+                $released.Add('.specify/feature.json')
+            }
+        }
+    }
+    catch { $problems.Add(('.specify/feature.json: {0}' -f $_.Exception.Message)) }
+
+    $internal = Resolve-SpecrewModuleInternalDirectory -ProjectRoot $root
+    if ($null -eq $internal) {
+        $problems.Add('the session lock and the feature claim: the Specrew module''s helpers were not found')
+    }
+    else {
+        try {
+            . (Join-Path $internal 'session-management.ps1')
+            Remove-SessionLock -ProjectRoot $root -FeatureId $FeatureRef
+            $released.Add('.specrew/active-sessions.yml')
+        }
+        catch { $problems.Add(('.specrew/active-sessions.yml: {0}' -f $_.Exception.Message)) }
+        try {
+            . (Join-Path $internal 'feature-claims.ps1')
+            if (Remove-FeatureClaimIfMerged -ProjectRoot $root -FeatureId $FeatureRef) { $released.Add('.squad/active-features.yml') }
+        }
+        catch { $problems.Add(('.squad/active-features.yml: {0}' -f $_.Exception.Message)) }
+    }
+
+    if ($problems.Count -gt 0) {
+        try { [Console]::Error.WriteLine(('[specrew-governance] WARN FEATURE_CLOSEOUT_NOT_FULLY_RELEASED the feature-closeout approval for {0} is recorded, but not everything it releases was released: {1}' -f $FeatureRef, ($problems -join '; '))) } catch { $null = $_ }
+    }
+    return @($released.ToArray())
+}
+
+function Set-SpecrewActiveFeaturePointer {
+    # Feature 202 T010 (FR-017): the ONE pointer writer. Every Specrew writer of the active feature - the governed
+    # feature scaffold and the boundary sync - records which branch it wrote the pointer on, so the resolver can
+    # tell a pointer written for this branch from one carried over from another (199's pointer on branch 201).
+    # Keys other writers own (Spec Kit's /speckit.specify writes this file too) are preserved.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$ProjectRoot, [Parameter(Mandatory)][string]$FeatureRef)
+
+    $path = Join-Path $ProjectRoot '.specify/feature.json'
+    $pointer = [ordered]@{}
+    try {
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $existing = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            foreach ($key in $existing.Keys) { $pointer[$key] = $existing[$key] }
+        }
+    }
+    catch { $pointer = [ordered]@{} }
+    $pointer['feature_directory'] = ('specs/{0}' -f (Split-Path -Leaf $FeatureRef))
+    $pointer['branch'] = Get-SpecrewCurrentBranch -ProjectRoot $ProjectRoot
+    if (-not $pointer.Contains('schema')) { $pointer['schema'] = 'v1' }
+    $temp = $null
+    try {
+        $directory = Split-Path -Parent $path
+        if (-not (Test-Path -LiteralPath $directory -PathType Container)) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
+        $temp = $path + '.tmp-' + [guid]::NewGuid().ToString('N')
+        [IO.File]::WriteAllText($temp, ((([pscustomobject]$pointer) | ConvertTo-Json -Depth 5) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($temp, $path, $true)
+        return $true
+    }
+    catch { return $false }
+    finally { if ($temp -and (Test-Path -LiteralPath $temp -PathType Leaf)) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue } }
+}
+
+function Get-SpecrewActiveFeatureDisclosure {
+    # The one line every reader shows beside the feature, naming the source that decided (FR-018).
+    [OutputType([string])]
+    param([Parameter(Mandatory)]$Resolution)
+    switch ([string]$Resolution.resolved_by) {
+        'pending-decision' { return ('Feature {0}, from the decision waiting for your verdict.' -f $Resolution.feature_ref) }
+        'active-session' { return ('Feature {0}, from the work in flight.' -f $Resolution.feature_ref) }
+        'open-workshop' { return ('Feature {0}, from its design workshop, which is still open.' -f $Resolution.feature_ref) }
+        'pointer' { return ('Feature {0}, from the feature pointer written on branch {1}.' -f $Resolution.feature_ref, $Resolution.branch) }
+        'branch-hint' { return ('Feature {0}, from the branch name only; nothing in flight names a feature.' -f $Resolution.feature_ref) }
+        'pointer-without-branch' { return ('Feature {0}, from an older feature pointer that does not record its branch.' -f $Resolution.feature_ref) }
+        'ambiguous' { return ('Two features are in flight ({0}); which one are we working on?' -f (@($Resolution.candidates) -join ', ')) }
+        default { return 'No feature is in progress.' }
+    }
+}
+
+function Resolve-SpecrewActiveFeatureRef {
+    # The active feature ref alone, for callers that need only the name. It is Resolve-SpecrewActiveFeature's answer,
+    # so no caller decides differently from status, orientation or resume (202 T010). Empty when nothing resolves,
+    # including when two features compete.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    try { return [string](Resolve-SpecrewActiveFeature -ProjectRoot $ProjectRoot).feature_ref } catch { return '' }
+}
+
+function Test-SpecrewLifecycleExecutionRecordPath {
+    # W51 (2026-08-24, maintainer ruling): THE ONE CLASSIFICATION OF THE specs/ TREE, refined at the
+    # FR-009 boundary INSIDE it. The standard artifacts - spec.md, plan design content, tasks.md
+    # definitions, the workshop records - are the standard the code is judged against: change one and
+    # what a review concluded changes, so they STALE. The execution records - state.md,
+    # tasks-progress.yml, review.md, drift-log.md, the reviewer closeout set - are OUTPUT of executing
+    # and reviewing: recording them cannot invalidate the review that produced them.
+    #
+    # ONE classification, BOTH consumers - the signoff gate's records-only exemption and the
+    # validator's citation-staleness check - because the walk measured what a split costs: the
+    # validator ruled that recording a review cannot invalidate it while the gate staled on the very
+    # records the review had just measured, and every loop around that disagreement cost a human
+    # approval.
+    #
+    # Scoped to the ACTIVE feature (FR-009's earlier narrowing, kept): another feature's records tree
+    # is ordinary content. An unmatched path returns $false, which STALES - the allowlist fails toward
+    # nagging, never toward silencing.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Path,
+        [AllowNull()][AllowEmptyString()][string]$FeatureId
+    )
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($FeatureId)) { return $false }
+    $normalized = ([string]$Path).Replace([char]92, [char]47).Trim().Trim('/')
+    $featurePrefix = 'specs/' + $FeatureId.Trim().Trim('/') + '/'
+    if (-not $normalized.StartsWith($featurePrefix, [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
+
+    $relative = $normalized.Substring($featurePrefix.Length)
+    $iteration = [regex]::Match($relative, '^iterations/[^/]+/(?<rest>.*)$')
+    if ($iteration.Success) { $relative = [string]$iteration.Groups['rest'].Value }
+    if ([string]::IsNullOrWhiteSpace($relative)) { return $false }
+
+    # Process records and review OUTPUT. The review-evidence names are the same set the finalization
+    # envelope allowlists, so the two cannot disagree about what counts as review evidence.
+    # PRED-BETA4-048 (B4F-056, located): `dashboard.md` and `security-surface.md` are the reviewer scaffold's
+    # own outputs (and the closeout auto-render's), and were absent here - so the product's review output
+    # counted as uncovered source after the final round, and the Stop hook asked for a coverage decision the
+    # sign-off had already made (the router-skill sign-off of 2026-09-13: source_drift = dashboard.md).
+    $recordFiles = @(
+        'drift-log.md', 'state.md', 'tasks-progress.yml',
+        'review.md', 'reviewer-index.md', 'code-map.md', 'coverage-evidence.md', 'dependency-report.md', 'review-diagrams.md',
+        'dashboard.md', 'security-surface.md',
+        'review-signoff.md', 'retro.md'
+    )
+    $comparison = [System.StringComparison]::OrdinalIgnoreCase
+    foreach ($name in $recordFiles) {
+        if ($relative.Equals($name, $comparison)) { return $true }
+    }
+    if ($relative.StartsWith('closeout', $comparison) -and $relative -notmatch '/') { return $true }
+
+    # workshop/ IS DELIBERATELY ABSENT (maintainer ruling, 2026-08-11): the workshop holds the binding
+    # standard the implementation is judged against - INPUT by the ruling's own test. An allowlist is
+    # safe because omissions nag; that safety is void for any entry wrongly included.
+    foreach ($directory in @('quality/', 'checklists/', 'dashboards/', 'gates/')) {
+        if ($relative.StartsWith($directory, $comparison)) { return $true }
+    }
+    return $false
+}
+
+function Get-SpecrewReviewedTreeSourceDrift {
+    # DRIFT-007 (2026-08-22): WHETHER THE REVIEWED SURFACE MOVED, NOT WHETHER ANY BYTE MOVED.
+    #
+    # W38 compared the cited run's frozen tree-id against the current one for exact equality. The
+    # reviewed-state digest deliberately excludes `.specrew/`, `.specify/`, `.squad/` and `.scratch/` -
+    # but NOT `specs/`. So review.md, drift-log.md, state.md and every closeout artifact are inside the
+    # digest, and RECORDING a review moves the tree the review is measured against. Every run went stale
+    # at its own recording commit, and the two checks left no satisfiable state: with the derived block
+    # present the record failed on staleness, and without it the absence arm failed instead. Each
+    # check's only remedy was the state the other refused.
+    #
+    # The digest is not what is wrong - its scope is deliberate, and anything excluded from it is a
+    # false-allow vector for the freshness gate. The wrong thing was the question. So the comparison
+    # asks what a human asks: did any SOURCE change between these two trees. That is the judgement the
+    # maintainer made by hand all week with `git diff <tree>..HEAD -- src tests data`.
+    #
+    # KNOWN LIMIT, shared with W33's coverage rule and W34-B's authorship rule and stated rather than
+    # discovered: `Test-SpecrewReviewAuthorshipSourcePath` treats `specs/`, `docs/`, dot-directories and
+    # any `.md` as not-source. In a repository whose PRODUCT is documentation, a genuine product change
+    # therefore reads as records-only. Three checks now share that classifier, so it is one decision in
+    # one place rather than three quiet ones - and changing it changes all three together.
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$CitedTreeId,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$CurrentTreeId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CitedTreeId) -or [string]::IsNullOrWhiteSpace($CurrentTreeId)) {
+        return [pscustomobject]@{ comparable = $false; changed = @(); source = @(); reason = 'tree-id-missing' }
+    }
+    if ($CitedTreeId -ceq $CurrentTreeId) {
+        return [pscustomobject]@{ comparable = $true; changed = @(); source = @(); reason = 'identical' }
+    }
+
+    $changed = @()
+    try {
+        $output = & git -C $ProjectRoot diff --name-only $CitedTreeId $CurrentTreeId 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            # The reviewed tree is a dangling object - written by the digest, never committed, and
+            # collectable. Once it is gone, what changed cannot be established, and the honest answer is
+            # that the citation can no longer be checked rather than that it is fine.
+            return [pscustomobject]@{ comparable = $false; changed = @(); source = @(); reason = 'reviewed-tree-not-in-object-store' }
+        }
+        $changed = @(@($output) | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    }
+    catch {
+        return [pscustomobject]@{ comparable = $false; changed = @(); source = @(); reason = 'diff-failed' }
+    }
+
+    # W48 note, measured rather than assumed: this detector needs NO machinery overlay. Both tree-ids
+    # are reviewed-state DIGEST trees, and the digest's own machinery strip removes the deployed
+    # bundle from both sides before this diff exists - a mutation proof against the overlay stayed
+    # green here, which is how the difference was found.
+    #
+    # W51 refines the specs/ half of the DRIFT-007 known limit: the shared classifier calls the whole
+    # specs/ tree non-source, but the STANDARD artifacts inside the active feature - spec.md, plan
+    # design content, tasks.md, the workshop records - are the standard the code was judged against,
+    # and changing one changes what the review concluded. They stale now. Execution records still do
+    # not, which is the validator's original ruling kept: recording a review cannot invalidate it.
+    # One classification, shared with the signoff gate's records-only exemption, so the two consumers
+    # cannot disagree - the walk measured a human approval per loop when they did. Fail-open when no
+    # active feature resolves: everything under specs/ stays quiet, the pre-W51 behavior.
+    $activeFeature = Resolve-SpecrewActiveFeatureRef -ProjectRoot $ProjectRoot
+    $activeFeaturePrefix = if ([string]::IsNullOrWhiteSpace($activeFeature)) { $null } else { 'specs/' + $activeFeature + '/' }
+    $source = @($changed | Where-Object {
+            $path = $_
+            if (Test-SpecrewReviewAuthorshipSourcePath -Path $path) { return $true }
+            if ($null -ne $activeFeaturePrefix -and
+                ([string]$path).Replace([char]92, [char]47).StartsWith($activeFeaturePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+                return (-not (Test-SpecrewLifecycleExecutionRecordPath -Path $path -FeatureId $activeFeature))
+            }
+            return $false
+        })
+    return [pscustomobject]@{ comparable = $true; changed = @($changed); source = @($source); reason = 'compared' }
+}
+
+function Get-SpecrewReviewCurrentTreeId {
+    # The tree that exists NOW, as a reviewed-state digest. Fail-open to '' - no git, a detached
+    # state, the helper absent: nothing is claimed, which is the posture every other check here takes.
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    try {
+        if (-not (Get-Command -Name 'Get-ContinuousCoReviewReviewedStateDigest' -ErrorAction SilentlyContinue)) {
+            $helper = Join-Path $ProjectRoot 'scripts/internal/continuous-co-review/reviewed-state-digest.ps1'
+            if (Test-Path -LiteralPath $helper -PathType Leaf) { . $helper }
+        }
+        if (-not (Get-Command -Name 'Get-ContinuousCoReviewReviewedStateDigest' -ErrorAction SilentlyContinue)) { return '' }
+        $state = Get-ContinuousCoReviewReviewedStateDigest -RepoRoot $ProjectRoot
+        if ($null -eq $state -or -not [bool]$state.ok) { return '' }
+        return [string]$state.tree_id
+    }
+    catch { return '' }
+}
+
+function Get-SpecrewReviewRunCoversCurrentSource {
+    # W67 (maintainer ruling, 2026-08-26): THE CURRENTNESS QUESTION, ASKED - NOT READ.
+    #
+    # `currentness` is a field the run wrote about the tree that existed THEN. The validator has
+    # recomputed it against the tree that exists now since W38; the block generator went on reading
+    # the frozen field, so the two readers of one question could disagree - and did. The block would
+    # have put a present-tense claim into review.md that a run covers a tree it does not, in the
+    # signoff evidence of the feature whose subject is evidence honesty, with the validator's
+    # recompute contradicting it on the same page.
+    #
+    # So the rule lives here and every reader asks it. Source-aware via DRIFT-007, so RECORDING a
+    # review cannot stale it - exact tree equality made every run stale at its own recording commit.
+    #
+    # FAIL-OPEN when the trees cannot be resolved: "I could not tell" must never manufacture
+    # staleness. NOT-COMPARABLE is different and is NOT fail-open - a reviewed tree that has left the
+    # object store means the citation can no longer be checked, which is the validator's own reading.
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][AllowNull()]$Result,
+        [AllowEmptyString()][string]$CurrentTreeId = ''
+    )
+    $answer = [pscustomobject]@{ covers = $true; established = $false; reason = 'unresolvable'; cited = ''; current = ''; source = @() }
+    if ($null -eq $Result) { return [pscustomobject]@{ covers = $false; established = $true; reason = 'no-result'; cited = ''; current = ''; source = @() } }
+    $cited = if ($Result.PSObject.Properties['target_digest']) { [string]$Result.target_digest } else { '' }
+    if ([string]::IsNullOrWhiteSpace($CurrentTreeId)) { $CurrentTreeId = Get-SpecrewReviewCurrentTreeId -ProjectRoot $ProjectRoot }
+    $answer.cited = $cited
+    $answer.current = [string]$CurrentTreeId
+    if ([string]::IsNullOrWhiteSpace($cited) -or [string]::IsNullOrWhiteSpace($CurrentTreeId)) { return $answer }
+    if ($cited -ceq $CurrentTreeId) {
+        return [pscustomobject]@{ covers = $true; established = $true; reason = 'identical'; cited = $cited; current = [string]$CurrentTreeId; source = @() }
+    }
+    $drift = $null
+    if (Get-Command -Name 'Get-SpecrewReviewedTreeSourceDrift' -ErrorAction SilentlyContinue) {
+        $drift = Get-SpecrewReviewedTreeSourceDrift -ProjectRoot $ProjectRoot -CitedTreeId $cited -CurrentTreeId $CurrentTreeId
+    }
+    if ($null -eq $drift -or -not [bool]$drift.comparable) {
+        $reason = if ($null -ne $drift) { [string]$drift.reason } else { 'drift-helper-absent' }
+        return [pscustomobject]@{ covers = $false; established = $false; reason = $reason; cited = $cited; current = [string]$CurrentTreeId; source = @() }
+    }
+    if (@($drift.source).Count -gt 0) {
+        return [pscustomobject]@{ covers = $false; established = $true; reason = 'source-moved'; cited = $cited; current = [string]$CurrentTreeId; source = @($drift.source) }
+    }
+    return [pscustomobject]@{ covers = $true; established = $true; reason = 'records-only'; cited = $cited; current = [string]$CurrentTreeId; source = @() }
+}
+
+function Get-SpecrewReviewRunCandidates {
+    # Every run the store holds that could evidence a review, newest LAST, each carrying the coverage
+    # answer for the tree that exists now. Both the qualifying selector and the block's non-coverage
+    # arm read this ONE list: keeping two copies of the filter chain is the divergence this whole
+    # cycle has been correcting, and it would land here next.
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    $campaignsRoot = Join-Path $ProjectRoot '.specrew/review/authority/campaigns'
+    if (-not (Test-Path -LiteralPath $campaignsRoot -PathType Container)) { return @() }
+    $currentTreeId = Get-SpecrewReviewCurrentTreeId -ProjectRoot $ProjectRoot
+    $candidates = [System.Collections.Generic.List[object]]::new()
+    foreach ($campaign in @(Get-ChildItem -LiteralPath $campaignsRoot -Directory -ErrorAction SilentlyContinue)) {
+        $runsRoot = Join-Path $campaign.FullName 'runs'
+        if (-not (Test-Path -LiteralPath $runsRoot -PathType Container)) { continue }
+        foreach ($run in @(Get-ChildItem -LiteralPath $runsRoot -Directory -ErrorAction SilentlyContinue)) {
+            $resultPath = Join-Path $run.FullName 'result.json'
+            if (-not (Test-Path -LiteralPath $resultPath -PathType Leaf)) { continue }
+            $result = $null
+            try { $result = Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 } catch { continue }
+            if ($null -eq $result) { continue }
+            if ([string]$result.completion -cne 'complete') { continue }
+            # DRIFT-199-I001-134: StrictMode-safe. An absent verdict is not a passing one.
+            $resultVerdict = if ($result.PSObject.Properties['verdict']) { [string]$result.verdict } else { '' }
+            if ($resultVerdict -notin @('pass', 'findings')) { continue }
+            # W72 (maintainer ruling, 2026-08-26): THE FROZEN FIELD IS THE QUESTION, NOT A FLOOR.
+            #
+            # W67 kept `currentness` as a floor on top of the recomputed answer, reasoning that a run
+            # which knew it was not current when it ended never was. That reasoning is wrong about what
+            # the field measures: it is SNAPSHOT-EXACT, so it reads `snapshot-moved` after ANY commit in
+            # the review window - including a records-only one, which DRIFT-007 exists to make harmless.
+            # Keeping it as a floor made it DECISIVE, which is precisely the pre-W67 reading W67 was
+            # written to replace, reintroduced one layer up.
+            #
+            # Measured on run-20260826-194901162-77511bab: the floor excluded it from the candidate list
+            # before the recomputed answer was consulted at all. A round could be disqualified by the
+            # act of writing down what it found.
+            #
+            # The recomputed, source-aware answer is the answer WHENEVER IT CAN BE ESTABLISHED. The
+            # frozen field survives only as a FALLBACK for when it cannot - no git, a collected tree,
+            # the helper absent - because then it is the only signal there is, and a run that recorded
+            # itself as not-current with no way to check it must not be promoted by our ignorance.
+            # Caught by the pre-existing "says so plainly when nothing qualifies" case, which went red
+            # when the field was removed outright: its fixture has no object store at all.
+            if ([string]$result.validation -cne 'valid') { continue }
+            $sourceCount = $null
+            if ($result.PSObject.Properties['examined_paths']) {
+                $declared = @(@($result.examined_paths) | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                # Round-13 finding (DRIFT-199-I001-122): a PRESENT empty list is declared ZERO coverage.
+                if (@($declared).Count -eq 0) { continue }
+                $sourceCount = @($declared | Where-Object { Test-SpecrewDerivedCoverageSourcePath -Path $_ }).Count
+                if ($sourceCount -eq 0) { continue }
+            }
+            $coverage = Get-SpecrewReviewRunCoversCurrentSource -ProjectRoot $ProjectRoot -Result $result -CurrentTreeId $currentTreeId
+            if (-not [bool]$coverage.established -and [string]$result.currentness -cne 'current') { continue }
+            [void]$candidates.Add([pscustomobject]@{ result = $result; source_count = $sourceCount; coverage = $coverage })
+        }
+    }
+    if ($candidates.Count -eq 0) { return @() }
+    # "Latest" is a TIME claim (the DRIFT-120 rule): order by the result's own ended_at, ordinal run
+    # id only as the deterministic tie-breaker.
+    return @($candidates | Sort-Object -Property @{ Expression = {
+                $parsedEnded = [System.DateTimeOffset]::MinValue
+                # The [datetime] ConvertFrom-Json made of ended_at is read as that instant, fraction included.
+                $endedValue = if ($_.result.PSObject.Properties['ended_at']) { $_.result.ended_at } else { $null }
+                if ($endedValue -is [datetime] -or $endedValue -is [System.DateTimeOffset]) { $parsedEnded = [System.DateTimeOffset]$endedValue }
+                elseif (-not [string]::IsNullOrWhiteSpace([string]$endedValue)) {
+                    $null = [System.DateTimeOffset]::TryParse([string]$endedValue, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsedEnded)
+                }
+                $parsedEnded
+            } }, @{ Expression = { [string]$_.result.run_id } })
+}
+
+function Get-SpecrewQualifyingIndependentRun {
+    # A run qualifies as evidence of an independent review of code when the store says it completed,
+    # with a valid candidate and a reviewed outcome - when, if it declared its coverage at all (W33),
+    # that coverage included source - AND when it still COVERS the source that exists now.
+    #
+    # W67 (maintainer ruling, 2026-08-26): that last clause used to read the run's frozen
+    # `currentness` field, so this reader and the validator answered one question two ways. It now
+    # asks Get-SpecrewReviewRunCoversCurrentSource, which is the rule the validator has applied since
+    # W38. A run that declared nothing is still left eligible on purpose: every reviewer deployed
+    # before W33 declares nothing, and refusing them all would wedge the gate shut on the past.
+    #
+    # EXCLUDED ONLY WHEN NON-COVERAGE IS ESTABLISHED. "The reviewed tree is gone from the object store"
+    # is not staleness - it is not knowing, which W38 reports as a WEAK claim and refuses at the
+    # validator rather than treating as stale. Dropping such a run here would silence that refusal:
+    # the block would say "no run qualifies", the record would validate clean, and a record whose only
+    # evidence cannot be checked would have quietly received a pass. Caught by
+    # review-record-survives-its-own-commit, which pins exactly that.
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    $covering = @(Get-SpecrewReviewRunCandidates -ProjectRoot $ProjectRoot |
+            Where-Object { [bool]$_.coverage.covers -or -not [bool]$_.coverage.established })
+    if ($covering.Count -eq 0) { return $null }
+    return ($covering | Select-Object -Last 1)
+}
+function Get-SpecrewDerivedIndependenceBlock {
+    # The canonical block, byte-stable for a given store state so recomputation can compare it.
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+    $lines = [System.Collections.Generic.List[string]]::new()
+    [void]$lines.Add($script:SpecrewDerivedIndependenceOpen)
+    [void]$lines.Add('<!-- Derived from the review authority store. Do not hand-edit: the validator recomputes it. -->')
+    $qualifying = Get-SpecrewQualifyingIndependentRun -ProjectRoot $ProjectRoot
+    if ($null -eq $qualifying) {
+        [void]$lines.Add('- No run in this project''s review store qualifies as an independent review of the current tree.')
+        # W67: SAY WHY, when the store can say why. A run that ran and no longer reaches the code is a
+        # different fact from no run at all, and the difference is the one a human deciding on signoff
+        # needs. The RUN ID is deliberately absent: the validator reads any run id in this block as the
+        # evidence the record rests on, so naming one here would turn a statement of non-coverage into
+        # a stale citation - the block would say "does not cover" and be read as a claim of coverage.
+        #
+        # The CITED tree is named and the current one is not, so this text changes only when the store
+        # does. Rendering the moved-file list would rewrite the block on every commit, and the block is
+        # recomputed and compared at validation.
+        $uncovered = @(Get-SpecrewReviewRunCandidates -ProjectRoot $ProjectRoot |
+                Where-Object { -not [bool]$_.coverage.covers -and [bool]$_.coverage.established })
+        if ($uncovered.Count -gt 0) {
+            $newest = ($uncovered | Select-Object -Last 1)
+            [void]$lines.Add(('- The most recent completed run reviewed tree {0} and does not cover the current source: source files have changed since it read them.' -f [string]$newest.coverage.cited))
+            [void]$lines.Add('- It is evidence about the tree it read. It is not evidence about the code as it stands.')
+        }
+        [void]$lines.Add('- Any independence this record claims rests on something other than a campaign run, and must say what.')
+    }
+    else {
+        $r = $qualifying.result
+        $findingCount = @($r.findings).Count
+        [void]$lines.Add(('- Run: {0} (harness {1})' -f [string]$r.run_id, [string]$r.harness_id))
+        [void]$lines.Add(('- Outcome: {0}, {1}, {2}, {3} - {4} finding(s)' -f $(if ($r.PSObject.Properties['verdict']) { [string]$r.verdict } else { 'unknown' }), $(if ($r.PSObject.Properties['completion']) { [string]$r.completion } else { 'unknown' }), $(if ($r.PSObject.Properties['currentness']) { [string]$r.currentness } else { 'unknown' }), $(if ($r.PSObject.Properties['validation']) { [string]$r.validation } else { 'unknown' }), $findingCount))
+        [void]$lines.Add(('- Reviewed tree: {0}' -f [string]$r.target_digest))
+        if ($null -eq $qualifying.source_count) {
+            # LABEL, DO NOT LAUNDER. Derived from the KeyContextAI store this branch names
+            # run-20260820-083412478-d85dda20 - the 67-second run that read governance artifacts and
+            # nothing else - because a run predating W33 declares no coverage and stays eligible so the
+            # gate does not wedge shut on the past. Rendering that as a neutral field would lend derived
+            # authority to a run nobody can show read the code, which is the defect this block exists to
+            # stop. So the block says what is and is not established, in the record, where a reader sees
+            # it beside the verdict.
+            [void]$lines.Add('- Coverage: UNKNOWN. This run predates the declared-coverage contract, so nothing')
+            [void]$lines.Add('  establishes which files it read. It is evidence that a review RAN, not evidence')
+            [void]$lines.Add('  that the code was reviewed. Re-run to obtain a run that declares its coverage.')
+        }
+        else {
+            [void]$lines.Add(('- Coverage: {0} source path(s) of {1} declared and checked against the frozen target.' -f [int]$qualifying.source_count, @($r.examined_paths).Count))
+        }
+    }
+    [void]$lines.Add($script:SpecrewDerivedIndependenceClose)
+    return ($lines -join "`n")
+}
+
+function Get-SpecrewEmbeddedIndependenceBlock {
+    # Returns the block as it appears in the record, normalized to LF so a CRLF checkout does not read
+    # as a tampered claim.
+    # [Parameter(Mandatory)] on a string array rejects an EMPTY ELEMENT, not just an empty array, so
+    # AllowEmptyString is what lets a markdown record - which is mostly blank lines - reach this at
+    # all. Without it the check threw on every real review.md instead of reading it.
+    param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$ReviewLines)
+    $text = (@($ReviewLines) -join "`n").Replace("`r`n", "`n").Replace("`r", "`n")
+    $start = $text.IndexOf($script:SpecrewDerivedIndependenceOpen, [StringComparison]::Ordinal)
+    if ($start -lt 0) { return $null }
+    $end = $text.IndexOf($script:SpecrewDerivedIndependenceClose, $start, [StringComparison]::Ordinal)
+    if ($end -lt 0) { return $null }
+    return $text.Substring($start, ($end - $start) + $script:SpecrewDerivedIndependenceClose.Length)
+}
+# specrew-self-provenance-ok: DRIFT-198-I011-003,DRIFT-198-I011-005,DRIFT-198-I011-006,DRIFT-198-I011-012,DRIFT-199-I001-037,DRIFT-199-I001-120,DRIFT-199-I001-122,DRIFT-199-I001-125,DRIFT-199-I001-126,F-028,F-040,F-047,F-174,DRIFT-199-I001-134; implementation history is recorded for maintainers and is never emitted as consumer instruction

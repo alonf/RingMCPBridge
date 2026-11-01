@@ -17,6 +17,63 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function ConvertTo-LintCleanMarkdown {
+    <#
+    DRIFT-198-I011-011. Governed writers must emit markdown that passes the repository's OWN required
+    lint — the same `markdownlint` step templates/lifecycle/docs-only-lifecycle.md instructs CONSUMERS
+    to run. Emitting non-conformant markdown hands every downstream project a red Lint out of the box,
+    and it reached the beta2 release gate as a failing REQUIRED check on files nobody hand-wrote.
+
+    Normalizes exactly the three rules the generator violated, at the ONE choke point both write paths
+    funnel through — patching individual emit sites would leave whichever one was missed, which is this
+    iteration's recurring lesson.
+
+      MD009 no-trailing-spaces      - strip trailing whitespace (the generator never intends hard breaks)
+      MD032 blanks-around-lists     - blank line before the first and after the last item of a list run,
+                                      blockquote-aware so `> - item` is handled with a `>` spacer
+      MD047 single-trailing-newline - exactly one terminating newline
+
+    Pinned by tests/integration/generator-markdown-parity.tests.ps1, which runs the repo's own
+    .markdownlint.json over freshly-generated output.
+    #>
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Content)
+
+    if ([string]::IsNullOrEmpty($Content)) { return "`n" }
+
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in ($Content -split "`r?`n")) { $lines.Add(($line -replace '[ \t]+$', '')) | Out-Null }
+
+    $isListLine = { param([string]$l) $l -match '^\s*>?\s*([-*+]|\d+[.)])\s+' }
+    $isBlankish = { param([string]$l) $l -match '^\s*>?\s*$' }
+    $isQuoted = { param([string]$l) $l -match '^\s*>' }
+
+    $out = [System.Collections.Generic.List[string]]::new()
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $cur = $lines[$i]
+        if ((& $isListLine $cur)) {
+            $prev = if ($out.Count -gt 0) { $out[$out.Count - 1] } else { $null }
+            # Opening a list run that is not already separated, and not a continuation of one.
+            if ($null -ne $prev -and -not (& $isBlankish $prev) -and -not (& $isListLine $prev)) {
+                $out.Add($(if ((& $isQuoted $cur)) { '>' } else { '' })) | Out-Null
+            }
+            $out.Add($cur) | Out-Null
+            # Closing the run: look ahead past further list lines and their indented continuations.
+            $j = $i + 1
+            while ($j -lt $lines.Count -and ((& $isListLine $lines[$j]) -or $lines[$j] -match '^\s{2,}\S')) { $j++ }
+            for ($k = $i + 1; $k -lt $j; $k++) { $out.Add($lines[$k]) | Out-Null }
+            if ($j -lt $lines.Count -and -not (& $isBlankish $lines[$j])) {
+                $out.Add($(if ((& $isQuoted $lines[$j])) { '>' } else { '' })) | Out-Null
+            }
+            $i = $j - 1
+            continue
+        }
+        $out.Add($cur) | Out-Null
+    }
+
+    $joined = ($out -join "`n").TrimEnd("`r", "`n", ' ', "`t")
+    return ($joined + "`n")
+}
+
 function Add-ScaffoldAction {
     param(
         [AllowEmptyCollection()]
@@ -102,7 +159,7 @@ function Write-MissingFile {
             New-Item -ItemType Directory -Path $parent -Force | Out-Null
         }
 
-        [System.IO.File]::WriteAllText($finalPath, $Content, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($finalPath, (ConvertTo-LintCleanMarkdown -Content $Content), [System.Text.UTF8Encoding]::new($false))
     }
 }
 
@@ -243,6 +300,32 @@ foreach ($task in $tasks) {
     $verdictRows += ('| {0} | {1} | {2} | {3} |' -f $taskId.Trim(), $requirementRef.Trim(), $DefaultTaskVerdict, ($note -replace '\|', '\|'))
 }
 
+# W35: THE EVIDENCE MARKER NEEDS A PRODUCER, or it is a comment rather than a control.
+#
+# The validator honours <!-- SPECREW-REVIEW-EVIDENCE: run-... --> as the authored half of the evidence
+# union, and nothing emitted it or mentioned it anywhere an agent would read - so no review record
+# could ever declare its own evidence and the union was always a union of one. This emits it, already
+# populated when a qualifying run exists.
+#
+# FAIL-OPEN IN EVERY DIRECTION: no shared-governance beside us, or no qualifying run, emits the marker
+# EMPTY. An empty marker declares nothing, which is precisely today's behaviour.
+$evidenceRunId = ''
+try {
+    $sharedGovernanceForEvidence = Join-Path $PSScriptRoot 'shared-governance.ps1'
+    if (Test-Path -LiteralPath $sharedGovernanceForEvidence -PathType Leaf) {
+        if (-not (Get-Command -Name 'Get-SpecrewQualifyingIndependentRun' -ErrorAction SilentlyContinue)) {
+            . $sharedGovernanceForEvidence
+        }
+        if (Get-Command -Name 'Get-SpecrewQualifyingIndependentRun' -ErrorAction SilentlyContinue) {
+            # specs/<feature>/iterations/<N> -> the project root is four levels up.
+            $projectRootForEvidence = (Resolve-Path -LiteralPath (Join-Path $resolvedIterationDirectory '..\..\..\..') -ErrorAction Stop).Path
+            $qualifyingForEvidence = Get-SpecrewQualifyingIndependentRun -ProjectRoot $projectRootForEvidence
+            if ($null -ne $qualifyingForEvidence) { $evidenceRunId = [string]$qualifyingForEvidence.result.run_id }
+        }
+    }
+}
+catch { $evidenceRunId = '' }
+
 $reviewContent = @"
 # Review: Iteration $iterationLabel
 
@@ -253,6 +336,16 @@ $reviewContent = @"
 ## Task Verdicts
 
 $($verdictRows -join [Environment]::NewLine)
+
+<!--
+  Review evidence marker (validator-enforced):
+    The line below names the run(s) this record RESTS ON. Only what is named here - and the run named
+    by the derived independent-review block - is checked against the review store. Run ids appearing
+    anywhere else in this document are treated as NARRATIVE and are never checked, so a retraction may
+    name a failed run freely without the record being refused for it.
+    Leave it empty when the record rests on no campaign run. Do not name a run you are only discussing.
+-->
+<!-- SPECREW-REVIEW-EVIDENCE: $evidenceRunId -->
 
 <!--
   Gap Ledger schema (validator-enforced):
@@ -290,3 +383,4 @@ if ($PassThru) {
 $actions | Select-Object Action, Path | Format-Table -AutoSize
 Write-Host ("Review artifact scaffold {0} for {1}" -f ($(if ($DryRun) { 'previewed' } else { 'completed' }), $reviewPath)) -ForegroundColor Green
 exit 0
+# specrew-self-provenance-ok: DRIFT-198-I011-011; implementation history is recorded for maintainers and is never emitted as consumer instruction

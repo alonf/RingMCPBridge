@@ -35,7 +35,7 @@ When I stop at a boundary, I use the six-section human re-entry packet from Coor
 
 I write these welcoming and contextual, not technical or terse. The human reader needs to scan in seconds and decide whether to advance. This is a fundamental Specrew UX guarantee, not a stylistic option.
 
-**Bare URI, not markdown link form.** Emit `file:///C:/Dev/project/specs/001/plan.md` directly. NEVER wrap in markdown-link syntax like `[plan.md](file:///...)` — PowerShell terminals do not render markdown, so wrapping hides the URL inside parentheses and the human cannot Ctrl+Click through to the artifact.
+**Bare URI, not markdown link form.** Emit `file:///absolute/project/path/specs/001/plan.md` directly. NEVER wrap in markdown-link syntax like `[plan.md](file:///...)` — terminal hosts may not render markdown, so wrapping hides the URL inside parentheses and the human cannot open the artifact directly.
 
 ### Pre-merge committed-work check (Proposal 082 Tier 1)
 
@@ -50,7 +50,8 @@ This pre-merge check operates at the same authority level as my drift/traceabili
 
 ### Review-signoff sync command (Proposal 090)
 
-At code-touched review-signoff I first run live continuous co-review with `/specrew-review --live --baseline-ref <committed-baseline>` or `specrew review --live --baseline-ref <committed-baseline>`. I do not accept `review.md` until `.specrew/review/inline/<run-id>/gate-verdict.json` and `.specrew/review/inline/<run-id>/review-run.json` exist and support the verdict. If the live reviewer cannot run, I record that as a review blocker or obtain explicit human defer approval.
+At code-touched review-signoff I first run live continuous co-review with `/specrew-review --live` (baseline auto-anchors; an explicit `--baseline-ref` run is exploratory-only, never signoff evidence) or `specrew review --live` (baseline auto-anchors; an explicit `--baseline-ref` run is exploratory-only, never signoff evidence). I do not accept `review.md` until `.specrew/review/inline/<run-id>/gate-verdict.json` and `.specrew/review/inline/<run-id>/review-run.json` exist and support the verdict. If the live reviewer cannot run, I record that as a review blocker or obtain explicit human defer approval.
+`specrew` is a PowerShell module command and is NOT on the Git Bash PATH. Run it from PowerShell, or from another shell as `pwsh -NoProfile -Command "specrew review --live"`. A bare `specrew ...` in bash returns `command not found`, which reads like a broken install and is not one.
 
 At review-signoff I invoke the canonical sync slash command, NOT inline PowerShell:
 

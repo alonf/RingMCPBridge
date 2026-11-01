@@ -68,6 +68,18 @@ function New-ContinuousCoReviewRunIndexRecord {
         [Parameter(Mandatory)]
         [string] $BaselineRef,
 
+        # HOW THE BASELINE WAS CHOSEN, which decides whether a run can be signoff evidence at all.
+        # specrew-review.ps1 computes it - baseline OMITTED means auto-anchored to the feature
+        # merge-base and promotable, an explicit --baseline-ref makes the run exploratory and NOT
+        # promotable - and until now that decision lived only in control flow and was never
+        # persisted, so no later reader could tell the two apart from the record.
+        #
+        # OPTIONAL, new runs only, absence read as "not recorded" - the examined_paths precedent.
+        # A run written before this field existed simply does not carry it, which is NOT the same
+        # as a run that was exploratory.
+        [AllowNull()]
+        [string] $BaselineSource,
+
         [AllowNull()]
         [string] $DiffHash,
 
@@ -103,6 +115,12 @@ function New-ContinuousCoReviewRunIndexRecord {
 
         [AllowNull()]
         [string] $ReviewedTreeId,
+
+        # T094/FR-036 (iter-009 D4): the 3-dimension evidence labels
+        # { completeness: full|partial; independence: independent|same-host|unverified;
+        #   budget: normal|time-extended } - the tiered signoff gate's assurance input.
+        [AllowNull()]
+        $EvidenceLabels,
 
         [datetime] $CreatedAt = [datetime]::UtcNow
     )
@@ -164,10 +182,12 @@ function New-ContinuousCoReviewRunIndexRecord {
         run_id                    = $RunId
         checkpoint_id             = $CheckpointId
         baseline_ref              = $BaselineRef
+        baseline_source           = $(if ([string]::IsNullOrWhiteSpace($BaselineSource)) { $null } else { [string]$BaselineSource })
         diff_hash                 = $resolvedDiffHash
         reviewed_ref              = $ReviewedRef
         reviewed_tree_id          = $ReviewedTreeId
         scope                     = $Scope
+        evidence_labels           = $EvidenceLabels
         status                    = $status
         request_ref               = 'review-request.json'
         request_hash              = $requestHash
@@ -200,6 +220,10 @@ function New-ContinuousCoReviewRunSkippedIndexRecord {
         [Parameter(Mandatory)]
         [string] $BaselineRef,
 
+        # See the note on the first declaration: optional, new runs only, absence is not a value.
+        [AllowNull()]
+        [string] $BaselineSource,
+
         [Parameter(Mandatory)]
         [string] $Reason,
 
@@ -218,6 +242,7 @@ function New-ContinuousCoReviewRunSkippedIndexRecord {
         run_id           = $RunId
         checkpoint_id    = $CheckpointId
         baseline_ref     = $BaselineRef
+        baseline_source  = $(if ([string]::IsNullOrWhiteSpace($BaselineSource)) { $null } else { [string]$BaselineSource })
         status           = 'skipped'
         reason           = $Reason
         diff_hash        = $DiffHash
@@ -240,6 +265,10 @@ function Write-ContinuousCoReviewRunIndex {
 
         [Parameter(Mandatory)]
         [string] $BaselineRef,
+
+        # See the note on the first declaration: optional, new runs only, absence is not a value.
+        [AllowNull()]
+        [string] $BaselineSource,
 
         [AllowNull()]
         [string] $DiffHash,
@@ -280,6 +309,9 @@ function Write-ContinuousCoReviewRunIndex {
         [AllowNull()]
         $SkippedRun,
 
+        [AllowNull()]
+        $EvidenceLabels,
+
         [datetime] $CreatedAt = [datetime]::UtcNow
     )
 
@@ -297,6 +329,7 @@ function Write-ContinuousCoReviewRunIndex {
             -RunId $RunId `
             -CheckpointId $CheckpointId `
             -BaselineRef $BaselineRef `
+            -BaselineSource $BaselineSource `
             -Reason $skipReason `
             -DiffHash $skipDiffHash `
             -GateVerdict $GateVerdict `
@@ -320,6 +353,7 @@ function Write-ContinuousCoReviewRunIndex {
         -RunId $RunId `
         -CheckpointId $CheckpointId `
         -BaselineRef $BaselineRef `
+        -BaselineSource $BaselineSource `
         -DiffHash $DiffHash `
         -ReviewedRef $ReviewedRef `
         -Scope $Scope `
@@ -332,6 +366,7 @@ function Write-ContinuousCoReviewRunIndex {
         -ReviewThread $ReviewThread `
         -GateVerdict $GateVerdict `
         -CleanupResult $CleanupResult `
+        -EvidenceLabels $EvidenceLabels `
         -CreatedAt $CreatedAt
 
     if ($null -ne $ReviewRequest) { Write-ContinuousCoReviewRunIndexJson -Path (Join-Path $runRoot 'review-request.json') -InputObject $ReviewRequest }
@@ -415,6 +450,10 @@ function Write-ContinuousCoReviewSkippedRunIndex {
         [Parameter(Mandatory)]
         [string] $BaselineRef,
 
+        # See New-ContinuousCoReviewRunIndexRecord: optional, new runs only.
+        [AllowNull()]
+        [string] $BaselineSource,
+
         [Parameter(Mandatory)]
         $SkippedRun,
 
@@ -429,6 +468,7 @@ function Write-ContinuousCoReviewSkippedRunIndex {
         -RunId $RunId `
         -CheckpointId $CheckpointId `
         -BaselineRef $BaselineRef `
+        -BaselineSource $BaselineSource `
         -SkippedRun $SkippedRun `
         -GateVerdict $GateVerdict `
         -CreatedAt $CreatedAt
@@ -485,42 +525,32 @@ function Get-ContinuousCoReviewMergeBaseAnchor {
         [Parameter(Mandatory)]
         [string] $RepoRoot,
 
-        [string] $TrunkName = 'main',
+        # An OPTIONAL explicit trunk override (the CLI --trunk / config co_review_trunk). Empty ('') lets the
+        # shared resolver auto-detect via its 6-level precedence; a non-empty value is the explicit level-1 override.
+        [AllowEmptyString()][string] $TrunkName = '',
 
         [string] $HeadRef = 'HEAD'
     )
 
-    # F5 (145 review): the trunk may exist only as a remote ref on a fresh checkout, so try
-    # the local name first then `origin/<trunk>` before giving up (a $null anchor fails the
-    # gate closed). The caller may pass an already-qualified ref (e.g. 'origin/main'); we
-    # never double-prefix.
-    $trunkCandidates = New-Object System.Collections.Generic.List[string]
-    [void] $trunkCandidates.Add($TrunkName)
-    if ($TrunkName -notmatch '/') {
-        [void] $trunkCandidates.Add("origin/$TrunkName")
+    # The trunk is resolved by the ONE shared repository capability (co-review-trunk-resolver.ps1) - origin/HEAD,
+    # branch upstream, conventional refs, a single local pre-feature branch, else fail. It replaces this function's
+    # former inline candidate loop (bare/origin/<trunk> + origin/HEAD detection) and NEVER creates/renames/moves a
+    # branch. An ambiguous or unresolvable trunk yields a $null anchor here, which fails the gate CLOSED (coverage
+    # cannot be proven). Dot-source the resolver if a standalone caller loaded only this writer.
+    if (-not (Get-Command -Name 'Resolve-ContinuousCoReviewTrunkRef' -ErrorAction SilentlyContinue)) {
+        $resolverPath = Join-Path $PSScriptRoot 'co-review-trunk-resolver.ps1'
+        if (Test-Path -LiteralPath $resolverPath -PathType Leaf) { . $resolverPath }
+    }
+    $resolvedTrunk = Resolve-ContinuousCoReviewTrunkRef -RepoRoot $RepoRoot -Trunk $TrunkName
+    if (-not $resolvedTrunk.ok -or [string]::IsNullOrWhiteSpace([string] $resolvedTrunk.trunk_ref)) {
+        return $null
     }
 
-    # iter-007 real-host dogfood fix: the trunk is NOT always 'main'. A real repo's default branch was 'dev'
-    # (origin/HEAD -> origin/dev), so 'main' + 'origin/main' BOTH failed to resolve -> $null anchor ->
-    # 'no-reviewable-checkpoint' -> the navigator silently no-op'd at EVERY implement checkpoint (no review
-    # ever fired). Detect the repo's CONFIGURED default branch and try it before giving up.
-    $detectedHead = Invoke-ContinuousCoReviewResolverGit -RepoRoot $RepoRoot -Arguments @('symbolic-ref', '--short', 'refs/remotes/origin/HEAD')
-    if ($detectedHead.ExitCode -eq 0 -and @($detectedHead.Output).Count -gt 0) {
-        $detectedTrunk = ([string] $detectedHead.Output[0]).Trim()
-        if (-not [string]::IsNullOrWhiteSpace($detectedTrunk)) {
-            if (-not $trunkCandidates.Contains($detectedTrunk)) { [void] $trunkCandidates.Add($detectedTrunk) }
-            $bareTrunk = $detectedTrunk -replace '^origin/', ''
-            if ($bareTrunk -ne $detectedTrunk -and -not $trunkCandidates.Contains($bareTrunk)) { [void] $trunkCandidates.Add($bareTrunk) }
-        }
-    }
-
-    foreach ($trunk in $trunkCandidates) {
-        $result = Invoke-ContinuousCoReviewResolverGit -RepoRoot $RepoRoot -Arguments @('merge-base', $trunk, $HeadRef)
-        if ($result.ExitCode -eq 0 -and @($result.Output).Count -gt 0) {
-            $anchor = ([string] $result.Output[0]).Trim()
-            if ($anchor -match '^[0-9a-f]{40}$') {
-                return $anchor
-            }
+    $result = Invoke-ContinuousCoReviewResolverGit -RepoRoot $RepoRoot -Arguments @('merge-base', $resolvedTrunk.trunk_ref, $HeadRef)
+    if ($result.ExitCode -eq 0 -and @($result.Output).Count -gt 0) {
+        $anchor = ([string] $result.Output[0]).Trim()
+        if ($anchor -match '^[0-9a-f]{40}$') {
+            return $anchor
         }
     }
 
@@ -599,9 +629,12 @@ function Get-ContinuousCoReviewPassingReviewRuns {
     return @(
         $candidates | Sort-Object -Property `
             @{ Expression = {
-                    $createdAtValue = [string] (Get-ContinuousCoReviewRunIndexProperty -Object $_ -Name 'created_at')
+                    # A [datetime] that ConvertFrom-Json made of created_at is read as that instant; only a string is parsed.
+                    $createdAtValue = Get-ContinuousCoReviewRunIndexProperty -Object $_ -Name 'created_at'
                     $parsed = [datetime]::MinValue
-                    [void] [datetime]::TryParse($createdAtValue, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal, [ref] $parsed)
+                    if ($createdAtValue -is [System.DateTimeOffset]) { $parsed = $createdAtValue.UtcDateTime }
+                    elseif ($createdAtValue -is [datetime]) { $parsed = $(if ($createdAtValue.Kind -eq [DateTimeKind]::Unspecified) { [datetime]::SpecifyKind($createdAtValue, [DateTimeKind]::Utc) } else { $createdAtValue.ToUniversalTime() }) }
+                    else { [void] [datetime]::TryParse([string]$createdAtValue, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal, [ref] $parsed) }
                     $parsed
                 }; Descending = $true
             }, `

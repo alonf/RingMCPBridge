@@ -1,5 +1,5 @@
 schema: "v1"
-specrew_version: "0.39.0"
+specrew_version: "0.40.0"
 speckit_version: "0.9.0"
 squad_version: "0.9.4"
 bootstrap_date: "2026-10-23"

@@ -4,7 +4,12 @@ param(
     [string]$ProjectPath,
 
     [switch]$DryRun,
-    [switch]$PassThru
+    [switch]$PassThru,
+    # PRED-BETA4-034: init passes this when THIS run created .squad - every charter under it is this run's
+    # product (squad init's baseline plus the directives block), so the ownership sidecar is written for all
+    # five. Without it (update/repair on an existing project) a charter is stamped only when created here or
+    # when it still hashes to what a previous sidecar recorded - a user's edit in between keeps its notice.
+    [switch]$ClaimCharterOwnership
 )
 
 Set-StrictMode -Version Latest
@@ -45,6 +50,8 @@ function Ensure-Directory {
         [System.Collections.ArrayList]$Actions
     )
 
+    Assert-ManagedMutationAllowed -TargetPath $Path
+
     if (Test-Path -LiteralPath $Path) {
         Add-DeploymentAction -Actions $Actions -Action 'preserved-directory' -Path $Path
         return
@@ -69,6 +76,8 @@ function Write-MissingFile {
         [System.Collections.ArrayList]$Actions
     )
 
+    Assert-ManagedMutationAllowed -TargetPath $TargetPath
+
     if (Test-Path -LiteralPath $TargetPath) {
         Add-DeploymentAction -Actions $Actions -Action 'preserved' -Path $TargetPath
         return
@@ -85,6 +94,80 @@ function Write-MissingFile {
     }
 }
 
+function Assert-ManagedTargetContained {
+    # Lexical containment is NOT containment. GetFullPath folds '..' and separators, but a path whose
+    # ANCESTOR is a symlink/junction to an external directory still compares as under the root while
+    # ReadAllText/WriteAllText follow that ancestor outside the project. Every managed file this
+    # deployment writes goes through Set-ManagedFile, so a project-controlled junction - say at
+    # `scripts/internal/continuous-co-review` - could redirect `specrew update` writes onto arbitrary
+    # external files (co-review finding, run run-f198-i009-aab37c3b-codex-2). This is the same
+    # containment class DRIFT-198-I009-011 closed for the RETIREMENT path; the WRITE path was never
+    # covered. Reject a reparse point at the root and at EVERY existing component beneath it, then
+    # re-verify containment before any read or write.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Root
+    )
+
+    $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $pathFull = [System.IO.Path]::GetFullPath($TargetPath)
+    $prefix = $rootFull + [System.IO.Path]::DirectorySeparatorChar
+    # ORDINAL, unconditionally - and deliberately NOT an `$IsWindows` branch. This tree is deployed
+    # into consumer projects where the continuous-co-review path-identity primitive is not present,
+    # so the rule cannot be derived from the volume here. Ordinal is the FAIL-CLOSED direction for
+    # THIS guard: its polarity is "must be INSIDE, else refuse", so folding case would accept a
+    # case-aliased path as contained and let the write escape. Refusing a genuine case-variant instead
+    # fails loudly and visibly. In practice both sides derive from the same resolved project path, so
+    # their prefixes match exactly. (An OS-family branch here would be the DRIFT-198-I009-027 defect
+    # class re-entering a tree the primitive cannot reach.)
+    $comparison = [System.StringComparison]::Ordinal
+    if (-not $pathFull.StartsWith($prefix, $comparison)) {
+        throw "managed-deploy-path-escapes-project:$TargetPath"
+    }
+
+    $rootItem = Get-Item -LiteralPath $rootFull -Force -ErrorAction Stop
+    if (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "managed-deploy-root-link-unsupported:$Root"
+    }
+
+    $relative = $pathFull.Substring($rootFull.Length).Trim([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $current = $rootFull
+    foreach ($segment in @($relative -split '[\\/]' | Where-Object { -not [string]::IsNullOrEmpty($_) })) {
+        $current = Join-Path $current $segment
+        if (-not (Test-Path -LiteralPath $current)) { continue }
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "managed-deploy-path-link-unsupported:$TargetPath"
+        }
+    }
+    return $pathFull
+}
+
+function Assert-ManagedMutationAllowed {
+    # THE choke point. Every mutator in this script calls this before touching the filesystem.
+    #
+    # This body used to be inlined in Set-ManagedFile and nowhere else, so Ensure-Directory
+    # (New-Item), Write-MissingFile and Set-ManagedBlock / Set-ManagedTableRows (WriteAllText),
+    # Copy-ManagedDirectory, and the legacy/host-skill cleanup (Remove-Item -Recurse) all bypassed
+    # containment: a consumer-controlled `.squad` or host-skill ancestor junction could redirect
+    # `specrew init` / `specrew update` directory creation, team/routing/history writes, or a
+    # RECURSIVE delete outside the project even though runtime-FILE writes failed closed
+    # (DRIFT-198-I009-031, the third appearance of this class after -011 and -025). Adding a fifth
+    # per-mutator copy of the check would repeat the mistake that produced all three; one gate that
+    # every path must traverse is the correction.
+    param([Parameter(Mandatory = $true)][string]$TargetPath)
+
+    # Resolved via Get-Variable so this stays safe under StrictMode when the helper is dot-sourced
+    # without the script body having run.
+    $projectRootVariable = Get-Variable -Name 'resolvedProjectPath' -Scope Script -ErrorAction SilentlyContinue
+    $projectRoot = if ($null -ne $projectRootVariable) { [string]$projectRootVariable.Value } else { '' }
+    if ([string]::IsNullOrWhiteSpace($projectRoot)) { return }
+    $null = Assert-ManagedTargetContained -TargetPath $TargetPath -Root $projectRoot
+}
+
 function Set-ManagedFile {
     param(
         [Parameter(Mandatory = $true)]
@@ -97,6 +180,9 @@ function Set-ManagedFile {
         [Parameter(Mandatory = $true)]
         [System.Collections.ArrayList]$Actions
     )
+
+    # Containment BEFORE the first read or write - never after.
+    Assert-ManagedMutationAllowed -TargetPath $TargetPath
 
     if (-not (Test-Path -LiteralPath $TargetPath)) {
         Add-DeploymentAction -Actions $Actions -Action $(if ($DryRun) { 'would-create' } else { 'created' }) -Path $TargetPath
@@ -146,6 +232,59 @@ function Copy-ManagedDirectory {
         $relativePath = [System.IO.Path]::GetRelativePath((Resolve-Path -LiteralPath $SourcePath).Path, $sourceFile.FullName)
         $targetFile = Join-Path $TargetPath $relativePath
         Set-ManagedFile -TargetPath $targetFile -Content (Get-Content -LiteralPath $sourceFile.FullName -Raw -Encoding UTF8) -Actions $Actions
+    }
+}
+
+function Remove-RetiredManagedRuntimeFiles {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetRoot,
+        [AllowEmptyCollection()][Parameter(Mandatory = $true)][object[]]$PreviousManagedFiles,
+        [AllowEmptyCollection()][Parameter(Mandatory = $true)][object[]]$CurrentManagedFiles,
+        [AllowEmptyCollection()][Parameter(Mandatory = $true)][System.Collections.ArrayList]$Actions
+    )
+
+    $root = [IO.Path]::GetFullPath($TargetRoot)
+    $currentPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($entry in @($CurrentManagedFiles)) { $null = $currentPaths.Add([string]$entry.path) }
+
+    foreach ($entry in @($PreviousManagedFiles)) {
+        $relative = [string]$entry.path
+        if ($currentPaths.Contains($relative)) { continue }
+        $full = [IO.Path]::GetFullPath((Join-Path $root $relative))
+        if (-not (Test-SpecrewReviewRuntimePathUnderRoot -Path $full -Root $root) -or $full -ceq $root) {
+            throw "managed-runtime-retirement-path-unsafe:$relative"
+        }
+        if (-not (Test-Path -LiteralPath $full)) { continue }
+        # Contain EVERY existing component before touching the file. A reparse-point ancestor passes
+        # the lexical under-root test above while Get-Item/hash/Delete follow it outside the project,
+        # and the marker supplying this path and hash is editable in the target project. Preserve
+        # rather than delete when any component is a link.
+        try { $full = Assert-SpecrewReviewRuntimePathContained -Path $full -Root $root }
+        catch {
+            Add-DeploymentAction -Actions $Actions -Action 'preserved-uncontained-retired-runtime-file' -Path $full
+            continue
+        }
+        $item = Get-Item -LiteralPath $full -Force
+        if ($item.PSIsContainer -or (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+            Add-DeploymentAction -Actions $Actions -Action 'preserved-modified-retired-runtime-file' -Path $full
+            continue
+        }
+        $actualHash = Get-SpecrewReviewRuntimeManagedTextSha256 -Path $full
+        if ($actualHash -cne [string]$entry.sha256) {
+            Add-DeploymentAction -Actions $Actions -Action 'preserved-modified-retired-runtime-file' -Path $full
+            continue
+        }
+        Add-DeploymentAction -Actions $Actions -Action $(if ($DryRun) { 'would-remove-retired-runtime-file' } else { 'removed-retired-runtime-file' }) -Path $full
+        if ($DryRun) { continue }
+        [IO.File]::Delete($full)
+        for ($parent = Split-Path -Parent $full;
+            -not [string]::IsNullOrWhiteSpace($parent) -and
+            (Test-SpecrewReviewRuntimePathUnderRoot -Path $parent -Root $root) -and
+            $parent -cne $root;
+            $parent = Split-Path -Parent $parent) {
+            if (-not [IO.Directory]::Exists($parent) -or [IO.Directory]::GetFileSystemEntries($parent).Count -ne 0) { break }
+            [IO.Directory]::Delete($parent, $false)
+        }
     }
 }
 
@@ -243,6 +382,8 @@ function Set-ManagedBlock {
         [System.Collections.ArrayList]$Actions
     )
 
+    Assert-ManagedMutationAllowed -TargetPath $TargetPath
+
     $managedBlock = Get-ManagedBlock -Name $BlockName -Content $ManagedContent
     $startMarker = [regex]::Escape("<!-- >>> specrew-managed $BlockName >>> -->")
     $endMarker = [regex]::Escape("<!-- <<< specrew-managed $BlockName <<< -->")
@@ -316,12 +457,14 @@ function Set-ManagedTableRows {
         [System.Collections.ArrayList]$Actions
     )
 
+    Assert-ManagedMutationAllowed -TargetPath $TargetPath
+
     if (-not (Test-Path -LiteralPath $TargetPath)) {
         return
     }
 
     $existingContent = Get-Content -LiteralPath $TargetPath -Raw
-    
+
     $escapedHeader = [regex]::Escape($TableSectionHeader)
     $tablePattern = "($escapedHeader[^\r\n]*\r?\n(?:.*?\r?\n)*?\|[^\r\n]+\|\r?\n\|[\s\-|]+\|\r?\n)"
     
@@ -525,6 +668,37 @@ function Get-SpecrewSkillHostScopes {
     return $scopes
 }
 
+function Get-SpecrewSkillContentForHost {
+    param(
+        [AllowEmptyString()]
+        [Parameter(Mandatory = $true)]
+        [string]$Content,
+
+        [Parameter(Mandatory = $true)]
+        [string]$HostName
+    )
+
+    # Some skill capabilities are host-specific even though the conduct itself is shared.
+    # Keep the canonical metadata explicit, then materialize only the frontmatter understood
+    # by that host. In particular, Claude's AskUserQuestion picker can replace the assistant
+    # prose that precedes it, so the design-workshop skill removes that tool on Claude while
+    # preserving structured-question UX on the other hosts.
+    $claudeDisallowedToolsPattern = '(?m)^claude-disallowed-tools\s*:\s*(?<tools>[^\r\n]+)(?<newline>\r?\n)'
+    if (-not [regex]::IsMatch($Content, $claudeDisallowedToolsPattern)) {
+        return $Content
+    }
+
+    if ($HostName.Equals('claude', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return [regex]::Replace(
+            $Content,
+            $claudeDisallowedToolsPattern,
+            'disallowed-tools: ${tools}${newline}'
+        )
+    }
+
+    return [regex]::Replace($Content, $claudeDisallowedToolsPattern, '')
+}
+
 function Test-SpecrewSkillAppliesToHost {
     param(
         [Parameter(Mandatory = $true)]
@@ -697,6 +871,8 @@ if (Test-Path -LiteralPath $legacySkillsRoot -PathType Container) {
         if (Test-IsManagedLegacySkillDirectory -SkillDirectoryPath $legacySkillDirectory.FullName -Definition $definition) {
             Add-DeploymentAction -Actions $actions -Action $(if ($DryRun) { 'would-remove-legacy-managed-skill' } else { 'removed-legacy-managed-skill' }) -Path $legacySkillDirectory.FullName
             if (-not $DryRun) {
+                # A RECURSIVE delete through an unverified path is the worst case in this script.
+                Assert-ManagedMutationAllowed -TargetPath $legacySkillDirectory.FullName
                 Remove-Item -LiteralPath $legacySkillDirectory.FullName -Recurse -Force
             }
             continue
@@ -716,6 +892,8 @@ foreach ($activeSkillRoot in $activeSkillRoots) {
                 if (Test-IsManagedLegacySkillDirectory -SkillDirectoryPath $skillDirectoryPath -Definition $definition) {
                     Add-DeploymentAction -Actions $actions -Action $(if ($DryRun) { 'would-remove-host-scoped-managed-skill' } else { 'removed-host-scoped-managed-skill' }) -Path $skillDirectoryPath
                     if (-not $DryRun) {
+                        # A RECURSIVE delete through an unverified path is the worst case in this script.
+                        Assert-ManagedMutationAllowed -TargetPath $skillDirectoryPath
                         Remove-Item -LiteralPath $skillDirectoryPath -Recurse -Force
                     }
                     continue
@@ -730,14 +908,76 @@ foreach ($activeSkillRoot in $activeSkillRoots) {
         }
 
         Ensure-Directory -Path $skillDirectoryPath -Actions $actions
-        Set-ManagedFile -TargetPath (Join-Path $skillDirectoryPath 'SKILL.md') -Content $definition.CurrentContent -Actions $actions
+        $hostContent = Get-SpecrewSkillContentForHost -Content $definition.CurrentContent -HostName $activeSkillRoot.Name
+        Set-ManagedFile -TargetPath (Join-Path $skillDirectoryPath 'SKILL.md') -Content $hostContent -Actions $actions
         Set-ManagedFile -TargetPath (Join-Path $skillDirectoryPath '.specrew-managed') -Content (Get-ManagedSkillMarkerContent -SkillDirectory $definition.Directory) -Actions $actions
     }
 }
 
 $continuousReviewRuntimeSource = Join-Path $repositoryRoot 'scripts\internal\continuous-co-review'
 $continuousReviewRuntimeTarget = Join-Path $resolvedProjectPath 'scripts\internal\continuous-co-review'
+$reviewEngineResolutionPath = Join-Path $repositoryRoot 'scripts\internal\review-engine-resolution.ps1'
+if (-not (Test-Path -LiteralPath $reviewEngineResolutionPath -PathType Leaf)) {
+    throw "Missing review-engine resolution helper: $reviewEngineResolutionPath"
+}
+. $reviewEngineResolutionPath
+$currentRuntimeManagedFiles = @(Get-SpecrewReviewRuntimeManagedFileManifest -RuntimeRoot $continuousReviewRuntimeSource)
+$previousRuntimeManagedFiles = @()
+$reviewRuntimeMarkerPath = Join-Path $continuousReviewRuntimeTarget '.specrew-runtime.json'
+if (Test-Path -LiteralPath $reviewRuntimeMarkerPath -PathType Leaf) {
+    try {
+        $previousMarker = Get-Content -LiteralPath $reviewRuntimeMarkerPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 12
+        if ($previousMarker.PSObject.Properties['managed_files']) {
+            $previousRuntimeManagedFiles = @(
+                ConvertTo-SpecrewReviewRuntimeManagedFileManifest -RuntimeRoot $continuousReviewRuntimeTarget -ManagedFiles $previousMarker.managed_files
+            )
+        }
+    }
+    catch {
+        # An old or damaged marker is not deletion authority. Preserve unknown files,
+        # replace the marker with current provenance, and converge identity safely.
+        Add-DeploymentAction -Actions $actions -Action 'preserved-untrusted-runtime-retirement-state' -Path $reviewRuntimeMarkerPath
+        $previousRuntimeManagedFiles = @()
+    }
+}
+Remove-RetiredManagedRuntimeFiles -TargetRoot $continuousReviewRuntimeTarget `
+    -PreviousManagedFiles $previousRuntimeManagedFiles -CurrentManagedFiles $currentRuntimeManagedFiles -Actions $actions
 Copy-ManagedDirectory -SourcePath $continuousReviewRuntimeSource -TargetPath $continuousReviewRuntimeTarget -Actions $actions
+# PRED-BETA4-054: the version comes from the ONE resolver (the module this script runs from, SPECREW_MODULE_PATH,
+# or the installed module) - not from two levels above the TARGET extension root, which under a project's
+# deployed copy is `.specify/` and landed the literal 'unknown' in the marker.
+$sourceVersion = 'unknown'
+try {
+    $labelScript = Join-Path $PSScriptRoot 'version-label.ps1'
+    if (-not (Get-Command Get-SpecrewModuleVersionInfo -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $labelScript -PathType Leaf)) { . $labelScript }
+    if (Get-Command Get-SpecrewModuleVersionInfo -ErrorAction SilentlyContinue) {
+        $resolvedLabel = [string](Get-SpecrewModuleVersionInfo).Label
+        if (-not [string]::IsNullOrWhiteSpace($resolvedLabel)) { $sourceVersion = $resolvedLabel }
+    }
+}
+catch { $null = $_ }
+$reviewRuntimeMarker = [ordered]@{
+    schema_version = '1.0'
+    # Content identity is authoritative. Version is diagnostic and may be
+    # unavailable in legacy/update fixture layouts that deploy supported
+    # surfaces without copying the package manifest.
+    specrew_version = $sourceVersion
+    # Bind the marker to the files that were actually deployed. The logical hash
+    # normalizes managed-text encoding and line endings, while still detecting any
+    # executable content drift.
+    runtime_bundle_sha256 = Get-SpecrewReviewRuntimeBundleSha256 `
+        -RuntimeRoot $continuousReviewRuntimeSource -ManagedFiles $currentRuntimeManagedFiles
+    managed_files = @($currentRuntimeManagedFiles)
+    source = 'specrew-init-or-update'
+} | ConvertTo-Json -Depth 12
+if (-not $DryRun) {
+    $deployedRuntimeHash = Get-SpecrewReviewRuntimeBundleSha256 `
+        -RuntimeRoot $continuousReviewRuntimeTarget -ManagedFiles $currentRuntimeManagedFiles
+    $expectedRuntimeHash = Get-SpecrewReviewRuntimeBundleSha256 `
+        -RuntimeRoot $continuousReviewRuntimeSource -ManagedFiles $currentRuntimeManagedFiles
+    if ($deployedRuntimeHash -cne $expectedRuntimeHash) { throw 'managed-runtime-deployment-identity-mismatch' }
+}
+Set-ManagedFile -TargetPath $reviewRuntimeMarkerPath -Content ($reviewRuntimeMarker + [Environment]::NewLine) -Actions $actions
 
 $continuousReviewContractsSource = Join-Path $repositoryRoot 'specs\197-continuous-co-review\contracts'
 $continuousReviewContractsTarget = Join-Path $resolvedProjectPath '.specrew\review\contracts'
@@ -849,7 +1089,39 @@ foreach ($baselineRole in $baselineRoles) {
         }
     ) -join ([Environment]::NewLine + [Environment]::NewLine)
 
-    Set-ManagedBlock -TargetPath (Join-Path $agentDirectory 'charter.md') -BlockName 'directives' -ManagedContent $directiveContent -BaseContentIfMissing $charterTemplate -Actions $actions
+    $charterPath = Join-Path $agentDirectory 'charter.md'
+    # PRED-BETA4-034: OWNERSHIP TRAVELS WITH THE CHARTER. This composition (shipped charter + directives block) is
+    # Specrew's, and the host handler at `specrew start` decides ownership by the `.specrew-managed` sidecar's
+    # hash. Without it, five fresh charters were called user-edited on every start. The sidecar is written
+    # when this step CREATES the file, and refreshed when the file still hashes to what Specrew last wrote;
+    # a charter the user edited in between keeps no sidecar, so the notice about it stays true.
+    $charterExisted = Test-Path -LiteralPath $charterPath -PathType Leaf
+    $charterUntouched = $false
+    if ($charterExisted) {
+        $priorSidecar = "{0}.specrew-managed" -f $charterPath
+        $priorHash = ''
+        if (Test-Path -LiteralPath $priorSidecar -PathType Leaf) {
+            foreach ($sidecarLine in @(Get-Content -LiteralPath $priorSidecar -Encoding UTF8)) { if ($sidecarLine -match '^\s*sha256:\s*([0-9a-fA-F]{64})\s*$') { $priorHash = $Matches[1].ToLowerInvariant() } }
+        }
+        $charterUntouched = (-not [string]::IsNullOrWhiteSpace($priorHash) -and $priorHash -ceq ((Get-FileHash -LiteralPath $charterPath -Algorithm SHA256).Hash).ToLowerInvariant())
+    }
+    if ($ClaimCharterOwnership -and $charterExisted -and -not $DryRun) {
+        # PRED-BETA4-036: THE BASE IS THE CANONICAL CHARTER, NOT WHAT `squad init` WROTE. A .squad this run
+        # created holds `squad init`'s own charter bodies (or the fallback scaffold's one-line placeholders) -
+        # never Specrew's canonical `.specrew/team/agents/<role>.md`, which is seeded from this same template.
+        # Left in place, the canonical planner (its boundary-commit cadence, its implementation-rules
+        # conversion) never reached a fresh Copilot project's runtime: before beta4 the start-time handler
+        # preserved the unmarked file; after PRED-BETA4-034 it kept the marked composition. The composition
+        # written here is the shared writer's shape (canonical, blank line, directives block), so the first
+        # start reads it as current and rewrites nothing.
+        [System.IO.File]::WriteAllText($charterPath, $charterTemplate, [System.Text.UTF8Encoding]::new($false))
+    }
+    Set-ManagedBlock -TargetPath $charterPath -BlockName 'directives' -ManagedContent $directiveContent -BaseContentIfMissing $charterTemplate -Actions $actions
+    if (-not $DryRun -and (Test-Path -LiteralPath $charterPath -PathType Leaf) -and (-not $charterExisted -or $charterUntouched -or $ClaimCharterOwnership)) {
+        # The SAME sidecar text hosts/_team-canonical.ps1's Write-SpecrewManagedSidecar writes (asserted by test).
+        $charterHash = ((Get-FileHash -LiteralPath $charterPath -Algorithm SHA256).Hash).ToLowerInvariant()
+        [System.IO.File]::WriteAllText(("{0}.specrew-managed" -f $charterPath), ("Specrew wrote $charterPath from .specrew/team/agents/ and keeps it in sync while it hashes to the value below; an edit is preserved and reported (specrew team own $($baselineRole.AgentDirectory) keeps it yours, specrew team resync $($baselineRole.AgentDirectory) returns it to canonical).`nsha256: {0}`n" -f $charterHash), [System.Text.UTF8Encoding]::new($false))
+    }
 
     # Create history.md for each baseline role
     $historyPath = Join-Path $agentDirectory 'history.md'
@@ -873,3 +1145,4 @@ if ($PassThru) {
 $actions | Select-Object Action, Path | Format-Table -AutoSize
 Write-Host ("Squad runtime deployment {0} for {1}" -f ($(if ($DryRun) { 'previewed' } else { 'completed' }), $resolvedProjectPath)) -ForegroundColor Green
 exit 0
+# specrew-self-provenance-ok: DRIFT-198-I009-011,DRIFT-198-I009-027,DRIFT-198-I009-031; implementation history is recorded for maintainers and is never emitted as consumer instruction

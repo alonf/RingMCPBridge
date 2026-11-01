@@ -64,6 +64,17 @@ if (-not (Get-Command -Name 'Get-ContinuousCoReviewCheckpointDiff' -ErrorAction 
     if (Test-Path -LiteralPath $script:NavigatorEngineLoad -PathType Leaf) { . $script:NavigatorEngineLoad }
 }
 
+# The project config reader shares the campaign authority's one timing ceiling. Load the pure core
+# explicitly when another caller supplied the checkpoint functions without the normal _load.ps1 path.
+if (-not (Get-Command -Name 'Get-ReviewAuthorityTimingLimits' -ErrorAction SilentlyContinue)) {
+    $script:NavigatorReviewAuthorityCore = Join-Path $PSScriptRoot 'review-authority-core.ps1'
+    if (Test-Path -LiteralPath $script:NavigatorReviewAuthorityCore -PathType Leaf) { . $script:NavigatorReviewAuthorityCore }
+}
+if (-not (Get-Command -Name 'Get-ContinuousCoReviewNavigatorTimeoutSeconds' -ErrorAction SilentlyContinue)) {
+    $script:NavigatorReviewerHostCatalog = Join-Path $PSScriptRoot 'reviewer-host-catalog.ps1'
+    if (Test-Path -LiteralPath $script:NavigatorReviewerHostCatalog -PathType Leaf) { . $script:NavigatorReviewerHostCatalog }
+}
+
 function Get-ContinuousCoReviewNavigatorModuleBase {
     # T082 HAZARD A: the detached reviewer pwsh runs with cwd = the materialized read-only WORKTREE,
     # which contains NO Specrew scripts (it is a `git archive` content export of the reviewed project).
@@ -87,29 +98,6 @@ function Get-ContinuousCoReviewNavigatorModuleBase {
         }
     }
     return $null
-}
-
-function Get-ContinuousCoReviewNavigatorTimeoutSeconds {
-    # T082 / condition-c: the co-review timeout config scalar. iteration 002 proved a real codex
-    # full-iteration review needs ~300s (a 120s rerun timed out, so no findings landed). This raises the
-    # navigator default OFF 120 to a value that clears a real codex run, and makes it project-overridable
-    # via .specrew/config.yml `co_review_timeout_seconds` (mirroring Get-ContinuousCoReviewGateEnforcementEnabled's
-    # quote-strip + inline-comment-tolerant grammar). This is the ADAPTER/host-call budget (how long the
-    # reviewer process may run); the launcher's own supervisor TimeoutSec is kept ABOVE it (see
-    # Invoke-ContinuousCoReviewNavigator) so the adapter times out gracefully before the supervisor hard-kills.
-    param([Parameter(Mandatory)][string]$RepoRoot, [int]$Default = 300)
-    $configPath = Join-Path $RepoRoot '.specrew/config.yml'
-    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { return $Default }
-    try {
-        foreach ($line in Get-Content -LiteralPath $configPath -Encoding UTF8) {
-            if ($line -match '^\s*co_review_timeout_seconds:\s*[''"]?(?<value>[^''"#]+?)[''"]?\s*(?:#.*)?$') {
-                $parsed = 0
-                if ([int]::TryParse(($Matches['value'].Trim()), [ref]$parsed) -and $parsed -gt 0) { return $parsed }
-            }
-        }
-    }
-    catch { $null = $_ }
-    return $Default
 }
 
 function Get-ContinuousCoReviewNavigatorFeatureRoot {
@@ -388,6 +376,17 @@ function Clear-ContinuousCoReviewNavigatorEntry {
     # record the gate enforces lives separately in .specrew/review/inline/ (written by the promotion above).
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$RegistryPath, [AllowNull()]$Registry)
     try {
+        # T019 step 6 piece 2c: releasing the OWNER's per-lineage lease on terminal retirement makes any QUEUED
+        # pending newest tree eligible for the next generation. OWNER-ONLY (token + generation guarded inside);
+        # a no-op for a non-lease entry (older records) or a non-owner.
+        if (($null -ne $Registry) -and (Get-Command -Name 'Complete-ContinuousCoReviewLineageLease' -ErrorAction SilentlyContinue)) {
+            $lgLineage = if ($Registry.PSObject.Properties.Name -contains 'lineage_id') { [string]$Registry.lineage_id } else { '' }
+            if (-not [string]::IsNullOrWhiteSpace($lgLineage)) {
+                $lgGen = if ($Registry.PSObject.Properties.Name -contains 'generation') { [string]$Registry.generation } else { '' }
+                $lgTok = if ($Registry.PSObject.Properties.Name -contains 'owner_token') { [string]$Registry.owner_token } else { '' }
+                try { $null = Complete-ContinuousCoReviewLineageLease -RepoRoot $RepoRoot -LineageId $lgLineage -Generation $lgGen -OwnerToken $lgTok } catch { $null = $_ }
+            }
+        }
         $runDir = $null
         if ($null -ne $Registry -and ($Registry.PSObject.Properties.Name -contains 'run_dir')) { $runDir = [string]$Registry.run_dir }
         if (Test-Path -LiteralPath $RegistryPath -PathType Leaf) { Remove-Item -LiteralPath $RegistryPath -Force -ErrorAction SilentlyContinue }
@@ -409,7 +408,11 @@ function Write-ContinuousCoReviewNavigatorBlackboard {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$RunId,
         [Parameter(Mandatory)]$Verdict,
-        [datetime]$Now = [datetime]::UtcNow
+        [datetime]$Now = [datetime]::UtcNow,
+        # FR-017 (T019a): the reviewed tree id, stamped into the persisted findings so EVERY
+        # record surface says what was reviewed (the run index alone was not enough - the
+        # findings consumer could not check freshness).
+        [AllowNull()][string]$ReviewedTreeId
     )
     if (($Verdict.PSObject.Properties.Name -contains 'is_stub') -and $Verdict.is_stub) { return $null }
     if ($null -eq $Verdict.raw) { return $null }
@@ -439,7 +442,18 @@ function Write-ContinuousCoReviewNavigatorBlackboard {
         # NORMALIZE run_id to the registry run-id (co-locate with the gate record under inline/<run-id>/).
         if ($findings.PSObject.Properties.Name -contains 'run_id') { $findings.run_id = $RunId }
         else { $findings | Add-Member -NotePropertyName run_id -NotePropertyValue $RunId -Force }
-        Write-ContinuousCoReviewBlackboardThread -RepoRoot $RepoRoot -CheckpointId ("nav-$RunId") -FindingsResult $findings -CreatedAt $Now | Out-Null
+        if (-not [string]::IsNullOrWhiteSpace($ReviewedTreeId)) {
+            if ($findings.PSObject.Properties.Name -contains 'reviewed_tree_id') { $findings.reviewed_tree_id = $ReviewedTreeId }
+            else { $findings | Add-Member -NotePropertyName reviewed_tree_id -NotePropertyValue $ReviewedTreeId -Force }
+        }
+        # VALIDATED write (review finding f6, run 20260714T215545754): the reviewed_tree_id stamp is now a
+        # SANCTIONED optional field of FindingsResult.v1 (the schema was evolved with it), and the write passes
+        # the resolved SchemaRoot so the persisted object is validated against the shipped contract - an
+        # invalid object can no longer be persisted silently. SchemaRoot resolution is deploy-aware; if it
+        # cannot resolve, the writer's own mandatory-parameter failure surfaces in the catch (no silent write).
+        $navSchemaRoot = $null
+        try { if (Get-Command -Name 'Get-ContinuousCoReviewContractRoot' -ErrorAction SilentlyContinue) { $navSchemaRoot = Get-ContinuousCoReviewContractRoot -RepoRoot $RepoRoot } } catch { $navSchemaRoot = $null }
+        Write-ContinuousCoReviewBlackboardThread -RepoRoot $RepoRoot -CheckpointId ("nav-$RunId") -FindingsResult $findings -SchemaRoot $navSchemaRoot -CreatedAt $Now | Out-Null
         return ".specrew/review/inline/$RunId/"
     }
     catch { return $null }
@@ -469,6 +483,40 @@ function Get-ContinuousCoReviewNavigatorFailureReason {
     catch { return $null }
 }
 
+# T019 step 6 (registry-key-drift fix, DRIFT-198-I003-002 root; HARDENED per maintainer 2026-07-13): resolve the
+# reviewed-tree identity from a pending REGISTRY entry CONSISTENTLY, so promotion + the blackboard stamp + the
+# stale-verdict downgrade cannot diverge (FR-017 / T019 A2). The live worktree fire path writes
+# reviewed_digest_tree_id (detached entry) + tree_id (service) but NOT reviewed_tree_id - yet the stamp + downgrade
+# historically read reviewed_tree_id ONLY, so the digest-match-before-blocking was silently skipped and stale
+# blocks recurred. PRECEDENCE: prefer the EXPLICIT reviewed identities - reviewed_digest_tree_id, then
+# reviewed_tree_id; the generic tree_id is a LEGACY fallback used ONLY when NEITHER explicit id exists. CONFLICT:
+# if the two explicit ids are BOTH populated and DISAGREE, FAIL CLOSED with a named reviewed-tree-identity-conflict
+# so no caller blocks, promotes, or stamps findings using either value. Returns @{ tree_id; conflict; reason }.
+function Get-ContinuousCoReviewNavigatorRegistryTreeId {
+    param($Registry)
+    $none = [pscustomobject]@{ tree_id = ''; conflict = $false; reason = $null }
+    if ($null -eq $Registry) { return $none }
+    $read = {
+        param($key)
+        if ($Registry.PSObject.Properties.Name -contains $key) {
+            $v = [string]$Registry.$key
+            if (-not [string]::IsNullOrWhiteSpace($v)) { return $v.Trim() }
+        }
+        return ''
+    }
+    $rdt = & $read 'reviewed_digest_tree_id'   # explicit (status.json + evidence + the live registry)
+    $rt = & $read 'reviewed_tree_id'           # explicit (durable review-run.json)
+    $legacy = & $read 'tree_id'                # generic - legacy fallback ONLY when neither explicit id exists
+
+    if ((-not [string]::IsNullOrWhiteSpace($rdt)) -and (-not [string]::IsNullOrWhiteSpace($rt)) -and ($rdt -cne $rt)) {
+        return [pscustomobject]@{ tree_id = ''; conflict = $true; reason = ("reviewed-tree-identity-conflict: reviewed_digest_tree_id '{0}' != reviewed_tree_id '{1}'" -f $rdt, $rt) }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($rdt)) { return [pscustomobject]@{ tree_id = $rdt; conflict = $false; reason = $null } }
+    if (-not [string]::IsNullOrWhiteSpace($rt)) { return [pscustomobject]@{ tree_id = $rt; conflict = $false; reason = $null } }
+    if (-not [string]::IsNullOrWhiteSpace($legacy)) { return [pscustomobject]@{ tree_id = $legacy; conflict = $false; reason = $null } }
+    return $none
+}
+
 function Invoke-ContinuousCoReviewNavigatorReap {
     # T079 REAP (runs at the top of every navigator Stop, AND - via -CrossSession - as the SessionStart
     # sweep). Walks every pending registry entry and classifies it:
@@ -495,7 +543,10 @@ function Invoke-ContinuousCoReviewNavigatorReap {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [switch]$CrossSession,
-        [string]$TrunkName = 'main',
+        [AllowEmptyString()][string]$TrunkName = '',   # '' -> shared resolver auto-detects; a value is the explicit override
+        # T106/N4: the host transcript path (optional) - the escalation-latch reads REAL user turns
+        # from it to decide human closure. Absent -> the latch default-denies (keeps state, no close).
+        [AllowNull()][string]$TranscriptPath,
         [datetime]$Now = [datetime]::UtcNow
     )
     $result = [pscustomobject]@{ stop_block = $null; inject_notes = (New-Object System.Collections.Generic.List[string]); reaped_run_ids = (New-Object System.Collections.Generic.List[string]); promoted_run_ids = (New-Object System.Collections.Generic.List[string]) }
@@ -510,7 +561,11 @@ function Invoke-ContinuousCoReviewNavigatorReap {
         # Promote the reviewed-state DIGEST (the gate's identity, computed off the Stop budget by the orchestrator and
         # propagated to the registry), falling back to the HEAD-tree only for older records. Promoting the HEAD-tree
         # never matched the gate's working-tree digest -> every promoted pass read 'stale' (P-145 identity divergence).
-        $treeId = if ($null -ne $reg -and ($reg.PSObject.Properties.Name -contains 'reviewed_digest_tree_id') -and -not [string]::IsNullOrWhiteSpace([string]$reg.reviewed_digest_tree_id)) { [string]$reg.reviewed_digest_tree_id } elseif ($null -ne $reg -and ($reg.PSObject.Properties.Name -contains 'tree_id')) { [string]$reg.tree_id } else { $null }
+        # T019 step 6 (hardened): resolve the reviewed-tree identity ONCE per entry (shared by the stamp + downgrade
+        # + promotion). On a reviewed-tree-identity-conflict we fail closed downstream (no block, promote, or stamp).
+        $treeIdRes = Get-ContinuousCoReviewNavigatorRegistryTreeId -Registry $reg
+        $identityConflict = [bool]$treeIdRes.conflict
+        $treeId = if ($identityConflict -or [string]::IsNullOrWhiteSpace([string]$treeIdRes.tree_id)) { $null } else { [string]$treeIdRes.tree_id }
 
         $isTerminal = ($status -in $terminalStatuses)
         # TRI-STATE presence (finding 2): 'present' / 'absent' (definite) / 'unknown' (transient error).
@@ -525,27 +580,197 @@ function Invoke-ContinuousCoReviewNavigatorReap {
                 # "more time" choice. The findings are real (T090 harvest) but incomplete; a fresh run at a larger
                 # budget completes it. Additive ("here are partial findings; extend to finish"), not "retry a fail".
                 $moreTimeNote = ''
+                $stObj = $null
                 try {
                     $stPath = Join-Path (Split-Path -Parent $resultPath) 'status.json'
                     if (Test-Path -LiteralPath $stPath -PathType Leaf) {
                         $stObj = Get-Content -LiteralPath $stPath -Raw -Encoding UTF8 | ConvertFrom-Json
-                        if (($stObj.PSObject.Properties.Name -contains 'completeness') -and ([string]$stObj.completeness -eq 'partial')) {
-                            $sugg = 1800; try { $cur = [int]$stObj.timeout_seconds; if ($cur -gt 0) { $sugg = [int]($cur * 2) } } catch { $null = $_ }
-                            $moreTimeNote = (" NOTE: this was a PARTIAL review - it reached its time budget, so the findings above may be incomplete. To complete it, give it MORE TIME: re-run with a larger budget, e.g. ``specrew review --live --timeout-seconds {0}``." -f $sugg)
-                        }
+                    }
+                }
+                catch { $stObj = $null }
+                try {
+                    if (($null -ne $stObj) -and ($stObj.PSObject.Properties.Name -contains 'completeness') -and ([string]$stObj.completeness -eq 'partial')) {
+                        $sugg = 1800; try { $cur = [int]$stObj.timeout_seconds; if ($cur -gt 0) { $sugg = [int]($cur * 2) } } catch { $null = $_ }
+                        $moreTimeNote = (" NOTE: this was a PARTIAL review - it reached its time budget, so the findings above may be incomplete. To complete it, give it MORE TIME: re-run with a larger budget, e.g. ``specrew review --live --timeout-seconds {0}``." -f $sugg)
                     }
                 }
                 catch { $null = $_ }
-                if ($status -eq 'done' -and $verdict.ok) {
+                # T093/FR-035: a same-host fallback review is surfaced AS same-host with the one-time
+                # upgrade ask - authorizing an independent host upgrades the NEXT run (this one never
+                # blocked; the labelled fallback fired immediately, per iter-009 D1).
+                $independenceNote = ''
+                $regIndependence = if ($null -ne $reg -and ($reg.PSObject.Properties.Name -contains 'reviewer_independence')) { [string]$reg.reviewer_independence } else { '' }
+                if ($regIndependence -eq 'same-host') {
+                    $independenceNote = ' NOTE: this was a SAME-HOST fallback review (reviewer = code-writer host; labelled, not silently substituted). Ask the human to approve an INDEPENDENT reviewer round once - their typed reply ``approved for review round`` (as a normal chat message - a reply inside a question UI or picker is not captured) is the approval, and Specrew captures it from the conversation. Once they have typed it, run ``specrew review --live --host <other-host> --approve-round`` yourself - the next run upgrades automatically.'
+                }
+                # T094/FR-036 (iter-009 D4): the 3-dimension evidence labels, derived from the terminal
+                # status + registry and promoted onto the durable record - the tiered gate's assurance
+                # input. Defaults are the CONSERVATIVE reading (unverified independence needs an ack).
+                $runLabels = [pscustomobject]@{ completeness = 'full'; independence = 'unverified'; budget = 'normal' }
+                try {
+                    if (($null -ne $stObj) -and ($stObj.PSObject.Properties.Name -contains 'completeness') -and -not [string]::IsNullOrWhiteSpace([string]$stObj.completeness)) { $runLabels.completeness = [string]$stObj.completeness }
+                    if (-not [string]::IsNullOrWhiteSpace($regIndependence)) { $runLabels.independence = $regIndependence }
+                    elseif (($null -ne $stObj) -and ($stObj.PSObject.Properties.Name -contains 'reviewer_independence') -and -not [string]::IsNullOrWhiteSpace([string]$stObj.reviewer_independence)) { $runLabels.independence = [string]$stObj.reviewer_independence }
+                    if (($null -ne $stObj) -and ($stObj.PSObject.Properties.Name -contains 'budget_bumped')) { try { if ([bool]$stObj.budget_bumped) { $runLabels.budget = 'time-extended' } } catch { $null = $_ } }
+                }
+                catch { $null = $_ }
+                # T019 step 6 piece 2c: a completion that is NOT the current lease OWNER for its generation must never
+                # promote or block (fail closed to advisory) - the same posture as an identity conflict. The
+                # superseded-by-current + identity-conflict dimensions are handled below/above; this adds the lease
+                # OWNERSHIP + generation dimensions of Test-...LeasePromotionAuthority. Inert for older registries
+                # that carry no lineage_id (no lease was acquired).
+                $leaseNonAuth = $false
+                $leaseNonAuthReason = ''
+                # F-198 / T041: the legacy reaper may keep surfacing historical findings, but it may
+                # promote/block only while the ONE cutover seam explicitly enables legacy authority.
+                # Missing helper/configuration is non-authoritative, never a permit fallback.
+                $legacyAuthorityDecision = if (Get-Command -Name 'Get-ContinuousCoReviewAuthorityDecision' -ErrorAction SilentlyContinue) {
+                    Get-ContinuousCoReviewAuthorityDecision
+                }
+                else {
+                    [pscustomobject]@{ mode = 'disabled'; valid = $false; legacy_promotion_enabled = $false; reason = 'authority-cutover-helper-missing' }
+                }
+                $legacyNonAuth = -not [bool]$legacyAuthorityDecision.legacy_promotion_enabled
+                if ($status -eq 'done' -and $verdict.ok -and -not $identityConflict) {
+                    try {
+                        $lgLineage = if ($null -ne $reg -and ($reg.PSObject.Properties.Name -contains 'lineage_id')) { [string]$reg.lineage_id } else { '' }
+                        if (-not [string]::IsNullOrWhiteSpace($lgLineage) -and (Get-Command -Name 'Test-ContinuousCoReviewLeasePromotionAuthority' -ErrorAction SilentlyContinue) -and (Get-Command -Name 'Get-ContinuousCoReviewLineageLease' -ErrorAction SilentlyContinue)) {
+                            $lgLease = Get-ContinuousCoReviewLineageLease -RepoRoot $RepoRoot -LineageId $lgLineage
+                            $lgTok = if ($reg.PSObject.Properties.Name -contains 'owner_token') { [string]$reg.owner_token } else { '' }
+                            # Isolate the OWNER + GENERATION dimensions: pass current==result + identity=true so ONLY a
+                            # not-lease-owner / generation-mismatch trips here (superseded + conflict handled elsewhere).
+                            $lgAuth = Test-ContinuousCoReviewLeasePromotionAuthority -Lease $lgLease -CompletingRunId $runId -CompletingOwnerToken $lgTok -ResultReviewedDigest ([string]$treeId) -CurrentDigest ([string]$treeId) -IdentityJoinsPass $true
+                            if ((-not $lgAuth.authoritative) -and ($lgAuth.reason -in @('not-lease-owner', 'generation-mismatch'))) {
+                                $leaseNonAuth = $true
+                                $leaseNonAuthReason = [string]$lgAuth.reason
+                            }
+                        }
+                    }
+                    catch { $null = $_ }
+                }
+                if ($status -eq 'done' -and $verdict.ok -and ($identityConflict -or $leaseNonAuth -or $legacyNonAuth)) {
+                    if ($identityConflict) {
+                        # T019 step 6 (resolver hardening, maintainer 2026-07-13): the registry's two EXPLICIT reviewed-tree
+                        # identities disagree, so WHICH tree was reviewed is ambiguous. FAIL CLOSED - do NOT block, promote,
+                        # or stamp findings using either value; surface the named conflict for a human to reconcile.
+                        $result.inject_notes.Add(("[co-review] run {0}: {1}. The reviewed-tree identity is ambiguous, so this run's findings are NEITHER blocked, promoted, nor stamped - reconcile the registry's reviewed_digest_tree_id vs reviewed_tree_id." -f $runId, [string]$treeIdRes.reason)) | Out-Null
+                    }
+                    elseif ($leaseNonAuth) {
+                        # T019 step 6 piece 2c: NOT the current lease owner for its generation -> advisory only.
+                        $result.inject_notes.Add(("[co-review] run {0}: lease authority '{1}' - this completion is not the current lease owner for its generation, so its findings are advisory only (NOT promoted or blocked)." -f $runId, $leaseNonAuthReason)) | Out-Null
+                    }
+                    else {
+                        $result.inject_notes.Add(("[co-review] run {0}: legacy authority disabled ({1}, mode={2}); findings remain advisory historical evidence and are NOT promoted or blocked." -f $runId, [string]$legacyAuthorityDecision.reason, [string]$legacyAuthorityDecision.mode)) | Out-Null
+                    }
+                }
+                elseif ($status -eq 'done' -and $verdict.ok) {
                     # T083: route the REAL reviewer's full findings (all severities) to the durable
                     # blackboard (fail-open -> $null; the stub is excluded inside). T084: surface the thread.
-                    $threadRef = Write-ContinuousCoReviewNavigatorBlackboard -RepoRoot $RepoRoot -RunId $runId -Verdict $verdict -Now $Now
+                    # T019 step 6 FIX: was reviewed_tree_id ONLY (never written by the live path -> $null, so findings-result carried no tree id); now the entry's shared resolved identity (this branch runs only when there is NO conflict).
+                    $regTreeIdForStamp = $treeId
+                    $threadRef = Write-ContinuousCoReviewNavigatorBlackboard -RepoRoot $RepoRoot -RunId $runId -Verdict $verdict -Now $Now -ReviewedTreeId $regTreeIdForStamp
                     $threadSuffix = if ($threadRef) { " Full findings (all severities): $threadRef" } else { '' }
+                    $latchPath = Join-Path $RepoRoot '.specrew/runtime/co-review-escalation-latch.json'
+                    if (-not $verdict.blocking) {
+                        # T106/N4: a CONVERGED (non-blocking) verdict on the lineage clears any open latch.
+                        try { if (Test-Path -LiteralPath $latchPath -PathType Leaf) { Remove-Item -LiteralPath $latchPath -Force -ErrorAction SilentlyContinue } } catch { $null = $_ }
+                    }
                     if ($verdict.blocking) {
-                        if ($null -eq $result.stop_block) {
-                            $result.stop_block = (Build-ContinuousCoReviewNavigatorStopBlock -Verdict $verdict -RunId $runId -BlackboardRef $threadRef)
+                        # T106/N4 (D-197-I009-010): the escalation-latch. A verdict whose blocking findings
+                        # are ALL loop-state escalations (kind='escalation') stop-blocks ONCE, then latches
+                        # QUIET (a brief note each stop) until the human closes it (suppress + reset the
+                        # sticky round-state) or the lineage converges. ANY non-escalation blocking finding
+                        # (a real bug) never latches - it blocks every time. Default-deny on every failure.
+                        $latchHandled = $false
+                        try {
+                            $rawFindings = if ($null -ne $verdict.raw -and ($verdict.raw.PSObject.Properties.Name -contains 'findings') -and $null -ne $verdict.raw.findings) { @($verdict.raw.findings) } else { @() }
+                            $blockingF = @($rawFindings | Where-Object { $null -ne $_ -and ($_.PSObject.Properties.Name -contains 'severity') -and ([string]$_.severity -eq 'blocking') })
+                            $allEscalation = ($blockingF.Count -gt 0)
+                            foreach ($bf in $blockingF) {
+                                if (-not (($bf.PSObject.Properties.Name -contains 'kind') -and ([string]$bf.kind -eq 'escalation'))) { $allEscalation = $false; break }
+                            }
+                            if ($allEscalation) {
+                                if (-not (Get-Command -Name 'Test-ContinuousCoReviewEscalationStopBlockClosed' -ErrorAction SilentlyContinue)) {
+                                    $lp = Join-Path $PSScriptRoot 'escalation-latch.ps1'
+                                    if (Test-Path -LiteralPath $lp -PathType Leaf) { try { . $lp } catch { $null = $_ } }
+                                }
+                                $latchKey = ((@($blockingF | ForEach-Object { if ($_.PSObject.Properties.Name -contains 'finding_id') { [string]$_.finding_id } }) | Sort-Object) -join '+')
+                                $latch = $null
+                                if (Test-Path -LiteralPath $latchPath -PathType Leaf) {
+                                    try { $latch = Get-Content -LiteralPath $latchPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $latch = $null }
+                                }
+                                $latchMatches = ($null -ne $latch -and ($latch.PSObject.Properties.Name -contains 'key') -and ([string]$latch.key -eq $latchKey))
+                                if ($latchMatches -and (Get-Command -Name 'Test-ContinuousCoReviewEscalationStopBlockClosed' -ErrorAction SilentlyContinue)) {
+                                    $turns = @()
+                                    if (-not [string]::IsNullOrWhiteSpace($TranscriptPath) -and (Get-Command -Name 'Get-ContinuousCoReviewTranscriptTurns' -ErrorAction SilentlyContinue)) {
+                                        try { $turns = @(Get-ContinuousCoReviewTranscriptTurns -TranscriptPath $TranscriptPath) } catch { $turns = @() }
+                                    }
+                                    if (Test-ContinuousCoReviewEscalationStopBlockClosed -BlockingFindings $blockingF -SurfacedAtUtc ([string]$latch.surfaced_at) -ConversationTurns $turns) {
+                                        # HUMAN-CLOSED: suppress the block, clear the latch, reset the sticky round-state.
+                                        try { Remove-Item -LiteralPath $latchPath -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
+                                        try {
+                                            $rsPath = Join-Path $RepoRoot '.specrew/runtime/co-review-round-state.json'
+                                            if (Test-Path -LiteralPath $rsPath -PathType Leaf) {
+                                                $rs = Get-Content -LiteralPath $rsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                                                if ($rs.PSObject.Properties.Name -contains 'blocking') { $rs.blocking = $false }
+                                                if ($rs.PSObject.Properties.Name -contains 'round') { $rs.round = 0 }
+                                                ($rs | ConvertTo-Json -Depth 8 -Compress) | Set-Content -LiteralPath $rsPath -Encoding UTF8
+                                            }
+                                        }
+                                        catch { $null = $_ }
+                                        $result.inject_notes.Add(("[co-review] ceiling escalation CLOSED by your authorization (run {0}) - the sticky round-state was reset; co-review resumes fresh at the next changed checkpoint." -f $runId)) | Out-Null
+                                        $latchHandled = $true
+                                    }
+                                    else {
+                                        # LATCHED QUIET: surfaced before, not yet closed - a brief note, not another stop-block.
+                                        $result.inject_notes.Add(("[co-review] ceiling escalation still OPEN (latched quiet; already surfaced). Reply to authorize/close it, or use the remediation menu for run {0}." -f $runId)) | Out-Null
+                                        $latchHandled = $true
+                                    }
+                                }
+                                elseif (-not $latchMatches) {
+                                    # FIRST surface for this escalation: stop-block below + record the latch.
+                                    try {
+                                        $ldir = Split-Path -Parent $latchPath
+                                        if ($ldir -and -not (Test-Path -LiteralPath $ldir)) { New-Item -ItemType Directory -Path $ldir -Force | Out-Null }
+                                        ([pscustomobject]@{ key = $latchKey; surfaced_at = $Now.ToUniversalTime().ToString('o'); run_id = $runId } | ConvertTo-Json -Compress) | Set-Content -LiteralPath $latchPath -Encoding UTF8
+                                    }
+                                    catch { $null = $_ }
+                                }
+                            }
                         }
-                        if (-not [string]::IsNullOrWhiteSpace($moreTimeNote)) { $result.inject_notes.Add(("[co-review] run {0}:{1}" -f $runId, $moreTimeNote)) | Out-Null }
+                        catch { $null = $_ }
+                        # FR-017 (T019a, Devin-crew field diagnosis): digest-match BEFORE blocking -
+                        # the same freshness check the signoff gate performs. A verdict whose
+                        # recorded snapshot no longer matches the CURRENT tree surfaces as
+                        # ADVISORY (the tree moved while the review ran; the findings may already
+                        # be fixed) - never as a fresh stop-block describing a tree that no longer
+                        # exists. Fail direction: BOTH ids must be known and DIFFER to downgrade;
+                        # an unknown id keeps the block (never suppress a real block on a gap).
+                        if (-not $latchHandled) {
+                            try {
+                                # T019 step 6 FIX (DRIFT-002 root): was reviewed_tree_id ONLY (never written -> $runTreeId empty -> the digest-match-before-blocking was SKIPPED, so stale blocks recurred); now the entry's shared resolved identity (the digest spelling the fire path writes).
+                                $runTreeId = if ([string]::IsNullOrWhiteSpace([string]$treeId)) { '' } else { [string]$treeId }
+                                if (-not [string]::IsNullOrWhiteSpace($runTreeId) -and (Get-Command -Name 'Get-ContinuousCoReviewReviewedStateDigest' -ErrorAction SilentlyContinue)) {
+                                    $currentDigest = Get-ContinuousCoReviewReviewedStateDigest -RepoRoot $RepoRoot -AllowCache   # advisory note at Stop (R1)
+                                    if ($null -ne $currentDigest -and [bool]$currentDigest.ok -and -not [string]::IsNullOrWhiteSpace([string]$currentDigest.tree_id) -and ([string]$currentDigest.tree_id -ne $runTreeId)) {
+                                        $result.inject_notes.Add(("[co-review] run {0} reviewed an OLDER tree than the current one (the tree moved while the review ran). Its {1} blocking finding(s) surface as ADVISORY, not a stop-block: re-check each against the current tree - it may already be fixed; the next fresh round confirms." -f $runId, @($blockingF).Count)) | Out-Null
+                                        $latchHandled = $true
+                                    }
+                                }
+                            }
+                            catch { $null = $_ }
+                        }
+                        if (-not $latchHandled) {
+                            if ($null -eq $result.stop_block) {
+                                $result.stop_block = (Build-ContinuousCoReviewNavigatorStopBlock -Verdict $verdict -RunId $runId -BlackboardRef $threadRef)
+                                # T010 emission point: the agent's directive travels beside the human's
+                                # block, never inside it. Moved, not deleted.
+                                $result | Add-Member -NotePropertyName agent_directives `
+                                    -NotePropertyValue (Build-ContinuousCoReviewNavigatorAgentDirective -Verdict $verdict) -Force
+                            }
+                            if (-not [string]::IsNullOrWhiteSpace($moreTimeNote)) { $result.inject_notes.Add(("[co-review] run {0}:{1}" -f $runId, $moreTimeNote)) | Out-Null }
+                            if (-not [string]::IsNullOrWhiteSpace($independenceNote)) { $result.inject_notes.Add(("[co-review] run {0}:{1}" -f $runId, $independenceNote)) | Out-Null }
+                        }
                     }
                     elseif (($verdict.PSObject.Properties.Name -contains 'is_stub') -and $verdict.is_stub) {
                         # The default PLACEHOLDER stub always emits pass without reviewing. Surface it as
@@ -555,18 +780,18 @@ function Invoke-ContinuousCoReviewNavigatorReap {
                         $result.inject_notes.Add(("[co-review] checkpoint navigator fired (run {0}) - plumbing OK, but the real reviewer is not wired yet, so this is NOT counted as gate evidence." -f $runId)) | Out-Null
                     }
                     elseif ((-not [string]::IsNullOrWhiteSpace([string]$verdict.disposition)) -and ([string]$verdict.disposition -match '(?i)^\s*(pass|approved|clean|no.?findings)\s*$')) {
-                        $result.inject_notes.Add(("[co-review] checkpoint review PASSED (run {0}): {1}.{2}" -f $runId, $verdict.summary, $threadSuffix)) | Out-Null
+                        $result.inject_notes.Add(("[co-review] checkpoint review PASSED (run {0}): {1}.{2}{3}" -f $runId, $verdict.summary, $threadSuffix, $independenceNote)) | Out-Null
                         # PROMOTE only on an AFFIRMATIVE pass disposition (pass/approved/clean/no-findings) -
                         # NEVER on mere absence-of-blocking, else a 'needs-work'/'partial'/unparseable verdict
                         # would launder to a gate 'pass'. The stub is excluded above; this makes the promotion
                         # adversarially sound for the real reviewer too. (145 G-197-I005-01)
-                        $promotedId = Add-ContinuousCoReviewNavigatorPassRunRecord -RepoRoot $RepoRoot -RunId $runId -TreeId $treeId -TrunkName $TrunkName -Now $Now
+                        $promotedId = Add-ContinuousCoReviewNavigatorPassRunRecord -RepoRoot $RepoRoot -RunId $runId -TreeId $treeId -TrunkName $TrunkName -EvidenceLabels $runLabels -Now $Now
                         if (-not [string]::IsNullOrWhiteSpace($promotedId)) { $result.promoted_run_ids.Add($promotedId) | Out-Null }
                     }
                     else {
                         # Non-blocking but NOT an affirmative pass (needs-work / partial / no parseable pass
                         # disposition): advisory only, NEVER gate evidence. (145 G-197-I005-01)
-                        $result.inject_notes.Add(("[co-review] checkpoint review run {0} returned a non-blocking, non-pass verdict ('{1}') - advisory only, NOT counted as gate evidence.{2}{3}" -f $runId, ([string]$verdict.disposition), $threadSuffix, $moreTimeNote)) | Out-Null
+                        $result.inject_notes.Add(("[co-review] checkpoint review run {0} returned a non-blocking, non-pass verdict ('{1}') - advisory only, NOT counted as gate evidence.{2}{3}{4}" -f $runId, ([string]$verdict.disposition), $threadSuffix, $moreTimeNote, $independenceNote)) | Out-Null
                     }
                 }
                 elseif ($status -eq 'done' -and -not $verdict.ok) {
@@ -579,7 +804,60 @@ function Invoke-ContinuousCoReviewNavigatorReap {
                     $result.inject_notes.Add(("[co-review] checkpoint review run {0} completed but produced no parseable verdict (advisory only, NOT gate evidence).{1}{2}" -f $runId, $reasonSuffix, $moreTimeNote)) | Out-Null
                 }
                 else {
-                    $result.inject_notes.Add(("[co-review] checkpoint review run {0} ended '{1}' without a verdict (no blocking signal); a re-review fires on the next changed checkpoint." -f $runId, $status)) | Out-Null
+                    # Co-review setup clarity (2026-07-01 / auto-select-no-authorization finding): a FAILED run whose
+                    # reason is no-authorized-reviewer-host means the checkpoint FIRED but no reviewer host was
+                    # enabled+authorized, so NO review ran. The recommended 'auto-select' preference does NOT
+                    # auto-authorize (authorization is a human cost/independence consent), so on a fresh project the
+                    # first checkpoint fires into what was a SILENT dead-end. Make it ACTIONABLE: tell the human
+                    # exactly how to authorize an independent reviewer ONCE, so the next checkpoint produces a review.
+                    # The failure_reason (e.g. no-authorized-reviewer-host, written to status.json by
+                    # worktree-review-orchestrator.ps1:259 and copied onto the pending registry by the detached
+                    # entry) lives on the registry entry $reg; fall back to the run's status.json via run_dir
+                    # (result_path can be null on a host-selection failure, so do NOT derive the path from it).
+                    # Do NOT use Get-ContinuousCoReviewNavigatorFailureReason here - it reads the review-failure.json
+                    # SIDECAR, which a host-selection failure never writes, so it returns null and this branch stays
+                    # INERT. (That inert first version was caught by the co-review run on this very fix - D-014.)
+                    $navFailReason = if ($null -ne $reg -and ($reg.PSObject.Properties.Name -contains 'failure_reason')) { [string]$reg.failure_reason } else { '' }
+                    if ([string]::IsNullOrWhiteSpace($navFailReason)) {
+                        try {
+                            $navRunDir = if ($null -ne $reg -and ($reg.PSObject.Properties.Name -contains 'run_dir')) { [string]$reg.run_dir } else { '' }
+                            if (-not [string]::IsNullOrWhiteSpace($navRunDir)) {
+                                $navStatusPath = Join-Path $navRunDir 'status.json'
+                                if (Test-Path -LiteralPath $navStatusPath -PathType Leaf) {
+                                    $navStatusObj = Get-Content -LiteralPath $navStatusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                                    if ($navStatusObj.PSObject.Properties.Name -contains 'failure_reason') { $navFailReason = [string]$navStatusObj.failure_reason }
+                                }
+                            }
+                        }
+                        catch { $navFailReason = '' }
+                    }
+                    if ($navFailReason -match '(?i)no-authorized-reviewer-host') {
+                        $result.inject_notes.Add(("[co-review] checkpoint FIRED (run {0}) but NO reviewer host is authorized, so NO review ran. The 'auto-select' default does not auto-authorize - ask the human to approve an INDEPENDENT reviewer round ONCE: their typed reply ``approved for review round`` (as a normal chat message - a reply inside a question UI or picker is not captured) is the approval, and Specrew captures it from the conversation. Once they have typed it, run ``specrew review --live --host <an-installed-harness-other-than-the-code-writer> --approve-round`` yourself. It then reviews automatically at the next changed checkpoint." -f $runId)) | Out-Null
+                    }
+                    else {
+                        $result.inject_notes.Add(("[co-review] checkpoint review run {0} ended '{1}' without a verdict (no blocking signal); a re-review fires on the next changed checkpoint." -f $runId, $status)) | Out-Null
+                    }
+                }
+                # T096/FR-038 (iter-009 D6/R6): ONE remediation menu on any review PROBLEM - the human's
+                # choice rides co-review-round-state.json and shapes the next run. The no-authorized-host
+                # failure keeps its own authorize note above (authorization IS its remediation).
+                $menuFailReason = if ($null -ne $reg -and ($reg.PSObject.Properties.Name -contains 'failure_reason')) { [string]$reg.failure_reason } else { '' }
+                $problem = $null
+                if ($status -ne 'done') {
+                    if ($menuFailReason -notmatch '(?i)no-authorized-reviewer-host') { $problem = ("ended '{0}'" -f $status) }
+                }
+                elseif ($verdict.ok -and $verdict.blocking) { $problem = 'a BLOCKING finding' }
+                elseif ($runLabels.completeness -eq 'partial') { $problem = 'PARTIAL completeness (time budget reached)' }
+                elseif ($runLabels.independence -eq 'same-host') { $problem = 'a SAME-HOST (degraded) review' }
+                if ($null -ne $problem) {
+                    $menu = ("[co-review] REMEDIATION MENU for run {0} ({1}): " -f $runId, $problem) +
+                    '1) more time -> `specrew review --remediate more-time --timeout-seconds <n>`; ' +
+                    '2) different host -> `specrew review --remediate different-host --host <name>`; ' +
+                    '3) narrow the scope -> `specrew review --remediate narrow-scope --scope <code|process|path:<p>|function:<name>>`; ' +
+                    ('4) accept partial -> `specrew review --remediate accept-partial --run-id {0} --ack-reason "<why>"`; ' -f $runId) +
+                    ('5) override the block (degraded only) -> `specrew review --remediate override-block --run-id {0} --ack-reason "<why>"`. ' -f $runId) +
+                    'The choice is carried in the round-state and applied to the next run.'
+                    $result.inject_notes.Add($menu) | Out-Null
                 }
             }
             # Retire the terminal entry (its worktree was already disposed by the supervisor's finally).
@@ -652,6 +930,37 @@ function Invoke-ContinuousCoReviewNavigatorInlineReap {
         if ($supPid) {
             try { $null = Get-Process -Id ([int]$supPid) -ErrorAction Stop; Stop-Process -Id ([int]$supPid) -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
         }
+        # T100 parity: best-effort kill of the recorded CHILD tree (the dead-supervisor orphan class).
+        # Unix: one group signal via the recorded pgid; anywhere: the direct child pid as fallback.
+        # (On Windows the supervisor's closed job handle already reaped the tree - KILL_ON_JOB_CLOSE.)
+        $childPgid = if ($null -ne $Registry -and ($Registry.PSObject.Properties.Name -contains 'child_pgid')) { $Registry.child_pgid } else { $null }
+        $childPid = if ($null -ne $Registry -and ($Registry.PSObject.Properties.Name -contains 'child_pid')) { $Registry.child_pid } else { $null }
+        if (-not $childPid -and -not $childPgid) {
+            # T091: detached-ENTRY runs record the reviewer's pids via heartbeat telemetry in the run
+            # dir's status.json (the registry carries no child_*). Probe it (same as the launcher reaper).
+            try {
+                $rd = if ($null -ne $Registry -and ($Registry.PSObject.Properties.Name -contains 'run_dir')) { [string]$Registry.run_dir } else { '' }
+                if (-not [string]::IsNullOrWhiteSpace($rd)) {
+                    $stp = Join-Path $rd 'status.json'
+                    if (Test-Path -LiteralPath $stp -PathType Leaf) {
+                        $sto = Get-Content -LiteralPath $stp -Raw -Encoding UTF8 | ConvertFrom-Json
+                        $tel = if ($sto.PSObject.Properties.Name -contains 'reviewer_telemetry') { $sto.reviewer_telemetry } else { $null }
+                        if ($null -ne $tel) {
+                            if ($tel.PSObject.Properties.Name -contains 'child_pid') { $childPid = $tel.child_pid }
+                            if ($tel.PSObject.Properties.Name -contains 'child_pgid') { $childPgid = $tel.child_pgid }
+                        }
+                    }
+                }
+            }
+            catch { $null = $_ }
+        }
+        if ($childPgid -and -not $IsWindows) {
+            $killBin = Get-Command -Name 'kill' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($killBin) { try { & $killBin.Source -KILL -- ("-{0}" -f [int]$childPgid) 2>$null } catch { $null = $_ } }
+        }
+        if ($childPid) {
+            try { Stop-Process -Id ([int]$childPid) -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
+        }
         $wt = if ($null -ne $Registry -and ($Registry.PSObject.Properties.Name -contains 'worktree_path')) { [string]$Registry.worktree_path } else { $null }
         # The worktree is a `git archive | tar` EXPORT into a plain temp dir (see
         # New-SpecrewIsolatedTaskWorktree: RO path = `git archive --output <tar>` + `tar -xf`, NOT
@@ -719,7 +1028,10 @@ function Add-ContinuousCoReviewNavigatorPassRunRecord {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$RunId,
         [AllowNull()][string]$TreeId,
-        [string]$TrunkName = 'main',
+        [AllowEmptyString()][string]$TrunkName = '',   # '' -> shared resolver auto-detects; a value is the explicit override
+        # T094/FR-036: the run's 3-dimension evidence labels (completeness/independence/budget),
+        # recorded onto the durable review-run.json so the tiered signoff gate can read assurance.
+        [AllowNull()]$EvidenceLabels,
         [datetime]$Now = [datetime]::UtcNow
     )
     try {
@@ -764,12 +1076,271 @@ function Add-ContinuousCoReviewNavigatorPassRunRecord {
         if (-not (Get-Command -Name 'New-ContinuousCoReviewGateVerdict' -ErrorAction SilentlyContinue)) { return $null }
         $verdict = New-ContinuousCoReviewGateVerdict -RunId $RunId -CheckpointId $checkpointId -State 'pass' -RoundCount 1 -CreatedAt $Now
 
+        # The anchor here IS the merge-base with trunk (see the COVERAGE note above), so this run's
+        # baseline provenance is not a guess - it is the auto-anchor path by construction.
         $null = Write-ContinuousCoReviewRunIndex -RepoRoot $RepoRoot -RunId $RunId -CheckpointId $checkpointId `
-            -BaselineRef ([string]$anchor) -ReviewedRef $reviewedRef -ReviewedTreeId $TreeId `
-            -GateVerdict $verdict -CreatedAt $Now
+            -BaselineRef ([string]$anchor) -BaselineSource 'auto-anchor-merge-base' -ReviewedRef $reviewedRef -ReviewedTreeId $TreeId `
+            -GateVerdict $verdict -EvidenceLabels $EvidenceLabels -CreatedAt $Now
         return $RunId
     }
     catch { $null = $_; return $null }
+}
+
+function Get-ReviewCampaignFindingMixLines {
+    # W67 (maintainer ruling, 2026-08-26): STATE THE WHOLE MIX, IN ONE PLACE.
+    #
+    # The reader used to assemble it themselves out of three separate places - a gating list, a
+    # trailing minors sentence, a demotion note - with no total anywhere and, crucially, no sentence
+    # that said nothing blocked even when nothing did. A human deciding whether stopping here is safe
+    # had to infer safety from the ABSENCE of a warning, which is the reading people get wrong when
+    # they are tired.
+    #
+    # So: how many findings, how many block, how many need their acceptance, how many are notes -
+    # and when nothing blocks, that stated plainly, so stopping here reads as the ordinary next step
+    # rather than a concession they are talking themselves into.
+    [OutputType([string[]])]
+    param(
+        [int]$Blocking = 0,
+        [int]$Major = 0,
+        [int]$Minor = 0
+    )
+    $total = $Blocking + $Major + $Minor
+    $lines = [System.Collections.Generic.List[string]]::new()
+    if ($total -le 0) { return @($lines) }
+
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $parts.Add(('{0} block{1} sign-off' -f $(if ($Blocking -eq 0) { 'none' } else { $Blocking }), $(if ($Blocking -eq 1) { 's' } else { '' }))) | Out-Null
+    $parts.Add(('{0} need{1} your acceptance' -f $Major, $(if ($Major -eq 1) { 's' } else { '' }))) | Out-Null
+    $parts.Add(('{0} {1} note{2}' -f $Minor, $(if ($Minor -eq 1) { 'is a' } else { 'are' }), $(if ($Minor -eq 1) { '' } else { 's' }))) | Out-Null
+    $lines.Add(('This round: {0} finding{1} - {2}.' -f $total, $(if ($total -eq 1) { '' } else { 's' }), ($parts -join ', '))) | Out-Null
+
+    if ($Blocking -eq 0) {
+        # Said plainly, and said DIFFERENTLY depending on whether anything still needs them: majors
+        # do not block, but they do need an explicit acceptance, and telling the human nothing needs
+        # them would be false.
+        if ($Major -gt 0) {
+            $lines.Add('Nothing here blocks sign-off. Stopping the review here accepts those findings as follow-ups and completes sign-off; that acceptance is recorded as yours.') | Out-Null
+        }
+        else {
+            $lines.Add('Nothing here blocks sign-off, and nothing needs your acceptance. Stopping the review here is the ordinary next step: the notes are carried as follow-ups and sign-off completes.') | Out-Null
+        }
+    }
+    return @($lines)
+}
+
+function Format-ReviewCampaignOutstandingPause {
+    # The SAME unanswered question, met on a LATER invocation.
+    #
+    # Format-ReviewCampaignPauseSurface renders the round that just ended, from the full decision - it
+    # has the findings and the options in hand. This renders the pause a consumer walks back into, and
+    # it has strictly less to work with: the recorded fact keeps the counts, the round position and the
+    # recommendation, but not the finding list or the option objects. Inventing them here would put
+    # text on the screen that no longer matches the store, so this says exactly what the fact knows and
+    # points at the round for the rest.
+    #
+    # Written as its own renderer rather than by reconstructing a decision, because a reconstructed
+    # decision is a guess wearing the shape of a fact - and this surface's whole job is to be the thing
+    # the human can trust between two sessions.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectName,
+        [Parameter(Mandatory)]$Fact,
+        # THE ROUND'S OWN FINDINGS, read from the terminal RESULT rather than from the fact.
+        #
+        # The first version of this renderer showed counts and a recommendation and nothing else,
+        # because that is all the pause fact stores - and it was the surface a consumer meets when they
+        # come back the next day, in a new session, with no other context. It told them nothing would
+        # run until they answered, then offered nothing to answer and named nothing to act on.
+        #
+        # The fix is NOT to enrich the fact. It is to read the result, which is the same lesson the
+        # consent gate learned this morning: a derived summary is written by whatever logic held at the
+        # time, and the result is what the reviewer actually returned.
+        [AllowNull()][object[]]$Findings = $null,
+        [AllowNull()][object[]]$Options = $null
+    )
+    $lines = [Collections.Generic.List[string]]::new()
+    $roundsUsed = [int](Get-ReviewAuthorityProperty -Object $Fact -Name 'rounds_used')
+    $budgetTotal = [int](Get-ReviewAuthorityProperty -Object $Fact -Name 'budget_total')
+    $blocking = [int](Get-ReviewAuthorityProperty -Object $Fact -Name 'blocking_count')
+    $major = [int](Get-ReviewAuthorityProperty -Object $Fact -Name 'major_count')
+    $minor = [int](Get-ReviewAuthorityProperty -Object $Fact -Name 'minor_count')
+    $demoted = [int](Get-ReviewAuthorityProperty -Object $Fact -Name 'demoted_count')
+    $recommendation = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'recommendation')
+    $factNames = Get-ReviewAuthorityPropertyNames -Object $Fact
+    # SPECREW-AUTHORITY-CONSUMER: review-result-produced
+    $resultProduced = if ($factNames -contains 'result_produced') { [bool](Get-ReviewAuthorityProperty -Object $Fact -Name 'result_produced') } else { $true }
+
+    $lines.Add(('Review round {0} of {1} is still waiting for your answer.' -f $roundsUsed, $ProjectName))
+    $lines.Add('')
+    $gatingTotal = $blocking + $major
+    if (-not $resultProduced) {
+        $lines.Add('That review did not finish, so it found nothing and cleared nothing. There is no review evidence either way.')
+    }
+    elseif ($gatingTotal -gt 0) {
+        $lines.Add(('That round found {0} thing{1} that need your attention:' -f $gatingTotal, $(if ($gatingTotal -eq 1) { '' } else { 's' })))
+        # Named with their locations, exactly as the live surface does. A count alone sends the reader
+        # somewhere else to reconstruct what it was about, which for a returning consumer is the whole
+        # difficulty.
+        foreach ($finding in @($Findings)) {
+            if ($null -eq $finding) { continue }
+            $severity = ([string](Get-ReviewAuthorityProperty -Object $finding -Name 'severity')).Trim().ToLowerInvariant()
+            if ($severity -cne 'blocking' -and $severity -cne 'major') { continue }
+            $lines.Add(('  {0}  {1}  ({2})' -f $severity.ToUpperInvariant(),
+                    [string](Get-ReviewAuthorityProperty -Object $finding -Name 'title'),
+                    [string](Get-ReviewAuthorityProperty -Object $finding -Name 'location')))
+        }
+    }
+    else {
+        $lines.Add('That round found nothing that needs your attention.')
+    }
+    # W67: the whole mix, in one place, on the surface a returning consumer meets - they are exactly
+    # who cannot reconstruct it from memory.
+    foreach ($mixLine in @(Get-ReviewCampaignFindingMixLines -Blocking $blocking -Major $major -Minor $minor)) {
+        $lines.Add($mixLine)
+    }
+    # Carried for the same reason it is carried on the live surface: a demotion the human cannot see is
+    # a silencing, and coming back a day later is exactly when it would go unnoticed.
+    if ($demoted -gt 0) {
+        $lines.Add(('{0} of those were reported as more serious by the reviewer and demoted because they stated no concrete failure scenario.' -f $demoted))
+    }
+    if ($budgetTotal -gt 0) {
+        $lines.Add(('You have used {0} of {1} review rounds on this project.' -f $roundsUsed, $budgetTotal))
+        if ($roundsUsed -ge $budgetTotal) {
+            # W76: NAME THE HUMAN'S ACT, NOT ONLY THE AGENT'S COMMAND. This line handed the reader a
+            # flag for something only a typed phrase can authorize, and a downstream agent relayed the
+            # flag because that is what this said. The command is how the agent carries the decision;
+            # the phrase IS the decision.
+            $lines.Add('The round budget is spent, so another review round cannot start. Topping it up is the human''s decision: their typed reply `approved for allowance reset`, as a normal chat message - a reply inside a question UI or picker is not captured. Once they have typed it, run: specrew review --remediate allowance-reset --ack-reason "why this review needs more rounds"')
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($recommendation)) {
+        $lines.Add('')
+        $lines.Add(('Recommendation: {0}' -f $recommendation))
+    }
+
+    # THE CHOICES, on the surface that says a choice is required. Without them this reads as a
+    # notification about a decision rather than the decision itself - and a suite of prohibitions would
+    # not have noticed, because nothing was WRONG here, something was ABSENT.
+    $lines.Add('')
+    $lines.Add('What would you like to do?')
+    $offered = @($Options | Where-Object { $null -ne $_ })
+    if ($offered.Count -eq 0) {
+        # The same three the live surface offers, minus continuation when the budget is spent - derived
+        # from the fact's own counts rather than assumed, so a resumed surface cannot offer a round the
+        # campaign can no longer run.
+        $offered = @(
+            if ($budgetTotal -le 0 -or $roundsUsed -lt $budgetTotal) { [pscustomobject]@{ id = 1; text = 'run another round - fixes go in and one more review runs on your files; this approves one round, and your typed reply `approved for review round`, as a normal chat message, is that approval - a reply inside a question UI or picker is not captured' } }
+            [pscustomobject]@{ id = 2; text = 'stop the review here - remaining findings become follow-ups, a final check runs on your files exactly as they are now, and review sign-off completes; this spends nothing' }
+            [pscustomobject]@{ id = 3; text = 'abandon this review campaign - nothing further runs and nothing is signed off; this spends nothing' }
+        )
+    }
+    # W49: typed decisions with consequences, never numbered labels and never a --flag - the menu is
+    # the human's surface, and the CLI spelling is the agent's job (the agent directive carries the
+    # mapping). Bare numbers are never authority in this system, so a menu must not teach them.
+    foreach ($option in $offered) { $lines.Add(('  - {0}' -f $option.text)) }
+
+    $lines.Add('')
+    $lines.Add(('Nothing runs and nothing is spent until you answer. Your typed decision is the answer; your agent carries it to Specrew.{0}' -f $(
+                $answerRun = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'run_id')
+                if ([string]::IsNullOrWhiteSpace($answerRun)) { '' } else { "   (answering round $answerRun)" })))
+    return $lines.ToArray()
+}
+
+function Format-ReviewCampaignPauseSurface {
+    # T001 / FR-002, FR-015. The one thing the human actually reads after a round. Every sentence is
+    # about THEIR project and THEIR decision: what was found and where, what it cost, what is on
+    # offer, and the promise that nothing moves until they answer. Internal vocabulary belongs in the
+    # records, never here.
+    #
+    # The last line is load-bearing. Ledger F8 recorded the console being held while spend continued,
+    # so the surface states plainly that the loop has stopped and is waiting.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectName,
+        [Parameter(Mandatory)]$Decision
+    )
+    $lines = [Collections.Generic.List[string]]::new()
+    $roundWord = if ([int]$Decision.rounds_used -eq 1) { 'round' } else { 'rounds' }
+    $resultProduced = if ($Decision.PSObject.Properties['result_produced']) { [bool]$Decision.result_produced } else { $true }
+    $lines.Add($(if ($resultProduced) {
+                'Review round {0} of {1} complete.' -f $Decision.rounds_used, $ProjectName
+            } else {
+                'Review round {0} of {1} did not finish.' -f $Decision.rounds_used, $ProjectName
+            }))
+    $lines.Add('')
+
+    $gatingTotal = [int]$Decision.blocking_count + [int]$Decision.major_count
+    if (-not $resultProduced) {
+        $lines.Add('The review produced no valid result. It found nothing and cleared nothing, so this is not a clean review.')
+    }
+    elseif ($gatingTotal -gt 0) {
+        $lines.Add(('Findings that need your attention ({0}):' -f $gatingTotal))
+        foreach ($finding in @($Decision.gating_findings)) {
+            $lines.Add(('  {0}  {1}  ({2})' -f ([string]$finding.severity).ToUpperInvariant(), $finding.title, $finding.location))
+        }
+    }
+    else {
+        $lines.Add('Nothing found that needs your attention.')
+    }
+
+    # W67: the whole mix, in one place, instead of a minors-only footnote the reader had to combine
+    # with the gating list above to learn what this round actually amounts to.
+    foreach ($mixLine in @(Get-ReviewCampaignFindingMixLines -Blocking ([int]$Decision.blocking_count) -Major ([int]$Decision.major_count) -Minor ([int]$Decision.minor_count))) {
+        $lines.Add($mixLine)
+    }
+
+    # T005/FR-006 visibility (maintainer ruling 2026-08-10). A demoted finding is sitting in the minor
+    # line above, and from there it is indistinguishable from a typo - so this names it. The reviewer
+    # reported it as gating; the contract lowered it because it stated no concrete failure scenario;
+    # and the human is entitled to know that happened rather than reading "3 minor findings" over a
+    # security finding somebody meant to stop on. A demotion the human cannot see is a silencing.
+    #
+    # Rendered ONLY when there is something to say. A line that appears every round, most often
+    # reading "0 findings were demoted", teaches the reader to skip exactly the sentence that matters
+    # on the round where it is not zero.
+    if ([int]$Decision.demoted_count -gt 0) {
+        $count = [int]$Decision.demoted_count
+        $fromBlocking = [int]$Decision.demoted_from_blocking
+        $fromMajor = [int]$Decision.demoted_from_major
+        # Say which severity the reviewer actually used. Collapsing a mixed round to one of them would
+        # be a small lie in the one sentence whose whole job is to stop a quiet one.
+        $origin = if ($fromBlocking -gt 0 -and $fromMajor -gt 0) { 'blocking or major' }
+        elseif ($fromMajor -gt 0) { 'major' }
+        elseif ($fromBlocking -gt 0) { 'blocking' }
+        else { 'more serious' }
+        $lines.Add((
+            '  {0} finding{1} {2} reported as {3} by the reviewer but demoted because {4} stated no concrete failure scenario - {5} saved with your follow-ups, and {6} not blocking your sign-off.' -f
+                $count,
+                $(if ($count -eq 1) { '' } else { 's' }),
+                $(if ($count -eq 1) { 'was' } else { 'were' }),
+                $origin,
+                $(if ($count -eq 1) { 'it' } else { 'they' }),
+                $(if ($count -eq 1) { 'it is' } else { 'they are' }),
+                $(if ($count -eq 1) { 'it is' } else { 'they are' })
+        ))
+    }
+    $lines.Add('')
+    $lines.Add(('Cost so far: {0} {1}, {2} minutes. Round budget: {3} of {4} used.' -f $Decision.rounds_used, $roundWord, $Decision.elapsed_minutes, $Decision.rounds_used, $Decision.budget_total))
+    $lines.Add('')
+    $lines.Add(('Recommendation: {0}' -f $Decision.recommendation))
+    if (-not [string]::IsNullOrWhiteSpace([string]$Decision.budget_refusal)) {
+        $lines.Add('')
+        $lines.Add([string]$Decision.budget_refusal)
+    }
+    $lines.Add('')
+    # W49 (maintainer ruling, 2026-08-23): THE MENU SPEAKS THE HUMAN'S LANGUAGE, ALL THREE OPTIONS.
+    # After W44, option 1 was a typed phrase while 2 and 3 still leaned on a raw --pause-choice command
+    # - two languages on one surface, and the human's was not one of them. Every option is now a plain
+    # typed decision with its consequence stated ON the option; the agent maps the decision to the CLI.
+    # A human never sees a --flag in a decision menu, and numbered labels are gone with it - a number
+    # was only ever the CLI's spelling, and bare numbers are never authority in this system.
+    $lines.Add('What would you like to do? Reply with one of these decisions:')
+    foreach ($option in @($Decision.options)) {
+        $lines.Add(('  - {0}' -f $option.text))
+    }
+    $lines.Add('')
+    $lines.Add('Nothing runs and nothing is spent until you answer. Your typed decision is the answer; your agent (or the terminal command it runs) carries it to Specrew.')
+    return ($lines -join [Environment]::NewLine)
 }
 
 function Build-ContinuousCoReviewNavigatorStopBlock {
@@ -791,7 +1362,7 @@ function Build-ContinuousCoReviewNavigatorStopBlock {
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.AppendLine('Specrew co-review — BLOCKING. The fresh-context review of your latest increment found an issue to address before you continue. Fix it, then re-stop so co-review can re-check.')
     [void]$sb.AppendLine('')
-    [void]$sb.AppendLine(("Run {0}  -  {1} blocking finding(s):" -f $RunId, $blocking.Count))
+    [void]$sb.AppendLine(("Review run {0} (identifies this review if you need to refer to it)  -  {1} blocking finding(s):" -f $RunId, $blocking.Count))
     foreach ($f in $blocking) {
         $loc = $null
         if (($f.PSObject.Properties.Name -contains 'location') -and $null -ne $f.location) {
@@ -808,8 +1379,210 @@ function Build-ContinuousCoReviewNavigatorStopBlock {
     if (-not [string]::IsNullOrWhiteSpace($BlackboardRef)) {
         [void]$sb.AppendLine(("Full findings (all severities): {0}" -f $BlackboardRef))
     }
-    [void]$sb.AppendLine('(Co-review navigator block, not a boundary verdict - do NOT emit a SPECREW-VERDICT-BOUNDARY marker. Reviewed in an isolated read-only worktree; your tree is unchanged.)')
+    # T010, emission point. The old single line bundled an AGENT DIRECTIVE with a fact the HUMAN needs.
+    # Split by reader, not deleted: the directive moved to
+    # Build-ContinuousCoReviewNavigatorAgentDirective, and the reassurance stays here - a human told
+    # their review found problems will reasonably wonder whether their files were touched.
+    [void]$sb.AppendLine('(This review ran on a private copy; your tree is unchanged.)')
     return $sb.ToString().TrimEnd()
+}
+
+function Build-ReviewCampaignNavigatorStopBlock {
+    # T051 / FR-045: campaign outcomes can block lifecycle progress, but only a clean or explicitly
+    # human-dispositioned exact-digest result may release the ordinary boundary packet. This block is
+    # deliberately marker-free so it cannot be captured as lifecycle authorization evidence.
+    #
+    # T003 / FR-007 - THE TWO-GOVERNOR ADJUDICATION. The no-marker clause below used to be emitted
+    # unconditionally, with no knowledge of whether a lifecycle crossing was pending. When one is, the
+    # stop carries two contradictory instructions at the same moment: the boundary evidence gate needs
+    # the crossing's verdict marker or the human's answer cannot be captured at all, while this block
+    # says emit no marker. That collision was captured live three times during this feature, and each
+    # time an AGENT adjudicated it - which is precisely ledger F5, because a consumer could not.
+    #
+    # Maintainer ruling: the recorded crossing WINS. Controller truth naming an exact pending
+    # authorization outranks this clause, which governs ITSELF - it describes what this block is, not
+    # what the lifecycle owes. Under the other reading a recorded crossing becomes unanswerable and
+    # the lifecycle wedges on a review the human may not even owe yet.
+    #
+    # Deferring the MARKER is not withdrawing the BLOCK: the review position above is unchanged, and
+    # only a well-formed crossing - one naming its destination - outranks the clause.
+    param(
+        [Parameter(Mandatory)]$PacketDecision,
+        [AllowNull()]$PendingCrossing
+    )
+    # T010 / FR-015, FR-016 - SCOPED BY EMISSION POINT (maintainer ruling 2026-08-11). Text a human
+    # reads at a stop is a consumer surface WHEREVER it is composed. An earlier pass scoped this by FILE
+    # and guarded only the `-Message` literal, leaving the five lines around it - the ones composed
+    # here - carrying every defect the pass was about.
+    #
+    # AGENT DIRECTIVES DO NOT LIVE IN THIS BLOCK. They are not vocabulary leaking through; they are the
+    # agent's private channel printed in front of the consumer. They moved to
+    # Build-ReviewCampaignNavigatorAgentDirective - MOVED, never deleted: the agent is a different
+    # reader, not a lesser one, and it still has to be told.
+    $sb = [Text.StringBuilder]::new()
+    [void]$sb.AppendLine(('Specrew review — {0}.' -f (Get-ReviewCampaignRouteSentence -Route ([string]$PacketDecision.route))))
+    [void]$sb.AppendLine([string]$PacketDecision.message)
+    # THE NEXT STEP, in words. Removing the old `Implementer action: request-current-digest-review` line
+    # was itself a defect - caught on a live stop, which rendered a block with no actionable step at
+    # all. The complaint about that line was that it was MACHINERY ADDRESSED TO A ROLE, not that the
+    # reader does not need a next step. Translating it is the fix; deleting it traded one unusable
+    # sentence for a missing one.
+    $nextStep = Get-ReviewCampaignActionSentence -Action ([string]$PacketDecision.implementer_action)
+    if (-not [string]::IsNullOrWhiteSpace($nextStep)) { [void]$sb.AppendLine(('What to do: {0}' -f $nextStep)) }
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$PacketDecision.run_id)) {
+        # A bare identifier is a thing the reader must look up before the line means anything. The gloss
+        # says what it is FOR, so a reader who does not need it can skip it.
+        [void]$sb.AppendLine(('Review run: {0} (identifies this review if you need to refer to it)' -f [string]$PacketDecision.run_id))
+    }
+
+    $crossingId = [string](Get-ReviewCampaignCrossingField -Crossing $PendingCrossing -Name 'crossing_id')
+    $crossingFrom = [string](Get-ReviewCampaignCrossingField -Crossing $PendingCrossing -Name 'from_boundary')
+    $crossingTo = [string](Get-ReviewCampaignCrossingField -Crossing $PendingCrossing -Name 'to_boundary')
+    if ([string]::IsNullOrWhiteSpace($crossingTo)) {
+        $crossingTo = [string](Get-ReviewCampaignCrossingField -Crossing $PendingCrossing -Name 'working_boundary')
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($crossingTo) -and -not [string]::IsNullOrWhiteSpace($crossingId)) {
+        # THE BOUNDARIES ARE THE ACTIONABLE PART; the identifier is REMOVED, not glossed. The old line
+        # read "the recorded crossing crossing-fdfd..." - a stutter, because the label and the id say
+        # the same word - and a 64-character hex string is noise in a sentence whose job is to tell a
+        # human their approval is still owed. The id still travels on the agent channel, where it is
+        # the thing actually being matched.
+        $null = $crossingId
+        [void]$sb.AppendLine((
+            'This does not decide the approval you still owe ({0} -> {1}); that decision is unaffected and still waits for you.' -f `
+                $(if ([string]::IsNullOrWhiteSpace($crossingFrom)) { 'unrecorded' } else { $crossingFrom }), $crossingTo
+        ))
+    }
+    return $sb.ToString().TrimEnd()
+}
+
+function Get-ReviewCampaignRouteSentence {
+    # A raw route name (`review-stale`, `review-required`) is internal vocabulary in the FIRST line the
+    # reader sees. Unknown routes fall back to a neutral phrase rather than leaking the token: a new
+    # route added later degrades to vague, never to machinery.
+    [OutputType([string])]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Route)
+    switch ([string]$Route) {
+        'review-stale' { return 'your last review no longer covers these files' }
+        'review-required' { return 'these files have not been reviewed yet' }
+        'review-running' { return 'a review is running now' }
+        'review-current' { return 'your review covers these files' }
+        'review-timeout' { return 'the last review ran out of time' }
+        'review-failure' { return 'the review record needs repair' }
+        'review-partial' { return 'the last review finished only partly' }
+        'pause-pending' { return 'this review is waiting for your decision' }
+        default { return 'there is something to know about your review' }
+    }
+}
+
+function Build-ContinuousCoReviewNavigatorAgentDirective {
+    # The agent's half of the blocking co-review stop. Split from the human block under T010's
+    # emission-point rule: the marker instruction is for the assistant, the "your tree is unchanged"
+    # reassurance is for the person.
+    [OutputType([string])]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Verdict)
+    $null = $Verdict
+    return 'Co-review navigator block, not a boundary verdict - do NOT emit a SPECREW-VERDICT-BOUNDARY marker.'
+}
+
+function Get-ReviewCampaignActionSentence {
+    # `request-current-digest-review` is machinery addressed to a role. The reader needs the ACT, in
+    # words, with the command where one exists. An unknown action returns EMPTY rather than echoing the
+    # token: a line that prints an internal identifier is worse than no line, because it looks like an
+    # instruction the reader has failed to follow.
+    [OutputType([string])]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Action)
+    switch ([string]$Action) {
+        # --approve-round IS NAMED HERE because this is the ONE place every "run a review" instruction
+        # resolves through, and because the only other place that named it was emitted BY the checkpoint
+        # (navigator :835). The checkpoint never fired on either dogfood host, so the message never
+        # rendered, so neither agent could discover the flag - and both improvised an authorization
+        # instead. The instruction for the fix lived inside the thing that was broken.
+        #
+        # A review costs a provider round and needs the human's approval, so the command that starts one
+        # must carry the approval in the same line. Someone reading a refusal is exactly the person
+        # looking for how to run a review; making them find a second message first is what produced two
+        # invented authorizations.
+        # W44 (maintainer ruling, 2026-08-22): THE DECISION IS THE HUMAN'S, THE EXECUTION IS THE AGENT'S.
+        #
+        # W36 drew the line in the wrong place: it made the COMMAND the human's to run, which is the one
+        # role this system never gives the human anywhere else. Boundary verdicts, partial signoff and
+        # workshop repair are all typed phrases captured from conversation, with the agent operating the
+        # machinery afterwards - and round approval now works the same way. The human types `approved
+        # for review round`; the hooks capture it; the agent runs the command carrying that captured
+        # phrase as its authority, and a bare agent invocation without one is refused by the CLI itself.
+        #
+        # Telling a human in a conversation to go run a CLI command also failed as UX on day one (the
+        # bash-PATH seam): the human is in a conversation, not a terminal. The command still appears
+        # here - discoverability was the original defect - but addressed to the reader who runs it.
+        'request-current-digest-review' { return 'ask the human to approve a fresh review round of these files as they are now - their typed reply `approved for review round` (as a normal chat message - a reply inside a question UI or picker is not captured) is the approval, and Specrew captures it from the conversation. Once they have typed it, run: specrew review --live --approve-round. If they prefer not to spend a round, they can review the artifacts themselves and say what they conclude' }
+        'request-authorized-review' { return 'ask the human to approve a review round of these files - their typed reply `approved for review round` (as a normal chat message - a reply inside a question UI or picker is not captured) is the approval, and Specrew captures it from the conversation. Once they have typed it, run: specrew review --live --approve-round. If they prefer not to spend a round, they can review the artifacts themselves and say what they conclude' }
+        'poll-existing-run' { return 'wait for the review that is already running; nothing else is needed from you' }
+        'proceed' { return '' }
+        'await-human-pause-decision' { return 'answer the review question above; nothing runs until you do' }
+        'reconcile-run-claim' { return 'recover the interrupted review before signing off: specrew review --reconcile' }
+        'repair-review-state' { return 'the stored review records need repair before a decision can be asked for' }
+        default { return '' }
+    }
+}
+
+function Build-ReviewCampaignNavigatorAgentDirective {
+    # THE AGENT'S CHANNEL. These lines are instructions to the assistant, not information for the human,
+    # and printing them inside the human's block was the defect that forced the emission-point rule.
+    # They are carried separately so the agent still receives them - it is a different reader, not a
+    # lesser one.
+    [OutputType([string])]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$PacketDecision, [AllowNull()]$PendingCrossing)
+
+    $lines = [Collections.Generic.List[string]]::new()
+    # W44 (supersedes W36): the agent's own channel now states the split the maintainer ruled - the
+    # DECISION is the human's, the EXECUTION is the agent's. The CLI enforces it: an agent invocation
+    # of --approve-round without a captured typed approval is refused, so this sentence describes the
+    # mechanism rather than standing in for one.
+    $lines.Add('Approving a review round is the HUMAN''s decision, given as their typed reply `approved for review round`, as a normal chat message - a reply inside a question UI or picker is not captured. Ask them for it; never record or fabricate one on their behalf. Once they have typed it, running `specrew review --live --approve-round` is YOUR job: the captured phrase is the authority the command consumes, and it refuses an agent invocation that has none.') | Out-Null
+    if ([bool](Get-ReviewAuthorityProperty -Object $PacketDecision -Name 'ask_narrow_question')) {
+        $lines.Add('Ask only the narrow review-disposition question; do not offer lifecycle approval options.') | Out-Null
+    }
+    # W49: the pause menu shows the human typed decisions only - the CLI spelling is yours. Mapping:
+    # `run another round` -> specrew review --live --pause-choice 1 (needs their captured `approved for
+    # review round`); `stop the review here` -> --pause-choice 2; `abandon this review campaign` ->
+    # --pause-choice 3. The last two spend nothing and need no captured approval - relay them as typed;
+    # never show the human a --flag, and never answer a pause they have not decided.
+    if ([string](Get-ReviewAuthorityProperty -Object $PacketDecision -Name 'implementer_action') -ceq 'await-human-pause-decision') {
+        $lines.Add('The pause menu above offers the human three typed decisions; mapping them to the CLI is YOUR job, never theirs: `run another round` -> `specrew review --live --pause-choice 1` (requires their captured chat-typed `approved for review round`); `stop the review here` -> `--pause-choice 2`; `abandon this review campaign` -> `--pause-choice 3`. The last two spend nothing and need no captured approval - relay the typed decision as given, never show the human a --flag, and never answer a pause they have not decided.') | Out-Null
+    }
+    $crossingId = [string](Get-ReviewCampaignCrossingField -Crossing $PendingCrossing -Name 'crossing_id')
+    $crossingTo = [string](Get-ReviewCampaignCrossingField -Crossing $PendingCrossing -Name 'to_boundary')
+    if ([string]::IsNullOrWhiteSpace($crossingTo)) {
+        $crossingTo = [string](Get-ReviewCampaignCrossingField -Crossing $PendingCrossing -Name 'working_boundary')
+    }
+    if (-not [string]::IsNullOrWhiteSpace($crossingTo) -and -not [string]::IsNullOrWhiteSpace($crossingId)) {
+        # T003's adjudication, unchanged in substance: the recorded crossing WINS over this block's
+        # self-describing no-marker clause.
+        $lines.Add(('This is a campaign review block, not a lifecycle verdict. It does not govern the recorded crossing {0}, whose SPECREW-VERDICT-BOUNDARY marker applies as normal; this block does not suppress it.' -f $crossingId)) | Out-Null
+    }
+    else {
+        $lines.Add('Campaign review block, not a lifecycle verdict - do NOT emit a SPECREW-VERDICT-BOUNDARY marker.') | Out-Null
+    }
+    return (($lines -join [Environment]::NewLine))
+}
+
+function Get-ReviewCampaignCrossingField {
+    # StrictMode-safe read of a recorded crossing field. The crossing arrives as parsed JSON from
+    # .specrew/start-context.json, where any field may be absent on an older or partly-written record,
+    # and under StrictMode touching an absent property THROWS - inside the Stop path, which is the one
+    # place a throw is most expensive. Absent reads as empty, and empty fails closed at the caller.
+    param([AllowNull()]$Crossing, [Parameter(Mandatory)][string]$Name)
+    if ($null -eq $Crossing) { return '' }
+    $property = $Crossing.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) { return '' }
+    return [string]$property.Value
 }
 
 function Get-ContinuousCoReviewNavigatorImplementStage {

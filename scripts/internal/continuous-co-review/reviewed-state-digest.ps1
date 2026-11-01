@@ -1,16 +1,24 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# HARD dependency (DRIFT-198-I009-018): absent, digest denial and machinery dedup silently
+# compared with a DIFFERENT case rule instead of the volume's own.
+if (-not (Get-Command -Name 'Get-ContinuousCoReviewPathCaseSensitive' -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot 'path-identity.ps1')
+}
+
 # T065 / FR-025 / SEC-002: content-addressed reviewed-state identity.
 #
 # A co-review run records a digest of the EXACT worktree content it reviewed, computed via
 # a TEMPORARY git index (GIT_INDEX_FILE) so the real index/HEAD are never touched. The
-# digest is a git tree-id over: tracked + untracked-non-ignored content (git add -A) PLUS
-# gitignored SOURCE (git add -f), minus a secret/ambient denylist. The gate's freshness
+# digest is a git tree-id over tracked + untracked-non-ignored content (`git add -A`),
+# minus methodology/runtime machinery and explicit human scope exclusions. Gitignored
+# untracked files are excluded by Git's own repository policy; tracked files remain reviewable
+# even when a later ignore rule matches them. The gate's freshness
 # check is "current worktree tree-id == a passing run's recorded tree-id". This structurally
-# closes HOLE A (gitignored source is IN the tree-id and its drift flips it), the untracked
-# blind spot, the empty-diff trust (the empty tree has the well-known id below), and the
-# diff path-parsing nits. Validated empirically 2026-06-20.
+# closes the non-ignored untracked blind spot, the empty-diff trust (the empty tree has the
+# well-known id below), and the diff path-parsing nits without pulling build/runtime artifacts
+# into the review candidate.
 
 function Get-ContinuousCoReviewSecretAmbientDenylist {
     # The DIGEST-IDENTITY denylist: paths kept OUT of the content-addressed tree-id.
@@ -29,7 +37,21 @@ function Get-ContinuousCoReviewSecretAmbientDenylist {
         'id_rsa', 'id_rsa.*', 'id_ed25519', 'id_ed25519.*', '.netrc', '.npmrc', '.pypirc',
         'node_modules/**', 'dist/**', 'build/**', 'out/**', 'target/**', 'bin/**', 'obj/**',
         '.venv/**', 'venv/**', '__pycache__/**', '.tox/**', '.gradle/**', '.next/**',
-        '.git/**', '.specrew/**', '.squad/**', '.specify/**', '.scratch/**'
+        '.git/**', '.specrew/**', '.squad/**', '.specify/**', '.scratch/**',
+        # T017 INTERIM (2026-07-12): the SIX known review-closeout scaffolder staging
+        # byproducts, path-and-name specific under specs/*/iterations/*. This classifier
+        # remains narrow for reviewer-bundle compatibility; the digest now respects
+        # `.gitignore` for every untracked path and never force-adds ignored content.
+        # T017 REALIZED the ONE machinery source (Get-ContinuousCoReviewMachineryPaths, consumed by BOTH the digest
+        # AND the worktree strip - see the $machineryPatterns wiring below). These .pending patterns are
+        # digest-specific scaffolder-BYPRODUCT hygiene (NOT host machinery), so they correctly stay here, not in the
+        # shared machinery list.
+        'specs/*/iterations/*/code-map.md.pending',
+        'specs/*/iterations/*/coverage-evidence.md.pending',
+        'specs/*/iterations/*/dashboard.md.pending',
+        'specs/*/iterations/*/dependency-report.md.pending',
+        'specs/*/iterations/*/review-diagrams.md.pending',
+        'specs/*/iterations/*/reviewer-index.md.pending'
     )
 }
 
@@ -43,8 +65,7 @@ function Get-ContinuousCoReviewDigestRuntimeStripList {
     # contain secret-FILE/extension globs (`*.key`/`*.token`/`*.pem` strip real source like
     # `src/keymap.key`) or ambiguous build-output dirs (`bin/`/`obj/`/`dist/` are committed
     # source in polyglot repos). Secret CONFIDENTIALITY is the reviewer-bundle path's concern,
-    # not the gate identity. (Gitignored ambient/secret junk is kept out of the tree by the
-    # broader inclusion denylist below, applied only to the `git add -f` step.)
+    # not the gate identity. Gitignored ambient/secret junk is kept out by normal Git semantics.
     return @(
         '.git/**', '.specrew/**', '.squad/**', '.specify/**', '.scratch/**',
         'node_modules/**', '.venv/**', 'venv/**', '__pycache__/**', '.tox/**', '.gradle/**', '.next/**'
@@ -61,7 +82,18 @@ function Test-ContinuousCoReviewDigestPathDenied {
         [Parameter(Mandatory)]
         [string] $Path,
 
-        [string[]] $Denylist = @()
+        [string[]] $Denylist = @(),
+
+        # LITERAL repository identities (machinery paths). Matched by exact identity and subtree
+        # only - never as globs, because a legal directory name holding wildcard metacharacters
+        # (`generated[1]`) would otherwise match unrelated source (`generated1`) and drop real
+        # reviewable code out of the tree identity, which is the false-allow this list prevents.
+        [string[]] $LiteralPath = @(),
+
+        # Root whose VOLUME decides case semantics. Case sensitivity is a volume property, not an
+        # OS-family one; undetermined resolves to 'distinct' so this predicate strips LESS and can
+        # never remove a case-distinct reviewable path from the identity.
+        [string] $CaseRoot = '.'
     )
 
     $normalized = ($Path -replace '\\', '/').TrimEnd('/')
@@ -70,6 +102,18 @@ function Test-ContinuousCoReviewDigestPathDenied {
     }
 
     $leaf = $normalized.Split('/')[-1]
+    $comparison = Get-ContinuousCoReviewPathComparison -Path $CaseRoot -WhenUndetermined 'distinct'
+    $wildcardOptions = if ($comparison -eq [System.StringComparison]::OrdinalIgnoreCase) { [System.Management.Automation.WildcardOptions]::IgnoreCase } else { [System.Management.Automation.WildcardOptions]::None }
+
+    foreach ($literal in @($LiteralPath)) {
+        if ([string]::IsNullOrWhiteSpace($literal)) { continue }
+        $normalizedLiteral = ([string]$literal -replace '\\', '/').Trim('/')
+        if ([string]::IsNullOrWhiteSpace($normalizedLiteral)) { continue }
+        if ($normalized.Equals($normalizedLiteral, $comparison) -or $normalized.StartsWith("$normalizedLiteral/", $comparison)) {
+            return $true
+        }
+    }
+
     foreach ($pattern in @($Denylist)) {
         if ([string]::IsNullOrWhiteSpace($pattern)) {
             continue
@@ -78,13 +122,13 @@ function Test-ContinuousCoReviewDigestPathDenied {
         $normalizedPattern = ($pattern -replace '\\', '/')
         if ($normalizedPattern.EndsWith('/**')) {
             $prefix = $normalizedPattern.Substring(0, $normalizedPattern.Length - 3)
-            if (($normalized -eq $prefix) -or $normalized.StartsWith("$prefix/", [System.StringComparison]::OrdinalIgnoreCase)) {
+            if ($normalized.Equals($prefix, $comparison) -or $normalized.StartsWith("$prefix/", $comparison)) {
                 return $true
             }
             continue
         }
 
-        $wildcard = [System.Management.Automation.WildcardPattern]::new($normalizedPattern, [System.Management.Automation.WildcardOptions]::IgnoreCase)
+        $wildcard = [System.Management.Automation.WildcardPattern]::new($normalizedPattern, $wildcardOptions)
         if ($wildcard.IsMatch($normalized) -or $wildcard.IsMatch($leaf)) {
             return $true
         }
@@ -104,15 +148,40 @@ function New-ContinuousCoReviewDigestResult {
         [AllowNull()]
         [string] $FailureReason,
 
-        [int] $IncludedIgnoredCount = 0
+        [int] $IncludedIgnoredCount = 0,
+
+        [string[]] $MachineryPaths = @(),
+
+        [string[]] $ExcludedPathPatterns = @()
     )
 
+    $canonicalExclusions = @($ExcludedPathPatterns | ForEach-Object {
+        $normalized = ([string]$_ -replace '\\', '/').Trim()
+        while ($normalized.StartsWith('./', [StringComparison]::Ordinal)) { $normalized = $normalized.Substring(2) }
+        $normalized
+    })
+    $canonicalExclusions = Get-ContinuousCoReviewOrdinalUniquePath -Path $canonicalExclusions
+    # Dedup is load-bearing, and it must be ORDINAL. Sort-Object -Unique folds case by default, so on a
+    # case-sensitive worktree `Foo/**` and `foo/**` - two DIFFERENT operator authorities - collapsed
+    # to one, and the discarded subtree stayed in the reviewed digest and the materialized target
+    # even though the operator explicitly excluded it (co-review finding, run
+    # run-f198-i009-aab37c3b-codex-2). Keeping both spellings is safe on every volume: where the
+    # volume folds case they select the same files, and where it does not they are genuinely
+    # distinct authorities. Never fold here - that direction can only ever under-exclude.
+    # `-CaseSensitive` was the earlier fix and was NOT enough: it flips only the case flag and leaves
+    # the comparison culture-aware, so composed vs decomposed Unicode still collapsed
+    # (DRIFT-198-I009-033). The primitive above is Ordinal in both dedup and ordering.
+    $exclusionBytes = [Text.Encoding]::UTF8.GetBytes(($canonicalExclusions -join "`n"))
+    $exclusionSha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($exclusionBytes)).ToLowerInvariant()
     return [pscustomobject][ordered]@{
         schema_version         = '1.0'
         ok                     = $Ok
         tree_id                = $TreeId
         is_empty               = ($Ok -and $TreeId -eq (Get-ContinuousCoReviewEmptyTreeId))
         included_ignored_count = $IncludedIgnoredCount
+        machinery_paths        = @($MachineryPaths)
+        excluded_path_patterns = @($canonicalExclusions)
+        excluded_path_patterns_sha256 = $exclusionSha256
         failure_reason         = $FailureReason
     }
 }
@@ -144,11 +213,96 @@ function Invoke-ContinuousCoReviewGitPathBatch {
     )
 
     if ($null -eq $Paths -or $Paths.Count -eq 0) { return }
-    for ($i = 0; $i -lt $Paths.Count; $i += $ChunkSize) {
-        $end = [Math]::Min($i + $ChunkSize, $Paths.Count) - 1
-        $chunk = @($Paths[$i..$end])
+    # These are LITERAL repository identities from `git ls-files`, not user globs. Without literal
+    # pathspec magic a legal name holding metacharacters (`generated[1]`) would select unrelated
+    # source and strip it from - or stage it into - the reviewed identity.
+    # Called directly: the file-scope load above guarantees the primitive. The former per-path
+    # `Get-Command` guard carried a hand-copied second implementation of it, which is the
+    # duplicate-rule problem the primitive exists to remove (DRIFT-198-I009-018).
+    $literalPaths = @($Paths | ForEach-Object { ConvertTo-ContinuousCoReviewLiteralPathspec -Path $_ })
+    for ($i = 0; $i -lt $literalPaths.Count; $i += $ChunkSize) {
+        $end = [Math]::Min($i + $ChunkSize, $literalPaths.Count) - 1
+        $chunk = @($literalPaths[$i..$end])
         & git @GitArgs -- @chunk 2>$null | Out-Null
     }
+}
+
+function Get-ContinuousCoReviewDigestWorktreeKey {
+    # THE CACHE KEY IS THE WORKTREE'S CONTENT STATE, read the way git reads it: HEAD, the porcelain listing
+    # (every staged, modified, and untracked-non-ignored path with its status), and the size and mtime of
+    # each listed file - git's own stat cache trusts exactly this. Two worktrees with the same key have the
+    # same reviewable content, so they have the same tree id. Anything that changes content changes the
+    # listing or a listed file's stat, and the key with it. Returns '' when it cannot be built, and '' never
+    # matches a stored key.
+    param([Parameter(Mandatory)][string] $RepoRoot, [string[]] $ExcludedPathPatterns = @())
+    try {
+        Push-Location -LiteralPath $RepoRoot
+        try {
+            $head = ([string](& git rev-parse HEAD 2>$null)).Trim()
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($head)) { return '' }
+            $rawStatus = & git status --porcelain=v1 -z --untracked-files=all 2>$null
+            if ($LASTEXITCODE -ne 0) { return '' }
+            $parts = [System.Collections.Generic.List[string]]::new()
+            $parts.Add('head=' + $head)
+            $parts.Add('exclusions=' + (@($ExcludedPathPatterns) -join '|'))
+            $entries = @(ConvertFrom-ContinuousCoReviewNulList -Raw $rawStatus | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_.Length -ge 4 })
+            # THE INDEX MODE IS PART OF THE KEY (R1, the independent review of ebb7597f). `git update-index
+            # --chmod=+x` on a staged file under core.filemode=false changes the tree identity and nothing this key
+            # used to read: not the porcelain letters, not the bytes, not the size, not the mtime. One `ls-files
+            # -s` over the listed paths carries the mode the tree will carry.
+            $indexModes = @{}
+            $listedPaths = @($entries | ForEach-Object { $_.Substring(3) } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            if ($listedPaths.Count -gt 0) {
+                $rawStage = & git ls-files -s -z -- @listedPaths 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    foreach ($stageEntry in (ConvertFrom-ContinuousCoReviewNulList -Raw $rawStage)) {
+                        # "<mode> <sha> <stage>\t<path>"
+                        $tab = $stageEntry.IndexOf([char]9)
+                        if ($tab -lt 0) { continue }
+                        $meta = $stageEntry.Substring(0, $tab).Split(' ')
+                        if ($meta.Count -ge 1) { $indexModes[$stageEntry.Substring($tab + 1)] = [string]$meta[0] }
+                    }
+                }
+            }
+            foreach ($entry in $entries) {
+                $status = $entry.Substring(0, 2)
+                $relative = $entry.Substring(3)
+                $stat = ''
+                $full = Join-Path $RepoRoot $relative
+                if ([IO.File]::Exists($full)) {
+                    $info = [IO.FileInfo]::new($full)
+                    $stat = '{0}:{1}' -f $info.Length, $info.LastWriteTimeUtc.Ticks
+                }
+                $mode = if ($indexModes.ContainsKey($relative)) { [string]$indexModes[$relative] } else { '' }
+                $parts.Add(('{0} {1} {2} {3}' -f $status, $relative, $stat, $mode))
+            }
+            $bytes = [Text.Encoding]::UTF8.GetBytes(($parts -join "`n"))
+            return ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))).ToLowerInvariant()
+        }
+        finally { Pop-Location }
+    }
+    catch { return '' }
+}
+
+function Get-ContinuousCoReviewDigestCachePath {
+    # THE CACHE LIVES IN THE GIT DIRECTORY, not in the worktree. The first version wrote it under
+    # `.specrew/runtime`, and on a repository that does not ignore that directory the cache file appeared in
+    # `git status` - which is (a) a worktree mutation the verification runner rightly refuses, and (b) a
+    # change to the very porcelain listing the cache key is built from, so every write would have
+    # invalidated the entry it just stored. A git-derived identity belongs where git keeps its own derived
+    # state; `--git-path` resolves per worktree, and nothing under the git dir is ever in a listing or a tree.
+    param([Parameter(Mandatory)][string] $RepoRoot)
+    try {
+        Push-Location -LiteralPath $RepoRoot
+        try {
+            $gitPath = ([string](& git rev-parse --git-path 'specrew-reviewed-state-digest-cache.json' 2>$null)).Trim()
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitPath)) { return '' }
+            if (-not [IO.Path]::IsPathRooted($gitPath)) { $gitPath = [IO.Path]::GetFullPath((Join-Path $RepoRoot $gitPath)) }
+            return $gitPath
+        }
+        finally { Pop-Location }
+    }
+    catch { return '' }
 }
 
 function Get-ContinuousCoReviewReviewedStateDigest {
@@ -156,16 +310,103 @@ function Get-ContinuousCoReviewReviewedStateDigest {
         [Parameter(Mandatory)]
         [string] $RepoRoot,
 
-        [string[]] $ExcludedPathPatterns = @()
+        [string[]] $ExcludedPathPatterns = @(),
+
+        # AN AUTHORITY CHECK NEVER TRUSTS A CACHE (R1, the independent review of ebb7597f). The digest is
+        # DIRECT by default. Only the advisory Stop-hook path - the navigator's packet decision and older-tree
+        # note, the checkpoint identity, the conformance provider's coverage line - passes -AllowCache, because a
+        # key made of metadata is not tree equality: a same-length edit with its mtime put back reads as
+        # unchanged, and the gate that decides sign-off must never read that. Measured after the pruned walk,
+        # the direct computation is 2-3 s on the self-host repo; the cache saves ~2 s on a path that can afford
+        # to be advisory and nothing on a path that cannot.
+        [switch] $AllowCache,
+
+        # Retained for callers that spell the default out: never read the cache (the default now).
+        [switch] $NoCache
     )
 
     $resolvedRepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-    # Two distinct lists: the BROAD inclusion denylist decides which GITIGNORED paths to
-    # add (keeps ambient/secret junk out of the tree), while the MINIMAL strip list decides
-    # what to remove from the FINAL index (only genuinely-non-source, so no tracked source is
-    # ever stripped - the false-allow fix).
-    $inclusionDenylist = @(Get-ContinuousCoReviewSecretAmbientDenylist) + @($ExcludedPathPatterns)
-    $stripList = @(Get-ContinuousCoReviewDigestRuntimeStripList) + @($ExcludedPathPatterns)
+
+    # THE DIGEST IS CACHED BY WORKTREE STATE (PRED-BETA4-018). Measured on the self-host repo: 18-37 s per
+    # computation, inside a Stop hook whose whole budget is 20 s shared by three providers - the conformance
+    # provider was killed before the turn counter and the token consumption on every material stop, and the
+    # navigator was never reached. A stop that changed nothing since the last digest gets the last answer,
+    # keyed by content state, not by time: any change to HEAD, to the porcelain listing, or to a listed
+    # file's size or mtime is a different key. The cache lives in the GIT DIRECTORY (see
+    # Get-ContinuousCoReviewDigestCachePath), which is never in a listing or a tree, so writing it does not
+    # move the key it protects. A miss, a corrupt file, or an unwritable directory all fall through to the
+    # full computation; nothing here can make the digest wrong, only slower.
+    $worktreeKey = if ($AllowCache -and -not $NoCache) { Get-ContinuousCoReviewDigestWorktreeKey -RepoRoot $resolvedRepoRoot -ExcludedPathPatterns $ExcludedPathPatterns } else { '' }
+    $cachePath = Get-ContinuousCoReviewDigestCachePath -RepoRoot $resolvedRepoRoot
+    if ([string]::IsNullOrWhiteSpace($cachePath)) { $worktreeKey = '' }
+    if (-not [string]::IsNullOrWhiteSpace($worktreeKey) -and (Test-Path -LiteralPath $cachePath -PathType Leaf)) {
+        try {
+            $cached = Get-Content -LiteralPath $cachePath -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+            if ($null -ne $cached -and [string]$cached.schema_version -ceq '1.0' -and [string]$cached.worktree_key -ceq $worktreeKey -and
+                [string]$cached.tree_id -match '^[0-9a-f]{40}$') {
+                return New-ContinuousCoReviewDigestResult -Ok $true -TreeId ([string]$cached.tree_id) -IncludedIgnoredCount ([int]$cached.included_ignored_count) `
+                    -MachineryPaths @($cached.machinery_paths | ForEach-Object { [string]$_ }) -ExcludedPathPatterns @($cached.excluded_path_patterns | ForEach-Object { [string]$_ })
+            }
+        }
+        catch { $null = $_ }
+    }
+    # T017 (FR-012): the METHODOLOGY MACHINERY excluded from the digest identity is the SAME single source the
+    # WORKTREE strip uses - Get-ContinuousCoReviewMachineryPaths (core tool dirs + marker-detected + host-mirror
+    # subdirs, context-aware). By construction the digest and worktree strip the SAME machinery, so they cannot
+    # drift, and the identity covers EXACTLY the reviewable content the reviewer sees (machinery stripped from the
+    # worktree is also out of the identity - NOT a false-allow: the reviewer never sees machinery, so it is not
+    # reviewed source; .github/workflows and all non-machinery source stay IN both). Converted to strip patterns
+    # (<path> for a file, <path>/** for a subtree). Applied to BOTH digest lists.
+    # The ONE machinery source (Get-ContinuousCoReviewMachineryPaths) lives in worktree-reviewer.ps1, which _load.ps1
+    # does NOT dot-source (it loads only shared leaf-modules). BOOTSTRAP it if absent (same pattern as the T100
+    # process-tree helper). FAIL LOUDLY if it cannot be LOADED or EXECUTED - a silent no-strip would let the digest
+    # identity DIVERGE from the worktree strip (both must derive machinery from the SAME resolver; maintainer
+    # acceptance 2026-07-12). The worktree strip likewise throws if the resolver fails.
+    if (-not (Get-Command -Name 'Get-ContinuousCoReviewMachineryPaths' -ErrorAction SilentlyContinue)) {
+        $wrPath = Join-Path $PSScriptRoot 'worktree-reviewer.ps1'
+        if (Test-Path -LiteralPath $wrPath -PathType Leaf) { try { . $wrPath } catch { $null = $_ } }
+    }
+    if (-not (Get-Command -Name 'Get-ContinuousCoReviewMachineryPaths' -ErrorAction SilentlyContinue)) {
+        return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason 'machinery-resolver-unavailable (the one shared machinery resolver could not be loaded - refusing a digest that would diverge from the worktree strip)'
+    }
+    $machineryPaths = @()
+    try {
+        foreach ($m in @(Get-ContinuousCoReviewMachineryPaths -RepoRoot $resolvedRepoRoot)) {
+            if ([string]::IsNullOrWhiteSpace($m)) { continue }
+            $normalized = ([string]$m -replace '\\', '/').Trim('/')
+            if ([string]::IsNullOrWhiteSpace($normalized)) { continue }
+            $machineryPaths += $normalized
+        }
+        # Dedup on the worktree's real case rule. Sort-Object -Unique folds case by default, which
+        # discarded one of two case-distinct machinery directories on a case-sensitive worktree and
+        # left its files in the frozen candidate.
+        $machineryComparer = Get-ContinuousCoReviewPathComparer -Path $resolvedRepoRoot -WhenUndetermined 'distinct'
+        $machinerySet = [Collections.Generic.HashSet[string]]::new($machineryComparer)
+        foreach ($candidate in $machineryPaths) { $null = $machinerySet.Add($candidate) }
+        $machineryPaths = @($machinerySet | Sort-Object)
+    }
+    catch {
+        return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason ('machinery-resolver-failed: ' + [string]$_.Exception.Message)
+    }
+    $canonicalExclusions = @($ExcludedPathPatterns | ForEach-Object {
+        $normalized = ([string]$_ -replace '\\', '/').Trim()
+        while ($normalized.StartsWith('./', [StringComparison]::Ordinal)) { $normalized = $normalized.Substring(2) }
+        $normalized
+    })
+    $canonicalExclusions = Get-ContinuousCoReviewOrdinalUniquePath -Path $canonicalExclusions
+    # Dedup is load-bearing, and it must be ORDINAL. Sort-Object -Unique folds case by default, so on a
+    # case-sensitive worktree `Foo/**` and `foo/**` - two DIFFERENT operator authorities - collapsed
+    # to one, and the discarded subtree stayed in the reviewed digest and the materialized target
+    # even though the operator explicitly excluded it (co-review finding, run
+    # run-f198-i009-aab37c3b-codex-2). Keeping both spellings is safe on every volume: where the
+    # volume folds case they select the same files, and where it does not they are genuinely
+    # distinct authorities. Never fold here - that direction can only ever under-exclude.
+    # `-CaseSensitive` was the earlier fix and was NOT enough: it flips only the case flag and leaves
+    # the comparison culture-aware, so composed vs decomposed Unicode still collapsed
+    # (DRIFT-198-I009-033). The primitive above is Ordinal in both dedup and ordering.
+    # Machinery identities stay LITERAL and are passed separately; only the shipped strip globs and
+    # the human's exclusion patterns are glob-evaluated.
+    $stripList = @(Get-ContinuousCoReviewDigestRuntimeStripList) + @($canonicalExclusions)
     $tempIndex = Join-Path ([System.IO.Path]::GetTempPath()) ('ccr-idx-' + [System.Guid]::NewGuid().ToString('N'))
 
     $hadPreviousIndex = Test-Path env:GIT_INDEX_FILE
@@ -173,30 +414,60 @@ function Get-ContinuousCoReviewReviewedStateDigest {
 
     Push-Location -LiteralPath $resolvedRepoRoot
     try {
-        # A fresh (non-existent) GIT_INDEX_FILE is an EMPTY index, so `git add -A` stages
-        # the full current working tree (every non-ignored file as an addition) WITHOUT
-        # reading or writing the real .git/index. No HEAD dependency (works pre-commit).
+        # core.filemode=false hosts (the Windows default): the filesystem carries NO executable bit,
+        # so git preserves modes from the PRIOR index entry — but this digest stages into a FRESH
+        # EMPTY index, where no prior entry exists. `git add -A` then stages every file as 100644,
+        # silently stripping the bit from tracked 100755 entrypoints (bin/*, install.sh), and the
+        # reviewer's baseline->digest diff fabricates a mode regression on every shipped Unix
+        # wrapper (the recurring co-review phantom / DRIFT-198-I001-001). Capture the REAL index's
+        # 100755 paths BEFORE switching indexes, and restore them after staging. Applied only when
+        # filemode is off: on Unix the filesystem bit is authoritative and a deliberate working-tree
+        # chmod must keep flowing into the digest. (Reused verbatim from Devin ec90e1b6, T034b partial.)
+        $execBitPaths = @()
+        $coreFilemode = ([string](& git config --get core.filemode 2>$null)).Trim()
+        if ($coreFilemode -ieq 'false') {
+            $rawIndexEntries = & git ls-files -z -s 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                foreach ($indexEntry in (ConvertFrom-ContinuousCoReviewNulList -Raw $rawIndexEntries)) {
+                    if ($indexEntry -match '^100755 [0-9a-f]{40,64} \d\t(.+)$') { $execBitPaths += $Matches[1] }
+                }
+            }
+        }
+
+        # Seed the temporary index from the repository's real index. This preserves every
+        # tracked path (including a tracked file later matched by .gitignore), staged additions,
+        # and executable modes without mutating the caller's index. `git add -A` then overlays
+        # the current working tree and adds only untracked NON-IGNORED files. Starting from an
+        # empty temporary index would incorrectly drop tracked-but-ignored paths.
+        $realIndexOutput = & git rev-parse --git-path index 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason 'git-index-path-unavailable' -ExcludedPathPatterns $canonicalExclusions
+        }
+        $realIndexPath = ([string](@($realIndexOutput) | Select-Object -First 1)).Trim()
+        if (-not [IO.Path]::IsPathRooted($realIndexPath)) {
+            $realIndexPath = [IO.Path]::GetFullPath((Join-Path $resolvedRepoRoot $realIndexPath))
+        }
+        if ([IO.File]::Exists($realIndexPath)) {
+            Copy-Item -LiteralPath $realIndexPath -Destination $tempIndex -Force
+        }
         $env:GIT_INDEX_FILE = $tempIndex
 
         & git add -A 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason 'git-add-all-failed'
+            return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason 'git-add-all-failed' -ExcludedPathPatterns $canonicalExclusions
+        }
+        if ($execBitPaths.Count -gt 0) {
+            # Only restore paths still present in the working tree: update-index aborts a whole
+            # chunk on the first missing path (deleted-in-worktree file), and the batch helper
+            # swallows that failure — which would leave later paths in the chunk unrestored.
+            $execBitPaths = @($execBitPaths | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+            Invoke-ContinuousCoReviewGitPathBatch -GitArgs @('update-index', '--chmod=+x') -Paths $execBitPaths
         }
 
-        $rawIgnored = & git ls-files -z --others --ignored --exclude-standard --directory 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason 'git-ls-ignored-failed'
-        }
-        # Collect the non-denied gitignored SOURCE, then force-add it in BATCHED git calls (NOT one
-        # subprocess per entry - see Invoke-ContinuousCoReviewGitPathBatch).
-        $toInclude = @()
-        foreach ($entry in (ConvertFrom-ContinuousCoReviewNulList -Raw $rawIgnored)) {
-            if (-not (Test-ContinuousCoReviewDigestPathDenied -Path $entry -Denylist $inclusionDenylist)) {
-                $toInclude += $entry
-            }
-        }
-        $included = $toInclude.Count
-        Invoke-ContinuousCoReviewGitPathBatch -GitArgs @('add', '-f') -Paths $toInclude
+        # Deliberately do not force-add ignored files. `.gitignore` is the repository's product
+        # source boundary for untracked content; build outputs, local settings, and runtime
+        # databases must never inflate or destabilize a review candidate.
+        $included = 0
 
         # Strip only the genuinely-non-source runtime/dep paths from the final index (e.g. the
         # gate's own .specrew/review evidence, which must NEVER perturb the digest it checks).
@@ -207,9 +478,41 @@ function Get-ContinuousCoReviewReviewedStateDigest {
         if ($LASTEXITCODE -eq 0) {
             # Collect the genuinely-non-source staged paths, then drop them from the index in BATCHED
             # git calls (NOT one `git rm --cached` per path - the ~24s O(files) fan-out on .specify).
+            #
+            # THE PREDICATE IS NOT CALLED FOR EVERY PATH, and the reason is measured (PRED-BETA4-018): on
+            # the self-host repo, 5,792 tracked paths x ~2.4 ms a call = 14 s, inside a Stop hook whose
+            # whole budget is 20 s - the conformance provider was killed before the turn counter and the
+            # token consumption on every material stop. A path can only be denied by a LITERAL machinery
+            # path or a `<prefix>/**` pattern if its FIRST segment equals the first segment of that
+            # prefix, so those first segments are collected once and paths outside them skip the call.
+            # The predicate itself is unchanged, and the tree id it produces is byte-identical. The one
+            # case that defeats a prefix test - a pattern that is not `<prefix>/**`, such as `*.tmp` - forces
+            # the full scan for every path, which is the pre-existing cost and the pre-existing result.
+            $pathComparer = Get-ContinuousCoReviewPathComparer -Path $resolvedRepoRoot -WhenUndetermined 'distinct'
+            $deniableFirstSegments = [Collections.Generic.HashSet[string]]::new($pathComparer)
+            $everyPathNeedsThePredicate = $false
+            foreach ($literal in @($machineryPaths)) {
+                $normalizedLiteral = ([string]$literal -replace '\\', '/').Trim('/')
+                if ([string]::IsNullOrWhiteSpace($normalizedLiteral)) { continue }
+                $null = $deniableFirstSegments.Add($normalizedLiteral.Split('/')[0])
+            }
+            foreach ($pattern in @($stripList)) {
+                if ([string]::IsNullOrWhiteSpace($pattern)) { continue }
+                $normalizedPattern = ([string]$pattern -replace '\\', '/')
+                if ($normalizedPattern.EndsWith('/**')) {
+                    $prefix = $normalizedPattern.Substring(0, $normalizedPattern.Length - 3).Trim('/')
+                    if ([string]::IsNullOrWhiteSpace($prefix)) { $everyPathNeedsThePredicate = $true; break }
+                    $null = $deniableFirstSegments.Add($prefix.Split('/')[0])
+                }
+                else { $everyPathNeedsThePredicate = $true; break }
+            }
             $toStrip = @()
             foreach ($staged in (ConvertFrom-ContinuousCoReviewNulList -Raw $rawStaged)) {
-                if (Test-ContinuousCoReviewDigestPathDenied -Path $staged -Denylist $stripList) {
+                if (-not $everyPathNeedsThePredicate -and -not [string]::IsNullOrWhiteSpace($staged)) {
+                    $firstSegment = (($staged -replace '\\', '/').TrimStart('/')).Split('/')[0]
+                    if (-not $deniableFirstSegments.Contains($firstSegment)) { continue }
+                }
+                if (Test-ContinuousCoReviewDigestPathDenied -Path $staged -Denylist $stripList -LiteralPath $machineryPaths -CaseRoot $resolvedRepoRoot) {
                     $toStrip += $staged
                 }
             }
@@ -218,14 +521,30 @@ function Get-ContinuousCoReviewReviewedStateDigest {
 
         $treeOutput = & git write-tree 2>$null
         if ($LASTEXITCODE -ne 0) {
-            return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason 'git-write-tree-failed'
+            return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason 'git-write-tree-failed' -ExcludedPathPatterns $canonicalExclusions
         }
         $treeId = ([string] (@($treeOutput) | Select-Object -First 1)).Trim()
         if ($treeId -notmatch '^[0-9a-f]{40}$') {
-            return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason 'git-write-tree-malformed'
+            return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason 'git-write-tree-malformed' -ExcludedPathPatterns $canonicalExclusions
         }
 
-        return New-ContinuousCoReviewDigestResult -Ok $true -TreeId $treeId -IncludedIgnoredCount $included
+        $digestResult = New-ContinuousCoReviewDigestResult -Ok $true -TreeId $treeId -IncludedIgnoredCount $included -MachineryPaths $machineryPaths -ExcludedPathPatterns $canonicalExclusions
+        if (-not [string]::IsNullOrWhiteSpace($worktreeKey)) {
+            try {
+                $cacheDir = Split-Path -Parent $cachePath
+                if (-not (Test-Path -LiteralPath $cacheDir -PathType Container)) { New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null }
+                $cacheRecord = [ordered]@{
+                    schema_version = '1.0'; worktree_key = $worktreeKey; tree_id = $treeId; included_ignored_count = $included
+                    machinery_paths = @($machineryPaths); excluded_path_patterns = @($canonicalExclusions)
+                    computed_at = [DateTimeOffset]::UtcNow.ToString('o')
+                }
+                $cacheTemp = $cachePath + '.tmp-' + [guid]::NewGuid().ToString('N')
+                [IO.File]::WriteAllText($cacheTemp, ($cacheRecord | ConvertTo-Json -Depth 6 -Compress), [Text.UTF8Encoding]::new($false))
+                [IO.File]::Move($cacheTemp, $cachePath, $true)
+            }
+            catch { $null = $_ }
+        }
+        return $digestResult
     }
     catch {
         return New-ContinuousCoReviewDigestResult -Ok $false -FailureReason 'digest-exception'

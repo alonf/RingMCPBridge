@@ -10,7 +10,8 @@ param(
     [string]$IdentityFocusArea,
     [string]$IdentityActiveIssues,
     [string]$IdentityBody,
-    [string]$HandoffText
+    [string]$HandoffText,
+    [switch]$PreflightOnly
 )
 
 Set-StrictMode -Version Latest
@@ -20,6 +21,7 @@ $ErrorActionPreference = 'Stop'
 #
 #   0) Explicit override via $env:SPECREW_MODULE_PATH (iter-006 T001). Set by
 #      Specrew.psm1 at import time so agent-spawned child PowerShell processes
+# specrew-self-ok: Specrew's own module-discovery note - the wrapper resolves the installed Specrew module
 #      dispatch to the actively-imported Dev tree instead of a stale PSGallery install.
 #
 #   1) Specrew dev-tree dogfooding: walk up from $PSScriptRoot looking for a dir
@@ -123,7 +125,7 @@ if ((Test-Path -LiteralPath $projectConfigPath -PathType Leaf) -and ($null -ne $
             $expectedVersion = [version]$expectedRaw
             if ($resolvedModuleVersion -lt $expectedVersion) {
                 throw @"
-Stale Specrew install — boundary-sync dispatch refused (iter-006 T001 stale-install check).
+Stale Specrew install — boundary-sync dispatch refused by the stale-install check.
 
   Project expects: $expectedVersion  (from $projectConfigPath::specrew_version)
   Resolved:        $resolvedModuleVersion  (from $resolvedModuleBase)
@@ -158,7 +160,8 @@ $result = Invoke-SpecrewBoundaryStateSync `
     -IdentityFocusArea $IdentityFocusArea `
     -IdentityActiveIssues $IdentityActiveIssues `
     -IdentityBody $IdentityBody `
-    -HandoffText $HandoffText
+    -HandoffText $HandoffText `
+    -PreflightOnly:$PreflightOnly
 
 if ($null -ne $result) {
     $result | ConvertTo-Json -Depth 6 | Write-Output
@@ -168,12 +171,16 @@ if ($null -ne $result) {
         Write-Output ('Pending verdict stop artifact: {0}' -f $result.pending_verdict_stop_path)
         Write-Output ('Boundary to ask for: {0}' -f $result.pending_verdict_boundary)
         Write-Output ('Human approval phrase: {0}' -f $result.pending_verdict_approval_phrase)
-        Write-Output ('Approval option 1: {0}' -f $result.pending_verdict_approval_phrase)
-        Write-Output 'Concise approval aliases: 1, option 1'
+        Write-Output ('Approval choice: {0}' -f $result.pending_verdict_approval_phrase)
+        Write-Output 'Numeric labels are non-authoritative; reply with the full human approval phrase.'
         Write-Output 'Marker last line exactly:'
         Write-Output ([string]$result.pending_verdict_marker)
         Write-Output 'Render the full six-section boundary packet using this exact marker, then stop.'
     }
+}
+
+if ($PreflightOnly) {
+    return
 }
 
 # ----- Feature 171 (FR-006): channel-1 refocus emission ------------------------
@@ -217,3 +224,4 @@ try {
 catch {
     [Console]::Error.WriteLine("[specrew-refocus] WARN PROVIDER_FAILED channel-1 emission skipped: $($_.Exception.Message)")
 }
+# specrew-self-provenance-ok: F-044; implementation history is recorded for maintainers and is never emitted as consumer instruction

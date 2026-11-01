@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory)][string]$RegistryPath,
     [string]$BaselineRef,
     [string]$CodeWriterHost,
+    [string]$RequestedHost,
     [int]$TimeoutSeconds = 900
 )
 # iter-008 — the DETACHED entry the worktree-navigator spawns (non-blocking). Runs the orchestrator (which writes
@@ -37,10 +38,32 @@ function Update-WorktreeRunRegistryStatus {
     catch { $null = $_ }
 }
 
+# LEASE SELF-ADOPTION GATE (lease-lifecycle hardening 2026-07-15): adopt the lineage lease BEFORE any review
+# work. Closes the parent-crash-before-handoff window: if the acquiring parent died before re-stamping the
+# lease to this supervisor, this adoption (token+generation-matched) claims it; if the lease was meanwhile
+# reclaimed/replaced (a different owner is authoritative), this supervisor EXITS without reviewing rather
+# than run unprotected - never two authoritative reviewers for one lineage.
+try {
+    if (-not (Get-Command -Name 'Invoke-ContinuousCoReviewSupervisorLeaseGate' -ErrorAction SilentlyContinue)) {
+        $leaseModule = Join-Path $PSScriptRoot 'co-review-lineage-lease.ps1'
+        if (Test-Path -LiteralPath $leaseModule -PathType Leaf) { . $leaseModule }
+    }
+    if (Get-Command -Name 'Invoke-ContinuousCoReviewSupervisorLeaseGate' -ErrorAction SilentlyContinue) {
+        $leaseGate = Invoke-ContinuousCoReviewSupervisorLeaseGate -RepoRoot $RepoRoot -RegistryPath $RegistryPath -SupervisorPid $PID
+        if (-not [bool]$leaseGate.proceed) {
+            Update-WorktreeRunRegistryStatus -Path $RegistryPath -Status 'failed' -Extra @{ failure_reason = ('supervisor-lease-gate: ' + [string]$leaseGate.reason) }
+            try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { $null = $_ }
+            exit 1
+        }
+    }
+}
+catch { $null = $_ }   # the gate itself failing open is handled inside; never abort the entry on gate plumbing
+
 try {
     $params = @{ RepoRoot = $RepoRoot; RunDir = $RunDir; RunId = $RunId; TimeoutSeconds = $TimeoutSeconds }
     if (-not [string]::IsNullOrWhiteSpace($BaselineRef)) { $params.BaselineRef = $BaselineRef }
     if (-not [string]::IsNullOrWhiteSpace($CodeWriterHost)) { $params.CodeWriterHost = $CodeWriterHost }
+    if (-not [string]::IsNullOrWhiteSpace($RequestedHost)) { $params.RequestedHost = $RequestedHost }
     $st = Invoke-ContinuousCoReviewWorktreeReviewRun @params
     $term = if ($null -ne $st -and ($st.PSObject.Properties.Name -contains 'status')) { [string]$st.status } else { 'failed' }
     $extra = @{}
@@ -48,6 +71,9 @@ try {
     # Propagate the reviewed-state digest the orchestrator computed (off the Stop budget) to the registry, so the
     # reap promotes the gate's identity, not the HEAD-tree (the freshness-mismatch bug).
     if ($null -ne $st -and ($st.PSObject.Properties.Name -contains 'reviewed_digest_tree_id')) { $extra.reviewed_digest_tree_id = [string]$st.reviewed_digest_tree_id }
+    # T093/FR-035: propagate the independence label so the reap can surface a same-host fallback + the
+    # authorize-an-independent-host upgrade ask (the answer upgrades the NEXT run; this one never blocked).
+    if ($null -ne $st -and ($st.PSObject.Properties.Name -contains 'reviewer_independence')) { $extra.reviewer_independence = [string]$st.reviewer_independence }
     Update-WorktreeRunRegistryStatus -Path $RegistryPath -Status $term -Extra $extra
 }
 catch {
