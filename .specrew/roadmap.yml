@@ -1,0 +1,11 @@
+# Downstream project roadmap.
+# This stub is bootstrapped by specrew init. Edit freely — Specrew never overwrites it.
+# When Proposal 057 ships, this file will be read by the dashboard renderer and by
+# input adapters (manual / GitHub Issues / Linear / etc.) to drive feature sequencing.
+phases:
+  - id: phase-1-initial
+    name: "Phase 1: Initial Delivery"
+    description: "First slice of work in this project. Replace this stub with your real phase plan."
+    planned_effort_sp: 0
+    status: planning
+    feature_refs: []

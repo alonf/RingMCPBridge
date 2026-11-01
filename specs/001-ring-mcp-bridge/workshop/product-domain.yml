@@ -1,0 +1,126 @@
+schema_version: "1"
+depth: deep
+depth_reason: >-
+  New product; controls physical security (arm/disarm, sirens) where Ring enforces no PIN;
+  material legal/privacy exposure (Ring ToS 2(h), camera footage of third parties, biometric laws);
+  distribution model (personal tool vs public OSS) shapes every later decision.
+context_scope: feature_standalone
+product_id: ring-mcp-bridge
+product_context_ref: null
+areas:
+  users_and_stakeholders:
+    primary_user: The project author (Ring account owner) using AI agents daily.
+    secondary_users: Other Ring owners who install the public MIT-licensed GitHub project.
+    operator: Whoever runs the bridge (the author first; each OSS user self-hosts).
+    stakeholders_and_harmed_parties:
+      - Author's household (spouse, children) - wrong arm/disarm, missed alerts.
+      - Owners of shared locations (author's mother-in-law; author's brother) - privacy and consent for agent access to their sensors/cameras.
+      - Visitors and passers-by captured on camera - privacy.
+      - The author's Ring account - risk of WAF blocks or account termination on the unofficial path.
+  pain_and_workaround:
+    job: Let an AI agent know what is happening at home (doorbell, motion, sensors, alarm, flood) in real time, reason about it, and act within safe limits.
+    current_workaround: Ring app by hand, Alexa Announce, and Ring notification emails that ChatGPT reads and reacts to.
+    cost_of_doing_nothing: Agents learn about events late (email latency), get no device/sensor state, and cannot act.
+  existing_system_and_context:
+    type: new product (integration bridge)
+    context: MCP clients (Claude Code, ChatGPT, others) <-> bridge <-> Ring cloud (official Partner API and/or unofficial api.ring.com + alarm websocket + FCM push). No local Ring API.
+    author_installation:
+      location_country: IL
+      owned_location: 1 location with Ring Alarm (~40 contact sensors, ~18 motion detectors, 3 flood sensors, keypad(s), base station) and 6 cameras/doorbells (Video Doorbell 4 [battery], Battery Doorbell 2K Plus [battery], Floodlight Cam Wired, Floodlight Cam Plus Wired, Outdoor/Stick Up Cam, plus one more), Ring Multi plan, E2EE off.
+      shared_locations: Mother-in-law's home (same yard, same LAN, separate Ring Alarm; author is a shared user) and brother's location (author is a shared user).
+  constraints:
+    - Official Ring Partner API Appstore is US-only; private-app geography is contradictory in Ring docs; author's location is in Israel.
+    - Unofficial path conflicts with Ring ToS 2(h); Cloudflare WAF 406 blocks on datacenter IPs; roughly annual breaking changes.
+    - Hosting may be local or Azure; Azure egress is a datacenter IP.
+    - Time is available; solo author.
+    - Public OSS under MIT; ring-client-api is MIT, python-ring-doorbell is LGPL-3.0.
+  outcomes_and_metrics:
+    - High-priority event (flood, alarm, doorbell) reaches the agent within 10 seconds, with a snapshot where applicable.
+    - Bridge runs a week without a manual re-login.
+    - Zero high-risk actions executed without human confirmation.
+    - A new OSS user reaches their first event within 15 minutes of cloning.
+  mvp_nongoals_vision:
+    mvp:
+      - All owned locations - device inventory, device health, sensor battery levels with low-battery tracking.
+      - Alarm mode and full sensor state (contact open/closed, motion, flood).
+      - Prioritized event log (flood/alarm high, doorbell high, motion low) with durable get_events cursor.
+      - Real-time event push to both Claude Code (channels) and ChatGPT (MCP Events).
+      - Snapshots on demand and the clip for a given event.
+      - Arm Home/Away with confirmation; floodlight on/off.
+      - Disarm built in v1 but OFF by default; when enabled requires a PIN (never in model context) plus out-of-band human confirmation.
+    optional_in_v1:
+      - Shared locations (mother-in-law, brother) - read-only by default, behind a configuration option.
+    non_goals_v1:
+      - Face recognition / person identification.
+      - Hosted multi-user SaaS.
+      - Changing Ring settings (motion zones, schedules, notification settings).
+      - Two-way audio.
+      - Continuous recording.
+      - Panic / emergency dispatch.
+      - Blink cameras, shutters, Echo devices and other non-Ring devices.
+    vision: My home(s) as a safe, queryable, event-driven MCP surface usable by any AI agent.
+  alternatives_and_differentiation:
+    - Home Assistant + ring-mqtt + ha-mcp - heavy stack, no MCP event push, HA core lacks Ring Alarm.
+    - Existing Ring MCP servers (jpcors/ring-mcp, sandraschi/ring-mcp, @striderlabs/mcp-ring, ring-partner-mcp) - stale, WIP, fragile or read-only.
+    - Ring's official Appstore MCP server - documentation search only.
+    - Alexa web/app - lists Ring devices but "Control not supported"; no open read API. Considered and rejected as a backend.
+    - Differentiators - Ring-semantic tools, durable event cursor plus real-time push, sensor battery tracking, server-enforced safety tiers, multi-location.
+  adoption_and_rollout:
+    - Pilot on the author's own home(s) first.
+    - Then publish as public MIT open source on GitHub under the name "Ring MCP Bridge" (package ring-mcp-bridge) with an "unofficial, not affiliated with Ring or Amazon" disclaimer and no Ring logo.
+statements:
+  - text: Primary user is the author; secondary users are other Ring owners via a public MIT GitHub project.
+    area: users_and_stakeholders
+    evidence: known
+  - text: Today's workaround is the Ring app, Alexa Announce, and Ring emails parsed by ChatGPT.
+    area: pain_and_workaround
+    evidence: known
+  - text: Author's Ring location is in Israel (IL), not the US.
+    area: constraints
+    evidence: known
+  - text: The official Ring Partner API (including private apps) is usable for an Israel-located account.
+    area: constraints
+    evidence: research-needed
+    load_bearing: true
+  - text: Author owns 1 location with ~40 contact, ~18 motion, 3 flood sensors and 6 cameras/doorbells (2 battery-powered).
+    area: existing_system_and_context
+    evidence: known
+  - text: Unofficial libraries expose per-sensor battery level/status for Ring Alarm devices.
+    area: mvp_nongoals_vision
+    evidence: assumed
+  - text: Unofficial libraries can read devices of locations where the author is a shared user (requires Ring v3 endpoints; fix unmerged upstream).
+    area: mvp_nongoals_vision
+    evidence: research-needed
+    load_bearing: false
+  - text: Unofficial Ring login and push work from an Azure (datacenter) egress IP.
+    area: constraints
+    evidence: research-needed
+    load_bearing: true
+  - text: Ring blocks datacenter IPs for unofficial logins with Cloudflare WAF 406 responses.
+    area: constraints
+    evidence: known
+  - text: Ring enforces no PIN for disarm/unlock/panic at the API level; the bridge must enforce safety server-side.
+    area: constraints
+    evidence: known
+  - text: A high-priority event can reach an agent within 10 seconds via FCM push or the alarm websocket.
+    area: outcomes_and_metrics
+    evidence: assumed
+  - text: Unofficial refresh-token handling can sustain a week without manual re-login, including the ~12-hour session recreation for non-US accounts.
+    area: outcomes_and_metrics
+    evidence: research-needed
+    load_bearing: false
+  - text: Real-time push to both Claude Code channels and ChatGPT MCP Events is in v1 scope, which implies serving both legacy and 2026-07-28 MCP protocol eras.
+    area: mvp_nongoals_vision
+    evidence: known
+  - text: Using "ring" in the OSS project name follows community precedent (ring-mqtt, homebridge-ring, ring-client-api) with low-moderate rename risk; it precludes an official Appstore listing under that name.
+    area: adoption_and_rollout
+    evidence: assumed
+skipped: []
+follow_up_research:
+  - Verify whether an Israel-located Ring account can register and link an official Private App (load-bearing).
+  - Verify unofficial login/push behavior from Azure egress IPs vs residential egress (load-bearing for the hosting decision).
+  - Verify shared-location device visibility in ring-client-api (v3 endpoints, PR #1749) or alternative clients.
+  - Verify per-sensor battery fields on the author's actual Ring Alarm devices.
+  - Trademark/name check for "Ring MCP Bridge" before first public release.
+confirmation: human-confirmed
+confirmation_scope: lens-question

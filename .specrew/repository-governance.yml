@@ -1,0 +1,49 @@
+# Repository governance for Ring MCP Bridge (project-level; captured by the devops-operations lens, 2026-10-26).
+# Human-confirmed: "Do7 - yes to all"; private at first, public when stable; "GHCP should review all".
+# Invariant: main is protected; feature closeout happens before merge; a merged PR does not leave its
+# work item open; post-merge findings open a NEW PR-backed work item plus a release-validation record.
+# enforcement_mode rulesets: the repository is private at first. The API answered "Branch not protected"
+# (not "upgrade") for the human's existing private repository, which indicates a plan that supports
+# protection on private repositories (checked read-only 2026-10-26). Fall back to ci-only if that is wrong.
+# merge_requires automated_review: Copilot reviews every PR; with comment resolution required, its
+# comments must be resolved before merge. The work-kind check starts advisory (warns, does not block).
+# required_checks names are placeholders until the CI jobs exist.
+repository_governance:
+  provider: "github"
+  branch_model:
+    style: "trunk"
+    release_truth_branch: "main"
+    branches:
+      - name: "main"
+        role: "release-truth"
+        protected: true
+        require_pull_request: true
+        required_checks:
+          - "specrew-governance"
+          - "lint"
+          - "test"
+          - "build"
+          - "secret-scan"
+        merges_from:
+          - "NNN-feature-name"
+        allow_force_pushes: false
+        allow_deletions: false
+      - name: "NNN-feature-name"
+        role: "feature"
+        protected: false
+    promotion_path: "NNN-feature-name -> main (by PR; promotion to main is the release-validation event)"
+  review_gate:
+    human_review:
+      required_approvals: 0
+      require_comment_resolution: true
+    automated_review:
+      enabled: true
+      provider_suggestion: "copilot"
+    merge_requires:
+      - "status_checks"
+      - "automated_review"
+  apply_to_admins: true
+  bypass_actors: []
+  enforcement_mode: "rulesets"
+multi_repo:
+  mode: "single-repo"
