@@ -9,7 +9,7 @@ effort_unit: "story_points"
 # Maximum effort units per iteration (capacity)
 # Default: 20 story points
 # Adjust based on team velocity and calibration data
-capacity_per_iteration: 20
+capacity_per_iteration: 42
 
 # Iteration bounding strategy
 # - scope: Iteration completes when planned tasks are done (time varies)
