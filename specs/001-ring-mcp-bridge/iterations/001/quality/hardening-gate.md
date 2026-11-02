@@ -6,7 +6,7 @@
 **Iteration Ref**: `specs/001-ring-mcp-bridge/iterations/001`
 **Requested Review Class**: `strongest-available`
 **Effective Review Class**: `(pending hardening review)`
-**Overall Verdict**: `blocked`
+**Overall Verdict**: `ready`
 **Approval Ref**: `—`
 **Reviewed By**: Reviewer (pending)
 **Reviewed At**: 2026-11-01T20:25:17Z
@@ -48,5 +48,5 @@
 - Replace every `<placeholder>` and every angle-bracketed instruction with iteration-specific content before crossing the `before-implement` boundary.
 - After every row in the table is filled in with a canonical Status, flip the metadata `Overall Verdict` to `ready` (if every concern is `addressed` / `not-applicable` / `deferred-with-approval`) or keep `blocked`.
 - Runtime evidence (lens execution, test counts, mechanical-findings results) is collected after implementation lands; the gate is a PLANNING-time artifact and that deferral is intentional.
-- 2026-11-02 (plan): all five concerns filled at planning time. `retry-idempotency-requirements` and `operational-resilience-concerns` are flipped from the scaffold's `not-applicable` to `addressed` (DRIFT-001-01, accepted by the owner with the design-analysis verdict). The verdict stays `blocked` until the reviewer's hardening review before implement records the effective review class, the reviewer and the approval reference.
+- 2026-11-02 (plan): all five concerns filled at planning time. `retry-idempotency-requirements` and `operational-resilience-concerns` are flipped from the scaffold's `not-applicable` to `addressed` (DRIFT-001-01, accepted by the owner with the design-analysis verdict). The Overall Verdict is computed from the rows, so it reads `ready`. That is not the sign-off: the reviewer's hardening review before implement records the effective review class, the reviewer and the approval reference, and implementation waits for it.
 - 2026-11-02 (plan, after the owner's split, DRIFT-001-03): the five concerns are narrowed to iteration 001 (US1 reads on the hybrid path). The event-path concerns (dedup, cursors, catch-up, late events, Ring-down health events, out-of-band alerts) move to iteration 002's own gate.
