@@ -1,0 +1,51 @@
+{
+  "schema": "v1",
+  "note": "Answer each question true/false (the design-analysis applicability questionnaire). Lens selection is then a deterministic function of these answers + the sibling applicability-map.json.",
+  "questions": [
+    {
+      "id": "ui",
+      "prompt": "Does the feature have a user-facing UI?"
+    },
+    {
+      "id": "security",
+      "prompt": "Does it handle auth, secrets, PII, or compliance?"
+    },
+    {
+      "id": "data",
+      "prompt": "Does it read or write persistent data (database, files, durable state)?"
+    },
+    {
+      "id": "integration",
+      "prompt": "Does it integrate with external services or APIs?"
+    },
+    {
+      "id": "ops",
+      "prompt": "Does it change deployment, CI/CD, or release?"
+    },
+    {
+      "id": "perf",
+      "prompt": "Does it have performance/scale or resilience concerns?"
+    }
+  ],
+  "answers": {
+    "ui": true,
+    "security": true,
+    "data": true,
+    "integration": true,
+    "ops": true,
+    "perf": true
+  },
+  "selected": [
+    "architecture-core",
+    "component-design",
+    "requirements-nfr",
+    "ui-ux",
+    "security-compliance",
+    "data-storage",
+    "integration-api",
+    "devops-operations",
+    "observability-resilience"
+  ],
+  "co_design": true,
+  "answers_provenance": "Mirrors the feature-level lens selection the human confirmed at the design workshop (specs/001-ring-mcp-bridge/lens-applicability.json: all ten technical lenses selected and closed, human-confirmed, lens-question scope). Not a new confirmation."
+}
