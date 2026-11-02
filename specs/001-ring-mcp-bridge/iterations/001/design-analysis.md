@@ -337,4 +337,4 @@ Option A is the right choice only if you want no cloud bill until the event mode
 - **Reason**: The owner accepted the crew recommendation; no further reason given.
 - **Modifications**: None. Accepted with the verdict, as the stop stated: the DRIFT-001-01 correction. plan.md's quality section and `quality/hardening-gate.md` mark concurrency-correctness, resiliency, and retry-idempotency-and-recovery (and the "Retry and idempotency" focus area) as required, each with its FR reason. Spikes S1 and S2 and workshop question 16 still wait for the owner's separate go.
 - **Design-analysis draft commit**: 87bc8ee
-- **Decision recorded in commit**: pending
+- **Decision recorded in commit**: b5522d8
