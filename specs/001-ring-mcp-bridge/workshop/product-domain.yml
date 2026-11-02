@@ -80,7 +80,7 @@ statements:
     evidence: known
   - text: The official Ring Partner API (including private apps) is usable for an Israel-located account.
     area: constraints
-    evidence: research-needed
+    evidence: unknown
     load_bearing: true
   - text: Author owns 1 location with ~40 contact, ~18 motion, 3 flood sensors and 6 cameras/doorbells (2 battery-powered).
     area: existing_system_and_context
@@ -94,7 +94,7 @@ statements:
     load_bearing: false
   - text: Unofficial Ring login and push work from an Azure (datacenter) egress IP.
     area: constraints
-    evidence: research-needed
+    evidence: unknown
     load_bearing: true
   - text: Ring blocks datacenter IPs for unofficial logins with Cloudflare WAF 406 responses.
     area: constraints
@@ -117,8 +117,8 @@ statements:
     evidence: assumed
 skipped: []
 follow_up_research:
-  - Verify whether an Israel-located Ring account can register and link an official Private App (load-bearing).
-  - Verify unofficial login/push behavior from Azure egress IPs vs residential egress (load-bearing for the hosting decision).
+  - Verify whether an Israel-located Ring account can register and link an official Private App (load-bearing; accepted as unknown by the owner 2026-11-02, researched during development as spike S1; decides between the known Ring access options in product-domain.md).
+  - Verify unofficial login/push behavior from Azure egress IPs vs residential egress (load-bearing; accepted as unknown by the owner 2026-11-02, researched during development as spike S2; decides between the known Ring call origins in product-domain.md).
   - Verify shared-location device visibility in ring-client-api (v3 endpoints, PR #1749) or alternative clients.
   - Verify per-sensor battery fields on the author's actual Ring Alarm devices.
   - Trademark/name check for "Ring MCP Bridge" before first public release.

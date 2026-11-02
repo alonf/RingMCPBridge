@@ -292,7 +292,7 @@ The author is a shared user on other people's Ring locations. Optionally, the br
 
 **Known conflicts and their reconciliation path (TG-004):**
 
-- **The official Ring API vs the unofficial path:** v1 uses the unofficial path, and its terms-of-service risk is accepted. Spike S1 (an official private-app proof of concept, pending the owner's go) decides whether an official adapter replaces it later behind the same Ring boundary. The contract does not change.
+- **The official Ring API vs the unofficial path:** v1 uses the unofficial path, and its terms-of-service risk is accepted. Spike S1 (an official private-app proof of concept, scheduled during development) decides whether an official adapter replaces or complements it later behind the same Ring boundary. The contract does not change.
 - **The 10-second outcome vs unmeasured hops:** the bridge's internal 0.5-second target is enforced in CI. The end-to-end figure is measured in the pilot. If it misses 10 seconds, the slow hop is identified, and this spec is amended before release.
 - **The 7-day unattended outcome vs Ring's session behaviour for non-US accounts:** verified by a 7-day soak in the pilot. A failure goes back to plan.
 
@@ -334,8 +334,8 @@ Each assumption carries its evidence tag from the workshop records (known, assum
 
 - **Ring access (known):** Ring is cloud-only; there is no local Ring API. If Ring or the internet is down, nothing works, and the bridge says so honestly.
 - **The unofficial path (known):** v1 talks to Ring through the community client library on the unofficial path. This conflicts with Ring's terms of service, and that risk is accepted with a README disclaimer. Ring's firewall blocks datacenter addresses, which is why only the home part talks to Ring.
-- **The official API (research-needed, load-bearing):** whether a non-US account can use Ring's official private-app API is unknown. Spike S1 checks it, pending the owner's go.
-- **A Ring test from the cloud (research-needed, informational):** spike S2, one Ring request from the cloud, pending the owner's go. A pass would not move Ring access to the cloud.
+- **The official API (unknown, accepted by the owner 2026-11-02; load-bearing):** whether a non-US account can use Ring's official private-app API is unknown. Spike S1 checks it during development and chooses between the known Ring access options recorded in the product-domain record. The plan schedules it.
+- **A Ring test from the cloud (unknown, accepted by the owner 2026-11-02):** spike S2 makes one Ring request from the cloud during development. The owner approves the test method when the task runs, because the test can get the account flagged. A pass would not move Ring access to the cloud in v1. It only informs whether a cloud-only mode is worth offering later.
 - **Clips in clients (research-needed):** whether ChatGPT and Claude can play clips is checked by spike S7.
 - **Latency (assumed):** about 1 to 3 seconds from sensor to Ring to bridge; the push latency of the agent platforms is measured in the pilot.
 - **Battery levels (assumed):** per-sensor battery levels are available for Ring Alarm devices; verified on real devices in the pilot.
@@ -370,7 +370,7 @@ All ten lenses are closed, human-confirmed with scope lens-question. Record: `sp
 - **Drift Signals**: requirement-to-task-to-test traceability checks; the drift check between spec, plan, tasks and code; the implement-time code-rules review by rule id against `implementation-rules.yml`; the schema snapshot test that guards the additive contract rule; the dependency check that guards the component boundaries.
 - **Human Oversight Points**:
   - the owner's explicit approval at every lifecycle boundary;
-  - the owner's go for spikes S1 and S2;
+  - spikes S1 and S2 (go given 2026-11-02 for development time; the owner approves S2's test method when it runs);
   - every real-world control action in the pilot, run by the owner;
   - switching disarm on;
   - turning on shared locations (with the owners' agreement);
