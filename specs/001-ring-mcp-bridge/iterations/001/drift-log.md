@@ -22,9 +22,9 @@
 
 ## Summary
 
-**Total drift events**: 4
-**Resolution rate**: 75% (3/4 resolved at plan, 2026-11-02; DRIFT-001-04 waits for the owner's choice at the tasks boundary)
-**Specification drift**: None detected (one tooling-output drift, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, and one gap between the data model and the iteration's work items, all against the spec)
+**Total drift events**: 8
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement on 2026-11-03)
+**Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
 
@@ -73,10 +73,66 @@
 
   So enrollment approvals and the agent-allowlist seeding in iteration 001 would not be audited.
 - **Requirement citation**: FR-035 (a tamper-evident audit of every security event and configuration change, kept 1 year); FR-032 (enrollment checked by the owner); PT-33 and PT-23 in research.md.
-- **Resolution**: human-decision, pending. tasks.md follows the approved iteration plan and adds no audit work. At the tasks boundary the owner chooses one of two options:
+- **Resolution**: human-decision, 2026-11-02, at the tasks boundary. Two options were offered:
   1. Keep the plan as it is: 0 SP and $0. Iteration 001 writes no audit entries, and the chains start with the Audit accessor in a later iteration.
-  2. Add a minimal Audit accessor that writes the enrollment and configuration entries in iteration 001: about 1 SP and $0. The point comes either from the rework reserve (T036), which keeps the total at 42, or from raising the capacity to 43.
-- **Class closure**: NONE — this is a one-off gap between plan artifacts. The traceability check at the tasks boundary is what found it, and iteration 002's plan stage re-checks the audit work.<!--
+  2. Add a minimal Audit accessor that writes the enrollment and configuration entries in iteration 001: about 1 SP and $0, taken from the rework reserve (T036).
+
+  The owner approved the tasks without instructions, which the packet defined as option 1. Applied the same day:
+  - data-model.md (the Audit ownership row, the Audit entry iteration line, the Iteration needs row and the closing note on G13 and N1) and research.md PT-33 now start the chains in iterations 002 to 004 (`events-30d` in 002 with CP-11b, `audit-90d` in 003, `audit-1y` in 004, following plan.md's iteration table);
+  - tasks.md's note records the decision.
+
+  Iteration 002's plan stage re-checks when the security and configuration entries start.
+- **Class closure**: NONE — this is a one-off gap between plan artifacts. The traceability check at the tasks boundary is what found it, and iteration 002's plan stage re-checks the audit work.
+
+### DRIFT-001-05: the tasks and the quickstart create placeholder secrets, which PT-03 ruled out
+
+- **Detected**: 2026-11-03, before-implement, by the T001 hardening review (codex, run `run-20261102-220201538-797ac437`)
+- **Kind**: plan artifacts disagree with a plan decision. No spec or code change
+- **Observed**: T030, quickstart Step 5 and research.md R13 still said the first deploy creates `issuer-signing-keys` and `pin-hash` as placeholders. That is the workshop's plan (CD A1), but PT-03, decided at plan, says no deploy creates a secret value and `/readyz` stays not ready until the secret is set. Nothing defined how the first signing key gets set.
+- **Requirement citation**: FR-032 (secrets never exposed); FR-029 (the Issuer's tokens); research.md PT-03 and PT-04.
+- **Resolution**: human-decision, 2026-11-03 (the owner's "fix and stop"). The changes:
+  - T030 creates no secret values;
+  - T031's bootstrap gains step 7, which sets the first signing key with the owner's sign-in after the first deploy;
+  - T032's smoke test expects the missing key on the very first deploy;
+  - quickstart Step 5 and research.md R13 follow PT-03;
+  - `pin-hash` arrives with disarm in iteration 004.
+- **Class closure**: NONE — this is a one-off leftover from before PT-03; the hardening review caught it before any code.
+
+### DRIFT-001-06: device state sent as changed fields can lose a field under latest-wins
+
+- **Detected**: 2026-11-03, before-implement, by the T001 hardening review (same run)
+- **Kind**: the link contract's design is unsafe. No spec or code change
+- **Observed**: `device_state` carried only the changed fields, but the core keeps or drops a whole message by one `state_version` per device (PT-30). Example: version 10 changes the battery and fails to commit, then version 11 changes `online` and commits. The resend of version 10 is then dropped, and the battery stays wrong until the next inventory. Out-of-order delivery has the same effect.
+- **Requirement citation**: FR-006 (replies state when the data was true); FR-042 (the resend after 10 s); SC-005.
+- **Resolution**: human-decision, 2026-11-03 (the owner's "fix and stop"). The changes:
+  - `device_state` and every state-bearing event carry the device's full current entry, never a delta (contracts/connector-link.md, data-model.md consistency rule 3, research.md PT-30);
+  - T014 sends the full entry;
+  - T018 adds the test from the example above.
+  - Cost: 0 SP and $0. Each message grows to one device record.
+- **Class closure**: T018's test makes a return to deltas fail CI.
+
+### DRIFT-001-07: the CI workflow that Specrew installed calls scripts this repository does not have
+
+- **Detected**: 2026-11-03, before-implement, by the T001 hardening review (same run)
+- **Kind**: governed tooling output does not fit this project. No spec or code change
+- **Observed**: `.github/workflows/specrew-ci.yml` runs `./extensions/specrew-speckit/scripts/validate-governance.ps1` and `tests/integration/*.ps1`, which exist only in Specrew's own repository. This project's extension lives under `.specify/extensions/`. A push to `main` would fail the workflow even when the product's checks pass.
+- **Requirement citation**: plan.md Required Quality Gates (the CI checks); research.md PT-15 (the required check names).
+- **Resolution**: human-decision, 2026-11-03 (the owner's "fix and stop"). T004 fixes the governance path, removes the lanes that cannot run here, checks the other Specrew-installed workflows, and re-checks after each Specrew update.
+- **Class closure**: NONE — the file is Specrew-managed machinery outside this project's control, and an update may restore it. T004's re-check after each update keeps the problem visible.
+
+### DRIFT-001-08: a location's fields had no version, so a resent older inventory could roll back an alarm mode
+
+- **Detected**: 2026-11-03, before-implement, by the T001 hardening review, round 2 (codex, run `run-20261102-225005395-dde0dcc8`)
+- **Kind**: the link contract's design is unsafe. No spec or code change
+- **Observed**: `inventory` carries each location's `alarm_mode`, `time_zone` and `ownership`, but only device entries had a `state_version`. If inventory A fails to commit, newer inventory B commits with a changed alarm mode, and A is resent after 10 s, nothing rejects A's older location fields. The overview would show the old alarm mode.
+- **Requirement citation**: FR-001 (the overview's alarm mode); FR-006 (replies state when the data was true); FR-042 (the resend after 10 s).
+- **Resolution**: human-decision, 2026-11-03. The owner stopped the review and signed it off, with this finding kept as a follow-up and fixed straight after. The changes:
+  - each location entry carries its own `state_version` from the same home counter, applied latest-wins per location (contracts/connector-link.md, the data-model.md Location entity and consistency rule 3, research.md PT-30);
+  - T014 sends the version, T018 and T019 apply it, and T018 adds the A-fails, B-commits, A-resent test.
+  - Cost: 0 SP and $0.
+- **Class closure**: T018's location test makes a regression fail CI.
+
+The same round also found that PT-19 and data-model.md G4 still started the audit chain in iteration 001. Both now follow DRIFT-001-04.<!--
   Every new ### DRIFT-... event includes:
 
   - **Class closure**: the executable mechanism that makes the next instance impossible or loud

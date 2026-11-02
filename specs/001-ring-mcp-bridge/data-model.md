@@ -79,7 +79,7 @@ Each table belongs to exactly one resource-access component. No other component 
 | State | `location`, `device`, health snapshot [P name] | Azure SQL | SQLite | 001 |
 | Subscriptions | `subscription` (002); push-filter rules [P name `push_filter`] (003) | Azure SQL | SQLite | 002 / 003 |
 | Delivery | none stored (open listen streams in memory) | memory | memory | 002 |
-| Audit | `audit_entry`, `audit_anchor`; Blob `audit-90d/`, `audit-1y/` | Azure SQL + Blob WORM | SQLite, no WORM | 001 (chain in Azure SQL only; the `events-30d` chain: 002); 004 (WORM shipping) (PT-19) |
+| Audit | `audit_entry`, `audit_anchor`; Blob `audit-90d/`, `audit-1y/` | Azure SQL + Blob WORM | SQLite, no WORM | 002 (chain in Azure SQL only, starting with `events-30d`); 003 (`audit-90d`); 004 (`audit-1y`, WORM shipping) (PT-19, DRIFT-001-04) |
 | Settings | `setting`, `agent`, `connector`, `owner_agreement` | Azure SQL | SQLite | 001 (`owner_agreement`: 004) |
 | Grants | `oidc_item` | Azure SQL | SQLite | 001 |
 | Lease | the lease row [P name `lease`] | Azure SQL | SQLite | 001 |
@@ -121,6 +121,7 @@ Types:
 | `alarm_mode` | enum `disarmed`, `home`, `away` | [P] name and values; IA D8 calls it "mode" | spec Key Entities, IA D8 |
 | `monitoring` | enum `on`, `off`, `unknown` | whether Ring exposes it is a pilot check; 003 (arm summary) | IA D8 step 3 |
 | `as_of` | timestamp | when the stored state was true | CD map v3 State |
+| `state_version` | integer | the highest home-side version applied to this location's fields, from the same home counter as devices; internal, not in the tool contract; [P] name | PT-30, DRIFT-001-08 |
 
 - **Relationships:** one Location has many Devices and many Events (DS ERD). A shared Location has one or more owners' agreements in Configuration (SC7 C5).
 - **Validation:**
@@ -411,7 +412,7 @@ Only the primary key is in the ERD. The other columns are [P].
 
 ### Audit entry
 
-**Iteration**: 001 (the hash chain in Azure SQL only: security and configuration entries, on the `audit-90d` and `audit-1y` chains); 002 (`event_ingested` entries, on the `events-30d` chain); 003 (control and media-access entries); 004 (WORM shipping and the daily copy check) (PT-19, PT-23, PT-33). **Owner**: Audit. **Store**: `audit_entry`, `audit_anchor`, plus WORM Blob in H from 004. **One hash chain per retention class** (PT-33): `events-30d`, `audit-90d`, `audit-1y`.
+**Iteration**: 002 (the Audit accessor and the hash chain in Azure SQL only, starting with `event_ingested` entries on the `events-30d` chain); 003 (control and media-access entries, on the `audit-90d` chain); 004 (security and configuration entries on the `audit-1y` chain, with the rest of FR-035 in plan.md's iteration table; WORM shipping and the daily copy check) (PT-19, PT-23, PT-33). Iteration 001 writes no audit entries: the owner kept the plan as it is at the tasks boundary on 2026-11-02 (DRIFT-001-04), and iteration 002's plan stage re-checks when the security and configuration entries start. **Owner**: Audit. **Store**: `audit_entry`, `audit_anchor`, plus WORM Blob in H from 004. **One hash chain per retention class** (PT-33): `events-30d`, `audit-90d`, `audit-1y`.
 
 | Field | Type | Notes | Source |
 |---|---|---|---|
@@ -572,7 +573,7 @@ Field names are [P]. The content is CD-A2's.
 
 1. **One transaction per incoming event.** Dedupe on `event_id`, take the next `seq`, append to Event Log, update State, append the `event_ingested` audit entry, commit. Only then ack the connector and push (DS4, CD key flow 1, AC B10, PT-23).
 2. **Durable before delivery.** The home outbox row is cleared only on the core's ack. Unacked messages (events, `inventory`, `device_state`, `catchup_done`) are resent after 10 s, oldest first on reconnect. The core dedupes events on `event_id` (AC B10, OR5, FR-042, PT-07, PT-30).
-3. **State is latest-wins.** State applies an inventory entry, a `device_state` message or an event's state change only if its home-side `state_version` is higher than the one it holds for that device (PT-30).
+3. **State is latest-wins.** State applies an inventory entry, a `device_state` message or an event's state change only if its home-side `state_version` is higher than the one it holds for that device (PT-30). Each of them carries the device's full state, never only the changed fields, so a dropped older version loses nothing (DRIFT-001-06). Locations follow the same rule: each location entry in `inventory` carries its own `state_version`, and State applies a location's fields only if that version is higher than the one it holds for the location (DRIFT-001-08).
 4. **A failed commit is not acked.** The database transaction is retried once on a transient error; otherwise the connector resends (OR5). With the database down, events wait in the outbox and calls fail `BRIDGE_UNAVAILABLE` (OR §Failure modes row 6).
 5. **Used one-time tokens and command ids are stored,** so a core restart cannot replay a token or a command. The token is marked used and the command id stored in one row (DS4, CD key flow 2).
 6. **A pending disarm fails closed on restart** (DS4, FR-028).
@@ -629,7 +630,7 @@ Field names are [P]. The content is CD-A2's.
 | Media item | | | yes | |
 | Action plan and confirmation | | | tier a | tier b (disarm) |
 | Command | | | yes | disarm |
-| Audit entry | chain in Azure SQL only: security and configuration entries | `event_ingested` entries (the `events-30d` chain) | control and media-access entries | WORM shipping, daily check, full admin audit view |
+| Audit entry | none (DRIFT-001-04) | the Audit accessor and the chain in Azure SQL only: `event_ingested` entries (the `events-30d` chain) | control and media-access entries (the `audit-90d` chain) | security and configuration entries (the `audit-1y` chain), WORM shipping, daily check, full admin audit view |
 | Agent client and grant | yes | | elicitation-only switch | |
 | Home part enrollment | yes | | | |
 | Disarm lock | | | | yes |
@@ -692,7 +693,7 @@ The planner resolved every conflict and every iteration-001 and iteration-002 ga
 | # | Gap | Resolution |
 |---|---|---|
 | G3 | How a reply signals a cursor from an old epoch | events from the start of the current epoch, with `epoch_changed: true`; the agent dedupes by `event_id` (PT-28) |
-| G4 | Whether WORM ships in 001 | no: in 004. Iteration 001 keeps the chain in Azure SQL (PT-19) |
+| G4 | Whether WORM ships in 001 | no: in 004. The chain in Azure SQL starts in iteration 002, and iteration 001 writes no audit entries (PT-19, DRIFT-001-04) |
 | G6 | The meaning of `subscription.kind` | the delivery kind: `webhook`, `listen` or `pull` [P] (PT-31; see Cursor) |
 | G7 | The health and recovery kind names (001 states, 002 events) | `health.home_offline`, `health.home_online` [P], `health.ring_unavailable` [P], `health.ring_restored` [P], `ring.session_lost` (PT-29). Security-event and battery-digest kinds are named in the 003 and 004 plans |
 | G9 | The catch-up-done marker across N and N-1 | part of the message set at every version. Link version 1 ships in 001; the N-1 contract test comes with the first version bump (PT-07) |
@@ -723,4 +724,4 @@ Where a resolution needed a detail it did not state, this plan applied the readi
 | G14 | Authorization for local MCP clients in mode A | 004 (US7, with PT-16) | AC B14, spec Assumptions |
 | N2 | `event_ingested` entries do not ship to the write-once copy; WORM keeps FR-035's kinds in its two containers (PT-34) | 004 (PT-19), decided | SC5, PT-23, PT-34 |
 
-G13 (enrollment request lifetime) is decided as PT-32 and N1 (purging between retention classes) as PT-33, both for iteration 001, because enrollment ships in 001 and the `audit-90d` and `audit-1y` chains start in 001. The `events-30d` chain starts in 002, so its first 30-day purge falls 30 days after 002 goes live.
+G13 (enrollment request lifetime) is decided as PT-32 for iteration 001, because enrollment ships in 001. N1 (purging between retention classes) is decided as PT-33 and applies from iteration 002, when the first chain (`events-30d`) starts, so its first 30-day purge falls 30 days after 002 goes live. The `audit-90d` and `audit-1y` chains start with their entries in iterations 003 and 004 (DRIFT-001-04).

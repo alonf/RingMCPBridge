@@ -229,7 +229,7 @@ The script names are not in the records.
    - Log Analytics;
    - the alert rules and the action group (iteration 002).
 
-   The first deploy creates the secrets `pin-hash` and `issuer-signing-keys` as placeholders, and later deploys never touch their values (to settle at plan).
+   No deploy creates or writes a secret value, and nothing is a placeholder (`research.md` PT-03). After the first deploy, `/readyz` reports not ready and names `issuer-signing-keys`. Run the bootstrap's signing-key step with your own sign-in: it generates the first key in memory and writes it straight to Key Vault, then rerun the smoke test. Later keys come from the core's 90-day rotation. `pin-hash` arrives with disarm in iteration 004.
 6. **Create the Entra app registration** for the Issuer's owner sign-in. This is a runbook step the owner performs once. The resulting IDs go into GitHub environment variables and are never committed (`research.md` PT-06). Create the SQL break-glass group the same way.
 7. **Rollback**: redeploy the previous image.
 8. **Cost**: expect about $21.50 a month in iteration 001, and about $23 from iteration 002, when the alert rule ($1.50) is added. That figure is agent-derived from list prices for Israel Central, read on 2026-10-25 and 2026-10-26. The ceiling is $30 a month; it was set by the owner at clarify on 2026-11-01 (SC-011), and the owner checks it on the bill in the pilot.

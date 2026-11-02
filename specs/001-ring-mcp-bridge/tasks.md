@@ -64,7 +64,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 **Independent test**: `iterations/001/quality/hardening-gate.md` records the effective review class, the reviewer and the approval reference, and no critical concern is open without the owner's approved deferral.
 **Depends on**: the owner's tasks approval. Implementation also needs the before-implement approval.
 
-- [ ] T001 [assigned_to: Reviewer] [effort: 1] Run the hardening review of `specs/001-ring-mcp-bridge/iterations/001/quality/hardening-gate.md` with the reviewer host (codex, `.specrew/reviewer-hosts.json`) at the strongest available class. Record Effective Review Class, Reviewed By and Approval Ref in the gate. Any unresolved critical security, resilience or operational concern needs the owner's explicit approved deferral before the before-implement boundary (Trace: FR-029, FR-030, FR-032, FR-033, FR-034, FR-042, FR-044; CP-RV)
+- [x] T001 [assigned_to: Reviewer] [effort: 1] Run the hardening review of `specs/001-ring-mcp-bridge/iterations/001/quality/hardening-gate.md` with the reviewer host (codex, `.specrew/reviewer-hosts.json`) at the strongest available class. Record Effective Review Class, Reviewed By and Approval Ref in the gate. Any unresolved critical security, resilience or operational concern needs the owner's explicit approved deferral before the before-implement boundary (Trace: FR-029, FR-030, FR-032, FR-033, FR-034, FR-042, FR-044; CP-RV)
 
 **Verification**: `pwsh -File .specify/extensions/specrew-speckit/scripts/validate-governance.ps1 -ProjectPath .`
 
@@ -100,6 +100,11 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
     - another component is imported only through its `index.ts`;
     - `shim/` imports nothing from `bridge/`;
     - only MCP Endpoint (and Delivery, from iteration 002) imports `bridge/src/contract/`.
+  - The Specrew-installed `.github/workflows/specrew-ci.yml` (DRIFT-001-07):
+    - point its governance step at `.specify/extensions/specrew-speckit/scripts/validate-governance.ps1`;
+    - remove the steps that call `tests/integration/*.ps1`, which exist only in Specrew's own repository;
+    - check the other Specrew-installed workflows the same way;
+    - re-check after each Specrew update, which may restore the file.
 
   (Trace: FR-046, FR-047, FR-026 with TG-004; CP-01)
 
@@ -222,7 +227,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
     - a message is written before it is sent and cleared only on its `ack`;
     - it is resent after 10 s without an ack, and the oldest is sent first on reconnect;
     - the `state_version` counter is stored, so it survives a restart.
-  - **Ingest:** sends `inventory` (locations and devices) at every session start and on `inventory_request`, and sends `device_state` when a device changes.
+  - **Ingest:** sends `inventory` (locations and devices) at every session start and on `inventory_request`, and sends `device_state` when a device changes. A `device_state` message carries the device's full current entry, never only the changed fields (DRIFT-001-06). Each location entry in `inventory` carries its own `state_version` from the same counter (DRIFT-001-08).
 
   Tests:
   - a restart with unacked messages;
@@ -274,7 +279,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 
 - [ ] T018 [US1] [assigned_to: Implementer] [effort: 1] Event manager intake in `bridge/src/core/managers/event/`, and the Health engine's link rules in `bridge/src/core/engines/health/`:
   - **State:**
-    - apply `inventory` and `device_state` to State latest-wins by `state_version`, in one transaction, and only then ack (a failed commit is not acked);
+    - apply `inventory` and `device_state` to State latest-wins by `state_version`, per device and per location, in one transaction, and only then ack (a failed commit is not acked);
     - a new enrollment resets the stored versions.
   - **Health:**
     - heartbeats update the Ring session and the outbox depth;
@@ -283,12 +288,14 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 
   Write the Health engine tests first, on the fake clock:
   - offline after 2 minutes, and the recovery;
-  - lower or equal versions are ignored.
+  - lower or equal versions are ignored;
+  - no field is lost (DRIFT-001-06). Version 10 changes the battery and its commit fails. Version 11 changes `online` and commits. The resend of version 10 is then ignored, and State holds version 11's full entry, which already includes version 10's battery change;
+  - no location rolls back (DRIFT-001-08). Inventory A fails to commit. Newer inventory B commits with a changed alarm mode. Then A is resent: its location fields are ignored, and the overview still shows B's alarm mode.
 
   (Trace: FR-005, FR-006, SC-005; CP-11a)
 - [ ] T019 [P] [US1] [assigned_to: Implementer] [effort: 1] State accessor in `bridge/src/core/access/state/`:
   - holds `location`, `device` and the health snapshot;
-  - inserts or updates latest-wins by `state_version`;
+  - inserts or updates devices and locations latest-wins by `state_version` (DRIFT-001-08);
   - its DTOs carry `type`, mapped from `kind` (PT-26);
   - raises the store-down error.
 
@@ -442,7 +449,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
     - one instance, Always On, WebSockets, VNet integration;
     - the health check on `/readyz`, and auto-heal on `/livez`.
   - **Other resources:** Azure SQL Basic, Blob, Key Vault, the core's user-assigned managed identity, and Log Analytics.
-  - **Secrets:** the first deploy creates `issuer-signing-keys` and `pin-hash` as placeholders. Later deploys never overwrite their values.
+  - **Secrets:** no deploy creates or writes a secret value, and nothing is a placeholder (PT-03, DRIFT-001-05). Until `issuer-signing-keys` is set, `/readyz` reports not ready and names it. `pin-hash` arrives with disarm in iteration 004.
   - **Owner values:** a committed example parameter file holds placeholders only, and the real values stay in a git-ignored local file.
 
   Checks: `az bicep build` and the PR what-if (Trace: FR-044, FR-032, SC-011; CP-19)
@@ -464,6 +471,10 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
        - role assignment limited to an allow-list that includes Key Vault Secrets Officer;
        - AcrPush on `<registry>` only.
     6. Set the GitHub environment variables with `gh`.
+    7. After the first deploy (T032), set the first issuer signing key (PT-03, DRIFT-001-05):
+       - with the owner's own sign-in, generate the key in memory and write it straight to Key Vault as `issuer-signing-keys`;
+       - it never touches the disk, the console output or the repository;
+       - skip if the secret already exists. Later keys come from the core's 90-day rotation (PT-04).
 
   The runbook is `infra/bootstrap/entra-app-registration.md`. It covers the owner's one-time Entra app registration and the SQL break-glass group (PT-06). The IDs go into GitHub environment variables and are never committed (Trace: FR-029, FR-032; CP-19)
 - [ ] T032 [assigned_to: Implementer] [effort: 1] Deploy workflow `.github/workflows/deploy.yml`:
@@ -473,7 +484,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
     2. Push the core image to `<registry>`, and the connector image to ghcr.io (amd64 and arm64).
     3. Wait for the owner's approval on the GitHub environment.
     4. Deploy the Bicep and the core.
-    5. Run the smoke test on `https://<core-host>/readyz` and `get_health`.
+    5. Run the smoke test on `https://<core-host>/readyz` and `get_health`. On the very first deploy, `/readyz` reports `issuer-signing-keys` missing. The owner runs the bootstrap's step 7 (T031), then reruns the smoke test.
   - **Rollback:** redeploy the previous image.
 
   (Trace: FR-044, FR-029, FR-001; CP-19)
@@ -642,7 +653,7 @@ Run on 2026-11-02 against `iterations/001/plan.md` (the requirement scope) and `
 
 ## Notes
 
-- **The audit chain (DRIFT-001-04).** data-model.md and research.md PT-33 start the `audit-90d` and `audit-1y` chains in iteration 001, but no iteration 001 work item builds the Audit accessor, and FR-035 is outside 001's scope. These tasks follow the approved iteration plan, so iteration 001 writes no audit entries. The owner decides at the tasks boundary whether to keep that or add a minimal Audit accessor.
+- **The audit chain (DRIFT-001-04).** data-model.md and research.md PT-33 start the `audit-90d` and `audit-1y` chains in iteration 001, but no iteration 001 work item builds the Audit accessor, and FR-035 is outside 001's scope. These tasks follow the approved iteration plan, so iteration 001 writes no audit entries. Resolved at the tasks boundary on 2026-11-02: the owner kept the plan as it is, and data-model.md and PT-33 now start the chains in iterations 002 to 004.
 - **Owner values.** The owner's subscription, tenant, IDs and home details never enter the repository. Scrubbed Ring payloads are committed only after the owner's review.
 - **Commits.** Commit after each task or logical group, and only with the owner's go-ahead.
 - **Rules.** The implement-time code rules come from `implementation-rules.yml`, through the specrew-code-rules skill. Workshop question 16 (`code-rules.local.yml`) is still open, so the shipped catalog applies.

@@ -354,8 +354,8 @@ bridge/                      # one package, one image build (research PT-09)
     └── fixtures/ring/       # scrubbed Ring payloads, committed only after the owner's review
 shim/                        # the channel shim (stdio relay for Claude Code)
 schemas/                     # generated machine-readable schemas (FR-047), checked by the snapshot test
-infra/                       # Bicep
-scripts/                     # bootstrap (print-only unless -Apply), dev helpers
+infra/                       # Bicep; infra/bootstrap/ holds bootstrap.ps1 (print-only unless -Apply) and the Entra runbook (PT-05)
+scripts/                     # dev helpers
 .github/                     # GitHub Actions workflows
 ```
 

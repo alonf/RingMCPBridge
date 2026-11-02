@@ -73,7 +73,7 @@ Fields [P names unless noted]: `event_id`, `location_id` (PT-24), `kind`, `occur
 - It carries no priority: Classify sets the priority in the core from policy data (FR-009, CD map v3 Classify).
 - It carries no `late` flag. Ingest stamps `received_at` (the connector's own receive time), and the core's Classify engine decides `late` (PT-25).
 - `from_history` [P] is `true` for an event Ingest read from Ring history after a gap. It states where the event came from, not whether it is late. Classify needs it because such an event is received at home long after it occurred (see Open item 1 in `../data-model.md` "Resolved at plan").
-- `state_version` [P] is present when the event changes a device's state. State applies it latest-wins, like a `device_state` message (PT-30).
+- `state_version` [P] is present when the event changes a device's state, together with the device's full current entry (as in `device_state`). State applies it latest-wins, like a `device_state` message (PT-30, DRIFT-001-06).
 
 ### Device inventory and state
 
@@ -81,12 +81,14 @@ These two messages fill the core's State (PT-30).
 
 | Message | When it is sent | Fields [P names] |
 |---|---|---|
-| `inventory` | on every session start, after the catch-up (from 002), and on `inventory_request` | `message_id`; `locations` (each: `location_id`, `name`, `time_zone`, `alarm_mode`, `ownership`); `devices` (each: `device_id`, `location_id`, `name`, `type`, `room`, `battery_pct`, `battery_low`, `power_mode`, `online`, `state`, `as_of`, `state_version`) |
-| `device_state` | when one device's state changes without an event | `message_id`, `device_id`, `location_id`, the changed fields, `as_of`, `state_version` |
+| `inventory` | on every session start, after the catch-up (from 002), and on `inventory_request` | `message_id`; `locations` (each: `location_id`, `name`, `time_zone`, `alarm_mode`, `ownership`, `as_of`, `state_version`); `devices` (each: `device_id`, `location_id`, `name`, `type`, `room`, `battery_pct`, `battery_low`, `power_mode`, `online`, `state`, `as_of`, `state_version`) |
+| `device_state` | when one device's state changes without an event | `message_id`, and the device's full current entry: the same fields as a device in `inventory` (`device_id`, `location_id`, `name`, `type`, `room`, `battery_pct`, `battery_low`, `power_mode`, `online`, `state`, `as_of`, `state_version`) |
 
 Rules:
 
 - **Latest-wins:** the core keeps the highest `state_version` applied per device. It applies a snapshot entry, a `device_state` message or an event's state only if its `state_version` is higher (PT-30).
+- **Full state, never a delta:** every message that carries a `state_version` carries the device's complete state, never only the changed fields. So when latest-wins drops an older or resent message, no field is lost (the T001 hardening review, 2026-11-03; DRIFT-001-06).
+- **Locations too:** each location entry carries its own `state_version`, from the same home counter as devices. The core applies a location's fields only if that version is higher than the one it holds for that location, so a resent older inventory cannot roll back an alarm mode (DRIFT-001-08).
 - **The counter:** the home keeps `state_version` in the Outbox Store, so it survives a connector restart [P].
 - **A new enrollment:** when a new enrollment becomes active, the core resets its stored versions, because the new connector's counter starts again [P].
 - **Field names:** they are the contract names. A device's type is `type` on the link and in the tools; State maps it to its storage column `kind` (PT-26, CD4).
