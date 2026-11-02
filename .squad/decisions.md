@@ -82,3 +82,50 @@ No decisions recorded yet.
 - **Task ID**: (none)
 - **Auth Commit Hash**: ae40fa10981259acab40787c0b60e38366a1cdde
 - **Recorded At**: 2026-11-01T20:18:15Z
+
+## 2026-11-02T01:40:08Z — Boundary enforcement: plan
+
+- **Feature**: 001-ring-mcp-bridge
+- **Boundary Type**: plan
+- **Current Boundary**: clarify
+- **Requested Boundary**: plan
+- **Enforcement Action**: blocked
+- **Launch Mode**: (none)
+- **Agent Response Snippet**: (none)
+- **Reason**: No persisted authorization matched clarify -> plan.
+
+## 2026-11-02T17:28:30Z — Constraint change detected: capacity_per_iteration
+
+- **Change Key**: constraint-627ebe92ff603ee9807b
+- **Boundary Attempt**: plan
+- **Artifact**: .specrew/iteration-config.yml
+- **Previous Value**: 20
+- **Current Value**: 42
+- **Previous Auth Commit**: ae40fa10981259acab40787c0b60e38366a1cdde
+- **Current Auth Commit**: f212103fee178c774931444d196300dbb2457eb3
+- **Authority**: This record makes the edit visible; it does not authorize the change.
+
+## 2026-11-02T17:28:31Z — Boundary sync: plan
+
+- **Boundary Type**: plan
+- **Feature Ref**: 001-ring-mcp-bridge
+- **Iteration Number**: 001
+- **Task ID**: (none)
+- **Auth Commit Hash**: f212103fee178c774931444d196300dbb2457eb3
+- **Recorded At**: 2026-11-02T17:28:30Z
+
+## 2026-11-02T18:59:18Z — Boundary sync warning: plan
+
+- **Boundary Type**: plan
+- **Latest Recorded Boundary**: plan
+- **Recorded At**: 2026-11-02T18:59:18Z
+- **Warning**: Expected next boundary 'tasks' but received 'plan'.
+
+## 2026-11-02T18:59:19Z — Boundary sync: plan
+
+- **Boundary Type**: plan
+- **Feature Ref**: 001-ring-mcp-bridge
+- **Iteration Number**: 001
+- **Task ID**: (none)
+- **Auth Commit Hash**: 7176fc828eecc4ce489c57ca17a3263ebe704581
+- **Recorded At**: 2026-11-02T18:59:18Z
