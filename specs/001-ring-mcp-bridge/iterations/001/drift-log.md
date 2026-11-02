@@ -22,9 +22,9 @@
 
 ## Summary
 
-**Total drift events**: 3
-**Resolution rate**: 100% (3/3 resolved at plan, 2026-11-02)
-**Specification drift**: None detected (one tooling-output drift, one record-to-record conflict and one owner re-slicing of the design analysis's first slice, all against the spec)
+**Total drift events**: 4
+**Resolution rate**: 75% (3/4 resolved at plan, 2026-11-02; DRIFT-001-04 waits for the owner's choice at the tasks boundary)
+**Specification drift**: None detected (one tooling-output drift, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, and one gap between the data model and the iteration's work items, all against the spec)
 
 ## Events
 
@@ -60,7 +60,23 @@
   - 004: the old 003 (full admin, disarm, the README, shared locations).
 - **Requirement citation**: no requirement moved out of v1 or changed. FR-008 to FR-015, FR-042 (the 24-hour catch-up), FR-043 (part), SC-001, SC-002 and SC-010 move from iteration 001 to iteration 002.
 - **Resolution**: human-decision. The owner chose option 2 on 2026-11-02. The planner placed the items and set the capacity, for the owner to review at the plan boundary: CP-17 (the minimal admin page) stays in iteration 001 because enrollment needs it, CP-08 is split because the home sends device state through the Outbox, CP-11 is split because the core's Event manager receives that state and the heartbeats, CP-21 is split so real clients sign in during iteration 001, and the capacity is set to 42 in `.specrew/iteration-config.yml`. plan.md, research.md, data-model.md, quickstart.md, contracts/ and `quality/hardening-gate.md` carry the new numbering. The design-analysis record and its gate packet keep the numbering the owner decided on, and this entry maps it.
-- **Class closure**: NONE — this is a one-off owner decision at the plan boundary. Iteration 002 gets its own design analysis and plan stage, which re-check the forecast.<!--
+- **Class closure**: NONE — this is a one-off owner decision at the plan boundary. Iteration 002 gets its own design analysis and plan stage, which re-check the forecast.
+
+### DRIFT-001-04: the data model starts two audit chains in iteration 001, but no iteration 001 work item builds them
+
+- **Detected**: 2026-11-02, tasks, while breaking iteration 001 into tasks
+- **Kind**: two plan artifacts disagree. No spec or code change
+- **Observed**: data-model.md ("Iteration needs" and the Audit ownership row) and research.md PT-33 start the `audit-90d` and `audit-1y` hash chains in iteration 001, with security and configuration entries. But:
+  - no iteration 001 work item (CP-01 to CP-21a) builds the Audit accessor;
+  - FR-035 is outside iteration 001's requirement scope;
+  - the feature plan puts FR-035 in iterations 003 and 004, and the event audit in CP-11b (iteration 002).
+
+  So enrollment approvals and the agent-allowlist seeding in iteration 001 would not be audited.
+- **Requirement citation**: FR-035 (a tamper-evident audit of every security event and configuration change, kept 1 year); FR-032 (enrollment checked by the owner); PT-33 and PT-23 in research.md.
+- **Resolution**: human-decision, pending. tasks.md follows the approved iteration plan and adds no audit work. At the tasks boundary the owner chooses one of two options:
+  1. Keep the plan as it is: 0 SP and $0. Iteration 001 writes no audit entries, and the chains start with the Audit accessor in a later iteration.
+  2. Add a minimal Audit accessor that writes the enrollment and configuration entries in iteration 001: about 1 SP and $0. The point comes either from the rework reserve (T036), which keeps the total at 42, or from raising the capacity to 43.
+- **Class closure**: NONE — this is a one-off gap between plan artifacts. The traceability check at the tasks boundary is what found it, and iteration 002's plan stage re-checks the audit work.<!--
   Every new ### DRIFT-... event includes:
 
   - **Class closure**: the executable mechanism that makes the next instance impossible or loud
