@@ -129,3 +129,34 @@ No decisions recorded yet.
 - **Task ID**: (none)
 - **Auth Commit Hash**: 7176fc828eecc4ce489c57ca17a3263ebe704581
 - **Recorded At**: 2026-11-02T18:59:18Z
+
+## 2026-11-02T19:20:50Z — Boundary enforcement: tasks
+
+- **Feature**: 001-ring-mcp-bridge
+- **Boundary Type**: tasks
+- **Current Boundary**: plan
+- **Requested Boundary**: tasks
+- **Enforcement Action**: blocked
+- **Launch Mode**: (none)
+- **Agent Response Snippet**: (none)
+- **Reason**: No persisted authorization matched plan -> tasks.
+
+## 2026-11-02T19:28:21Z — Boundary enforcement: plan
+
+- **Feature**: 001-ring-mcp-bridge
+- **Boundary Type**: plan
+- **Current Boundary**: clarify
+- **Requested Boundary**: plan
+- **Enforcement Action**: authorized
+- **Launch Mode**: (none)
+- **Agent Response Snippet**: (none)
+- **Reason**: Persisted authorization matched the requested boundary.
+
+## 2026-11-02T21:01:39Z — Boundary sync: tasks
+
+- **Boundary Type**: tasks
+- **Feature Ref**: 001-ring-mcp-bridge
+- **Iteration Number**: 001
+- **Task ID**: (none)
+- **Auth Commit Hash**: ca6734d7d94fab99de218fc6473a5069211a6d94
+- **Recorded At**: 2026-11-02T21:01:38Z
