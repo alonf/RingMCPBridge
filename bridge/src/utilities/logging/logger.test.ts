@@ -16,6 +16,7 @@ const REQUEST_ID = ["7f9c2ba4", "e88f", "41a0", "9e2c", "0d7d2a5b8c11"].join(
 function captureLogger(options: Partial<LoggerOptions> = {}): {
   readonly logger: Logger;
   readonly records: () => Record<string, unknown>[];
+  readonly lines: readonly string[];
 } {
   const lines: string[] = [];
   const logger = new Logger({
@@ -28,7 +29,7 @@ function captureLogger(options: Partial<LoggerOptions> = {}): {
   });
   const records = (): Record<string, unknown>[] =>
     lines.map((line) => JSON.parse(line) as Record<string, unknown>);
-  return { logger, records };
+  return { logger, records, lines };
 }
 
 describe("Logger lines", () => {
@@ -138,10 +139,57 @@ describe("Logger errors", () => {
       cause: {
         name: "Error",
         code: "ECONNREFUSED",
-        message: "connect ECONNREFUSED 127.0.0.1:1433",
+        message: "[not logged]",
       },
     });
-    expect(written.stack).toEqual(expect.stringContaining("the store is down"));
+    expect(written.stack).toEqual(expect.stringMatching(/^ {4}at /));
+    expect(written.stack).not.toContain("the store is down");
+  });
+
+  it("writes no message from an outside error, which can hold a device name", () => {
+    const { logger, records, lines } = captureLogger();
+    const error = new Error('Device "Alice bedroom" is offline\nat the front');
+    logger.error("ring_call_failed", {}, error);
+
+    expect(records()[0]?.error).toMatchObject({
+      name: "Error",
+      message: "[not logged]",
+    });
+    expect(lines.join("\n")).not.toMatch(/Alice|bedroom|front/);
+  });
+
+  it("keeps only frame lines of the usual shape in a stack", () => {
+    const { logger, records } = captureLogger();
+    const error = Object.assign(new Error("x"), {
+      kind: "store_down",
+      stack: [
+        "Error: x",
+        "  continued message with Alice bedroom",
+        "    at handler (/app/bridge/src/x.js:12:7)",
+        "    at /app/node_modules/mssql/lib/y.js:9:3",
+        "    at async Promise.all (index 0)",
+        "    at handler (Alice bedroom)",
+      ].join("\n"),
+    });
+    logger.error("query_failed", {}, error);
+
+    expect((records()[0]?.error as { stack: string }).stack).toBe(
+      [
+        "    at handler (/app/bridge/src/x.js:12:7)",
+        "    at /app/node_modules/mssql/lib/y.js:9:3",
+      ].join("\n"),
+    );
+  });
+
+  it("masks a quoted secret in a bridge error's message whole", () => {
+    const { logger, lines } = captureLogger();
+    const error = Object.assign(
+      new Error('bad setting password="correct horse battery staple"'),
+      { kind: "invalid_settings" },
+    );
+    logger.error("settings_failed", {}, error);
+
+    expect(lines.join("\n")).not.toMatch(/correct|horse|battery|staple/);
   });
 
   it("keeps a numeric error code", () => {
@@ -197,14 +245,14 @@ describe("Logger errors", () => {
     });
     expect(records()[1]?.error).toEqual({
       name: "NonError",
-      message: "plain text",
+      message: "[string]",
     });
   });
 
   it("turns an unreadable error into UnreadableError", () => {
     const { logger, records } = captureLogger();
     const error = new Error("x");
-    Object.defineProperty(error, "message", {
+    Object.defineProperty(error, "kind", {
       get: () => {
         throw new Error("getter failed");
       },
@@ -223,7 +271,10 @@ describe("Logger errors", () => {
     delete error.stack;
     logger.error("no_stack", {}, error);
 
-    expect(records()[0]?.error).toEqual({ name: "Error", message: "x" });
+    expect(records()[0]?.error).toEqual({
+      name: "Error",
+      message: "[not logged]",
+    });
   });
 
   it("writes no error part when no error is given", () => {

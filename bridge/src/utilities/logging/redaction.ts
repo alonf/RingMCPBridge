@@ -126,9 +126,15 @@ const TEXT_RULES: readonly TextRule[] = [
     pattern: /\b(Bearer|Basic|DPoP)\s+[A-Za-z0-9._~+/=-]+/gi,
     replacement: `$1 ${REDACTED_TOKEN}`,
   },
+  // A quoted value is masked whole, spaces included: `password="correct horse"`.
   {
     pattern:
-      /\b(access_token|refresh_token|id_token|client_secret|code_verifier|password|passwd|secret|pin|api_?key|token)\b(["']?\s*[=:]\s*["']?)[^\s"'&,;)}\]]+/gi,
+      /\b(access_token|refresh_token|id_token|client_secret|code_verifier|password|passwd|secret|pin|api_?key|token)\b(["']?\s*[=:]\s*)(["'])(?:(?!\3)[^\n])*\3/gi,
+    replacement: `$1$2$3${REDACTED}$3`,
+  },
+  {
+    pattern:
+      /\b(access_token|refresh_token|id_token|client_secret|code_verifier|password|passwd|secret|pin|api_?key|token)\b(["']?\s*[=:]\s*["']?)(?!\[redacted\])[^\s"'&,;)}\]]+/gi,
     replacement: `$1$2${REDACTED}`,
   },
   {

@@ -51,6 +51,7 @@ const OAUTH_JWT = `${JWT_HEADER}.${JWT_PAYLOAD}.${JWT_SIGNATURE}`;
 const OAUTH_OPAQUE = patternBytes(32, 37, 11).toString("base64url");
 
 const PIN = "4821";
+const DEVICE_NAME = "Alice bedroom";
 
 // A fixed Ed25519 seed keeps the test deterministic.
 const ED25519_PKCS8_PREFIX = Buffer.from(
@@ -99,6 +100,12 @@ const SAMPLES: readonly Sample[] = [
     marks: [OAUTH_OPAQUE],
   },
   { name: "a PIN-shaped value", value: PIN, marks: [PIN] },
+  // OR6: a device name can name a person's room.
+  {
+    name: "a device name",
+    value: DEVICE_NAME,
+    marks: [DEVICE_NAME, "bedroom"],
+  },
   {
     name: "a PIN ending a sentence",
     value: `Incorrect PIN ${PIN}.`,

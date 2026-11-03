@@ -118,6 +118,12 @@ describe("redactText removes secret shapes", () => {
   it.each([
     ["a bearer credential", "Authorization: Bearer abc.def-ghi", "abc.def-ghi"],
     ["a password pair", "password=hunter2xyz;", "hunter2xyz"],
+    [
+      "a quoted password with spaces",
+      'password="correct horse battery staple"',
+      "horse battery staple",
+    ],
+    ["a quoted JSON secret with spaces", '{"secret": "a b c"}', "a b c"],
     ["a quoted token pair", '{"refresh_token": "r-1.2.3"}', "r-1.2.3"],
     ["a PIN pair", "PIN:4821", "4821"],
     [
