@@ -123,7 +123,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - a redaction layer for values shaped like tokens, keys, PINs and images.
 
   Write the redaction test first. It feeds an OAuth token, a PIN-shaped value, a private key and image bytes through every log path and every error message, and asserts that none of them appears (Trace: FR-034; CP-02)
-- [ ] T006 [P] [assigned_to: Implementer] [effort: 1] Utilities, each with its unit tests:
+- [x] T006 [P] [assigned_to: Implementer] [effort: 1] Utilities, each with its unit tests:
   - `bridge/src/utilities/security/`: Ed25519 key pairs, challenge signing and verification, AES-256-GCM helpers for the encrypted files, and the Entra sign-in client. The client uses a managed-identity federated credential, with no client secret.
   - `bridge/src/utilities/pub-sub/`: typed, in-process publish and subscribe.
   - `bridge/src/utilities/config/`: zod-validated settings. It holds the run mode (core, connector or all-in-one) and defaults such as reads at 600 an hour and the battery threshold at 20%.

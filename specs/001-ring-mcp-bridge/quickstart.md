@@ -230,7 +230,10 @@ The script names are not in the records.
    - the alert rules and the action group (iteration 002).
 
    No deploy creates or writes a secret value, and nothing is a placeholder (`research.md` PT-03). After the first deploy, `/readyz` reports not ready and names `issuer-signing-keys`. Run the bootstrap's signing-key step with your own sign-in: it generates the first key in memory and writes it straight to Key Vault, then rerun the smoke test. Later keys come from the core's 90-day rotation. `pin-hash` arrives with disarm in iteration 004.
-6. **Create the Entra app registration** for the Issuer's owner sign-in. This is a runbook step the owner performs once. The resulting IDs go into GitHub environment variables and are never committed (`research.md` PT-06). Create the SQL break-glass group the same way.
+6. **Create the Entra app registration** for the Issuer's owner sign-in. This is a runbook step the owner performs once. The resulting IDs go into GitHub environment variables and are never committed (`research.md` PT-06). Create the SQL break-glass group the same way. The sign-in client (T006) expects these settings on the app registration:
+   - a Web redirect URI for the bridge's sign-in return URL;
+   - a federated credential that trusts the core's user-assigned managed identity: the issuer is the tenant's `https://login.microsoftonline.com/<tenant>/v2.0`, the subject is the managed identity's principal ID, and the audience is `api://AzureADTokenExchange`. There is no client secret;
+   - the optional claim `auth_time` on the ID token. With it, a fresh sign-in (`prompt=login`) is checked against the time the owner actually entered their credentials. Without it, the bridge falls back to the ID token's issue time.
 7. **Rollback**: redeploy the previous image.
 8. **Cost**: expect about $21.50 a month in iteration 001, and about $23 from iteration 002, when the alert rule ($1.50) is added. That figure is agent-derived from list prices for Israel Central, read on 2026-10-25 and 2026-10-26. The ceiling is $30 a month; it was set by the owner at clarify on 2026-11-01 (SC-011), and the owner checks it on the bill in the pilot.
 

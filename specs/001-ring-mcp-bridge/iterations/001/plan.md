@@ -58,7 +58,7 @@ Success criteria touched: SC-003 (the 7-day soak starts), SC-005 (stale within 2
 | Task | Title | Requirement | Story | Effort | Owner | Owner File Globs | Status | Agent | Actual | Verdict |
 | ---- | ----- | ----------- | ----- | ------ | ----- | ---------------- | ------ | ----- | ------ | ------- |
 | CP-01 | Repository scaffold, toolchain, CI pipeline (lint, type check, tests, dependency check, schema snapshot) | FR-046, FR-047 | enabling | 3 | Implementer | `package.json`, `tsconfig.base.json`, `eslint.config.js`, `vitest.config.ts`, `.github/**` | done | Implementer (claude) | 3 | — |
-| CP-02 | Utilities: Security, Logging (identifiers only), Pub/Sub, Config, Clock | FR-034 | enabling | 2 | Implementer | `bridge/src/utilities/**` | in-progress | Implementer (claude) | 1 | — |
+| CP-02 | Utilities: Security, Logging (identifiers only), Pub/Sub, Config, Clock | FR-034 | enabling | 2 | Implementer | `bridge/src/utilities/**` | done | Implementer (claude) | 2 | — |
 | CP-03 | Query layer for SQLite and T-SQL, migrations, per-component DTOs | FR-006, FR-044 | enabling | 3 | Implementer | `bridge/src/utilities/**` | planned | — | — | — |
 | CP-04 | Test harness: scenario engine (a simulated home of about 100 devices, fault injection) and the stand-in identity provider | FR-029, FR-001 | enabling | 3 | Implementer | `bridge/test/**` | planned | — | — | — |
 | CP-05 | Public Contract: the four read tools, untrusted-content marking | FR-033, FR-047, FR-048 | US1 | 1 | Implementer | `bridge/src/contract/**`, `schemas/**` | planned | — | — | — |
