@@ -118,7 +118,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 **Independent test**: the redaction test passes; the query layer's integration suite passes on SQLite and on the SQL Server container; the scenario engine serves a 100-device home on the fake clock.
 **Depends on**: Phase 2. **No user-story task starts before this phase is done.**
 
-- [ ] T005 [P] [assigned_to: Implementer] [effort: 1] Logging utility in `bridge/src/utilities/logging/`:
+- [x] T005 [P] [assigned_to: Implementer] [effort: 1] Logging utility in `bridge/src/utilities/logging/`:
   - structured JSON lines that carry identifiers only (`request_id`, `client_id`, the connector session id, event and device ids);
   - a redaction layer for values shaped like tokens, keys, PINs and images.
 
