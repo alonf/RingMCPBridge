@@ -1,0 +1,22 @@
+{
+  "name": "@ring-mcp-bridge/bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The core and the home connector: one package, two run modes.",
+  "type": "module",
+  "dependencies": {
+    "@azure/identity": "4.14.1",
+    "@azure/keyvault-secrets": "4.12.0",
+    "@hono/node-server": "2.1.5",
+    "@modelcontextprotocol/hono": "2.0.2",
+    "@modelcontextprotocol/server": "2.4.0",
+    "hono": "4.13.14",
+    "mssql": "12.7.13",
+    "oidc-provider": "9.13.3",
+    "ws": "8.22.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0"
+  }
+}

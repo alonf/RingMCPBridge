@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["bridge/src", "bridge/test", "shim/src", "*.ts", "*.js"],
+  "exclude": ["node_modules", "**/dist", "coverage"]
+}

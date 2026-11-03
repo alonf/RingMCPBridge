@@ -180,3 +180,14 @@ No decisions recorded yet.
 - **Task ID**: (none)
 - **Auth Commit Hash**: 5d509013e45423209d7b52d3a5b99e970fe080da
 - **Recorded At**: 2026-11-02T23:56:37Z
+
+## 2026-11-03T00:04:17Z — Boundary enforcement: before-implement
+
+- **Feature**: 001-ring-mcp-bridge
+- **Boundary Type**: before-implement
+- **Current Boundary**: tasks
+- **Requested Boundary**: before-implement
+- **Enforcement Action**: authorized
+- **Launch Mode**: (none)
+- **Agent Response Snippet**: (none)
+- **Reason**: Persisted authorization matched the requested boundary.

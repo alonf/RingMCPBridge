@@ -22,3 +22,21 @@
 .specrew/handover/
 .specrew/runtime/
 .claude/settings.local.json
+
+# Node and build output
+node_modules/
+dist/
+coverage/
+reports/mutation/
+test-results/
+playwright-report/
+*.log
+*.tsbuildinfo
+
+# Owner values and secrets never enter the repository
+.env
+.env.*
+*.local.json
+
+# The owner's own home scenarios stay local
+bridge/test/scenarios/local/
