@@ -2,7 +2,7 @@
 
 **Schema**: v1
 **Spec**: [../../spec.md](../../spec.md)
-**Status**: planning
+**Status**: executing
 **Capacity**: 42/42 story_points
 **Started**: 2026-11-02
 **Completed**:
@@ -57,7 +57,7 @@ Success criteria touched: SC-003 (the 7-day soak starts), SC-005 (stale within 2
 
 | Task | Title | Requirement | Story | Effort | Owner | Owner File Globs | Status | Agent | Actual | Verdict |
 | ---- | ----- | ----------- | ----- | ------ | ----- | ---------------- | ------ | ----- | ------ | ------- |
-| CP-01 | Repository scaffold, toolchain, CI pipeline (lint, type check, tests, dependency check, schema snapshot) | FR-046, FR-047 | enabling | 3 | Implementer | `package.json`, `tsconfig.base.json`, `eslint.config.js`, `vitest.config.ts`, `.github/**` | planned | — | — | — |
+| CP-01 | Repository scaffold, toolchain, CI pipeline (lint, type check, tests, dependency check, schema snapshot) | FR-046, FR-047 | enabling | 3 | Implementer | `package.json`, `tsconfig.base.json`, `eslint.config.js`, `vitest.config.ts`, `.github/**` | done | Implementer (claude) | 3 | — |
 | CP-02 | Utilities: Security, Logging (identifiers only), Pub/Sub, Config, Clock | FR-034 | enabling | 2 | Implementer | `bridge/src/utilities/**` | planned | — | — | — |
 | CP-03 | Query layer for SQLite and T-SQL, migrations, per-component DTOs | FR-006, FR-044 | enabling | 3 | Implementer | `bridge/src/utilities/**` | planned | — | — | — |
 | CP-04 | Test harness: scenario engine (a simulated home of about 100 devices, fault injection) and the stand-in identity provider | FR-029, FR-001 | enabling | 3 | Implementer | `bridge/test/**` | planned | — | — | — |
@@ -74,7 +74,7 @@ Success criteria touched: SC-003 (the 7-day soak starts), SC-005 (stale within 2
 | CP-17 | Minimal admin page: health and enrollment-code compare, three widths, word plus icon | FR-005, FR-032, FR-040 | US6 (part) | 1 | Implementer | `bridge/src/core/clients/**` | planned | — | — | — |
 | CP-19 | Bicep (App Service, Azure SQL, Key Vault, Blob) and the GitHub Actions deploy | FR-032, FR-044 | cross-cutting | 3 | Implementer | `infra/**`, `scripts/**`, `.github/**` | planned | — | — | — |
 | CP-21a | First agent trial: ChatGPT and Claude sign in through Entra and read the home; the 7-day Ring-session soak starts | FR-029, FR-042 | US1 | 1 | Implementer (with the owner) | — | planned | — | — | — |
-| CP-RV | Review: codex review runs and the hardening review | FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048 | all | 3 | Reviewer | — | planned | — | — | — |
+| CP-RV | Review: codex review runs and the hardening review | FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048 | all | 3 | Reviewer | — | in-progress | Reviewer (codex) | 1 | — |
 | CP-RW | Expected rework (about 10%) | FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048 | all | 3 | Implementer | — | planned | — | — | — |
 
 ## Effort Model

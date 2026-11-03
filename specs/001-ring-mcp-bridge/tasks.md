@@ -76,8 +76,8 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 **Independent test**: `npm ci` succeeds on Node 26; the pre-commit hook and the CI workflow run green on the empty packages.
 **Depends on**: Phase 1.
 
-- [ ] T002 [assigned_to: Implementer] [effort: 1] Create the npm workspace at the repository root: `package.json` (workspaces `bridge` and `shim`; `devEngines` node `^24.11 || ^26` and npm `>=10.9`), `package-lock.json`, `tsconfig.base.json` (TypeScript 6.0.3 pinned, erasable syntax only, ES modules, `nodenext`), `bridge/package.json`, `shim/package.json`, and the folders of plan.md "Source Code": `bridge/src/{host,core,connector,utilities,contract}/`, `bridge/test/{scenarios,fixtures/ring}/`, `schemas/`, `infra/`, `scripts/`. Pin the dependency versions in plan.md "Technical Context". Add `.gitignore` entries for `bridge/test/scenarios/local/`, `.specrew/handover/` and `.specrew/runtime/` (Trace: FR-046, FR-047; CP-01)
-- [ ] T003 [P] [assigned_to: Implementer] [effort: 1] Add the lint, format, hook and test configuration:
+- [x] T002 [assigned_to: Implementer] [effort: 1] Create the npm workspace at the repository root: `package.json` (workspaces `bridge` and `shim`; `devEngines` node `^24.11 || ^26` and npm `>=10.9`), `package-lock.json`, `tsconfig.base.json` (TypeScript 6.0.3 pinned, erasable syntax only, ES modules, `nodenext`), `bridge/package.json`, `shim/package.json`, and the folders of plan.md "Source Code": `bridge/src/{host,core,connector,utilities,contract}/`, `bridge/test/{scenarios,fixtures/ring}/`, `schemas/`, `infra/`, `scripts/`. Pin the dependency versions in plan.md "Technical Context". Add `.gitignore` entries for `bridge/test/scenarios/local/`, `.specrew/handover/` and `.specrew/runtime/` (Trace: FR-046, FR-047; CP-01)
+- [x] T003 [P] [assigned_to: Implementer] [effort: 1] Add the lint, format, hook and test configuration:
   - `eslint.config.js`: ESLint 10.14.0 flat config with typescript-eslint 8.72.1 `strictTypeChecked` and `stylisticTypeChecked`, plus `eslint-config-prettier`.
   - `.prettierrc`: Prettier 3.9.10.
   - `.githooks/pre-commit`: lint, format check, and gitleaks 8.30.1 (a pinned binary checked by checksum), with the no-GUID rule in `.gitleaks.toml`. The npm `prepare` script sets `core.hooksPath` to `.githooks`.
@@ -85,7 +85,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - `playwright.config.ts`: Playwright 1.64.1 at three widths (folded phone, unfolded phone, PC), in the dark and the light theme.
 
   (Trace: FR-032, FR-034, FR-040; CP-01)
-- [ ] T004 [assigned_to: Implementer] [effort: 1] Add CI and the boundary rules:
+- [x] T004 [assigned_to: Implementer] [effort: 1] Add CI and the boundary rules:
   - `.github/workflows/ci.yml`, on PRs and pushes:
     - `npm ci --ignore-scripts`, `tsc --noEmit`, ESLint and the Prettier check;
     - Vitest unit and integration tests, with SQL Server and Azurite service containers;

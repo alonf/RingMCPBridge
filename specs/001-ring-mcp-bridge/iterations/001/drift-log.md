@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 8
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement on 2026-11-03)
+**Total drift events**: 9
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 1 in implement on 2026-11-03)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -132,7 +132,18 @@
   - Cost: 0 SP and $0.
 - **Class closure**: T018's location test makes a regression fail CI.
 
-The same round also found that PT-19 and data-model.md G4 still started the audit chain in iteration 001. Both now follow DRIFT-001-04.<!--
+The same round also found that PT-19 and data-model.md G4 still started the audit chain in iteration 001. Both now follow DRIFT-001-04.
+
+### DRIFT-001-09: T002 pins the runtime libraries except two that arrive later
+
+- **Detected**: 2026-11-03, implement, while doing T002
+- **Kind**: task wording versus a plan decision. No spec change
+- **Observed**: T002 says to pin the dependency versions in plan.md "Technical Context". Two of them are not added in T002:
+  - `ring-client-api` 14.3.0: research.md PT-10 says it is added in T013 (CP-07), only after the repositories of its two packages without a declared licence are checked;
+  - `@azure/storage-blob` 12.34.0: no iteration 001 component uses Blob storage. Media arrives in iteration 003 and the write-once audit copy in iteration 004.
+- **Requirement citation**: plan.md Technical Context; research.md PT-10; implementation-rules.yml `project.supply-chain-policy`.
+- **Resolution**: implementation choice, recorded here for the review. All the other runtime libraries and every development tool are pinned exactly in T002. T013 adds `ring-client-api` after the PT-10 licence check, and the iteration that first uses Blob adds `@azure/storage-blob`.
+- **Class closure**: NONE — a one-off ordering of the same pinned versions; the licence gate (`scripts/license-gate.mjs`) blocks any unlisted licence when the libraries arrive.<!--
   Every new ### DRIFT-... event includes:
 
   - **Class closure**: the executable mechanism that makes the next instance impossible or loud

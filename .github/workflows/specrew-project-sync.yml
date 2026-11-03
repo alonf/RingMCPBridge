@@ -1,17 +1,9 @@
 name: Specrew Project Sync
 
+# The push trigger is off in this repository (T004, DRIFT-001-07): the job calls
+# .github/scripts/sync-specrew-board.ps1, which exists only in Specrew's own repository.
+# A Specrew update may restore the trigger: re-check this file after each update.
 on:
-  push:
-    branches: [ main, 001-specrew-product ]
-    paths:
-      - '.github/scripts/sync-specrew-board.ps1'
-      - '.github/workflows/specrew-project-sync.yml'
-      - 'specs/**/iterations/**/plan.md'
-      - 'specs/**/iterations/**/state.md'
-      - 'specs/**/iterations/**/drift-log.md'
-      - 'specs/**/iterations/**/review.md'
-      - 'specs/**/iterations/**/retro.md'
-      - 'docs/github-project.md'
   workflow_dispatch:
 
 permissions:

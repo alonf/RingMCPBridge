@@ -1,0 +1,98 @@
+name: CI
+
+# The product checks (T004; plan.md Required Quality Gates; research PT-15 job names).
+# Required checks: lint, test, build, secret-scan (and specrew-governance in specrew-ci.yml).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Type check
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: ESLint
+        run: npx eslint --max-warnings 0 .
+      - name: Prettier
+        run: npx prettier --check .
+      - name: Dependency rules (dependency-cruiser)
+        run: npx depcruise bridge shim --config .dependency-cruiser.cjs
+      - name: Public Contract schema snapshot
+        run: npm run schemas:check --if-present
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Ci-${{ github.run_id }}-Sql!
+        ports:
+          - 1433:1433
+      azurite:
+        image: mcr.microsoft.com/azure-storage/azurite:latest
+        ports:
+          - 10000:10000
+    env:
+      TEST_MSSQL_HOST: localhost
+      TEST_MSSQL_PORT: "1433"
+      TEST_MSSQL_PASSWORD: Ci-${{ github.run_id }}-Sql!
+      TEST_AZURITE_BLOB_URL: http://127.0.0.1:10000/devstoreaccount1
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Unit and integration tests with the coverage gate
+        run: npx vitest run --coverage
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Build
+        run: npm run build --if-present
+      - name: npm audit gate (fails on high or critical, with the written exception list)
+        run: node scripts/audit-gate.mjs
+      - name: Licence gate over npm sbom
+        run: node scripts/license-gate.mjs
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: gitleaks 8.30.1 (pinned binary, checked by checksum)
+        run: node scripts/run-gitleaks.mjs git --redact --no-banner --config .gitleaks.toml
