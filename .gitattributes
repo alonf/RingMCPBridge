@@ -3,3 +3,7 @@
 .squad/agents/*/history.md merge=union
 .squad/log/** merge=union
 .squad/orchestration-log/** merge=union
+
+# Shell hooks and scripts keep LF endings on every platform
+.githooks/* text eol=lf
+*.sh text eol=lf
