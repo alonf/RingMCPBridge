@@ -79,6 +79,7 @@ class FakeEntra {
   };
   discoveryFailures = 0;
   keysStatus = 200;
+  beforeKeys: () => void = () => undefined;
   tokenReply: (() => Response) | undefined;
   claims: Claims = {};
   sign: (payload: JWTPayload) => Promise<string> = (payload) =>
@@ -115,6 +116,7 @@ class FakeEntra {
       return json(this.discovery);
     }
     if (url === KEYS_URL) {
+      this.beforeKeys();
       return json({ keys: [publicJwk] }, this.keysStatus);
     }
     if (url === TOKEN_URL) {
@@ -423,6 +425,21 @@ describe("the token request", () => {
       setup.client.complete(pending, callback, controller.signal),
     ).rejects.toBe(reason);
   });
+
+  it("passes on the caller's abort while the signing keys are being fetched", async () => {
+    const setup = rig();
+    const controller = new AbortController();
+    const reason = new Error("request closed");
+    const { url, pending } = await setup.client.begin({ fresh: false }, NEVER);
+    const callback = setup.entra.authorize(url);
+    setup.entra.beforeKeys = () => {
+      controller.abort(reason);
+    };
+
+    await expect(
+      setup.client.complete(pending, callback, controller.signal),
+    ).rejects.toBe(reason);
+  });
 });
 
 describe("checking the ID token", () => {
@@ -488,6 +505,23 @@ describe("checking the ID token", () => {
     expect((await signIn(plain, false)).authenticatedAt).toBe(
       START - HOUR_S * 1000,
     );
+  });
+
+  it("refuses a fresh sign-in whose token does not carry auth_time", async () => {
+    const setup = rig();
+
+    expect(await kindOf(signIn(setup, true))).toBe("sign_in_invalid");
+  });
+
+  it("accepts a fresh sign-in whose auth_time is after the start", async () => {
+    const setup = rig();
+    setup.entra.claims = { auth_time: START_S + 20 };
+
+    expect(await signIn(setup, true)).toEqual({
+      subject: SUBJECT,
+      authenticatedAt: START + 20_000,
+      authenticatedAtSource: "auth_time",
+    });
   });
 
   it("fails closed when the signing keys cannot be read", async () => {

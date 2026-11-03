@@ -140,7 +140,11 @@ const TEXT_RULES: readonly TextRule[] = [
     replacement: REDACTED_BYTES,
   },
   { pattern: /[A-Za-z0-9+/_=-]{32,}/g, replacement: redactLongRun },
-  { pattern: /(?<![\w.\-/:])\d{4,8}(?![\w.\-/])/g, replacement: REDACTED },
+  // A full stop ends the number unless more of a number follows it (`4821.` yes, `4821.5` no).
+  {
+    pattern: /(?<![\w.\-/:])\d{4,8}(?![\w\-/]|\.[\w-])/g,
+    replacement: REDACTED,
+  },
   { pattern: /[^\t\n\r\x20-\x7E]+/g, replacement: REDACTED_TEXT },
 ];
 

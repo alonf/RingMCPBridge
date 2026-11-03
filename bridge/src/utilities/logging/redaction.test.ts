@@ -105,6 +105,7 @@ describe("redactText keeps ordinary diagnostic text", () => {
     "    at Object.<anonymous> (/app/bridge/src/core/managers/inquiry-manager/index.js:12:7)",
     "    at /app/node_modules/@azure/identity/dist/commonjs/credentials/managedIdentityCredential/index.js:9:3",
     "Ring answered 406 Not Acceptable",
+    "release 2026.11.3 is ready",
     "Violation of PRIMARY KEY constraint 'PK_device'",
   ])("%s", (text) => {
     expect(redactText(text)).toBe(text);
@@ -125,6 +126,8 @@ describe("redactText removes secret shapes", () => {
       "SplxlOBeZQQ",
     ],
     ["a standalone PIN", "wrong code 4821 entered", "4821"],
+    ["a PIN ending a sentence", "Incorrect PIN 4821.", "4821"],
+    ["a PIN before an ellipsis", "PIN 4821... rejected", "4821"],
     ["a hex key", `key material ${hex64}`, hex64],
     ["a Hebrew device name", "device דלת כניסה offline", "דלת"],
   ])("%s", (_, text, secret) => {

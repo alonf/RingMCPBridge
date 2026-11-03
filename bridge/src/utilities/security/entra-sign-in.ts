@@ -53,7 +53,10 @@ export type ClientAssertionSource = (signal: AbortSignal) => Promise<string>;
 
 /** Where the owner signs in. Read from the environment by the core's wiring. */
 export interface EntraSignInSettings {
-  /** The tenant's issuer, such as `https://login.microsoftonline.com/<tenant>/v2.0`. */
+  /**
+   * The tenant's issuer, `https://login.microsoftonline.com/<tenant-id>/v2.0`, with the tenant ID, not
+   * a domain name: Entra's discovery document names it by ID, and the two must match exactly.
+   */
   readonly issuer: string;
   /** The app registration's client id. */
   readonly clientId: string;
@@ -70,7 +73,10 @@ export interface EntraSignInDependencies {
 
 /** How to start a sign-in. */
 export interface SignInStartOptions {
-  /** Make the owner enter their credentials again (`prompt=login`): the admin and confirm pages. */
+  /**
+   * Make the owner enter their credentials again (`prompt=login`): the admin and confirm pages. The
+   * ID token must then carry `auth_time` from after the start, or the sign-in fails.
+   */
   readonly fresh: boolean;
 }
 
@@ -95,7 +101,10 @@ export interface OwnerIdentity {
   readonly subject: string;
   /** When the owner last entered their credentials, in epoch milliseconds. */
   readonly authenticatedAt: number;
-  /** `auth_time` when the app registration asks for that optional claim; otherwise the token's `iat`. */
+  /**
+   * `auth_time` when the token carries it (an optional claim on the app registration). A fresh sign-in
+   * requires it; a plain one falls back to the token's `iat`.
+   */
   readonly authenticatedAtSource: "auth_time" | "issued_at";
 }
 
@@ -197,6 +206,10 @@ function authenticationTime(
   pending: PendingSignIn,
 ): Pick<OwnerIdentity, "authenticatedAt" | "authenticatedAtSource"> {
   if (typeof payload.auth_time !== "number") {
+    // Only auth_time shows that the owner entered credentials again: a token's iat does not.
+    if (pending.fresh) {
+      throw invalid("The ID token does not show a fresh sign-in.");
+    }
     return {
       authenticatedAt: (payload.iat ?? 0) * MS_PER_SECOND,
       authenticatedAtSource: "issued_at",
@@ -208,6 +221,27 @@ function authenticationTime(
     throw invalid("The owner was not asked for their credentials again.");
   }
   return { authenticatedAt, authenticatedAtSource: "auth_time" };
+}
+
+// Settles with `work`, or rejects with the signal's reason as soon as it aborts. `work` itself goes
+// on, because the issuer's discovery and keys are shared with other sign-ins.
+async function untilAborted<T>(
+  work: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  signal.throwIfAborted();
+  let onAbort = (): void => undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      reject(signal.reason as Error);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([work, aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
 }
 
 /**
@@ -270,11 +304,14 @@ export class EntraOwnerSignIn implements OwnerSignIn {
     const code = this.#codeFrom(pending, callback);
     const endpoints = await this.#endpointsFor(signal);
     const idToken = await this.#redeem(endpoints, code, pending, signal);
-    const payload = await this.#verify(endpoints, idToken);
+    const payload = await untilAborted(
+      this.#verify(endpoints, idToken),
+      signal,
+    );
     return this.#identityFrom(payload, pending);
   }
 
-  async #endpointsFor(signal: AbortSignal): Promise<IssuerEndpoints> {
+  #endpointsFor(signal: AbortSignal): Promise<IssuerEndpoints> {
     signal.throwIfAborted();
     this.#endpoints ??= discoverIssuer(
       this.#settings.issuer,
@@ -283,9 +320,7 @@ export class EntraOwnerSignIn implements OwnerSignIn {
       this.#endpoints = undefined;
       throw error;
     });
-    const endpoints = await this.#endpoints;
-    signal.throwIfAborted();
-    return endpoints;
+    return untilAborted(this.#endpoints, signal);
   }
 
   // The checks made before anything is sent to Entra: age, state, an error reply, the code.

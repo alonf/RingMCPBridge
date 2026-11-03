@@ -2,7 +2,7 @@
 // (FR-034, OR1, OR2, B3). This file is the utility's only entry point (CD4).
 
 /**
- * The logger. Build one in the Host's wiring with `writeLineToStdout`, the Clock's `now` and the
+ * The logger. Build one in the Host's wiring with `createStdoutSink()`, the Clock's `now` and the
  * run mode's minimum level; give each component a child from `with({ component })`.
  */
 export { Logger } from "./logger.ts";
@@ -19,5 +19,5 @@ export type { LogLevel } from "./format-line.ts";
  */
 export type { LogFields } from "./log-fields.ts";
 
-/** The production sink: newline-terminated lines on stdout. */
-export { writeLineToStdout } from "./stdout-sink.ts";
+/** The production sink: newline-terminated lines on stdout, which survives a closed pipe. */
+export { createStdoutSink } from "./stdout-sink.ts";

@@ -1,6 +1,7 @@
 // The logger writes one allow-listed JSON line per call and never throws into its caller.
+import { Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Logger, writeLineToStdout } from "./index.ts";
+import { Logger, createStdoutSink } from "./index.ts";
 import type { LoggerOptions } from "./index.ts";
 
 const FIXED_NOW = Date.UTC(2026, 10, 3, 9, 0, 0);
@@ -258,15 +259,32 @@ describe("Logger never throws into its caller", () => {
   });
 });
 
-describe("writeLineToStdout", () => {
+describe("createStdoutSink", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("writes one newline-terminated line", () => {
+  it("writes one newline-terminated line to stdout", () => {
     const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
-    writeLineToStdout('{"event":"x"}');
+    const listeners = process.stdout.listenerCount("error");
+    const sink = createStdoutSink();
+    sink('{"event":"x"}');
 
     expect(write).toHaveBeenCalledWith('{"event":"x"}\n');
+    expect(process.stdout.listenerCount("error")).toBe(listeners + 1);
+  });
+
+  it("survives a write error that arrives later, as from a closed pipe", async () => {
+    const closedPipe = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+      },
+    });
+    const sink = createStdoutSink(closedPipe);
+    sink('{"event":"x"}');
+    sink('{"event":"y"}');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(closedPipe.destroyed).toBe(true);
   });
 });

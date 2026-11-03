@@ -100,6 +100,11 @@ const SAMPLES: readonly Sample[] = [
   },
   { name: "a PIN-shaped value", value: PIN, marks: [PIN] },
   {
+    name: "a PIN ending a sentence",
+    value: `Incorrect PIN ${PIN}.`,
+    marks: [PIN],
+  },
+  {
     name: "a private key (PEM)",
     value: PRIVATE_KEY_PEM,
     marks: ["PRIVATE KEY", ...PRIVATE_KEY_PEM_BODY],

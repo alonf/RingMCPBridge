@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 9
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 1 in implement on 2026-11-03)
+**Total drift events**: 10
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -143,7 +143,16 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - `@azure/storage-blob` 12.34.0: no iteration 001 component uses Blob storage. Media arrives in iteration 003 and the write-once audit copy in iteration 004.
 - **Requirement citation**: plan.md Technical Context; research.md PT-10; implementation-rules.yml `project.supply-chain-policy`.
 - **Resolution**: implementation choice, recorded here for the review. All the other runtime libraries and every development tool are pinned exactly in T002. T013 adds `ring-client-api` after the PT-10 licence check, and the iteration that first uses Blob adds `@azure/storage-blob`.
-- **Class closure**: NONE — a one-off ordering of the same pinned versions; the licence gate (`scripts/license-gate.mjs`) blocks any unlisted licence when the libraries arrive.<!--
+- **Class closure**: NONE — a one-off ordering of the same pinned versions; the licence gate (`scripts/license-gate.mjs`) blocks any unlisted licence when the libraries arrive.
+
+### DRIFT-001-10: the first implement co-review was refused because the campaign's round allowance was used up
+
+- **Detected**: 2026-11-03, implement, when starting the codex co-review of the work through T006 (checkpoint `cp-02-utilities-review`)
+- **Kind**: review tooling versus the plan's co-review checkpoint. No spec change
+- **Observed**: the owner typed `approved for review round`, and the hook recorded it as a round approval that is still unspent. The live run `run-20261103-173033330-f07a8975` in campaign `cmp-001-ring-mcp-bridge-i001` stopped with `allowance-exhausted` before invoking codex: no codex call, no quota used. The two T001 hardening rounds on 2026-11-02 had used this campaign's round allowance. Earlier records counted it as "2 of 4 rounds", which was wrong.
+- **Requirement citation**: iteration 001 plan, the co-review checkpoints; `specrew review --help`, where `--remediate allowance-reset` is "the separate human-approved replenish of the round allowance".
+- **Resolution**: human-decision. The owner typed `approved for allowance reset`, and `specrew review --remediate allowance-reset` replenished the rounds on 2026-11-03. The first run after the reset (`run-20261103-180948553-869009d3`) was refused again with `allowance-exhausted`, before codex was invoked. Specrew's reset message names `--live --approve-round` as the way to run the next round, so the review was started again with that flag, carrying the owner's typed round approval. That run (`run-20261103-181059697-dfcd1e9c`) reserved a round and completed: 9 minutes, 5 minor findings, budget 1 of 4 used. Resolved.
+- **Class closure**: NONE — this is a decision about review budget, not a defect. The refusal is already loud: Specrew refuses before contacting the reviewer.<!--
   Every new ### DRIFT-... event includes:
 
   - **Class closure**: the executable mechanism that makes the next instance impossible or loud
