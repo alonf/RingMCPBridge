@@ -224,11 +224,13 @@ function authenticationTime(
 }
 
 // Settles with `work`, or rejects with the signal's reason as soon as it aborts. `work` itself goes
-// on, because the issuer's discovery and keys are shared with other sign-ins.
+// on, because the issuer's discovery and keys are shared with other sign-ins. Its failure is observed
+// here first, even when the caller has already gone: an unobserved rejection ends the process.
 async function untilAborted<T>(
   work: Promise<T>,
   signal: AbortSignal,
 ): Promise<T> {
+  work.catch(() => undefined);
   signal.throwIfAborted();
   let onAbort = (): void => undefined;
   const aborted = new Promise<never>((_resolve, reject) => {
@@ -364,6 +366,8 @@ export class EntraOwnerSignIn implements OwnerSignIn {
     }
     const reply = tokenReplySchema.safeParse(await readJson(response));
     if (!reply.success) {
+      // A body cut short by the caller's abort is the caller's abort, not an Entra fault.
+      signal.throwIfAborted();
       throw unavailable("Entra's token reply could not be read.");
     }
     return reply.data.id_token;

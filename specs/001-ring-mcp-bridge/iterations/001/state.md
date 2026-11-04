@@ -3,9 +3,9 @@
 **Schema**: v2
 **Last Completed Task**: T006
 **Tasks Remaining**: T007-T036 (30 tasks, 36 story_points)
-**In Progress**: none; the co-review waits for the owner's decision after round 2 (stop here or another round), then T007 (the Query layer)
+**In Progress**: none; the first implement co-review is signed off; next is T007 (the Query layer)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-03T19:57:00Z
+**Updated**: 2026-11-04T15:35:00Z
 
 ## Execution Summary
 
@@ -23,7 +23,10 @@
   - a thrown non-error keeps its type only;
   - stacks keep frame lines only;
   - quoted secret values are masked whole.
-  A deliberate break of each part was caught by a test. Checks: 198 tests; 99.8% lines, 96.5% branches.
+  A deliberate break of each part was caught by a test. Checks: 198 tests; 99.8% lines, 96.5% branches. Committed as 13eb127.
+- Co-review round 3 (run-20261103-212946051-f209bba6, 8 minutes, 3 of 4 used; Specrew's total is 25 minutes over 3 rounds) found 1 minor finding, verified by a test that failed before the fix: when the caller cancelled a sign-in while the ID token was being checked, a later failure of that check (the issuer's signing keys returning 503) was left unobserved, and Node ends the process on an unobserved rejection. The fix: the abort helper (`untilAborted`) now observes the work it is given before it checks the signal. The same helper guards the shared discovery read. Checks: 199 tests; 99.8% lines, 96.5% branches; lint, tsc, prettier, depcruise (36 modules), audit, licences and gitleaks are clean. The owner typed `stop the review here`, but sign-off was refused because the fix had moved the code after round 3 (DRIFT-001-11). The owner chose the last round over partial sign-off.
+- Co-review round 4 (run-20261104-135642595-1d72f246, 9 minutes, 4 of 4 used; Specrew's total is 34 minutes over 4 rounds) reviewed the tree with the round-3 fix and found nothing wrong with it. It found 1 new minor finding, verified by reading the code: a caller's abort while the token reply body was still being read was reported as `sign_in_unavailable` (an Entra fault) instead of the abort. The owner typed `stop the review here`, and review sign-off completed on 2026-11-04 on exactly the tree round 4 reviewed. The finding was saved as a follow-up.
+- After sign-off, the round-4 follow-up was fixed: when the token reply cannot be read, the caller's signal is checked first, so a body cut short by the caller's abort passes on the abort. A test with a streamed body that aborts part-way failed before the fix and passes after. Checks: 200 tests; 99.8% lines, 96.5% branches; lint, tsc, prettier, depcruise (36 modules) and gitleaks are clean (no dependency changed, so the audit and licence gates were not re-run). The next co-review checkpoint will see this fix.
 - T006 (Clock, Pub/Sub, Config, Security) is done. Commit 384ff11 has the first four parts; the Entra sign-in client follows in its own commit. The owner chose jose 6.2.15 as a direct dependency (option 1 of 3, 2026-11-03), recorded in implementation-rules.yml. The client is the authorization code flow with PKCE, state and nonce. It uses a managed-identity client assertion and no client secret. The ID token is checked against the issuer's keys, with RS256 pinned, plus issuer, audience, expiry, nonce and the authorized party. Entra's error text is never copied into an error. The managed-identity assertion is a .live.ts file that only the core's wiring imports. Freshness uses `auth_time`, which is an optional claim on the app registration; quickstart step 6 now lists it, with the ID token's `iat` as the fallback. A manual mutation check broke the nonce, state, algorithm and freshness checks one at a time, and a test caught each. The algorithm pin needed test keys without `alg`, as Entra publishes them. Checks: 184 tests; 100% lines, 97.4% branches; lint, tsc, prettier, depcruise (35 modules), audit, licences and gitleaks are clean.
 - T005 is committed as 2328706.
 - T005 (the Logging utility) is done: an allow-list JSON-lines logger with a redaction layer. The FR-034 redaction test was written first: it feeds an OAuth token (JWT and opaque), a PIN, a private key (PEM, DER and JWK) and image bytes (six forms) through every log path and error shape. Two deliberate breaks of the redaction rules were each caught by the test. Coverage of the utility: 100% lines, 98.6% branches.

@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 10
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03)
+**Total drift events**: 11
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -160,6 +160,15 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   If the change fixes only this instance, write NONE — <why class closure is not in scope>.
   A bare Resolution: FIXED is not class closure.
 -->
+
+### DRIFT-001-11: review sign-off was refused because a fix had moved the code after the last reviewed round
+
+- **Detected**: 2026-11-04, implement, when carrying the owner's `stop the review here` after co-review round 3 (campaign `cmp-001-ring-mcp-bridge-i001`)
+- **Kind**: review tooling versus the fix-then-stop order. No spec change
+- **Observed**: round 3 (`run-20261103-212946051-f209bba6`) reviewed commit 13eb127. Its one finding was then fixed in the working tree with a test, and state.md recorded the round. `specrew review --live --pause-choice 2` refused with `latest-result-not-current`: the latest result targets an earlier snapshot and cannot authorize the current tree. Specrew offered partial sign-off for the exact tree (refresh the request, the owner's typed `approved for partial review signoff - <why>`, then the same command again, with no commits or record writes between).
+- **Requirement citation**: iteration 001 plan, the co-review checkpoints; Specrew's review sign-off gate (a sign-off binds to the reviewed tree).
+- **Resolution**: human-decision. The owner chose the last round over partial sign-off. Round 4 (`run-20261104-135642595-1d72f246`, about 9 minutes, budget 4 of 4) reviewed the current tree, found nothing wrong with the round-3 fix, and found 1 new minor finding. The owner typed `stop the review here`, and sign-off completed on 2026-11-04 on exactly the tree round 4 reviewed. The round-4 finding was saved as a follow-up, then fixed with a test after sign-off. Resolved.
+- **Class closure**: NONE — the gate works as designed and refuses loudly. The working practice is already stated by Specrew: a fix after the last reviewed round needs another round or an explicit partial sign-off.
 
 ### Resolution Strategies (Unused)
 

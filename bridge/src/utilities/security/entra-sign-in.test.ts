@@ -426,6 +426,31 @@ describe("the token request", () => {
     ).rejects.toBe(reason);
   });
 
+  it("passes on the caller's abort while the token reply is being read", async () => {
+    const setup = rig();
+    const controller = new AbortController();
+    const reason = new Error("request closed");
+    const { url, pending } = await setup.client.begin({ fresh: false }, NEVER);
+    const callback = setup.entra.authorize(url);
+    setup.entra.tokenReply = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(stream) {
+            stream.enqueue(new TextEncoder().encode('{"id_token":'));
+          },
+          pull(stream) {
+            controller.abort(reason);
+            stream.error(reason);
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+
+    await expect(
+      setup.client.complete(pending, callback, controller.signal),
+    ).rejects.toBe(reason);
+  });
+
   it("passes on the caller's abort while the signing keys are being fetched", async () => {
     const setup = rig();
     const controller = new AbortController();
@@ -439,6 +464,36 @@ describe("the token request", () => {
     await expect(
       setup.client.complete(pending, callback, controller.signal),
     ).rejects.toBe(reason);
+  });
+
+  it("leaves no failure unobserved when the keys fail after the caller's abort", async () => {
+    const setup = rig();
+    const controller = new AbortController();
+    const reason = new Error("request closed");
+    const unobserved: unknown[] = [];
+    const onUnhandled = (error: unknown): void => {
+      unobserved.push(error);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const { url, pending } = await setup.client.begin(
+        { fresh: false },
+        NEVER,
+      );
+      const callback = setup.entra.authorize(url);
+      setup.entra.keysStatus = 503;
+      setup.entra.beforeKeys = () => {
+        controller.abort(reason);
+      };
+
+      await expect(
+        setup.client.complete(pending, callback, controller.signal),
+      ).rejects.toBe(reason);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unobserved).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 });
 
