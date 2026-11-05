@@ -470,6 +470,25 @@ describe("QueryLayer transactions", () => {
     expect(driver.calls).toEqual(["begin"]);
   });
 
+  it("never runs the work when the caller aborts while the transaction starts, and rolls it back", async () => {
+    const { driver, layer } = setUp();
+    const controller = new AbortController();
+    const reason = new Error("caller gone");
+    driver.hold(
+      "begin",
+      Promise.resolve().then(() => {
+        controller.abort(reason);
+      }),
+    );
+    const work = vi.fn(() => Promise.resolve("done"));
+
+    await expect(layer.transaction(work, controller.signal)).rejects.toBe(
+      reason,
+    );
+    expect(work).not.toHaveBeenCalled();
+    expect(driver.calls).toEqual(["begin", "rollback"]);
+  });
+
   it("refuses a call to the layer from inside its own transaction's work", async () => {
     const { layer } = setUp(true);
 

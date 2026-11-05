@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 12
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 1 in implement on 2026-11-05)
+**Total drift events**: 13
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 2 in implement on 2026-11-05)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -187,6 +187,20 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: data-model.md "Agent client and grant" (PT-11), "Home part enrollment" (PT-32), "Other stored state", "Names proposed here" and "Schema lifecycle"; research.md R6 (B6).
 - **Resolution**: implementation choice, recorded for the CP-03 co-review and the owner. Cost: 0 SP and $0.
 - **Class closure**: two tests fail CI on a later drift. `bridge/test/query-layer/migrations-contract.ts` checks each dialect's tables and columns against one expected list. `bridge/src/utilities/query-layer/migrations/migrations.test.ts` fails when the two dialects' statements differ or a statement is not additive.
+
+### DRIFT-001-13: the CP-03 co-review was refused because the round allowance was spent, and Specrew still shows round 4's question as open
+
+- **Detected**: 2026-11-05, implement, when starting the codex co-review of T007 and T008 (checkpoint `cp-03-query-layer-review`, commits 81d909b and eb7d22d)
+- **Kind**: review tooling versus the plan's co-review checkpoints. No spec change
+- **Observed**:
+  - The owner typed `approved for review round`. Specrew recorded it as `cmp-001-ring-mcp-bridge-i001-round-7`; the approval is not spent.
+  - Run `run-20261105-144312659-3572c2dc` stopped with `review-round-paused:review-round-budget-exhausted` before invoking codex (Invoked: False, elapsed 0.0 s). No codex call, no quota used.
+  - Specrew reports 4 of 4 rounds used. The 2026-11-03 reset gave this campaign 4 rounds, and CP-02 spent them (rounds 1 to 4).
+  - Specrew also presents round 4 (`run-20261104-135642595-1d72f246`) as still waiting for an answer, offering only "stop the review here" or "abandon". This project's records say the owner typed `stop the review here` and sign-off completed on 2026-11-04 (DRIFT-001-11, state.md). Not investigated; reported as seen.
+  - The hook read the typed `approved for review round` as a verdict for the `review` boundary and said nothing was recorded for it. The round approval was captured anyway (above).
+- **Requirement citation**: iteration 001 plan, the co-review checkpoints (about every 5 SP of committed tasks); `specrew review --help`, where `--remediate allowance-reset` is the human-approved replenish of the round allowance.
+- **Resolution**: human-decision. The owner typed `approved for allowance reset`, and `specrew review --remediate allowance-reset` replenished the rounds on 2026-11-05 ($0). The round then ran with `--live --approve-round`, carrying the owner's unspent round approval: `run-20261105-144818639-e501294a`, 15 minutes, budget 1 of 4 used, 3 minor findings. After the reset Specrew no longer presented round 4's question. The owner typed `stop the review here`, and sign-off completed on 2026-11-05. Resolved.
+- **Class closure**: NONE — the refusal is already loud and happens before the reviewer is contacted. With one 4-round allowance per campaign and a checkpoint about every 5 SP, a reset per checkpoint is likely; that is the owner's budget decision, not a defect.
 
 ### Resolution Strategies (Unused)
 

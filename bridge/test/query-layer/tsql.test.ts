@@ -1,11 +1,13 @@
 // The Query layer on a real SQL Server (T007, FR-006): the shared contract, plus what only the
-// T-SQL driver does: cancelling a running request, an unreachable server, and connecting again
-// after a failed connection. CI starts the server (.github/workflows/ci.yml); locally the tests
+// T-SQL driver does: cancelling a running request or a transaction's start, an unreachable server,
+// a connection cut during a statement, and connecting again after a failed connection. CI starts the server (.github/workflows/ci.yml); locally the tests
 // skip unless TEST_MSSQL_HOST, TEST_MSSQL_PORT and TEST_MSSQL_PASSWORD are set.
 import { randomBytes } from "node:crypto";
+import { connect, createServer } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import mssql from "mssql";
 import type { config as MssqlConfig } from "mssql";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeClock, SystemClock } from "../../src/utilities/clock/index.ts";
 import {
   CORE_MIGRATIONS,
@@ -23,6 +25,19 @@ const READY_TIMEOUT_MS = 90_000;
 const READY_POLL_MS = 2_000;
 const CANCEL_LIMIT_MS = 3_000;
 const UNUSED_PORT = 1;
+const CUT_AFTER_MS = 300;
+const SQL_SERVER_PORT = 1433;
+
+type TediousConnection = Parameters<
+  NonNullable<MssqlConfig["beforeConnect"]>
+>[0];
+
+/** A TCP relay to the server; `cut` drops every connection through it, as a network fault would. */
+interface Relay {
+  readonly port: number;
+  cut(): void;
+  close(): Promise<void>;
+}
 
 const settings = testSettings();
 const database = `query_layer_${randomBytes(6).toString("hex")}`;
@@ -63,6 +78,38 @@ function never(): AbortSignal {
 
 function sql(text: string, params: SqlStatement["params"] = {}): SqlStatement {
   return { sql: text, params };
+}
+
+async function openRelay(host: string, port: number): Promise<Relay> {
+  const sockets = new Set<Socket>();
+  const relay = createServer((client) => {
+    const upstream = connect(port, host);
+    for (const socket of [client, upstream]) {
+      sockets.add(socket);
+      socket.on("error", () => undefined);
+      socket.on("close", () => sockets.delete(socket));
+    }
+    client.pipe(upstream).pipe(client);
+  });
+  await new Promise<void>((resolve) => {
+    relay.listen(0, "127.0.0.1", resolve);
+  });
+  const cut = (): void => {
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+  };
+  return {
+    port: (relay.address() as AddressInfo).port,
+    cut,
+    close: () =>
+      new Promise<void>((resolve) => {
+        cut();
+        relay.close(() => {
+          resolve();
+        });
+      }),
+  };
 }
 
 // CI's service container may still be starting when the tests begin.
@@ -217,6 +264,117 @@ describe.skipIf(settings === undefined)("the Query layer on SQL Server", () => {
     await expect(layer.get(sql("SELECT 1 AS one"), never())).resolves.toEqual({
       one: 1,
     });
+  });
+
+  it("stops waiting for a transaction's start when the caller aborts, and gives its connection back", async () => {
+    const layer = open({
+      ...inDatabase,
+      pool: { max: 1, acquireTimeoutMillis: CANCEL_LIMIT_MS },
+    });
+    let release = (): void => undefined;
+    const holding = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started = (): void => undefined;
+    const holdsConnection = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const first = layer.transaction(async (session) => {
+      await session.get(sql("SELECT 1 AS one"), never());
+      started();
+      await holding;
+      return "first";
+    }, never());
+    await holdsConnection;
+    const controller = new AbortController();
+    const reason = new Error("caller gone");
+    const work = vi.fn(() => Promise.resolve("second"));
+    const begun = Date.now();
+
+    const second = layer.transaction(work, controller.signal);
+    setTimeout(() => {
+      controller.abort(reason);
+    }, CUT_AFTER_MS);
+
+    await expect(second).rejects.toBe(reason);
+    expect(Date.now() - begun).toBeLessThan(CANCEL_LIMIT_MS);
+    release();
+    await expect(first).resolves.toBe("first");
+    await expect(
+      layer.get(sql("SELECT @@TRANCOUNT AS open_transactions"), never()),
+    ).resolves.toEqual({ open_transactions: 0 });
+    expect(work).not.toHaveBeenCalled();
+  });
+
+  it("keeps running when the driver raises a connection error on the pool", async () => {
+    const connections: TediousConnection[] = [];
+    const layer = open({
+      ...inDatabase,
+      beforeConnect: (connection) => {
+        connections.push(connection);
+      },
+    });
+    await layer.get(sql("SELECT 1 AS one"), never());
+    const fault = Object.assign(new Error("connection fault"), {
+      code: "EFAULT",
+    });
+
+    expect(connections.length).toBeGreaterThan(0);
+    for (const connection of connections) {
+      expect(() => connection.emit("error", fault)).not.toThrow();
+    }
+    await expect(layer.get(sql("SELECT 1 AS one"), never())).resolves.toEqual({
+      one: 1,
+    });
+  });
+
+  it("fails with a transient store_down when the connection drops during a statement", async () => {
+    const relay = await openRelay(
+      config.server,
+      config.port ?? SQL_SERVER_PORT,
+    );
+    try {
+      const layer = open({ ...inDatabase, port: relay.port });
+      await layer.get(sql("SELECT 1 AS one"), never());
+
+      const waiting = layer.run(sql("WAITFOR DELAY '00:00:05'"), never());
+      setTimeout(() => {
+        relay.cut();
+      }, CUT_AFTER_MS);
+
+      await expect(waiting).rejects.toMatchObject({
+        kind: "store_down",
+        transient: true,
+      });
+    } finally {
+      await relay.close();
+    }
+  });
+
+  it("runs a transaction again when its connection drops during the work", async () => {
+    const relay = await openRelay(
+      config.server,
+      config.port ?? SQL_SERVER_PORT,
+    );
+    try {
+      const layer = open({ ...inDatabase, port: relay.port });
+      let attempts = 0;
+
+      const done = layer.transaction(async (session) => {
+        attempts += 1;
+        if (attempts === 1) {
+          setTimeout(() => {
+            relay.cut();
+          }, CUT_AFTER_MS);
+        }
+        await session.run(sql("WAITFOR DELAY '00:00:01'"), never());
+        return attempts;
+      }, never());
+
+      await expect(done).resolves.toBe(2);
+    } finally {
+      await relay.close();
+    }
   });
 
   it("fails with store_down when the server cannot be reached", async () => {

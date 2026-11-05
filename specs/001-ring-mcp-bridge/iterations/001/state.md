@@ -3,12 +3,23 @@
 **Schema**: v2
 **Last Completed Task**: T008
 **Tasks Remaining**: T009-T036 (28 tasks, 33 story_points)
-**In Progress**: none; CP-03 is complete, and its co-review waits for the owner's typed round approval; then T009 and T010 (CP-04)
+**In Progress**: none; CP-03 is reviewed and signed off (2026-11-05), and its three review follow-ups are fixed; next T009 and T010 (CP-04)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-05T12:25:11Z
+**Updated**: 2026-11-05T16:42:54Z
 
 ## Execution Summary
 
+- CP-03 co-review (codex; checkpoint cp-03-query-layer-review; T007 and T008). Specrew first refused the round because the round allowance was spent (DRIFT-001-13). The owner typed `approved for allowance reset`, and the reset cost $0. Round 1 (run-20261105-144818639-e501294a, 15 minutes, 1 of 4 used) found 3 minor findings, all verified. The owner typed `stop the review here`, and review sign-off completed on 2026-11-05 on exactly the tree the round reviewed. The three follow-ups were then fixed, each with a test:
+  - the SQL Server connection pool now has an error listener. mssql 12.7.13 raises some connection errors as an "error" event on the pool, and Node ends the process on one that nothing listens for. The same failure still reaches the caller through its request. Codex rated this major; Specrew demoted it because it named no trigger;
+  - a connection cut during a statement is now a transient `store_down`, not `statement_failed`. Reproduced on the test server through a TCP relay: the cut arrives as `ECONNRESET`. Codex's shape (an `ESOCKET` error wrapped in a RequestError with the code EREQUEST) and a session the server kills (error 596) are sorted the same way. A transaction whose connection drops now runs again; a single statement does not, because its outcome is unknown;
+  - a caller's abort while a transaction starts now ends the wait at once on SQL Server, and the work never runs. A start that succeeds after the abort is rolled back, so its connection goes back to the pool.
+
+  A deliberate break of each of 7 parts of the fixes was caught by a test. Checks:
+  - 394 tests. With SQL Server, 393 pass and the CI-only check skips; without it, 40 skip;
+  - coverage: 99.7% lines and 97.5% branches with SQL Server, 93.8% lines and 95.5% branches without;
+  - lint, tsc, prettier, depcruise (71 modules), markdownlint and gitleaks are clean. No dependency changed, so the audit and licence gates were not re-run.
+
+  The next co-review checkpoint (CP-04) will see these fixes.
 - T008 (migrations and the iteration 001 schema; completes CP-03) is done in `bridge/src/utilities/query-layer/migrations/`. The DTO rule is in `bridge/src/core/access/README.md`. What it does:
   - `runMigrations` applies the migrations a database lacks when the Host starts. Each runs in one transaction together with its version record in `schema_migration`, under a lock: BEGIN IMMEDIATE on SQLite, and on SQL Server `sp_getapplock` with a 10 s wait. Two starts at once apply each migration once;
   - a version the code does not know is reported, not refused (code N-1 on schema N). The runner refuses three things: a recorded version under another name, a list with a gap, and a `schema_migration` table of another shape;

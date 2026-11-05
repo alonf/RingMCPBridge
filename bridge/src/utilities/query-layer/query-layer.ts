@@ -188,6 +188,11 @@ export class QueryLayer implements SqlSession {
       // Before the work starts nothing has taken effect, so any passing failure may be retried.
       return failedAttempt(this.#driver, error, ["retryable", "lost"]);
     }
+    if (signal.aborted) {
+      // The caller left while the transaction started; its work never runs.
+      await rollbackQuietly(transaction);
+      signal.throwIfAborted();
+    }
     const scope: TransactionScope = { open: true };
     const session = new TransactionSession(this.#driver, transaction);
     try {

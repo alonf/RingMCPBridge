@@ -1,6 +1,8 @@
 // The T-SQL driver's pure parts. The failure shapes are the ones mssql 12.7.13 produced against a
-// SQL Server 2022 container: a RequestError with `code: "EREQUEST"` and the server's `number`,
-// and a ConnectionError with only a `code` (a refused port: ESOCKET; a wrong password: ELOGIN).
+// SQL Server 2022 container: a RequestError with `code: "EREQUEST"` and the server's `number`
+// (a killed session: 596); a ConnectionError with only a `code` (a refused port: ESOCKET; a wrong
+// password: ELOGIN); and a RequestError carrying the system's code when the connection was cut
+// during a request (ECONNRESET).
 import mssql from "mssql";
 import { describe, expect, it } from "vitest";
 import { bindParameter, classifyTsqlError, normalizeTsqlRow } from "./tsql.ts";
@@ -9,9 +11,16 @@ function requestError(number: number): object {
   return { name: "RequestError", code: "EREQUEST", number };
 }
 
+// As mssql 12.7.13's request handler wraps an error the connection raises while a request runs.
+function wrappedRequestError(info: object): mssql.RequestError {
+  const carrier = Object.assign(new Error("wrapped"), { info });
+  return new mssql.RequestError(carrier, "EREQUEST");
+}
+
 describe("classifyTsqlError", () => {
   it.each([
     [1205, "retryable"],
+    [596, "lost"],
     [40613, "retryable"],
     [40501, "retryable"],
     [4060, "retryable"],
@@ -35,6 +44,10 @@ describe("classifyTsqlError", () => {
     ["ETIMEOUT", "lost"],
     ["ECONNCLOSED", "lost"],
     ["EABORT", "lost"],
+    ["ECONNRESET", "lost"],
+    ["ECONNABORTED", "lost"],
+    ["EPIPE", "lost"],
+    ["ETIMEDOUT", "lost"],
     ["ELOGIN", "unavailable"],
     ["ENOTOPEN", "unavailable"],
     ["EREQINPROG", "statement"],
@@ -43,6 +56,38 @@ describe("classifyTsqlError", () => {
     expect(classifyTsqlError({ name: "ConnectionError", code })).toEqual({
       failureClass,
       label: `SQL Server driver ${code}`,
+    });
+  });
+
+  it("sorts a connection error wrapped in a request error by the connection's code", () => {
+    const wrapped = wrappedRequestError(
+      Object.assign(new Error("Connection lost - read ECONNRESET"), {
+        code: "ESOCKET",
+      }),
+    );
+
+    expect(wrapped).toMatchObject({ code: "EREQUEST", number: undefined });
+    expect(classifyTsqlError(wrapped)).toEqual({
+      failureClass: "lost",
+      label: "SQL Server driver ESOCKET",
+    });
+  });
+
+  it("keeps the server's number when a request error wraps a server error", () => {
+    expect(
+      classifyTsqlError(wrappedRequestError({ number: 2627, message: "dup" })),
+    ).toEqual({ failureClass: "constraint", label: "SQL Server error 2627" });
+  });
+
+  it("leaves a request error with nothing wrapped inside as a statement error", () => {
+    const label = "SQL Server driver EREQUEST";
+
+    expect(
+      classifyTsqlError(new mssql.RequestError("odd", "EREQUEST")),
+    ).toEqual({ failureClass: "statement", label });
+    expect(classifyTsqlError(wrappedRequestError({ message: "odd" }))).toEqual({
+      failureClass: "statement",
+      label,
     });
   });
 

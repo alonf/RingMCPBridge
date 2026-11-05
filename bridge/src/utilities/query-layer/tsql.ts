@@ -34,6 +34,11 @@ import { untilAborted } from "./until-aborted.ts";
 const RETRYABLE_NUMBERS: ReadonlySet<number> = new Set([
   926, 4060, 40197, 40501, 40613, 49918, 49919, 49920, 4221, 615, 1205,
 ]);
+/**
+ * 596: the server killed the session while the statement ran, and closes its connection; a
+ * transaction is rolled back, but a single statement's outcome is not known.
+ */
+const LOST_NUMBERS: ReadonlySet<number> = new Set([596]);
 /** 2627 primary key or unique constraint, 2601 unique index, 547 foreign key or check, 515 not null. */
 const CONSTRAINT_NUMBERS: ReadonlySet<number> = new Set([2627, 2601, 547, 515]);
 /**
@@ -43,12 +48,20 @@ const CONSTRAINT_NUMBERS: ReadonlySet<number> = new Set([2627, 2601, 547, 515]);
 const UNAVAILABLE_NUMBERS: ReadonlySet<number> = new Set([
   18456, 9002, 1105, 40544, 3906,
 ]);
-/** mssql's codes for a broken or timed-out connection, and for a transaction the server ended. */
+/**
+ * mssql's codes for a broken or timed-out connection and for a transaction the server ended, and
+ * the system's codes for a connection cut while a request ran, which mssql passes on as they are
+ * (a reset connection arrives as ECONNRESET).
+ */
 const LOST_CODES: ReadonlySet<string> = new Set([
   "ESOCKET",
   "ETIMEOUT",
   "ECONNCLOSED",
   "EABORT",
+  "ECONNRESET",
+  "ECONNABORTED",
+  "EPIPE",
+  "ETIMEDOUT",
 ]);
 /** mssql's codes for a connection that could not be made or is not open. */
 const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
@@ -168,6 +181,9 @@ function numberClass(number: number): FailureClass {
   if (RETRYABLE_NUMBERS.has(number)) {
     return "retryable";
   }
+  if (LOST_NUMBERS.has(number)) {
+    return "lost";
+  }
   if (CONSTRAINT_NUMBERS.has(number)) {
     return "constraint";
   }
@@ -181,15 +197,38 @@ function codeClass(code: string): FailureClass {
   return UNAVAILABLE_CODES.has(code) ? "unavailable" : "statement";
 }
 
-function errorFields(error: unknown): { number?: number; code?: string } {
-  if (typeof error !== "object" || error === null) {
-    return {};
+interface ErrorFields {
+  readonly number?: number;
+  readonly code?: string;
+}
+
+// A connection error raised while a request runs reaches the caller wrapped: mssql 12.7.13 makes a
+// RequestError with the code EREQUEST and no number, and keeps the connection's error, with its
+// code, at `originalError.info`. Only that shape is unwrapped; a server error keeps its number.
+function errorFields(error: unknown): ErrorFields {
+  const fields = ownFields(error);
+  if (fields.number !== undefined || fields.code !== "EREQUEST") {
+    return fields;
   }
-  const { number, code } = error as { number?: unknown; code?: unknown };
+  const { code } = ownFields(
+    property(property(error, "originalError"), "info"),
+  );
+  return code === undefined ? fields : { code };
+}
+
+function ownFields(error: unknown): ErrorFields {
+  const number = property(error, "number");
+  const code = property(error, "code");
   return {
     ...(typeof number === "number" ? { number } : {}),
     ...(typeof code === "string" ? { code } : {}),
   };
+}
+
+function property(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
 }
 
 /** A pool of connections to one SQL Server database, opened on first use. */
@@ -212,10 +251,22 @@ class TsqlDriver implements SqlDriver {
     return query(pool.request(), statement, mode, signal);
   }
 
+  // Waiting for a connection or for BEGIN stops at the caller's abort. The begin itself goes on;
+  // if it then succeeds, the rollback gives its connection back to the pool.
   async begin(signal: AbortSignal): Promise<DriverTransaction> {
     const pool = await this.#connected(signal);
     const transaction = new mssql.Transaction(pool);
-    await transaction.begin();
+    const beginning = transaction.begin();
+    try {
+      await untilAborted(beginning, signal);
+    } catch (error) {
+      if (signal.aborted) {
+        void beginning
+          .then(() => transaction.rollback())
+          .catch(() => undefined);
+      }
+      throw error;
+    }
     return new TsqlTransaction(transaction);
   }
 
@@ -239,6 +290,7 @@ class TsqlDriver implements SqlDriver {
 
   #connect(): Promise<ConnectionPool> {
     const pool = new mssql.ConnectionPool(this.#config);
+    pool.on("error", ignorePoolError);
     const connecting: Promise<ConnectionPool> = pool
       .connect()
       .catch(async (error: unknown) => {
@@ -250,6 +302,13 @@ class TsqlDriver implements SqlDriver {
       });
     return connecting;
   }
+}
+
+// mssql raises some connection errors as an "error" event on the pool, and Node ends the process
+// on an "error" event that nothing listens for. The same failure reaches the caller through its
+// request or its next connection, so the listener only keeps the process running.
+function ignorePoolError(): void {
+  // Reported to the caller elsewhere.
 }
 
 /** One mssql transaction; the layer runs its statements one at a time. */
