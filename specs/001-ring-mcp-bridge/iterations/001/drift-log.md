@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 14
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 3 in implement on 2026-11-05)
+**Total drift events**: 15
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -219,6 +219,34 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: tasks.md T009, T010 and T013; plan.md "The Ring boundary stays swappable"; `contracts/connector-link.md` "Device inventory and state"; research.md R25; implementation-rules.yml `project.cd4-callee-declares-dtos` and `dependency_policy`.
 - **Resolution**: implementation choice, recorded for the CP-04 co-review and for T013. Cost: 0 SP and $0.
 - **Class closure**: `bridge/test/scenarios/scenario-engine.test.ts` assigns the engine to `RingPort`, so tsc fails if the two drift apart; T013's Ring-boundary contract test adds the same check for the real adapter.
+
+### DRIFT-001-15: T011 publishes three cumulative documents and settles the contract's open details
+
+- **Detected**: 2026-11-05, implement, while doing T011
+- **Kind**: names and details left open, versus the code. No spec change
+- **Observed**:
+  - **The published files.** `schemas/` holds `tool-inputs.schema.json`, `tool-replies.schema.json` and `tool-error.schema.json` (names [P]). They grow with each iteration, so their `$id`s carry no iteration number. The inputs document keeps the shape of `contracts/iteration-001-tools.schema.json` (one `$defs` entry per tool), and a test checks that its structure matches the plan's file. Descriptions are not compared: the plan's carry [P] marks and trace ids, while the published ones are written for agents.
+  - **Untrusted marking.** Field descriptions start with "UNTRUSTED.", as in `events.schema.json`. The location's `time_zone` is marked too: it is text from Ring, although the catalog lists only names and rooms. The marking check treats any free text or open object in a reply as Ring's unless the bridge writes it (`id`, `location_id`, `device_id`, the error's `message` and `details`).
+  - **Optional reply fields.** Under the additive rule, a published required field can never become optional, so only what iteration 001 always fills is required. Optional: `alarm_mode` (a location with no alarm), `room`, `battery_pct` (including in `low_batteries`, when Ring gives only its low flag), `battery_low`, `get_health`'s `push` and `last_event_at` (filled from iteration 002), and `stale_since`. The error envelope lists all fourteen codes now.
+  - **The narrowing rules**, per direction:
+    - inputs fail on a removed field, a field that became required, a removed enum value, a tighter bound or format, or unknown fields becoming rejected;
+    - replies fail on a removed field, a field that is no longer always present, a removed enum value, or a looser bound or format. New fields and enum values pass;
+    - any change to another keyword fails;
+    - a new zod rendering of the date-time `pattern` is ignored while the `format` is unchanged;
+    - the check errs on the safe side: an input that drops its `enum` entirely, and so accepts any string, is still reported as having its values removed.
+  - **The snapshot guard** uses Vitest's file snapshots. `schemas:generate` is `vitest --update` on the snapshot test, and the narrowing check runs before each write. A document not yet published fails unless `SCHEMAS_BOOTSTRAP=1` is set for the run that first writes it, which T011 used once. `.gitattributes` keeps `schemas/*.json` at LF, so the test passes on a Windows checkout.
+  - **Where the checks live.** The checks are test code in `bridge/test/contract/`. The Public Contract holds only schemas and their JSON Schema publication.
+  - **Two gaps are left open:**
+    - A hand edit to the committed `schemas/` files, followed by a matching code change, still passes. Closing that means comparing with the base branch in CI, a `ci.yml` change (`fetch-depth`) for the owner to decide.
+    - FR-046 lets a deprecated tool be removed later, but the check has no override for that yet.
+  - **For MCP Endpoint (T024)**, from a probe of SDK 2.4.0:
+    - the SDK lists exactly what `z.toJSONSchema` generates, marks included;
+    - the client checks `structuredContent` against the listed output schema, which rejects unknown fields, so the endpoint must parse each reply through its reply schema (that drops extra fields);
+    - the SDK answers an unknown input field with its own text error (`isError: true`, "Input validation error: …"), not the contract's `INVALID_ARGUMENT` envelope.
+  - `tool-replies.schema.json` is 34 KB, mostly the date-time `pattern` zod writes for each time field. Noted only.
+- **Requirement citation**: tasks.md T011 and T024; `contracts/mcp-tools.md` "Conventions"; `contracts/errors.md`; `contracts/iteration-001-tools.schema.json`; FR-033, FR-046, FR-047, FR-048.
+- **Resolution**: implementation choices, recorded for the next co-review and for T024. Cost: 0 SP and $0.
+- **Class closure**: the three checks run in CI's lint job (`npm run schemas:check`) and in the test suite. A deliberate break of each part was caught.
 
 ### Resolution Strategies (Unused)
 

@@ -29,6 +29,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:pages": "playwright test",
+    "schemas:check": "vitest run bridge/test/contract",
+    "schemas:generate": "vitest run bridge/test/contract/public-contract.test.ts --update",
     "secrets:scan": "node scripts/run-gitleaks.mjs git --redact --no-banner --config .gitleaks.toml"
   },
   "devDependencies": {

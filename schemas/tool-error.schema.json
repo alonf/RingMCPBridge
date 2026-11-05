@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ring-mcp-bridge:public-contract:tool-error",
+  "type": "object",
+  "properties": {
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "INVALID_ARGUMENT",
+            "NOT_FOUND",
+            "BRIDGE_UNAVAILABLE",
+            "RATE_LIMITED",
+            "TIMEOUT",
+            "INTERNAL",
+            "HOME_OFFLINE",
+            "RING_UNAVAILABLE",
+            "RING_REJECTED",
+            "BATTERY_GUARD",
+            "SNAPSHOT_BLOCKED",
+            "CONFIRMATION_INVALID",
+            "ACTION_DISABLED",
+            "HUMAN_DECLINED"
+          ],
+          "description": "What went wrong. New codes may be added."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Plain words for the agent, written by the bridge. It carries identifiers, never content: no tokens, PIN, keys or images."
+        },
+        "retryable": {
+          "type": "boolean",
+          "description": "Whether the same call may succeed later."
+        },
+        "retry_after_s": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "When to retry, in seconds, when that applies."
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "done",
+            "not_done",
+            "unknown"
+          ],
+          "description": "Control tools only: what happened to the action. unknown means check the state before anything else."
+        },
+        "details": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {},
+          "description": "Facts that depend on the code."
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "additionalProperties": false
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "When the failure happened, in UTC."
+    }
+  },
+  "required": [
+    "error",
+    "as_of"
+  ],
+  "additionalProperties": false,
+  "title": "Tool error",
+  "description": "The structured content of a failed tool call (isError: true)."
+}

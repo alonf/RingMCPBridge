@@ -1,14 +1,27 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T010
-**Tasks Remaining**: T011-T036 (26 tasks, 30 story_points)
-**In Progress**: none; CP-04 is complete, and its co-review waits for the owner's typed round approval; then T011 (CP-05)
+**Last Completed Task**: T011
+**Tasks Remaining**: T012-T036 (25 tasks, 29 story_points)
+**In Progress**: none; CP-05 (T011) is complete; next T012 (CP-06)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-05T17:35:00Z
+**Updated**: 2026-11-05T22:20:00Z
 
 ## Execution Summary
 
+- T011 (the Public Contract; completes CP-05) is done in `bridge/src/contract/`, with its checks in `bridge/test/contract/` and the published documents in `schemas/`. What it adds:
+  - **zod schemas** for the inputs and data of `get_overview`, `list_devices`, `get_device` and `get_health`, the reply envelope (with a rule that `stale_since` is present exactly when the data is stale) and the error envelope with the fourteen codes. Inputs are flat and reject unknown fields. Each tool's catalog entry holds its name, scope, MCP description, input and reply, for MCP Endpoint (T024);
+  - **untrusted marking**: every Ring-sourced field (location and device names, rooms, the time zone, a device's `state`) carries `x-untrusted: true` and a description starting "UNTRUSTED.", and every tool description ends with the untrusted-content sentence;
+  - **the JSON Schema documents**, built with `z.toJSONSchema`: `tool-inputs.schema.json` (the shape of `contracts/iteration-001-tools.schema.json`), `tool-replies.schema.json` and `tool-error.schema.json`. `npm run schemas:check` (which CI's lint job already calls) and `npm run schemas:generate` are new root scripts;
+  - **the three checks**: the flat-schema check; the untrusted-marking check, which also requires a mark on any unmarked free text or open object in a reply unless the bridge writes it (ids, its own error text); and the schema snapshot test, which fails on a stale file, a missing or extra file, or any removal or narrowing, and checks before writing so `schemas:generate` cannot publish a narrowing. The inputs are also compared with the plan's contract file.
+
+  The choices made here are in DRIFT-001-15. A probe showed MCP SDK 2.4.0 lists these schemas to agents unchanged, marks included.
+
+  A deliberate break of each of 8 parts was caught: a tighter input bound (and `schemas:generate` left the published file unchanged), a removed reply field, an unmarked device name, a nullable input, a tool description without the sentence, a deleted published file, the stale rule removed, and an additive reply field (flagged as stale until generated, then accepted). Checks:
+  - 511 tests: 467 pass and 44 skip without SQL Server (the test containers were stopped with the owner's approval; T011 touches no store);
+  - coverage without SQL Server: 94.1% lines and 95.5% branches;
+  - lint, tsc, prettier, depcruise (110 modules) and gitleaks are clean. No dependency changed, so the audit and licence gates were not re-run.
+- CP-04 co-review (codex; checkpoint cp-04-test-harness-review; T009, T010 and the three CP-03 fixes in a609118, on commit 8913756). The owner typed `approved for review round`. Round 2 of 4 (run-20261105-190914063-de7ec465, 10 minutes) found nothing: verdict pass, current for the reviewed tree, so the review completed on its own with no decision owed.
 - T009 and T010 (the test harness; complete CP-04) are done. What they add:
   - **The Ring Adapter's port** (`bridge/src/connector/access/ring-adapter/`), declared ahead of T013 because the engine implements it: locations, devices, change notifications and the session status (`ok`, `unavailable`, `lost`), with the link contract's field names and no ring-client-api type. The names chosen here are in DRIFT-001-14;
   - **the scenario engine** (`bridge/test/scenarios/`): a made-up home of 100 devices of every type at one location (Tokyo's time zone, disarmed), with a device named in Hebrew, low batteries, wired devices and offline devices, built the same way every time. It plays scripted changes on the fake clock and injects Ring down, a 406, slow answers and a lost session. While Ring refuses, the home still changes but nothing is reported, as when Ring's push stops. `FaultyChannel` drops, delays and duplicates messages in front of any sink, for the link's tests (CP-09);

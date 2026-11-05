@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ring-mcp-bridge:public-contract:tool-inputs",
+  "title": "Tool inputs",
+  "description": "Each entry in $defs is one tool's inputSchema. Every schema is flat (FR-048): string, integer and boolean fields, enums and optional fields only, and unknown fields are rejected. A rule between fields is checked by the bridge, which answers INVALID_ARGUMENT.",
+  "$defs": {
+    "get_overview": {
+      "type": "object",
+      "properties": {
+        "location_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The location. Omitted: the owned location when there is exactly one; otherwise INVALID_ARGUMENT, with the location ids in details."
+        }
+      },
+      "additionalProperties": false,
+      "title": "get_overview input",
+      "description": "Scope: read. The home in one reply: alarm mode, open contacts, active motion, offline devices, low batteries and bridge health, within about 8,000 tokens."
+    },
+    "list_devices": {
+      "type": "object",
+      "properties": {
+        "location_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The location. Omitted: the owned location when there is exactly one; otherwise INVALID_ARGUMENT, with the location ids in details."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "contact",
+            "motion",
+            "flood",
+            "keypad",
+            "base_station",
+            "camera",
+            "doorbell",
+            "light",
+            "other"
+          ],
+          "description": "Only devices of this type."
+        },
+        "room": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only devices in this room, matched against the room Ring assigns."
+        }
+      },
+      "additionalProperties": false,
+      "title": "list_devices input",
+      "description": "Scope: read. Devices with id, name, type, room, battery level, power mode and online status, filterable by type and room."
+    },
+    "get_device": {
+      "type": "object",
+      "properties": {
+        "device_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The device id, as list_devices returns it (id) or an event names it (device.id). Unknown: NOT_FOUND."
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "additionalProperties": false,
+      "title": "get_device input",
+      "description": "Scope: read. The full state of one device."
+    },
+    "get_health": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "title": "get_health input",
+      "description": "Scope: read. The bridge's own health: the home link, the Ring session, push reception, the last event received, and since when data has been stale. Takes no input."
+    }
+  }
+}

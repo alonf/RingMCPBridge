@@ -7,3 +7,6 @@
 # Shell hooks and scripts keep LF endings on every platform
 .githooks/* text eol=lf
 *.sh text eol=lf
+
+# The published Public Contract keeps LF endings, so its snapshot test passes on every platform
+schemas/*.json text eol=lf

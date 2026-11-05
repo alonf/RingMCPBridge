@@ -180,7 +180,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 
 ### The Public Contract
 
-- [ ] T011 [US1] [assigned_to: Implementer] [effort: 1] Public Contract in `bridge/src/contract/`, following `contracts/mcp-tools.md` and `contracts/errors.md`:
+- [x] T011 [US1] [assigned_to: Implementer] [effort: 1] Public Contract in `bridge/src/contract/`, following `contracts/mcp-tools.md` and `contracts/errors.md`:
   - zod 4.6.7 schemas for the inputs and outputs of `get_overview`, `list_devices`, `get_device` and `get_health`;
   - the reply envelope (`as_of`, `as_of_local`, `freshness`, `stale_since`, `data`) and the error envelope;
   - every Ring-sourced field carries `x-untrusted: true` and says so in its description;
