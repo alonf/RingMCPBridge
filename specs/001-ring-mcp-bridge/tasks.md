@@ -137,7 +137,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - a store-down error that managers turn into `BRIDGE_UNAVAILABLE`.
 
   Integration tests run on SQLite and on the SQL Server container (Trace: FR-006; CP-03)
-- [ ] T008 [assigned_to: Implementer] [effort: 1] Migrations and the iteration 001 schema in `bridge/src/utilities/query-layer/migrations/`:
+- [x] T008 [assigned_to: Implementer] [effort: 1] Migrations and the iteration 001 schema in `bridge/src/utilities/query-layer/migrations/`:
   - a forward-only, additive runner that runs at start;
   - the tables `location`, `device` (with the column `kind` and `state_version`), the health snapshot, `setting`, `agent`, `connector`, `oidc_item` (PT-11) and `lease`.
 

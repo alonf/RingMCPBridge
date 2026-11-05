@@ -2,7 +2,7 @@
 // failure (OR5), the store-down error, and one unit at a time on a single-connection driver.
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Clock } from "../clock/index.ts";
-import { checkParameters } from "./parameters.ts";
+import { checkStatement } from "./parameters.ts";
 import { QueryLayerError } from "./query-layer-error.ts";
 import { SerialQueue } from "./serial-queue.ts";
 import { failureError } from "./sql-driver.ts";
@@ -137,7 +137,7 @@ export class QueryLayer implements SqlSession {
     signal: AbortSignal,
   ): Promise<StatementResult> {
     this.#refuseUnusable(signal);
-    checkParameters(statement);
+    checkStatement(statement);
     const first = await this.#exclusive(
       () => this.#attemptStatement(statement, mode, signal),
       signal,
@@ -293,7 +293,7 @@ class TransactionSession implements SqlSession {
     signal: AbortSignal,
   ): Promise<StatementResult> {
     this.#refuseEnded();
-    checkParameters(statement);
+    checkStatement(statement);
     return this.#queue.run(async () => {
       this.#refuseEnded();
       signal.throwIfAborted();

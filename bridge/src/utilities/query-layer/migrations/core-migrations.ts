@@ -1,0 +1,6 @@
+// The core's schema, in order (DS3): Azure SQL in mode H, the same schema in one SQLite file in
+// mode A. A new migration goes at the end; a released one is never edited or removed.
+import { ITERATION_001_SCHEMA } from "./0001-iteration-001-schema.ts";
+import type { Migration } from "./migration.ts";
+
+export const CORE_MIGRATIONS: readonly Migration[] = [ITERATION_001_SCHEMA];

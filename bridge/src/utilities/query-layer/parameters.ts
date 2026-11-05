@@ -1,15 +1,32 @@
-// Placeholders against parameters. SQLite binds NULL for a placeholder with no value, without a
-// word, so both dialects check every statement here before the database sees it.
+// What the layer checks in a statement's text before the database sees it. SQLite binds NULL for a
+// placeholder with no value, and compiles only the first of several statements, both without a
+// word; so both dialects check every statement here.
 import { QueryLayerError } from "./query-layer-error.ts";
 import type { SqlStatement } from "./sql-types.ts";
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const NAME_CHARACTER = /[A-Za-z0-9_]/;
+const WHITESPACE = /\s/;
 
-/** Throws `statement_failed` unless the statement's placeholders and parameters match exactly. */
-export function checkParameters(statement: SqlStatement): void {
-  const placeholders = placeholderNames(statement.sql);
-  for (const name of placeholders) {
+/** What a scan of a statement's text finds outside its literals, quoted names and comments. */
+interface SqlScan {
+  readonly placeholders: ReadonlySet<string>;
+  /** Text follows a `;`: a second statement, which SQLite would skip and SQL Server would run. */
+  readonly secondStatement: boolean;
+}
+
+/**
+ * Throws `statement_failed` unless the text is one statement (a closing `;` is allowed) and its
+ * placeholders and parameters match exactly.
+ */
+export function checkStatement(statement: SqlStatement): void {
+  const scan = scanSql(statement.sql);
+  if (scan.secondStatement) {
+    throw refused(
+      "The text holds more than one statement; send each one on its own.",
+    );
+  }
+  for (const name of scan.placeholders) {
     if (!Object.hasOwn(statement.params, name)) {
       throw refused(`The placeholder @${name} has no parameter.`);
     }
@@ -18,7 +35,7 @@ export function checkParameters(statement: SqlStatement): void {
     if (!NAME.test(name)) {
       throw refused("A parameter name is not a plain name.");
     }
-    if (!placeholders.has(name)) {
+    if (!scan.placeholders.has(name)) {
       throw refused(`The parameter ${name} has no placeholder.`);
     }
   }
@@ -29,25 +46,53 @@ export function checkParameters(statement: SqlStatement): void {
  * comments, and T-SQL's `@@` system functions.
  */
 export function placeholderNames(sql: string): ReadonlySet<string> {
-  const names = new Set<string>();
+  return scanSql(sql).placeholders;
+}
+
+function scanSql(sql: string): SqlScan {
+  const placeholders = new Set<string>();
+  let ended = false;
+  let secondStatement = false;
   let index = 0;
   while (index < sql.length) {
     const skipped = skipQuotedOrComment(sql, index);
     if (skipped !== index) {
+      secondStatement ||= ended && !isComment(sql, index);
       index = skipped;
-    } else if (sql.startsWith("@@", index)) {
-      index = readName(sql, index + 2);
-    } else if (sql[index] === "@") {
-      const end = readName(sql, index + 1);
-      if (end > index + 1) {
-        names.add(sql.slice(index + 1, end));
-      }
-      index = Math.max(end, index + 1);
-    } else {
-      index += 1;
+      continue;
     }
+    const character = sql.charAt(index);
+    if (character === ";") {
+      ended = true;
+    } else if (!WHITESPACE.test(character)) {
+      secondStatement ||= ended;
+    }
+    index = readPlaceholder(sql, index, placeholders);
   }
-  return names;
+  return { placeholders, secondStatement };
+}
+
+// Adds the placeholder that starts at `index`, if one does, and returns where scanning continues.
+function readPlaceholder(
+  sql: string,
+  index: number,
+  placeholders: Set<string>,
+): number {
+  if (sql.startsWith("@@", index)) {
+    return readName(sql, index + 2);
+  }
+  if (sql[index] !== "@") {
+    return index + 1;
+  }
+  const end = readName(sql, index + 1);
+  if (end > index + 1) {
+    placeholders.add(sql.slice(index + 1, end));
+  }
+  return Math.max(end, index + 1);
+}
+
+function isComment(sql: string, index: number): boolean {
+  return sql.startsWith("--", index) || sql.startsWith("/*", index);
 }
 
 function skipQuotedOrComment(sql: string, index: number): number {

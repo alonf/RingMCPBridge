@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 11
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04)
+**Total drift events**: 12
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 1 in implement on 2026-11-05)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -169,6 +169,24 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: iteration 001 plan, the co-review checkpoints; Specrew's review sign-off gate (a sign-off binds to the reviewed tree).
 - **Resolution**: human-decision. The owner chose the last round over partial sign-off. Round 4 (`run-20261104-135642595-1d72f246`, about 9 minutes, budget 4 of 4) reviewed the current tree, found nothing wrong with the round-3 fix, and found 1 new minor finding. The owner typed `stop the review here`, and sign-off completed on 2026-11-04 on exactly the tree round 4 reviewed. The round-4 finding was saved as a follow-up, then fixed with a test after sign-off. Resolved.
 - **Class closure**: NONE — the gate works as designed and refuses loudly. The working practice is already stated by Specrew: a fix after the last reviewed round needs another round or an explicit partial sign-off.
+
+### DRIFT-001-12: T008 names the storage columns the data model leaves open, and cannot migrate under a lease that does not exist yet
+
+- **Detected**: 2026-11-05, implement, while doing T008
+- **Kind**: data-model names and a research reading versus the migration. No spec change
+- **Observed**:
+  - data-model.md calls `oidc_item`'s expiry `expires`. The column is `expires_at`, like the other time columns.
+  - These names are new at implement, marked [P]:
+    - the health snapshot's columns: `snapshot_id` (one row), `home_link_status` and `home_link_since`, `ring_session_status` and `ring_session_since`, `push_status` and `push_since`, `last_event_at`, `stale_since`, `outbox_depth`, `connector_version` and `as_of`;
+    - `setting (name, value, updated_at)` and `lease (name, holder, expires_at)`;
+    - `connector.requested_at`, and `connector.expires_at` for the pending request's expiry (PT-32);
+    - the runner's own table `schema_migration`.
+  - `location.monitoring` and `agent.elicitation_only` belong to iteration 003, so migration 1 leaves them out. They arrive later as nullable columns.
+  - research.md R6 (B6) says the Host applies migrations "under the lease", but migration 1 creates the lease table, so the first start cannot hold a lease. The runner therefore locks on its own: BEGIN IMMEDIATE on SQLite and an application lock on SQL Server. Two starts at once apply each migration once, whichever order CP-10 gives the Host.
+  - Times are stored as UTC milliseconds in integer columns, because the T-SQL driver returns no date type the layer carries, so a DATETIME2 column would fail every read. data-model.md's "timestamp is UTC ISO 8601" stays the contract's form. The accessor converts at its DTO boundary; whether a DTO carries milliseconds or ISO text is settled with the first accessor (`bridge/src/core/access/README.md`).
+- **Requirement citation**: data-model.md "Agent client and grant" (PT-11), "Home part enrollment" (PT-32), "Other stored state", "Names proposed here" and "Schema lifecycle"; research.md R6 (B6).
+- **Resolution**: implementation choice, recorded for the CP-03 co-review and the owner. Cost: 0 SP and $0.
+- **Class closure**: two tests fail CI on a later drift. `bridge/test/query-layer/migrations-contract.ts` checks each dialect's tables and columns against one expected list. `bridge/src/utilities/query-layer/migrations/migrations.test.ts` fails when the two dialects' statements differ or a statement is not additive.
 
 ### Resolution Strategies (Unused)
 

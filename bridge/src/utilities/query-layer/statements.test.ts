@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { keysetPageStatement, upsertStatement } from "./index.ts";
 import type { UpsertSpec } from "./index.ts";
-import { checkParameters, placeholderNames } from "./parameters.ts";
+import { checkStatement, placeholderNames } from "./parameters.ts";
 
 const DEVICE: UpsertSpec = {
   table: "device",
@@ -200,16 +200,50 @@ describe("placeholders", () => {
 
   it("accepts an exact match and refuses a missing, an extra or a badly named parameter", () => {
     expect(() => {
-      checkParameters({ sql: "SELECT @a", params: { a: 1 } });
+      checkStatement({ sql: "SELECT @a", params: { a: 1 } });
     }).not.toThrow();
     expect(() => {
-      checkParameters({ sql: "SELECT @a, @b", params: { a: 1 } });
+      checkStatement({ sql: "SELECT @a, @b", params: { a: 1 } });
     }).toThrow("The placeholder @b has no parameter.");
     expect(() => {
-      checkParameters({ sql: "SELECT @a", params: { a: 1, extra: 2 } });
+      checkStatement({ sql: "SELECT @a", params: { a: 1, extra: 2 } });
     }).toThrow("The parameter extra has no placeholder.");
     expect(() => {
-      checkParameters({ sql: "SELECT 1", params: { "a b": 1 } });
+      checkStatement({ sql: "SELECT 1", params: { "a b": 1 } });
     }).toThrow("A parameter name is not a plain name.");
+  });
+});
+
+describe("one statement per call", () => {
+  const twoStatements =
+    "The text holds more than one statement; send each one on its own.";
+
+  it("accepts a closing semicolon, and comments, blank space or more semicolons after it", () => {
+    for (const sql of [
+      "SELECT 1;",
+      "SELECT 1;  \n",
+      "SELECT 1; -- done",
+      "SELECT 1; /* done */",
+      "SELECT 1;;",
+      "SELECT ';' AS a, [b;c], \"d;e\" -- ; x\n/* ; y */ FROM t",
+    ]) {
+      expect(() => {
+        checkStatement({ sql, params: {} });
+      }).not.toThrow();
+    }
+  });
+
+  it("refuses text after a semicolon, which SQLite would silently skip", () => {
+    for (const sql of [
+      "CREATE TABLE a (x INTEGER); CREATE TABLE b (y INTEGER)",
+      "SELECT 1; 'x'",
+      'SELECT 1; "x"',
+      "SELECT 1; [x]",
+      "SELECT 1 /* ; */; -- note\n SELECT 2",
+    ]) {
+      expect(() => {
+        checkStatement({ sql, params: {} });
+      }).toThrow(twoStatements);
+    }
   });
 });

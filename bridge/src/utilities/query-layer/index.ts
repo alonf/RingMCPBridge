@@ -29,3 +29,15 @@ export type { QueryLayerErrorKind } from "./query-layer-error.ts";
 /** The two statements written once per dialect: insert-or-update and keyset paging. */
 export { keysetPageStatement, upsertStatement } from "./statements.ts";
 export type { KeysetPageSpec, UpsertSpec } from "./statements.ts";
+
+/**
+ * Forward-only, additive migrations, which the Host runs at start (DS5), and the core's schema:
+ * Azure SQL in mode H, one SQLite file in mode A.
+ */
+export { CORE_MIGRATIONS } from "./migrations/core-migrations.ts";
+export {
+  MIGRATION_LOCK_WAIT_MS,
+  runMigrations,
+} from "./migrations/run-migrations.ts";
+export type { MigrationOptions } from "./migrations/run-migrations.ts";
+export type { Migration, MigrationReport } from "./migrations/migration.ts";

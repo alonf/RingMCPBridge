@@ -1,14 +1,27 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T007
-**Tasks Remaining**: T008-T036 (29 tasks, 34 story_points)
-**In Progress**: none; next is T008 (migrations and the iteration 001 schema), which closes CP-03 and its co-review
+**Last Completed Task**: T008
+**Tasks Remaining**: T009-T036 (28 tasks, 33 story_points)
+**In Progress**: none; CP-03 is complete, and its co-review waits for the owner's typed round approval; then T009 and T010 (CP-04)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-04T22:30:00Z
+**Updated**: 2026-11-05T12:25:11Z
 
 ## Execution Summary
 
+- T008 (migrations and the iteration 001 schema; completes CP-03) is done in `bridge/src/utilities/query-layer/migrations/`. The DTO rule is in `bridge/src/core/access/README.md`. What it does:
+  - `runMigrations` applies the migrations a database lacks when the Host starts. Each runs in one transaction together with its version record in `schema_migration`, under a lock: BEGIN IMMEDIATE on SQLite, and on SQL Server `sp_getapplock` with a 10 s wait. Two starts at once apply each migration once;
+  - a version the code does not know is reported, not refused (code N-1 on schema N). The runner refuses three things: a recorded version under another name, a list with a gap, and a `schema_migration` table of another shape;
+  - migration 1 creates `location`, `device` (with `kind` and `state_version`), `health_snapshot` (one row), `setting`, `agent`, `connector` (with the pending request's expiry, PT-32), `oidc_item` (PT-11) and `lease`, written once per dialect;
+  - both dialects make the same choices: times are UTC milliseconds in integer columns, flags are 0 or 1, and JSON is text. SQLite tables are STRICT. SQL Server compares text by code point (`Latin1_General_100_BIN2`), so ids differing only in case stay apart, as on SQLite and as oidc-provider's tokens need. Enumerations have no CHECK, because SQLite cannot change one without rebuilding the table;
+  - a unit test refuses a statement that is not additive (DROP, RENAME, ALTER COLUMN, or a NOT NULL column without a default). It also checks that both dialects create the same tables, columns and indexes;
+  - the Query layer now refuses text that holds a second statement, on both dialects. On Node 24.13, SQLite's prepare compiles only the first statement and silently skips the rest, while SQL Server would run them all;
+  - the names chosen here, and the lease reading, are in DRIFT-001-12.
+
+  The upgrade test goes from the previous release to this one, on a SQLite file and on SQL Server 2022 (the local container). No release exists yet, so `PREVIOUS_RELEASE_SCHEMA_VERSION` is 0 and the test starts from an empty database. A deliberate break of each of 16 rules was caught by a test. Checks:
+  - 381 tests. With SQL Server, 380 pass and the CI-only check skips; without it, 36 skip;
+  - coverage: 99.8% lines and 97.7% branches with SQL Server, 94.5% lines and 95.8% branches without;
+  - lint, tsc, prettier, depcruise (69 modules), markdownlint, audit, licences and gitleaks are clean.
 - T007 (the Query layer, CP-03) is done in `bridge/src/utilities/query-layer/`. The owner chose @types/mssql 12.3.0 as a development-only package (option 1 of 3, 2026-11-04), recorded in implementation-rules.yml; mssql ships no types. What it does:
   - one `QueryLayer` over two drivers: node:sqlite (`DatabaseSync`, the only class in Node 24, which CI runs; an asynchronous class would change sqlite.ts alone) and mssql;
   - each `all`, `get` and `run` is its own unit of work, and `transaction` runs several statements as one;

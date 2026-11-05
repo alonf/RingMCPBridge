@@ -14,6 +14,7 @@ import type {
   QueryLayer,
   SqlStatement,
 } from "../../src/utilities/query-layer/index.ts";
+import { describeMigrationsContract } from "./migrations-contract.ts";
 import { describeQueryLayerContract } from "./query-layer-contract.ts";
 
 const folder = mkdtempSync(join(tmpdir(), "query-layer-"));
@@ -42,6 +43,14 @@ afterAll(async () => {
 });
 
 describeQueryLayerContract("sqlite", () => open(contractFile));
+
+let migrationFiles = 0;
+describeMigrationsContract("sqlite", () => {
+  migrationFiles += 1;
+  return Promise.resolve(
+    open(join(folder, `migrations-${String(migrationFiles)}.db`)),
+  );
+});
 
 describe("the Query layer on SQLite", () => {
   it("retries once when another connection holds the file's write lock, and succeeds once it lets go", async () => {

@@ -6,12 +6,17 @@ import { randomBytes } from "node:crypto";
 import mssql from "mssql";
 import type { config as MssqlConfig } from "mssql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { SystemClock } from "../../src/utilities/clock/index.ts";
+import { FakeClock, SystemClock } from "../../src/utilities/clock/index.ts";
+import {
+  CORE_MIGRATIONS,
+  runMigrations,
+} from "../../src/utilities/query-layer/index.ts";
 import type {
   QueryLayer,
   SqlStatement,
 } from "../../src/utilities/query-layer/index.ts";
 import { createTsqlQueryLayer } from "../../src/utilities/query-layer/tsql.ts";
+import { describeMigrationsContract } from "./migrations-contract.ts";
 import { describeQueryLayerContract } from "./query-layer-contract.ts";
 
 const READY_TIMEOUT_MS = 90_000;
@@ -22,6 +27,7 @@ const UNUSED_PORT = 1;
 const settings = testSettings();
 const database = `query_layer_${randomBytes(6).toString("hex")}`;
 const opened: QueryLayer[] = [];
+const extraDatabases: string[] = [];
 
 function testSettings(): MssqlConfig | undefined {
   const {
@@ -101,15 +107,96 @@ describe.skipIf(settings === undefined)("the Query layer on SQL Server", () => {
     for (const layer of opened) {
       await layer.close();
     }
-    await master
-      .request()
-      .query(
-        `ALTER DATABASE [${database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [${database}]`,
-      );
+    for (const name of [database, ...extraDatabases]) {
+      await master
+        .request()
+        .query(
+          `ALTER DATABASE [${name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [${name}]`,
+        );
+    }
     await master.close();
   });
 
+  // An empty database of its own, dropped with the others after the file.
+  async function emptyDatabase(): Promise<MssqlConfig> {
+    const name = `${database}_${String(extraDatabases.length + 1)}`;
+    await master.request().query(`CREATE DATABASE [${name}]`);
+    extraDatabases.push(name);
+    return { ...config, database: name };
+  }
+
   describeQueryLayerContract("tsql", () => open(inDatabase));
+
+  describeMigrationsContract("tsql", async () => open(await emptyDatabase()));
+
+  it("applies each migration once when two starts migrate together", async () => {
+    const empty = await emptyDatabase();
+    const starts = [open(empty), open(empty)];
+
+    const reports = await Promise.all(
+      starts.map((layer) =>
+        runMigrations(
+          layer,
+          CORE_MIGRATIONS,
+          { clock: new FakeClock(0) },
+          never(),
+        ),
+      ),
+    );
+
+    expect(reports.flatMap((report) => report.applied).sort()).toEqual(
+      CORE_MIGRATIONS.map((migration) => migration.version),
+    );
+    await expect(
+      starts[0]?.get(
+        sql("SELECT COUNT(*) AS recorded FROM schema_migration"),
+        never(),
+      ),
+    ).resolves.toEqual({ recorded: CORE_MIGRATIONS.length });
+  });
+
+  it("fails with a transient store_down when another start holds the migration lock too long", async () => {
+    const empty = await emptyDatabase();
+    const holder = await new mssql.ConnectionPool(empty).connect();
+    const held = new mssql.Transaction(holder);
+    await held.begin();
+    try {
+      await new mssql.Request(held).query(
+        "EXEC sp_getapplock N'schema_migration', N'Exclusive', N'Transaction', 0",
+      );
+
+      await expect(
+        runMigrations(
+          open(empty),
+          CORE_MIGRATIONS,
+          { clock: new FakeClock(0), lockWaitMs: 100 },
+          never(),
+        ),
+      ).rejects.toMatchObject({ kind: "store_down", transient: true });
+    } finally {
+      await held.rollback();
+      await holder.close();
+    }
+  });
+
+  it("compares every text column by code point, as SQLite does", async () => {
+    const layer = open(await emptyDatabase());
+    await runMigrations(
+      layer,
+      CORE_MIGRATIONS,
+      { clock: new FakeClock(0) },
+      never(),
+    );
+
+    await expect(
+      layer.all(
+        sql(
+          "SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name, COLLATION_NAME AS collation_name FROM INFORMATION_SCHEMA.COLUMNS WHERE DATA_TYPE = 'nvarchar' AND COLLATION_NAME <> 'Latin1_General_100_BIN2'",
+        ),
+        never(),
+      ),
+    ).resolves.toEqual([]);
+  });
 
   it("cancels a running request when the caller aborts", async () => {
     const layer = open(inDatabase);
