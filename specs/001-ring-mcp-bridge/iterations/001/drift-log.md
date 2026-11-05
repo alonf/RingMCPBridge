@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 13
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 2 in implement on 2026-11-05)
+**Total drift events**: 14
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 3 in implement on 2026-11-05)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -201,6 +201,24 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: iteration 001 plan, the co-review checkpoints (about every 5 SP of committed tasks); `specrew review --help`, where `--remediate allowance-reset` is the human-approved replenish of the round allowance.
 - **Resolution**: human-decision. The owner typed `approved for allowance reset`, and `specrew review --remediate allowance-reset` replenished the rounds on 2026-11-05 ($0). The round then ran with `--live --approve-round`, carrying the owner's unspent round approval: `run-20261105-144818639-e501294a`, 15 minutes, budget 1 of 4 used, 3 minor findings. After the reset Specrew no longer presented round 4's question. The owner typed `stop the review here`, and sign-off completed on 2026-11-05. Resolved.
 - **Class closure**: NONE — the refusal is already loud and happens before the reviewer is contacted. With one 4-round allowance per campaign and a checkpoint about every 5 SP, a reset per checkpoint is likely; that is the owner's budget decision, not a defect.
+
+### DRIFT-001-14: T009 declares the Ring Adapter's port ahead of T013, and T010 types oidc-provider locally
+
+- **Detected**: 2026-11-05, implement, while doing T009 and T010
+- **Kind**: task order and names left open, versus the code. No spec change
+- **Observed**:
+  - T009 says the engine "implements the Ring Adapter's port", but the adapter arrives with T013 (CP-07). T009 declares the port, types only plus the adapter's error, in `bridge/src/connector/access/ring-adapter/` (CD4: the callee declares). Its scope is T013's list: locations, devices, change notifications and the session status.
+  - These names are new, marked [P]:
+    - `RingPort` with `sessionStatus`, `locations`, `devices` and `watch`;
+    - `RingChange` with the kinds `device`, `location` and `session`. A location change carries an alarm-mode change, which T013 does not list;
+    - `RingAdapterError` with the kinds `ring_unavailable` (Ring down, a 5xx, a 406) and `session_lost`.
+  - The port's fields are the link contract's, without `as_of` and `state_version`, which Ingest and the Outbox Store add. Ring history for a gap (R25) is left out: no iteration 001 checkpoint reads events. Names are plain strings documented as untrusted; T011 marks them in the Public Contract (`x-untrusted`).
+  - T009 asks for link drops, delays and duplicates, but the link arrives with CP-09. `FaultyChannel` wraps any message sink on the fake clock; CP-09's tests put it in front of the link transport.
+  - oidc-provider 9.13.3 ships no type declarations. T010 declares only what the stand-in uses in `bridge/test/support/oidc-provider.d.ts`, so no package is added. The Issuer (CP-16) chooses between widening that file and DefinitelyTyped's package, a new development dependency that is the owner's decision.
+  - `docker-compose.yml`: Azurite has no consumer before iteration 003 (DRIFT-001-09); it is there because T010 names it. SQL Server is pinned to 2022-CU14, the image already used locally; CI uses 2022-latest.
+- **Requirement citation**: tasks.md T009, T010 and T013; plan.md "The Ring boundary stays swappable"; `contracts/connector-link.md` "Device inventory and state"; research.md R25; implementation-rules.yml `project.cd4-callee-declares-dtos` and `dependency_policy`.
+- **Resolution**: implementation choice, recorded for the CP-04 co-review and for T013. Cost: 0 SP and $0.
+- **Class closure**: `bridge/test/scenarios/scenario-engine.test.ts` assigns the engine to `RingPort`, so tsc fails if the two drift apart; T013's Ring-boundary contract test adds the same check for the real adapter.
 
 ### Resolution Strategies (Unused)
 

@@ -19,10 +19,14 @@ import type {
 } from "../../src/utilities/query-layer/index.ts";
 import { createTsqlQueryLayer } from "../../src/utilities/query-layer/tsql.ts";
 import { describeMigrationsContract } from "./migrations-contract.ts";
+import {
+  connectWhenReady,
+  requireSqlServerInCi,
+  SQL_SERVER_SETUP_TIMEOUT_MS,
+  sqlServerTestSettings,
+} from "../support/index.ts";
 import { describeQueryLayerContract } from "./query-layer-contract.ts";
 
-const READY_TIMEOUT_MS = 90_000;
-const READY_POLL_MS = 2_000;
 const CANCEL_LIMIT_MS = 3_000;
 const UNUSED_PORT = 1;
 const CUT_AFTER_MS = 300;
@@ -39,29 +43,10 @@ interface Relay {
   close(): Promise<void>;
 }
 
-const settings = testSettings();
+const settings = sqlServerTestSettings();
 const database = `query_layer_${randomBytes(6).toString("hex")}`;
 const opened: QueryLayer[] = [];
 const extraDatabases: string[] = [];
-
-function testSettings(): MssqlConfig | undefined {
-  const {
-    TEST_MSSQL_HOST: host,
-    TEST_MSSQL_PORT: port,
-    TEST_MSSQL_PASSWORD: password,
-  } = process.env;
-  if (host === undefined || port === undefined || password === undefined) {
-    return undefined;
-  }
-  return {
-    server: host,
-    port: Number(port),
-    user: "sa",
-    password,
-    // The test container's certificate is self-signed; production keeps the check.
-    options: { encrypt: true, trustServerCertificate: true },
-  };
-}
 
 function open(config: MssqlConfig): QueryLayer {
   const layer = createTsqlQueryLayer(config, {
@@ -112,33 +97,7 @@ async function openRelay(host: string, port: number): Promise<Relay> {
   };
 }
 
-// CI's service container may still be starting when the tests begin.
-async function connectToMaster(
-  config: MssqlConfig,
-): Promise<mssql.ConnectionPool> {
-  const deadline = Date.now() + READY_TIMEOUT_MS;
-  for (;;) {
-    const pool = new mssql.ConnectionPool(config);
-    try {
-      return await pool.connect();
-    } catch (error) {
-      await pool.close().catch(() => undefined);
-      if (Date.now() > deadline) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
-    }
-  }
-}
-
-it.runIf(settings === undefined && process.env.CI !== undefined)(
-  "has the SQL Server settings in CI",
-  () => {
-    expect.fail(
-      "TEST_MSSQL_HOST, TEST_MSSQL_PORT and TEST_MSSQL_PASSWORD must be set in CI.",
-    );
-  },
-);
+requireSqlServerInCi();
 
 describe.skipIf(settings === undefined)("the Query layer on SQL Server", () => {
   const config = settings ?? { server: "" };
@@ -146,9 +105,9 @@ describe.skipIf(settings === undefined)("the Query layer on SQL Server", () => {
   let master: mssql.ConnectionPool;
 
   beforeAll(async () => {
-    master = await connectToMaster(config);
+    master = await connectWhenReady(config);
     await master.request().query(`CREATE DATABASE [${database}]`);
-  }, READY_TIMEOUT_MS + READY_POLL_MS);
+  }, SQL_SERVER_SETUP_TIMEOUT_MS);
 
   afterAll(async () => {
     for (const layer of opened) {

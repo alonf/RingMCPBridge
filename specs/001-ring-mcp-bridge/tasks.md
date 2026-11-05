@@ -142,7 +142,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - the tables `location`, `device` (with the column `kind` and `state_version`), the health snapshot, `setting`, `agent`, `connector`, `oidc_item` (PT-11) and `lease`.
 
   The upgrade test (previous release to this one, on SQLite and on SQL Server) starts from an empty schema, because no release exists yet. Write the per-component DTO rule in `bridge/src/core/access/README.md`: rows map to DTOs inside each accessor, and State maps `kind` to the contract's `type` (PT-26) (Trace: FR-002, FR-006, FR-044; CP-03)
-- [ ] T009 [P] [assigned_to: Implementer] [effort: 2] Scenario engine in `bridge/test/scenarios/`:
+- [x] T009 [P] [assigned_to: Implementer] [effort: 2] Scenario engine in `bridge/test/scenarios/`:
   - **The simulated home:** about 100 devices of every supported type (contact, motion, flood, keypad, base station, camera, doorbell, light). It has:
     - one location with a time zone and an alarm mode;
     - a device named in Hebrew;
@@ -154,7 +154,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - **Driving:** the engine runs on the fake clock and implements the Ring Adapter's port. It replaces the adapter in tests and in the dev-only script.
 
   Mirrors of the owner's home go only in the git-ignored `bridge/test/scenarios/local/` (Trace: FR-001, FR-002, FR-005, SC-006; CP-04)
-- [ ] T010 [P] [assigned_to: Implementer] [effort: 1] Test support in `bridge/test/support/`:
+- [x] T010 [P] [assigned_to: Implementer] [effort: 1] Test support in `bridge/test/support/`:
   - a second oidc-provider 9.13.3 standing in for Entra;
   - MCP SDK client helpers for end-to-end tests (`@modelcontextprotocol/client` 2.4.0);
   - a store-matrix fixture that runs an integration suite on SQLite and on SQL Server.

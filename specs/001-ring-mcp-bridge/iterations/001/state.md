@@ -1,14 +1,24 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T008
-**Tasks Remaining**: T009-T036 (28 tasks, 33 story_points)
-**In Progress**: none; CP-03 is reviewed and signed off (2026-11-05), and its three review follow-ups are fixed; next T009 and T010 (CP-04)
+**Last Completed Task**: T010
+**Tasks Remaining**: T011-T036 (26 tasks, 30 story_points)
+**In Progress**: none; CP-04 is complete, and its co-review waits for the owner's typed round approval; then T011 (CP-05)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-05T16:42:54Z
+**Updated**: 2026-11-05T17:35:00Z
 
 ## Execution Summary
 
+- T009 and T010 (the test harness; complete CP-04) are done. What they add:
+  - **The Ring Adapter's port** (`bridge/src/connector/access/ring-adapter/`), declared ahead of T013 because the engine implements it: locations, devices, change notifications and the session status (`ok`, `unavailable`, `lost`), with the link contract's field names and no ring-client-api type. The names chosen here are in DRIFT-001-14;
+  - **the scenario engine** (`bridge/test/scenarios/`): a made-up home of 100 devices of every type at one location (Tokyo's time zone, disarmed), with a device named in Hebrew, low batteries, wired devices and offline devices, built the same way every time. It plays scripted changes on the fake clock and injects Ring down, a 406, slow answers and a lost session. While Ring refuses, the home still changes but nothing is reported, as when Ring's push stops. `FaultyChannel` drops, delays and duplicates messages in front of any sink, for the link's tests (CP-09);
+  - **test support** (`bridge/test/support/`): an Entra stand-in (a second oidc-provider 9.13.3 with Entra's issuer path, `tid` and `oid`, and a client that signs an assertion), which the bridge's own sign-in client (T006) signs in through; MCP SDK client helpers, in memory and over Streamable HTTP with a bearer token; and the store matrix, which runs one suite on SQLite and on SQL Server with a new empty database per call. The SQL Server settings, the readiness wait and the CI check moved from the T-SQL suite into the store matrix, so only one copy remains;
+  - **`docker-compose.yml`** at the root: SQL Server 2022 and Azurite, on 127.0.0.1 ports that avoid other local projects. The SA password comes from the environment.
+
+  Checks:
+  - 437 tests. With the compose stand-ins, 435 pass and the two CI-only checks skip; without SQL Server, 44 skip;
+  - coverage: 99.7% lines and 97.5% branches with SQL Server, 93.8% lines and 95.5% branches without;
+  - lint, tsc, prettier, depcruise (93 modules), markdownlint and gitleaks are clean. No dependency changed, so the audit and licence gates were not re-run.
 - CP-03 co-review (codex; checkpoint cp-03-query-layer-review; T007 and T008). Specrew first refused the round because the round allowance was spent (DRIFT-001-13). The owner typed `approved for allowance reset`, and the reset cost $0. Round 1 (run-20261105-144818639-e501294a, 15 minutes, 1 of 4 used) found 3 minor findings, all verified. The owner typed `stop the review here`, and review sign-off completed on 2026-11-05 on exactly the tree the round reviewed. The three follow-ups were then fixed, each with a test:
   - the SQL Server connection pool now has an error listener. mssql 12.7.13 raises some connection errors as an "error" event on the pool, and Node ends the process on one that nothing listens for. The same failure still reaches the caller through its request. Codex rated this major; Specrew demoted it because it named no trigger;
   - a connection cut during a statement is now a transient `store_down`, not `statement_failed`. Reproduced on the test server through a TCP relay: the cut arrives as `ECONNRESET`. Codex's shape (an `ESOCKET` error wrapped in a RequestError with the code EREQUEST) and a session the server kills (error 596) are sorted the same way. A transaction whose connection drops now runs again; a single statement does not, because its outcome is unknown;
