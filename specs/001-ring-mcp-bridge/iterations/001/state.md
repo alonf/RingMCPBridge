@@ -1,14 +1,28 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T006
-**Tasks Remaining**: T007-T036 (30 tasks, 36 story_points)
-**In Progress**: none; the first implement co-review is signed off; next is T007 (the Query layer)
+**Last Completed Task**: T007
+**Tasks Remaining**: T008-T036 (29 tasks, 34 story_points)
+**In Progress**: none; next is T008 (migrations and the iteration 001 schema), which closes CP-03 and its co-review
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-04T15:35:00Z
+**Updated**: 2026-11-04T22:30:00Z
 
 ## Execution Summary
 
+- T007 (the Query layer, CP-03) is done in `bridge/src/utilities/query-layer/`. The owner chose @types/mssql 12.3.0 as a development-only package (option 1 of 3, 2026-11-04), recorded in implementation-rules.yml; mssql ships no types. What it does:
+  - one `QueryLayer` over two drivers: node:sqlite (`DatabaseSync`, the only class in Node 24, which CI runs; an asynchronous class would change sqlite.ts alone) and mssql;
+  - each `all`, `get` and `run` is its own unit of work, and `transaction` runs several statements as one;
+  - one retry, after a 250 ms pause (`RETRY_PAUSE_MS`), only when running the work again is safe: a deadlock victim, Microsoft's documented Azure SQL transient errors, a locked SQLite file, or a lost connection inside a transaction before the commit. A failure during the commit is never retried, because the work may already have taken effect;
+  - the errors are `store_down` (managers answer `BRIDGE_UNAVAILABLE`), `constraint_violated` and `statement_failed`. Messages name the error number or driver code, never the database's text, which can hold row values;
+  - placeholders are checked against parameters on both dialects, because SQLite would otherwise bind NULL for a missing one;
+  - a call to the layer from inside its own transaction is refused (on SQLite it would wait on itself);
+  - SQLite runs one unit of work at a time; a transaction's statements run one at a time on both dialects (mssql refuses two at once);
+  - the commit or rollback waits until every statement the work started has settled, and statements still waiting are refused. Found in a review before the first commit: work that fails while a statement it started is still queued could otherwise roll back first, leaving that statement to run outside any transaction (SQLite) or the rollback to meet a statement in progress (SQL Server). Three tests failed before the fix;
+  - SQL Server connects on first use and again after a failed connection, so the core runs while the database is down;
+  - insert-or-update is SQLite's `ON CONFLICT` and one T-SQL `MERGE` under `HOLDLOCK`, which stays atomic outside a transaction; both take an optional "only if newer" version guard. Paging is by key (`LIMIT` and `TOP`);
+  - the SQL Server half (tsql.ts and the managed-identity settings in tsql-managed-identity.live.ts) is not exported from index.ts, so the connector never reaches mssql.
+
+  The same contract tests ran on a SQLite file and on SQL Server 2022 (a local container, image CU14; CI uses 2022-latest). A deliberate break of each of 16 rules was caught by a test. Checks: 337 tests (18 need SQL Server and skip without it, and one runs only in CI to fail when its settings are missing); 99.8% lines and 97.4% branches with SQL Server, 94.5% lines and 96.2% branches without; lint, tsc, prettier, depcruise (63 modules), audit, licences and gitleaks are clean.
 - Implementation started 2026-11-03 after the owner's "approved for before-implement".
 - First implement co-review (codex; checkpoint cp-02-utilities-review; run-20261103-181059697-dfcd1e9c; 9 minutes; budget 1 of 4 used after the owner's allowance reset, DRIFT-001-10). It found 5 minor findings, all verified, and all fixed with tests; a deliberate break of each fix was caught:
   - a fresh sign-in now requires `auth_time` (an issue time does not prove re-entered credentials);

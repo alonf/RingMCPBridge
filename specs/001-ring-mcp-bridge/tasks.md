@@ -130,7 +130,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - `bridge/src/utilities/clock/`: a real clock and a fake clock, plus formatting in UTC and in a location's time zone.
 
   (Trace: FR-006, FR-029, FR-032; CP-02)
-- [ ] T007 [assigned_to: Implementer] [effort: 2] Query layer in `bridge/src/utilities/query-layer/`:
+- [x] T007 [assigned_to: Implementer] [effort: 2] Query layer in `bridge/src/utilities/query-layer/`:
   - one interface over `node:sqlite` and mssql 12.7.13 (T-SQL);
   - two-dialect versions of insert-or-update and paging, for use inside the accessors;
   - a transaction helper that retries once on a transient error;
