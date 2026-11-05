@@ -6,7 +6,9 @@
 //   - the untrusted-marking check on every output, and the closing sentence on every tool;
 //   - the inputs match the plan's contracts/iteration-001-tools.schema.json.
 // A document not yet published fails unless SCHEMAS_BOOTSTRAP=1 is set for the run that first
-// writes it, so a deleted file cannot be regenerated past the narrowing check unseen.
+// writes it, so a deleted file cannot be regenerated past the narrowing check unseen. With
+// SCHEMAS_BASE_DIRECTORY set to a copy of the base commit's `schemas/`, the documents are also
+// checked against the base, so editing the committed files by hand cannot hide a narrowing.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +35,7 @@ const PLANNED_INPUTS = fileURLToPath(
   ),
 );
 const BOOTSTRAP = process.env.SCHEMAS_BOOTSTRAP === "1";
+const BASE_DIRECTORY = process.env.SCHEMAS_BASE_DIRECTORY;
 
 /** Fields whose text the bridge writes itself: ids and its own error text. */
 const BRIDGE_TEXT: ReadonlySet<string> = new Set([
@@ -142,6 +145,35 @@ describe("the published Public Contract", () => {
     expect(others).toEqual([]);
   });
 });
+
+// Against the base commit: CI's lint job extracts the base's `schemas/` (the pull request's base,
+// or main's previous commit) into SCHEMAS_BASE_DIRECTORY, so a hand edit to the committed files
+// cannot hide a narrowing. An empty directory means the base published nothing yet.
+describe.runIf(BASE_DIRECTORY !== undefined)(
+  "the Public Contract against the base commit",
+  () => {
+    const base = BASE_DIRECTORY ?? "";
+    const published = (): readonly string[] =>
+      readdirSync(base).filter((name) => name.endsWith(".json"));
+
+    it.each(documents)(
+      "$fileName changes only by adding since the base",
+      (document) => {
+        const file = join(base, document.fileName);
+        if (existsSync(file)) {
+          expect(
+            findNarrowing(readJson(file), document.schema, document.direction),
+          ).toEqual([]);
+        }
+      },
+    );
+
+    it("keeps every document the base published", () => {
+      const names = new Set(documents.map((document) => document.fileName));
+      expect(published().filter((name) => !names.has(name))).toEqual([]);
+    });
+  },
+);
 
 describe("the tool inputs", () => {
   const inputs = documentNamed("tool-inputs.schema.json");

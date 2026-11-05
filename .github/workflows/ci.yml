@@ -36,6 +36,22 @@ jobs:
         run: npx depcruise bridge shim --config .dependency-cruiser.cjs
       - name: Public Contract schema snapshot
         run: npm run schemas:check --if-present
+      # FR-046: compare with the base commit's published schemas too, so a hand edit to the
+      # committed files cannot hide a removal or narrowing (DRIFT-001-15). The base is the pull
+      # request's base, or main's previous commit on a push.
+      - name: Public Contract against the base commit
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base="$RUNNER_TEMP/base-schemas"
+          mkdir -p "$base/schemas"
+          if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            if git cat-file -e "$BASE_SHA:schemas" 2>/dev/null; then
+              git archive "$BASE_SHA" schemas | tar -x -C "$base"
+            fi
+          fi
+          SCHEMAS_BASE_DIRECTORY="$base/schemas" npm run schemas:check
 
   test:
     name: test

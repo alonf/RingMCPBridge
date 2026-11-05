@@ -236,9 +236,14 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - the check errs on the safe side: an input that drops its `enum` entirely, and so accepts any string, is still reported as having its values removed.
   - **The snapshot guard** uses Vitest's file snapshots. `schemas:generate` is `vitest --update` on the snapshot test, and the narrowing check runs before each write. A document not yet published fails unless `SCHEMAS_BOOTSTRAP=1` is set for the run that first writes it, which T011 used once. `.gitattributes` keeps `schemas/*.json` at LF, so the test passes on a Windows checkout.
   - **Where the checks live.** The checks are test code in `bridge/test/contract/`. The Public Contract holds only schemas and their JSON Schema publication.
-  - **Two gaps are left open:**
-    - A hand edit to the committed `schemas/` files, followed by a matching code change, still passes. Closing that means comparing with the base branch in CI, a `ci.yml` change (`fetch-depth`) for the owner to decide.
-    - FR-046 lets a deprecated tool be removed later, but the check has no override for that yet.
+  - **Two gaps, one closed:**
+    - A hand edit to the committed `schemas/` files, followed by a matching code change, passed every check. **Closed on 2026-11-05** at the owner's typed choice (`close the schema gap`):
+      - CI's lint job now runs a step, "Public Contract against the base commit". It fetches the base commit (the pull request's base, or main's previous commit on a push), extracts that commit's `schemas/` into `SCHEMAS_BASE_DIRECTORY`, and runs the contract checks again;
+      - with that variable set, the snapshot test also compares each document with the base copy, and fails if the base published a document that is now gone;
+      - a missing base directory fails, and an empty one means the base published nothing yet;
+      - a whole-branch `fetch-depth` was not needed, because the step fetches the one base commit.
+      - Tested locally on real commits. A removed reply field, with the committed file edited to match, passed the existing checks (74 of 74) and failed the base comparison. The CI step itself has not run yet: the repository has no GitHub remote.
+    - Still open: FR-046 lets a deprecated tool be removed later, but the check has no override for that yet.
   - **For MCP Endpoint (T024)**, from a probe of SDK 2.4.0:
     - the SDK lists exactly what `z.toJSONSchema` generates, marks included;
     - the client checks `structuredContent` against the listed output schema, which rejects unknown fields, so the endpoint must parse each reply through its reply schema (that drops extra fields);
@@ -246,7 +251,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - `tool-replies.schema.json` is 34 KB, mostly the date-time `pattern` zod writes for each time field. Noted only.
 - **Requirement citation**: tasks.md T011 and T024; `contracts/mcp-tools.md` "Conventions"; `contracts/errors.md`; `contracts/iteration-001-tools.schema.json`; FR-033, FR-046, FR-047, FR-048.
 - **Resolution**: implementation choices, recorded for the next co-review and for T024. Cost: 0 SP and $0.
-- **Class closure**: the three checks run in CI's lint job (`npm run schemas:check`) and in the test suite. A deliberate break of each part was caught.
+- **Class closure**: the three checks run in CI's lint job (`npm run schemas:check`, then again against the base commit) and in the test suite. A deliberate break of each part was caught.
 
 ### Resolution Strategies (Unused)
 

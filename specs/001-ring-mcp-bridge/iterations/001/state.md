@@ -3,12 +3,15 @@
 **Schema**: v2
 **Last Completed Task**: T011
 **Tasks Remaining**: T012-T036 (25 tasks, 29 story_points)
-**In Progress**: none; CP-05 (T011) is complete; next T012 (CP-06)
+**In Progress**: none; CP-05 (T011) is complete, and its co-review choice waits for the owner; next T012 (CP-06)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-05T22:20:00Z
+**Updated**: 2026-11-05T22:55:00Z
 
 ## Execution Summary
 
+- The T011 schema gap is closed, at the owner's typed choice (`close the schema gap`, 2026-11-05). CI's lint job now checks the Public Contract against the base commit's published schemas too, so a hand edit to the committed files cannot hide a removal or narrowing. Details are in DRIFT-001-15.
+  - Tested locally on real commits. A removed reply field, with the committed file edited to match, passed the existing checks and failed the base comparison. A base document that is now gone fails, and so does a missing base directory. The CI step has not run on GitHub yet, because the repository has no remote.
+  - Checks: tsc, lint, prettier and gitleaks are clean, and the contract tests pass (31, with the base comparison's 4 skipped when no base is given).
 - T011 (the Public Contract; completes CP-05) is done in `bridge/src/contract/`, with its checks in `bridge/test/contract/` and the published documents in `schemas/`. What it adds:
   - **zod schemas** for the inputs and data of `get_overview`, `list_devices`, `get_device` and `get_health`, the reply envelope (with a rule that `stale_since` is present exactly when the data is stale) and the error envelope with the fourteen codes. Inputs are flat and reject unknown fields. Each tool's catalog entry holds its name, scope, MCP description, input and reply, for MCP Endpoint (T024);
   - **untrusted marking**: every Ring-sourced field (location and device names, rooms, the time zone, a device's `state`) carries `x-untrusted: true` and a description starting "UNTRUSTED.", and every tool description ends with the untrusted-content sentence;
