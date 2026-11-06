@@ -37,7 +37,10 @@
     "werift-common": "0.0.3",
     "werift-dtls": "0.5.8",
     "werift-ice": "0.2.3",
-    "werift-rtp": "0.8.9",
+    "werift-rtp": {
+      ".": "0.8.9",
+      "mediabunny": "1.62.1"
+    },
     "werift-sctp": "0.0.11"
   },
   "devDependencies": {

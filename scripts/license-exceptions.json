@@ -17,10 +17,10 @@
   },
   {
     "package": "mediabunny",
-    "version": "1.65.2",
+    "version": "1.62.1",
     "licence": "MPL-2.0",
     "via": "werift-rtp 0.8.9 through werift 0.22.4 and ring-client-api 14.3.0",
-    "reason": "MPL-2.0 is file-level copyleft and allowed for development only. It is used unmodified, only by Ring live media (iteration 003), so the obligation is to keep its notices and source available, which the npm package does. Accepted under the owner's rule for ring-client-api's packages (2026-11-06)",
+    "reason": "MPL-2.0 is file-level copyleft and allowed for development only. It is used unmodified, only by Ring live media (iteration 003), so the obligation is to keep its notices and source available, which the npm package does. The owner accepted it and the pin to 1.62.1 (2026-11-06)",
     "reviewed": "2026-11-06, DRIFT-001-17"
   }
 ]

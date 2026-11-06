@@ -1,6 +1,7 @@
 #!/bin/sh
 # Pre-commit checks (T003): lint, the format check, and the secret scan of what is staged.
-# Enabled by `npm install` (the prepare script sets core.hooksPath to .githooks).
+# Enabled once per clone with `git config core.hooksPath .githooks` (quickstart Step 2); installs
+# run with --ignore-scripts, so npm prepare does not set it.
 set -e
 
 npx --no-install eslint --max-warnings 0 .

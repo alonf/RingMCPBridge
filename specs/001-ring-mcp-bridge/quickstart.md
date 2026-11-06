@@ -40,7 +40,7 @@ Decisions and their sources are in `research.md` (entries R1 to R29). The items 
   - **Architecture**: the SQL Server container runs on x86-64 only, and emulation is not supported. On an ARM machine, mode A on SQLite works, but the T-SQL tests cannot run locally.
 - **Other tools**:
   - PowerShell 7, for the scripts in `scripts/` and for the bootstrap.
-  - git. The repository's hooks are wired through `core.hooksPath` to `.githooks`, set by npm `prepare`.
+  - git. The repository's hooks are wired through `core.hooksPath` to `.githooks`, set once by hand (Step 2), because installs run with install scripts off.
   - gitleaks 8.30.1, a pinned binary checked by checksum. It is used by the pre-commit hook and by CI.
 
 **For the hybrid deployment**:
@@ -73,19 +73,23 @@ Decisions and their sources are in `research.md` (entries R1 to R29). The items 
 ## Step 2: Get the code and install
 
 1. Clone the repository. It is one npm workspace with two packages, `bridge` and `shim`, and one lockfile.
-2. Install from the repository root:
-
-   ```powershell
-   npm ci
-   ```
-
-   On a developer machine, install scripts run, so npm `prepare` sets `core.hooksPath` to `.githooks` (the pre-commit hook: lint, format and gitleaks). CI and the image builds use the variant below instead. Install scripts are switched off only in those commands, never in the committed `.npmrc`.
+2. Install from the repository root, with install scripts switched off. This is the same command CI and the image builds use:
 
    ```powershell
    npm ci --ignore-scripts
    ```
 
-3. On Node 26, one `EBADENGINE` warning for ring-client-api 14.3.0 is expected. That release predates Node 26 and does not name it in its declared range. It is not evidence of a break: the tracked Node 26 spike and the CI tests on the image's Node are the checks (`research.md` R1).
+   Never run a plain `npm ci` or `npm install`. ring-client-api brings in ffmpeg-for-homebridge, whose install script downloads an ffmpeg program without checking a checksum. The bridge never uses that program: it uses the system ffmpeg (DRIFT-001-17). The flag is given on each command rather than in the committed `.npmrc`, so the rule stays visible where it applies.
+
+3. Turn on the commit checks once per clone. A plain install would do this through npm `prepare`, which the flag above skips:
+
+   ```powershell
+   git config core.hooksPath .githooks
+   ```
+
+   The pre-commit hook runs lint, the format check and gitleaks on what is staged.
+
+4. On Node 26, one `EBADENGINE` warning for ring-client-api 14.3.0 is expected. That release predates Node 26 and does not name it in its declared range. It is not evidence of a break: the tracked Node 26 spike and the CI tests on the image's Node are the checks (`research.md` R1).
 
 ## Step 3: Run mode A locally against the scenario engine (no Ring account needed)
 

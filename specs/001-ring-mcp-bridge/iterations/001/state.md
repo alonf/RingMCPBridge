@@ -3,9 +3,9 @@
 **Schema**: v2
 **Last Completed Task**: T013
 **Tasks Remaining**: T014-T036 (23 tasks, 26 story_points)
-**In Progress**: none; CP-07 (T013) is complete, and its co-review choice waits for the owner; next T014 (CP-08a). T028 completes CP-06 later
+**In Progress**: T014 (CP-08a). CP-07 (T013) is complete; its co-review is folded into one round with CP-06 after T028 (owner, 2026-11-06), which needs an allowance reset first
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-06T20:30:00Z
+**Updated**: 2026-11-06T21:15:00Z
 
 ## Execution Summary
 
