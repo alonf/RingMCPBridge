@@ -3,9 +3,11 @@
 // against the published one. Additive change means the opposite for the two directions:
 //   - input (what agents send): an agent's old call must still be accepted. A removed field, a
 //     field that became required, a removed enum value, a new enum on a field that took any value,
-//     a tighter bound or format, or unknown fields becoming rejected all fail. Looser inputs pass.
+//     a tighter bound, a new or changed format or pattern, or unknown fields becoming rejected all
+//     fail. Looser inputs pass.
 //   - output (what the bridge returns): what an agent relied on must still hold. A removed field, a
-//     field that became optional, a removed or dropped enum, or a looser bound or format all fail.
+//     field that became optional, a removed or dropped enum, a looser bound, or a dropped or
+//     changed format or pattern all fail.
 //     New fields and new enum values pass: the contract adds both (FR-046; contracts/errors.md).
 // Any other change to a keyword the check does not know fails, so nothing changes unseen.
 // Prose (`title`, `description`) and the untrusted mark are not compared here; the marking check
@@ -158,6 +160,8 @@ function boundRule(
 }
 
 // A new or changed format (or pattern) narrows an input; a dropped or changed one breaks an output.
+// Two patterns cannot be compared for meaning, so any change counts, even under the same format:
+// UTC and local times share `format: date-time` and differ only in their patterns.
 const constraint: KeywordRule = (comparison, keyword) => {
   const published = comparison.published[keyword];
   const current = comparison.current[keyword];
@@ -169,19 +173,6 @@ const constraint: KeywordRule = (comparison, keyword) => {
   if (relied !== undefined) {
     comparison.report(`${keyword} changed`);
   }
-};
-
-// zod writes a date-time format's regular expression as `pattern`; while the format holds, a new
-// zod rendering of the same format is not a contract change.
-const pattern: KeywordRule = (comparison, keyword) => {
-  const format = comparison.published.format;
-  if (
-    format !== undefined &&
-    isDeepStrictEqual(format, comparison.current.format)
-  ) {
-    return;
-  }
-  constraint(comparison, keyword);
 };
 
 const additionalProperties: KeywordRule = (comparison, keyword) => {
@@ -225,7 +216,7 @@ const RULES: ReadonlyMap<string, KeywordRule> = new Map<string, KeywordRule>([
   ["required", required],
   ["enum", enumValues],
   ["format", constraint],
-  ["pattern", pattern],
+  ["pattern", constraint],
   ["additionalProperties", additionalProperties],
   ["items", subschema],
   ["propertyNames", subschema],

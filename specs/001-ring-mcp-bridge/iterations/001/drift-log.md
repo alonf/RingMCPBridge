@@ -232,11 +232,14 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - inputs fail on a removed field, a field that became required, a removed enum value, a new enum on a field that took any value, a tighter bound or format, or unknown fields becoming rejected;
     - replies fail on a removed field, a field that is no longer always present, a removed enum value, a dropped enum, or a looser bound or format. New fields and enum values pass;
     - any change to another keyword fails;
-    - a new zod rendering of the date-time `pattern` is ignored while the `format` is unchanged;
+    - a `pattern` is compared strictly, like a format. A new or changed pattern fails an input, and a dropped or changed one fails a reply, even when the `format` is unchanged;
     - an input that drops its `enum` entirely passes, because that only loosens it.
   - **The CP-05 co-review (2026-11-06) found gaps in two of these rules.**
     - Round 3 found that an enum added to an input that took any value went unreported. The enum rule now handles each direction separately, as listed above. The same change let a dropped input enum pass; before, the check reported it as removed values.
-    - Round 4 found that the `pattern` exception is too wide. UTC and local times share `format: date-time`, and only the pattern tells them apart, so a reply time switched from UTC to an offset passes unseen. It was saved as a follow-up at sign-off. The proposed fix is to compare patterns strictly. zod is pinned at exactly 4.6.7, so only a deliberate zod upgrade could change the generated pattern, and the check would then stop that upgrade until the owner decides (the same missing override as the deprecated-tool removal below).
+    - Round 4 found that the `pattern` exception is too wide. UTC and local times share `format: date-time`, and only the pattern tells them apart, so a reply time switched from UTC to an offset passes unseen. It was saved as a follow-up at sign-off, and fixed afterwards: patterns are now compared strictly, as listed above.
+      - A test using zod's real UTC and local-time patterns fails on the old rule and passes on the new one.
+      - Switching the error envelope's `as_of` to local time now fails the snapshot test.
+      - zod is pinned at exactly 4.6.7, so only a deliberate zod upgrade could change the generated pattern. The check would then stop that upgrade until the owner decides (the same missing override as the deprecated-tool removal below).
   - **The snapshot guard** uses Vitest's file snapshots. `schemas:generate` is `vitest --update` on the snapshot test, and the narrowing check runs before each write. A document not yet published fails unless `SCHEMAS_BOOTSTRAP=1` is set for the run that first writes it, which T011 used once. `.gitattributes` keeps `schemas/*.json` at LF, so the test passes on a Windows checkout.
   - **Where the checks live.** The checks are test code in `bridge/test/contract/`. The Public Contract holds only schemas and their JSON Schema publication.
   - **Two gaps, one closed:**

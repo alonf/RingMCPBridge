@@ -1,10 +1,17 @@
 // The removal-or-narrowing check (T011): each rule, in both directions.
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { localTime, utcTime } from "../../src/contract/shapes.ts";
 import { findNarrowing } from "./narrowing.ts";
 import type { SchemaNode } from "./schema-node.ts";
 
 function tool(properties: SchemaNode, extra: SchemaNode = {}): SchemaNode {
   return { $defs: { t: { type: "object", properties, ...extra } } };
+}
+
+/** The JSON Schema the Public Contract publishes for a time field. */
+function timeField(schema: z.ZodType): SchemaNode {
+  return z.toJSONSchema(schema, { target: "draft-2020-12" });
 }
 
 const text = { type: "string" };
@@ -237,13 +244,26 @@ describe("findNarrowing on an output document", () => {
     expect(changes(plain, dated, "output")).toEqual([]);
   });
 
-  it("ignores zod's new pattern for an unchanged format, but not a pattern alone", () => {
+  it("fails a changed or dropped pattern, even under the same format, and passes a new one", () => {
     const dated = (regex: string): SchemaNode =>
       tool({ a: { type: "string", format: "date-time", pattern: regex } });
-    expect(changes(dated("^a$"), dated("^b$"), "output")).toEqual([]);
-    const patterned = (regex: string): SchemaNode =>
-      tool({ a: { type: "string", pattern: regex } });
-    expect(changes(patterned("^a$"), patterned("^b$"), "output")).toEqual([
+    expect(changes(dated("^a$"), dated("^b$"), "output")).toEqual([
+      `${at}/properties/a: pattern changed`,
+    ]);
+    const plain = tool({ a: { type: "string", format: "date-time" } });
+    expect(changes(dated("^a$"), plain, "output")).toEqual([
+      `${at}/properties/a: pattern changed`,
+    ]);
+    expect(changes(plain, dated("^a$"), "output")).toEqual([]);
+  });
+
+  it("fails a time that moves between UTC and an offset", () => {
+    const utc = tool({ a: timeField(utcTime("t")) });
+    const local = tool({ a: timeField(localTime("t")) });
+    expect(changes(utc, local, "output")).toEqual([
+      `${at}/properties/a: pattern changed`,
+    ]);
+    expect(changes(local, utc, "input")).toEqual([
       `${at}/properties/a: pattern changed`,
     ]);
   });

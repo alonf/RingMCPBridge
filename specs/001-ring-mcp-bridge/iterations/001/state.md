@@ -3,11 +3,17 @@
 **Schema**: v2
 **Last Completed Task**: T011
 **Tasks Remaining**: T012-T036 (25 tasks, 29 story_points)
-**In Progress**: none; the CP-05 review is signed off; next the round-4 follow-up (the pattern rule), then T012 (CP-06)
+**In Progress**: none; the CP-05 review and its follow-up are done; next T012 (CP-06)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-06T11:50:00Z
+**Updated**: 2026-11-06T16:00:00Z
 
 ## Execution Summary
+
+- The CP-05 round-4 follow-up is fixed. The contract check now compares a `pattern` strictly, like a format, even when the `format` is unchanged. Before, it skipped the pattern whenever the format matched, so a reply time switched from UTC to an offset passed unseen.
+  - Two tests fail on the old rule. One uses zod's real UTC and local-time patterns.
+  - A deliberate break was caught: with the error envelope's `as_of` switched to local time, the snapshot test fails with "pattern changed".
+  - Cost of the strict rule: a deliberate zod upgrade that rewrites the date-time pattern would also fail, until the owner decides (DRIFT-001-15).
+  - The CP-06 co-review will see this fix.
 
 - The round-3 fixes, made before round 4 at the owner's choice:
   - **A new enum on an input.** The contract check now reports an enum added to an input that took any value, and an enum dropped from a reply. An input that drops its enum now passes, because that only loosens it. Before, it was reported as having its values removed. Two tests cover these cases, including the review's `room` example, and both fail on the old rule.
