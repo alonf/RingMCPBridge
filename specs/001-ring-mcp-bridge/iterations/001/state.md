@@ -3,11 +3,17 @@
 **Schema**: v2
 **Last Completed Task**: T012
 **Tasks Remaining**: T013-T036 (24 tasks, 28 story_points)
-**In Progress**: T013 (CP-07): the call limits are done; installing ring-client-api waits for two owner decisions (DRIFT-001-17). T028 completes CP-06 later
+**In Progress**: T013 (CP-07): the call limits and ring-client-api are in; next the adapter itself. T028 completes CP-06 later
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-06T17:30:00Z
+**Updated**: 2026-11-06T19:30:00Z
 
 ## Execution Summary
+
+- T013, part 2: ring-client-api 14.3.0 is installed, after the owner's two decisions on 2026-11-06. The details are in DRIFT-001-17.
+  - **Backoff:** R25's numbers stay (`Accept your suggestion`).
+  - **ffmpeg-for-homebridge:** the owner allowed it if it raises no security issue. Its only risk is its install script's unchecked download, and that never runs: CI and the image install with `--ignore-scripts`, and the adapter will pass the system ffmpeg by path. A local stub was tried and dropped, because npm 11.9.0 does not apply a `file:` override of a nested package in a way `npm ci` can reproduce.
+  - **A third package:** `mediabunny` (MPL-2.0, through werift) came to light. It is a reviewed exception, and it was added to the dependency record in `implementation-rules.yml`.
+  - **Pins and gates:** werift's five wildcard parts are pinned by root `overrides`. The audit gate passes with only the recorded `ip` exception, and the licence gate passes with three reviewed exceptions.
 
 - The T012 commits were pushed at the owner's request (`You can push them and continue the implementation`). CI passed every job on them, including the Linux-only checks of the Secrets File.
 - T013 (the Ring Adapter), part 1: the Ring call limits are done in `bridge/src/connector/access/ring-adapter/call-limits.ts`, written test-first on the fake clock. T013 stays open.
