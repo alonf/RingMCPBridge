@@ -196,7 +196,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 
 ### Home side
 
-- [ ] T012 [P] [US1] [assigned_to: Implementer] [effort: 1] Secrets File in `bridge/src/connector/access/secrets-file/`:
+- [x] T012 [P] [US1] [assigned_to: Implementer] [effort: 1] Secrets File in `bridge/src/connector/access/secrets-file/`:
   - an encrypted file at home, whose key comes from a Docker secret;
   - it holds the Ring refresh token, the push credentials, Ring's session hardware ID and the connector private key;
   - writes are atomic when the token rotates;

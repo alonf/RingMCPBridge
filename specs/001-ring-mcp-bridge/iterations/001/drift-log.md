@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 15
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05)
+**Total drift events**: 16
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 1 in implement on 2026-11-06)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -258,6 +258,27 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: tasks.md T011 and T024; `contracts/mcp-tools.md` "Conventions"; `contracts/errors.md`; `contracts/iteration-001-tools.schema.json`; FR-033, FR-046, FR-047, FR-048.
 - **Resolution**: implementation choices, recorded for the next co-review and for T024. Cost: 0 SP and $0.
 - **Class closure**: the three checks run in CI's lint job (`npm run schemas:check`, then again against the base commit) and in the test suite. A deliberate break of each part was caught.
+
+### DRIFT-001-16: T012 settles the Secrets File's key format, contents and write rules
+
+- **Detected**: 2026-11-06, implement, while doing T012
+- **Kind**: details left open, versus the code. No spec change
+- **Observed**:
+  - **The key's Docker secret** holds the 32-byte key as base64url text (43 characters). Surrounding whitespace, such as a trailing newline, is ignored. `encodeSecretsFileKey` writes this form, and T028's Setup CLI must use it. An error about the key never quotes what the secret holds.
+  - **The contents** are sealed JSON with the bridge's stored names: `format` (1), `ring_refresh_token`, `ring_hardware_id`, `push_credentials` and `connector_private_key` (PKCS#8 DER as base64url). Push credentials are an opaque JSON object, optional until Ring's push registration has run. This file does not import ring-client-api types, which keeps T013's adapter as its only import site.
+  - **Values stay hidden.** The token, hardware ID and push credentials come back as `Secret` values, which print and serialize to JSON as `[secret]`; only `reveal()` hands out a value. The private key comes back as a `KeyObject`, which never prints its bytes. Error messages are the bridge's own. A cause is attached only where it cannot quote the contents, so a JSON or zod parse error is never attached.
+  - **Failing closed.** Only a successful `open` or `create` gives an object that can write. A wrong key, a changed byte or unknown contents throws `open_failed`, and the file is left as it was. A missing file is a normal result (`undefined`), because the Setup CLI has not run yet.
+  - **Writes.**
+    - Each write goes to a temporary file in the same folder, is flushed, and is renamed over the file. On Linux the folder is flushed too.
+    - `create` places the file with a hard link, which never replaces an existing file, so a second setup cannot overwrite the first one (`already_exists`).
+    - Writes run one at a time, in call order, and each one writes the whole file. Overlapping token rotations therefore leave the newest token on disk (rule L2).
+    - A failed write leaves the previous file. The new values stay in use, and the next write carries them.
+    - The file is owner-only (0600) on Linux.
+  - **Where paths come from.** The file and key paths are passed in by the caller. No setting was added here; T028 and the connector's wiring decide them.
+  - **Carry-forward to T016 (Core Link).** T012 tests that the secrets serialize as placeholders in a JSON frame. The link does not exist yet, so T016 should also test that no Secrets File value appears in the frames it sends.
+- **Requirement citation**: tasks.md T012, T016 and T028; data-model.md "Ring secrets"; SC4, DS3; FR-032, FR-034.
+- **Resolution**: implementation choices, recorded for the CP-06 co-review and for T028. Cost: 0 SP and $0.
+- **Class closure**: the Secrets File's tests cover the round trip, the wrong key, the changed byte, unknown contents, an existing file, a failed write, overlapping writes, and leaks through errors, log lines and JSON. A deliberate break of five parts was caught: unordered writes, an attached JSON error, a temporary file left behind, a `Secret` that serializes its value, and a `create` that replaces an existing file.
 
 ### Resolution Strategies (Unused)
 

@@ -1,13 +1,26 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T011
-**Tasks Remaining**: T012-T036 (25 tasks, 29 story_points)
-**In Progress**: none; the CP-05 review and its follow-up are done; next T012 (CP-06)
+**Last Completed Task**: T012
+**Tasks Remaining**: T013-T036 (24 tasks, 28 story_points)
+**In Progress**: CP-06; T012 is done, next T013 (CP-07), and T028 completes CP-06 later
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-06T16:00:00Z
+**Updated**: 2026-11-06T16:30:00Z
 
 ## Execution Summary
+
+- T012 (the Secrets File; the first half of CP-06) is done, in `bridge/src/connector/access/secrets-file/`. What it adds:
+  - **the file**: Ring's refresh token, Ring's session hardware ID, the push credentials and the connector's private key, sealed with the Security utility's AES-256-GCM under a key from a Docker secret. `open` returns nothing when there is no file yet. `create` is for the Setup CLI (T028) and never replaces an existing file. `update` writes a rotated token or new push credentials;
+  - **failing closed**: a wrong key, a changed byte or unknown contents throws `open_failed` and leaves the file as it was. Only an opened or created file can write;
+  - **atomic, ordered writes**: each write goes to a flushed temporary file that is renamed over the file. Writes run one at a time, so overlapping token rotations leave the newest token on disk. A failed write leaves the previous file;
+  - **hidden values**: the token, hardware ID and push credentials are `Secret` values that print and serialize as `[secret]`, and the private key is a `KeyObject`. Errors never quote a secret or the contents.
+
+  The choices made here are in DRIFT-001-16, including the key's format for T028 and a carry-forward to T016: the link does not exist yet, so T016 should test its own frames for Secrets File values.
+
+  A deliberate break of five parts was caught: unordered writes, an attached JSON error, a temporary file left behind, a `Secret` that serializes its value, and a `create` that replaces an existing file. Checks:
+  - 536 tests: 487 pass and 49 skip without SQL Server. One of the skips is the owner-only file mode check, which runs on Linux in CI;
+  - coverage without SQL Server: 94.3% of lines and 95.6% of branches. The Linux-only folder flush is not covered on Windows, and CI runs it;
+  - lint, tsc, prettier and depcruise (120 modules) are clean. No dependency was added.
 
 - The CP-05 round-4 follow-up is fixed. The contract check now compares a `pattern` strictly, like a format, even when the `format` is unchanged. Before, it skipped the pattern whenever the format matched, so a reply time switched from UTC to an offset passed unseen.
   - Two tests fail on the old rule. One uses zod's real UTC and local-time patterns.
