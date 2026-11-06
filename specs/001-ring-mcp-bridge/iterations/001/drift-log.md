@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 16
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 1 in implement on 2026-11-06)
+**Total drift events**: 17
+**Resolution rate**: 94%, 16 of 17 (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 1 in implement on 2026-11-06). DRIFT-001-17 waits for two owner decisions.
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -279,6 +279,24 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: tasks.md T012, T016 and T028; data-model.md "Ring secrets"; SC4, DS3; FR-032, FR-034.
 - **Resolution**: implementation choices, recorded for the CP-06 co-review and for T028. Cost: 0 SP and $0.
 - **Class closure**: the Secrets File's tests cover the round trip, the wrong key, the changed byte, unknown contents, an existing file, a failed write, overlapping writes, and leaks through errors, log lines and JSON. A deliberate break of five parts was caught: unordered writes, an attached JSON error, a temporary file left behind, a `Secret` that serializes its value, and a `create` that replaces an existing file.
+
+### DRIFT-001-17: T013's Ring call limits fill in two numbers, and the licence check of PT-10 needs the owner
+
+- **Detected**: 2026-11-06, implement, while doing T013
+- **Kind**: a record-to-record conflict, a value the records leave open, and a PT-10 owner decision. No spec change
+- **Observed**:
+  - **The call limits** are in `bridge/src/connector/access/ring-adapter/call-limits.ts`, built test-first on the fake clock. One gate takes every Ring call: one call at a time, a backoff after each `ring_unavailable` failure, and a circuit that opens after 5 failures in a row and probes once a minute.
+    - The circuit is checked when a call reaches the front of the queue. Calls already waiting when it opens are refused without reaching Ring.
+    - Only `ring_unavailable` counts as a failure. A lost session, an abort or an unmapped error neither counts nor holds the probe slot.
+    - A caller that aborts while queued leaves at once, and the calls behind it still wait their turn.
+  - **The spacing between calls is not in the records.** FR-026 says only "no polling bursts". The default is 1 s between the starts of two calls (`RING_CALL_LIMITS.spacingMs`).
+  - **The backoff numbers conflict.** tasks.md T013 says "1 to 30 s, randomised", which matches FR-042's link reconnect. Research R25 says Ring's 429 and 5xx back off "from 2 s to a 60 s cap, with jitter". The default follows R25, because it is the Ring-specific decision: each wait is a random time between half and all of 2 s × 2^(failures − 1), capped at 60 s. Only the first four waits differ between the two, because the circuit opens at the fifth failure. **Owner decision pending.**
+  - **The PT-10 licence check** of the two packages that come with ring-client-api and declare no licence:
+    - `@shinyoshiaki/jspack` (through werift) is a republish of `birchroad/node-jspack`, whose repository is BSD-3-Clause. This is the permissive licence PT-10 asks for, so it becomes a reviewed exception in `scripts/license-exceptions.json` when the library is installed.
+    - `ffmpeg-for-homebridge` has no LICENSE file in its repository and no licence field, and its source says "Copyright(C) 2019-2026, The Homebridge Team. All rights reserved." It is a hard dependency of `@homebridge/camera-utils` (MIT), which imports it when the module loads and falls back to plain `ffmpeg` when it exports nothing. Its install script downloads an ffmpeg binary, which the supply-chain policy already forbids. **Owner decision pending (PT-10).** The options are to accept it as a reviewed exception, to replace it through an npm override with a small local stub that exports nothing, or to ask upstream for a licence.
+- **Requirement citation**: tasks.md T013; research.md R25 and PT-10; spec FR-026, FR-042 and Edge Cases; implementation-rules.yml `project.supply-chain-policy` and `dependency_policy`.
+- **Resolution**: the call limits are implementation choices. The backoff numbers and the PT-10 package wait for the owner, and ring-client-api is not installed until PT-10 is decided. Cost: 0 SP and $0.
+- **Class closure**: the limits' tests run in the suite. A deliberate break of six parts was caught: the circuit checked on entry, a probe slot kept after an unmapped error, an abort that waits its turn, no spacing, no backoff, and a queue that lets a call pass the one before it.
 
 ### Resolution Strategies (Unused)
 

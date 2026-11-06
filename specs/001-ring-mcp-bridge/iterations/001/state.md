@@ -3,11 +3,20 @@
 **Schema**: v2
 **Last Completed Task**: T012
 **Tasks Remaining**: T013-T036 (24 tasks, 28 story_points)
-**In Progress**: CP-06; T012 is done, next T013 (CP-07), and T028 completes CP-06 later
+**In Progress**: T013 (CP-07): the call limits are done; installing ring-client-api waits for two owner decisions (DRIFT-001-17). T028 completes CP-06 later
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-06T16:30:00Z
+**Updated**: 2026-11-06T17:30:00Z
 
 ## Execution Summary
+
+- The T012 commits were pushed at the owner's request (`You can push them and continue the implementation`). CI passed every job on them, including the Linux-only checks of the Secrets File.
+- T013 (the Ring Adapter), part 1: the Ring call limits are done in `bridge/src/connector/access/ring-adapter/call-limits.ts`, written test-first on the fake clock. T013 stays open.
+  - **What they do:** one gate takes every Ring call, one at a time and at least 1 s apart. Each `ring_unavailable` failure adds a randomised backoff. After 5 failures in a row the circuit opens: calls are refused without reaching Ring, and one probe goes through each minute.
+  - A deliberate break of six parts was caught.
+  - Checks: 10 new tests pass. Lint, tsc and prettier are clean.
+  - **Waiting for the owner (DRIFT-001-17):**
+    - the backoff numbers: tasks.md says 1 to 30 s, while research R25 says 2 s to a 60 s cap. The code follows R25 for now;
+    - PT-10: `ffmpeg-for-homebridge` has no licence and its source says "All rights reserved". ring-client-api is not installed until the owner decides.
 
 - T012 (the Secrets File; the first half of CP-06) is done, in `bridge/src/connector/access/secrets-file/`. What it adds:
   - **the file**: Ring's refresh token, Ring's session hardware ID, the push credentials and the connector's private key, sealed with the Security utility's AES-256-GCM under a key from a Docker secret. `open` returns nothing when there is no file yet. `create` is for the Setup CLI (T028) and never replaces an existing file. `update` writes a rotated token or new push credentials;
