@@ -5,7 +5,7 @@ import type { Clock } from "../../clock/index.ts";
 import { QueryLayerError } from "../query-layer-error.ts";
 import type { QueryLayer } from "../query-layer.ts";
 import type { SqlDialect, SqlSession, SqlStatement } from "../sql-types.ts";
-import { checkMigrations } from "./migration.ts";
+import { checkMigrations, statementsFor } from "./migration.ts";
 import type { Migration, MigrationReport } from "./migration.ts";
 
 /**
@@ -41,13 +41,13 @@ export interface MigrationOptions {
  * database records but the code does not know are reported, not refused (code N-1 on schema N).
  * Throws `statement_failed` when the list is malformed or a recorded version has another name.
  */
-export async function runMigrations(
+export async function runMigrations<Dialect extends SqlDialect>(
   layer: QueryLayer,
-  migrations: readonly Migration[],
+  migrations: readonly Migration<Dialect>[],
   options: MigrationOptions,
   signal: AbortSignal,
 ): Promise<MigrationReport> {
-  checkMigrations(migrations);
+  checkMigrations(migrations, layer.dialect);
   const lockWaitMs = options.lockWaitMs ?? MIGRATION_LOCK_WAIT_MS;
   await layer.transaction(async (session) => {
     await lockMigrations(session, lockWaitMs, signal);
@@ -77,9 +77,9 @@ export async function runMigrations(
 }
 
 // Resolves false when another start applied the migration while this one waited for the lock.
-async function applyMigration(
+async function applyMigration<Dialect extends SqlDialect>(
   layer: QueryLayer,
-  migration: Migration,
+  migration: Migration<Dialect>,
   options: Required<MigrationOptions>,
   signal: AbortSignal,
 ): Promise<boolean> {
@@ -97,7 +97,7 @@ async function applyMigration(
     if (done !== undefined) {
       return false;
     }
-    for (const sql of migration.statements[session.dialect]) {
+    for (const sql of statementsFor(migration, session.dialect)) {
       await session.run(statement(sql), signal);
     }
     await session.run(
@@ -170,8 +170,8 @@ async function recordedVersions(
 }
 
 // A version recorded under another name means a released migration was renumbered.
-function checkRecordedNames(
-  migrations: readonly Migration[],
+function checkRecordedNames<Dialect extends SqlDialect>(
+  migrations: readonly Migration<Dialect>[],
   recorded: ReadonlyMap<number, string>,
 ): void {
   for (const migration of migrations) {

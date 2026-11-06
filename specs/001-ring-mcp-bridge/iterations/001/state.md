@@ -1,13 +1,25 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T013
-**Tasks Remaining**: T014-T036 (23 tasks, 26 story_points)
-**In Progress**: T014 (CP-08a). CP-07 (T013) is complete; its co-review is folded into one round with CP-06 after T028 (owner, 2026-11-06), which needs an allowance reset first
+**Last Completed Task**: T014
+**Tasks Remaining**: T015-T036 (22 tasks, 25 story_points)
+**In Progress**: none; CP-08a (T014) is complete; next T015 (CP-09). CP-07 is reviewed with CP-06 after T028 (owner, 2026-11-06), which needs an allowance reset first
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-06T21:15:00Z
+**Updated**: 2026-11-06T23:55:00Z
 
 ## Execution Summary
+
+- T014 (the Outbox Store and Ingest's state path; completes CP-08a) is done:
+  - **the Outbox Store** (`bridge/src/connector/access/outbox-store/`), in the connector's own SQLite file. A message is written before it is sent. It is resent 10 s after a send without an ack, sent again oldest first after a reconnect, and cleared only on its ack. The `state_version` counter is saved in the same transaction as its message, so versions keep rising across a restart;
+  - **Ingest's state path** (`bridge/src/connector/managers/ingest/`): an `inventory` at session start and on `inventory_request`, and a `device_state` with the device's full entry on each change, written in arrival order. A change that arrives during a read is folded into that read's inventory. An alarm-mode change sends the inventory again, because no other iteration 001 message carries a location;
+  - **the migration runner** now accepts a schema for one dialect, so the outbox needs no T-SQL.
+
+  The choices and the carry-forwards to T016 are in DRIFT-001-19. A deliberate break of eight parts was caught. Checks:
+  - 607 tests: 558 pass and 49 skip without SQL Server;
+  - coverage without SQL Server: 94.7% of lines and 94.2% of branches;
+  - lint, tsc, prettier and depcruise (142 modules) are clean.
+
+- The owner's answers of 2026-11-06 on T013 are applied: installs skip install scripts everywhere (quickstart.md Step 2), mediabunny is accepted and pinned to 1.62.1, T013 stays complete with the rooms and `commStatus` checks carried to the pilot, and CP-07 is reviewed together with CP-06 after T028 (DRIFT-001-17 and DRIFT-001-18).
 
 - T013 (the Ring Adapter; completes CP-07) is done, in `bridge/src/connector/access/ring-adapter/`. Besides the call limits and the install (below), it adds:
   - **the adapter** (`RingApiAdapter`). Every call passes through the shared gate with a 30 s deadline, because ring-client-api retries a missing answer on its own, without end. Its failures become `RingAdapterError` in the bridge's own words, with nothing of the library attached. A lost session stays lost until the owner signs in again. A rotated token is saved at once as a `Secret` through the Secrets File's update;

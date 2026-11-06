@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 18
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 3 in implement on 2026-11-06)
+**Total drift events**: 19
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -336,6 +336,42 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: tasks.md T013; research.md R25; spec FR-002, FR-026, FR-033, FR-034, FR-042 and Edge Cases; implementation-rules.yml `code-rule.anti-corruption-layers` and `code-rule.idiomatic-error-handling`.
 - **Resolution**: implementation choices, recorded for the co-review of CP-06 and CP-07 after T028. The room list and the `commStatus` check wait for the pilot. Cost: 0 SP and $0.
 - **Class closure**: the mapping tests (written first), the adapter's tests over the fake client, and the contract test run in the suite. A deliberate break of five parts was caught: a library error kept as the cause, the library's message copied, the first device data reported as a change, a lost session that is not kept, and a ring-client-api type in the port.
+
+### DRIFT-001-19: T014 settles the outbox's rules in code, sends the inventory again on an alarm-mode change, and lets one schema use SQLite only
+
+- **Detected**: 2026-11-06, implement, while doing T014
+- **Kind**: details the records leave open, one addition to the link contract's "when it is sent", and a change to the CP-03 migration runner. No spec change
+- **Observed**:
+  - **The Outbox Store** (`bridge/src/connector/access/outbox-store/`):
+    - **The file and its schema.** The store opens its own SQLite file and brings its schema up to date when it opens, so the Host only opens it. Its migration list lives with the store, because no other component reads the file. Names new at implement [P]: the tables `outbox` (`seq`, `message_id`, `kind`, `body`, `created_at`, `sent_at`) and `state_counter` (one row, `last_version`). Times are UTC milliseconds, as in the core's schema.
+    - **Its operations** [P names]: `append`, `takeDue(limit)`, `acknowledge`, `markAllUnsent` and `depth`.
+      - `takeDue` returns the messages never sent and those sent 10 s or more ago without an ack (`RESEND_AFTER_MS`), oldest first, and marks them sent.
+      - `markAllUnsent` is for a new session: every unacked message is then sent again, oldest first.
+      - `acknowledge` clears one message. A repeated or unknown ack changes nothing.
+    - **Message ids** are random UUIDs, made when the message is written.
+    - **The counter.** `append` hands the composing code the next versions and saves the counter in the same transaction as the message. A failed write keeps neither, so no version is used twice.
+    - **Code N-1 on schema N.** `kind` has no CHECK, so iteration 002 can add events and `catchup_done` without rebuilding the table. A row of a kind this release does not know stays in place, unsent, and counts in the depth.
+    - **Errors.** The store's own error, `OutboxStoreError`, has one kind: `unavailable`. Its messages never quote a body, which holds Ring names. A row that does not parse fails with no cause attached, because JSON's error quotes the text it read.
+  - **Ingest's state path** (`bridge/src/connector/managers/ingest/`):
+    - **Order.** Writes run one at a time in the order their cause arrived, so a later state always has the higher version.
+    - **Changes during a read.** A read's answer can be older than a change that arrives while the read runs. Such changes are folded into that read's inventory, which is written after them and carries the higher versions.
+    - **Alarm-mode changes.** No iteration 001 message carries a location alone. So a location change (the alarm panel's mode, from the Ring Adapter) sends the whole inventory again from Ingest's view of the home: the last read plus every change since. It needs no Ring call. Before the first inventory there is no view, so nothing is sent; the next read includes the change. The contract's `inventory` row now names this trigger (`contracts/connector-link.md`).
+    - **`as_of`** is the time the home last saw each entry: the end of the read, or the change's arrival.
+    - **Outcomes.** An inventory returns an outcome rather than throwing: `queued`, `ring_unavailable`, `session_lost` or `outbox_unavailable`. Ingest does not retry; its caller decides when to try again. Any other failure, including the caller's abort, passes through unchanged.
+    - **A change that cannot be written** is logged once, as `ingest_state_not_queued`, with the device or location id and no names. The next inventory carries that state again.
+    - **Session changes** are not Ingest's: the heartbeat reads the Ring session status (T016).
+  - **The migration runner (CP-03)** took a small, additive change. A migration list may name one dialect: `Migration<Dialect>`, and `checkMigrations(list, dialect)` checks the statements for the database's dialect. The core's list keeps both dialects, required by its type and compared by its test.
+  - **Carry-forwards to T016**, where Core Link and the Home Scheduler use this:
+    - at each new session, call `markAllUnsent`, then send what `takeDue` returns, and route each `ack` to `acknowledge`;
+    - call `sessionStarted` after `hello_ok`, and try again on the 10 s tick while the outcome is not `queued`;
+    - call `inventoryRequested` on `inventory_request`;
+    - read the heartbeat's outbox depth from `depth`;
+    - Core Link is a client, so it reaches the outbox through Ingest, which gains these pass-through operations then (the IDesign call rules).
+- **Requirement citation**: tasks.md T014; `contracts/connector-link.md` "Frames" and "Device inventory and state"; data-model.md "Other stored state" and "Delivery rules" 2; spec FR-006 and FR-042; research R21 and PT-30; implementation-rules.yml `code-rule.robustness-state-boundaries`, `code-rule.concurrency-over-locks` and `code-rule.idiomatic-error-handling`.
+- **Resolution**: implementation choices, recorded for the co-review. The contract row gains one trigger, which adds a send of an existing message and changes no field. Cost: 0 SP and $0.
+- **Class closure**: 28 tests run in the suite: the store's on the fake clock and over a real file across a restart, and Ingest's over the simulated home and a real outbox. A deliberate break of eight parts was caught:
+  - the store: a resend one moment late, newest first, a counter that is not saved, a reconnect that sends nothing again, and an ack that does not clear;
+  - Ingest: a `device_state` that carries only the change, a read that drops the changes made during it, and an alarm-mode change that is ignored.
 
 ### Resolution Strategies (Unused)
 

@@ -93,10 +93,12 @@ function columnsOf(table: string, body: string): string[] {
 }
 
 describe("the core migrations", () => {
-  it("number 1, 2, 3 without a gap and pass the runner's checks", () => {
-    expect(() => {
-      checkMigrations(CORE_MIGRATIONS);
-    }).not.toThrow();
+  it("number 1, 2, 3 without a gap and pass the runner's checks on both dialects", () => {
+    for (const dialect of DIALECTS) {
+      expect(() => {
+        checkMigrations(CORE_MIGRATIONS, dialect);
+      }).not.toThrow();
+    }
   });
 
   it("hold one statement per entry, with no placeholders", () => {
@@ -189,17 +191,20 @@ describe("checkMigrations", () => {
 
   it("accepts an empty list and a list numbered 1, 2, 3", () => {
     expect(() => {
-      checkMigrations([]);
+      checkMigrations([], "sqlite");
     }).not.toThrow();
     expect(() => {
-      checkMigrations([migration(1), migration(2), migration(3)]);
+      checkMigrations([migration(1), migration(2), migration(3)], "tsql");
     }).not.toThrow();
   });
 
   it("refuses a gap, a repeat, a list that does not start at 1, and a list out of order", () => {
     for (const versions of [[1, 3], [1, 1], [2], [2, 1]]) {
       expect(() => {
-        checkMigrations(versions.map((version) => migration(version)));
+        checkMigrations(
+          versions.map((version) => migration(version)),
+          "sqlite",
+        );
       }).toThrow(expect.objectContaining({ kind: "statement_failed" }));
     }
   });
@@ -207,20 +212,34 @@ describe("checkMigrations", () => {
   it("refuses a name that is not kebab-case", () => {
     for (const name of ["", "Step-One", "step_one", "step-", "-step"]) {
       expect(() => {
-        checkMigrations([migration(1, name)]);
+        checkMigrations([migration(1, name)], "sqlite");
       }).toThrow("Migration 1 needs a kebab-case name.");
     }
   });
 
-  it("refuses a migration with no statements for a dialect", () => {
+  it("refuses a migration with no statements for the database's dialect", () => {
     for (const dialect of DIALECTS) {
       const empty: Migration = {
         ...migration(1),
         statements: { ...migration(1).statements, [dialect]: [] },
       };
       expect(() => {
-        checkMigrations([empty]);
-      }).toThrow("Migration 1 needs statements for both dialects.");
+        checkMigrations([empty], dialect);
+      }).toThrow(`Migration 1 needs statements for ${dialect}.`);
     }
+  });
+
+  it("accepts a migration for one dialect on that dialect only", () => {
+    const sqliteOnly: Migration<"sqlite"> = {
+      version: 1,
+      name: "step-1",
+      statements: { sqlite: ["CREATE TABLE t (x INTEGER) STRICT"] },
+    };
+    expect(() => {
+      checkMigrations([sqliteOnly], "sqlite");
+    }).not.toThrow();
+    expect(() => {
+      checkMigrations([sqliteOnly], "tsql");
+    }).toThrow("Migration 1 needs statements for tsql.");
   });
 });

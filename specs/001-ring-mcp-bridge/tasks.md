@@ -222,7 +222,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - the scenario engine implements the same port.
 
   (Trace: FR-026, FR-042, FR-002, FR-033, TG-004 with FR-026; CP-07)
-- [ ] T014 [US1] [assigned_to: Implementer] [effort: 1] Outbox Store in `bridge/src/connector/access/outbox-store/` (the connector's own SQLite file), and Ingest's state path in `bridge/src/connector/managers/ingest/`:
+- [x] T014 [US1] [assigned_to: Implementer] [effort: 1] Outbox Store in `bridge/src/connector/access/outbox-store/` (the connector's own SQLite file), and Ingest's state path in `bridge/src/connector/managers/ingest/`:
   - **Outbox rules:**
     - a message is written before it is sent and cleared only on its `ack`;
     - it is resent after 10 s without an ack, and the oldest is sent first on reconnect;
