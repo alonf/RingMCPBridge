@@ -1,6 +1,8 @@
 // Ring Adapter (CP-07): the home connector's only way to Ring. Its only entry point (CD4). T009
-// declares the port, which the scenario engine implements; T013 adds the adapter over
-// ring-client-api, its only import site.
+// declared the port, which the scenario engine implements. T013 adds the implementation, which
+// only the Host's connector wiring imports: `RingApiAdapter` (ring-api-adapter.ts) behind the
+// shared `RingCallGate` (call-limits.ts), over the client from `createRingClient`
+// (ring-client.live.ts, ring-client-api's only import site).
 
 /** The port, its data and the session status. */
 export type {

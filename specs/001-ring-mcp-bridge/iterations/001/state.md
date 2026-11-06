@@ -1,13 +1,27 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T012
-**Tasks Remaining**: T013-T036 (24 tasks, 28 story_points)
-**In Progress**: T013 (CP-07): the call limits and ring-client-api are in; next the adapter itself. T028 completes CP-06 later
+**Last Completed Task**: T013
+**Tasks Remaining**: T014-T036 (23 tasks, 26 story_points)
+**In Progress**: none; CP-07 (T013) is complete, and its co-review choice waits for the owner; next T014 (CP-08a). T028 completes CP-06 later
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-06T19:30:00Z
+**Updated**: 2026-11-06T20:30:00Z
 
 ## Execution Summary
+
+- T013 (the Ring Adapter; completes CP-07) is done, in `bridge/src/connector/access/ring-adapter/`. Besides the call limits and the install (below), it adds:
+  - **the adapter** (`RingApiAdapter`). Every call passes through the shared gate with a 30 s deadline, because ring-client-api retries a missing answer on its own, without end. Its failures become `RingAdapterError` in the bridge's own words, with nothing of the library attached. A lost session stays lost until the owner signs in again. A rotated token is saved at once as a `Secret` through the Secrets File's update;
+  - **the mapping**, a tolerant reader written test-first: device kinds onto the bridge's types (anything unknown is `other`), wired versus battery, battery levels, online state, the alarm mode, owned versus shared, and names kept exactly as Ring wrote them;
+  - **changes**: after a read, each alarm device's later data is reported as a device change, and the alarm panel's mode as a location change;
+  - **the live client** (`ring-client.live.ts`), the only file that imports ring-client-api. It silences the library's own log lines, which quote Ring's content, and keeps its polling off. The compiler checks that the real `RingApi` fits the adapter's narrow client types;
+  - **the Ring-boundary contract test** (`bridge/test/ring-boundary/`): only the live client imports ring-client-api, and the same checks run against the scenario engine and the adapter.
+
+  The choices are in DRIFT-001-18. Rooms are not read in iteration 001: Ring's room list has no reviewed recorded payload yet, so `room` stays absent until the pilot (a carry-forward).
+
+  A deliberate break of five parts of the adapter was caught. Checks:
+  - 578 tests: 529 pass and 49 skip without SQL Server;
+  - coverage without SQL Server: 95.1% of lines and 95.0% of branches. The adapter's folder is at 98.8% of lines;
+  - lint, tsc, prettier and depcruise (133 modules) are clean.
 
 - T013, part 2: ring-client-api 14.3.0 is installed, after the owner's two decisions on 2026-11-06. The details are in DRIFT-001-17.
   - **Backoff:** R25's numbers stay (`Accept your suggestion`).

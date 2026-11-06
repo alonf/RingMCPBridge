@@ -203,7 +203,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - its values are never logged and never sent on the link.
 
   Tests: a round trip; a wrong key fails closed; none of its values appears in logs or link frames (Trace: FR-032, FR-034; CP-06)
-- [ ] T013 [P] [US1] [assigned_to: Implementer] [effort: 2] Ring Adapter in `bridge/src/connector/access/ring-adapter/`, over ring-client-api 14.3.0 (its only import site):
+- [x] T013 [P] [US1] [assigned_to: Implementer] [effort: 2] Ring Adapter in `bridge/src/connector/access/ring-adapter/`, over ring-client-api 14.3.0 (its only import site):
   - **The interface:** only the bridge's own DTOs cross it:
     - locations;
     - devices, with `type`, room, battery, power mode, online state and state;

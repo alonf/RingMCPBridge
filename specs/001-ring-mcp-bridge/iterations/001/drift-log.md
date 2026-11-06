@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 17
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 2 in implement on 2026-11-06)
+**Total drift events**: 18
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 3 in implement on 2026-11-06)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -302,6 +302,36 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: tasks.md T013; research.md R25 and PT-10; spec FR-026, FR-042 and Edge Cases; implementation-rules.yml `project.supply-chain-policy` and `dependency_policy`.
 - **Resolution**: the call limits are implementation choices. The owner kept R25's backoff and accepted ring-client-api's unlicensed package on the condition that it raises no security issue, which the check above supports. Cost: 0 SP and $0.
 - **Class closure**: the limits' tests run in the suite. A deliberate break of six parts was caught: the circuit checked on entry, a probe slot kept after an unmapped error, an abort that waits its turn, no spacing, no backoff, and a queue that lets a call pass the one before it.
+
+### DRIFT-001-18: T013's adapter works around ring-client-api's own retries and logging, and reads no rooms yet
+
+- **Detected**: 2026-11-06, implement, while doing T013
+- **Kind**: library behaviour and details left open, versus the code. No spec change
+- **Observed**:
+  - **ring-client-api retries on its own, without end.** It retries a request that gets no answer every 5 s, a 504 every 5 s, and a 404 with a known Ring error code every 20 s. On a 401 it refreshes the token and tries again. None of its calls take a cancel signal.
+    - So the adapter gives each call a 30 s deadline (`RING_CALL_TIMEOUT_MS`), after which the call counts as `ring_unavailable`. It also passes on the caller's abort.
+    - The library keeps retrying in the background after a deadline. Its late failure is observed and dropped, so it can never become an unhandled rejection. The circuit opens after 5 failures, so only a few such calls can retry at once.
+    - The library's own polling options stay unset, so it polls nothing itself (FR-026).
+  - **ring-client-api logs Ring's content.** Its log lines quote URLs and Ring's response bodies. `ring-client.live.ts` installs a silent logger through its `useLogger` hook, and failures reach the bridge's log only as `RingAdapterError` (FR-034, OR6).
+  - **Errors.** Only the HTTP status and two known sign-in refusals are read ("Refresh token is not valid", and the 2FA message). A 401 that reaches the adapter (after the library's own refresh) or a refusal is `session_lost`. Anything else is `ring_unavailable`, named by its status: 406 counts as blocking, then 429, 5xx, another status, or no answer. The library's message, body and URL are never copied or attached as a cause.
+  - **A lost session stays lost.** After `session_lost`, calls are refused without reaching Ring until the owner signs in again with the Setup CLI and the connector restarts. R25's "once per failure" token refresh is the library's own, on a 401.
+  - **The token.** ring-client-api's refresh token is its own encoding, which also carries the session hardware ID and the push credentials. The adapter saves each rotated token whole, as a `Secret`, through `saveRefreshToken`, which the Host wires to the Secrets File's `update`. The Secrets File's hardware ID is passed as the library's `systemId`. Its separate push-credential field is not used yet. A failed save is logged without the token.
+  - **Mapping, a tolerant reader** (`ring-mapping.ts`):
+    - Ring's device kinds map onto the bridge's types; any other kind is `other`. The alarm panel and access codes are left out, because they are not devices.
+    - A device is wired when Ring reports an AC status or no battery. A wired device reports no battery level, and a level outside 0 to 100 is dropped.
+    - `online` comes from Ring's `commStatus` field, which is not in the library's types.
+    - State uses the scenario engine's words (`open`, `motion`, `flood`, `on`, `level`, `tampered`). A camera's state is empty in iteration 001.
+    - A location's time zone falls back to UTC when Ring's address time zone is not an IANA name.
+    - Owned versus shared comes from comparing the location's owner with the account's profile id.
+  - **Changes.** After a read, the adapter watches each alarm device's data stream and reports what follows, not the data the read already returned. A change of the alarm panel's mode is reported as a location change. Cameras report no changes until push arrives (iteration 002), because polling stays off.
+  - **No rooms yet.** Ring's room names come from a websocket room list whose payload shape no recorded data confirms, so `room` is absent in iteration 001 and `list_devices`'s room filter finds nothing on a real home. **Carry-forward to the pilot:** read the room list once a scrubbed recorded payload has been reviewed.
+  - **Where the parts are:**
+    - The narrow client types are in `ring-client.ts`. The compiler checks that the real `RingApi` fits them, in `ring-client.live.ts`.
+    - The fake client both test suites use is in `bridge/test/support/fake-ring-client.ts`.
+    - The Ring-boundary contract test is `bridge/test/ring-boundary/ring-boundary.test.ts`. It checks that only `ring-client.live.ts` imports ring-client-api, and runs the same checks against the scenario engine and the adapter.
+- **Requirement citation**: tasks.md T013; research.md R25; spec FR-002, FR-026, FR-033, FR-034, FR-042 and Edge Cases; implementation-rules.yml `code-rule.anti-corruption-layers` and `code-rule.idiomatic-error-handling`.
+- **Resolution**: implementation choices, recorded for the CP-07 co-review. The room list waits for the pilot. Cost: 0 SP and $0.
+- **Class closure**: the mapping tests (written first), the adapter's tests over the fake client, and the contract test run in the suite. A deliberate break of five parts was caught: a library error kept as the cause, the library's message copied, the first device data reported as a change, a lost session that is not kept, and a ring-client-api type in the port.
 
 ### Resolution Strategies (Unused)
 
