@@ -229,11 +229,14 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **Untrusted marking.** Field descriptions start with "UNTRUSTED.", as in `events.schema.json`. The location's `time_zone` is marked too: it is text from Ring, although the catalog lists only names and rooms. The marking check treats any free text or open object in a reply as Ring's unless the bridge writes it (`id`, `location_id`, `device_id`, the error's `message` and `details`).
   - **Optional reply fields.** Under the additive rule, a published required field can never become optional, so only what iteration 001 always fills is required. Optional: `alarm_mode` (a location with no alarm), `room`, `battery_pct` (including in `low_batteries`, when Ring gives only its low flag), `battery_low`, `get_health`'s `push` and `last_event_at` (filled from iteration 002), and `stale_since`. The error envelope lists all fourteen codes now.
   - **The narrowing rules**, per direction:
-    - inputs fail on a removed field, a field that became required, a removed enum value, a tighter bound or format, or unknown fields becoming rejected;
-    - replies fail on a removed field, a field that is no longer always present, a removed enum value, or a looser bound or format. New fields and enum values pass;
+    - inputs fail on a removed field, a field that became required, a removed enum value, a new enum on a field that took any value, a tighter bound or format, or unknown fields becoming rejected;
+    - replies fail on a removed field, a field that is no longer always present, a removed enum value, a dropped enum, or a looser bound or format. New fields and enum values pass;
     - any change to another keyword fails;
     - a new zod rendering of the date-time `pattern` is ignored while the `format` is unchanged;
-    - the check errs on the safe side: an input that drops its `enum` entirely, and so accepts any string, is still reported as having its values removed.
+    - an input that drops its `enum` entirely passes, because that only loosens it.
+  - **The CP-05 co-review (2026-11-06) found gaps in two of these rules.**
+    - Round 3 found that an enum added to an input that took any value went unreported. The enum rule now handles each direction separately, as listed above. The same change let a dropped input enum pass; before, the check reported it as removed values.
+    - Round 4 found that the `pattern` exception is too wide. UTC and local times share `format: date-time`, and only the pattern tells them apart, so a reply time switched from UTC to an offset passes unseen. It was saved as a follow-up at sign-off. The proposed fix is to compare patterns strictly. zod is pinned at exactly 4.6.7, so only a deliberate zod upgrade could change the generated pattern, and the check would then stop that upgrade until the owner decides (the same missing override as the deprecated-tool removal below).
   - **The snapshot guard** uses Vitest's file snapshots. `schemas:generate` is `vitest --update` on the snapshot test, and the narrowing check runs before each write. A document not yet published fails unless `SCHEMAS_BOOTSTRAP=1` is set for the run that first writes it, which T011 used once. `.gitattributes` keeps `schemas/*.json` at LF, so the test passes on a Windows checkout.
   - **Where the checks live.** The checks are test code in `bridge/test/contract/`. The Public Contract holds only schemas and their JSON Schema publication.
   - **Two gaps, one closed:**
@@ -242,7 +245,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
       - with that variable set, the snapshot test also compares each document with the base copy, and fails if the base published a document that is now gone;
       - a missing base directory fails, and an empty one means the base published nothing yet;
       - a whole-branch `fetch-depth` was not needed, because the step fetches the one base commit.
-      - Tested locally on real commits. A removed reply field, with the committed file edited to match, passed the existing checks (74 of 74) and failed the base comparison. The CI step itself has not run yet: the repository has no GitHub remote.
+      - Tested locally on real commits. A removed reply field, with the committed file edited to match, passed the existing checks (74 of 74) and failed the base comparison. The CI step first ran on GitHub on 2026-11-05, in draft pull request #1 of the new private repository, and passed: it ran the 62 contract checks against a base with no published schemas.
     - Still open: FR-046 lets a deprecated tool be removed later, but the check has no override for that yet.
   - **For MCP Endpoint (T024)**, from a probe of SDK 2.4.0:
     - the SDK lists exactly what `z.toJSONSchema` generates, marks included;

@@ -78,6 +78,17 @@ describe("findNarrowing on an input document", () => {
     ).toEqual([]);
   });
 
+  it("fails a new enum on a field that took any value, and passes a dropped one", () => {
+    const free = tool({ a: { type: "string", minLength: 1 } });
+    const listed = tool({
+      a: { type: "string", minLength: 1, enum: ["Kitchen"] },
+    });
+    expect(changes(free, listed, "input")).toEqual([
+      `${at}/properties/a: enum added, so other values became rejected`,
+    ]);
+    expect(changes(listed, free, "input")).toEqual([]);
+  });
+
   it("fails a tighter bound and passes a looser one", () => {
     const before = tool({ a: { type: "string", minLength: 1, maxLength: 10 } });
     expect(
@@ -165,6 +176,15 @@ describe("findNarrowing on an output document", () => {
       `${at}/properties/a: enum value "y" was removed`,
       `${at}/properties/b: removed`,
     ]);
+  });
+
+  it("fails a dropped enum and passes a new one", () => {
+    const free = tool({ a: text });
+    const listed = tool({ a: { type: "string", enum: ["x", "y"] } });
+    expect(changes(listed, free, "output")).toEqual([
+      `${at}/properties/a: enum dropped, so any value can be returned`,
+    ]);
+    expect(changes(free, listed, "output")).toEqual([]);
   });
 
   it("fails a field that is no longer always present, once", () => {

@@ -3,11 +3,24 @@
 **Schema**: v2
 **Last Completed Task**: T011
 **Tasks Remaining**: T012-T036 (25 tasks, 29 story_points)
-**In Progress**: none; CP-05 (T011) is complete, and its co-review choice waits for the owner; next T012 (CP-06)
+**In Progress**: none; the CP-05 review is signed off; next the round-4 follow-up (the pattern rule), then T012 (CP-06)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-05T22:55:00Z
+**Updated**: 2026-11-06T11:50:00Z
 
 ## Execution Summary
+
+- The round-3 fixes, made before round 4 at the owner's choice:
+  - **A new enum on an input.** The contract check now reports an enum added to an input that took any value, and an enum dropped from a reply. An input that drops its enum now passes, because that only loosens it. Before, it was reported as having its values removed. Two tests cover these cases, including the review's `room` example, and both fail on the old rule.
+  - **Milliseconds in local time.** `formatInTimeZone` now writes milliseconds, as `formatUtc` does, so `as_of` and `as_of_local` name the same instant (FR-006). A test checks 250, 7 and 999 ms, and that the two forms parse to the same instant. The published `as_of_local` pattern already accepted fractional seconds, so the Public Contract is unchanged. Nothing called this function yet.
+  - Checks: 518 tests, with 470 passing and 48 skipped without SQL Server. Coverage without SQL Server is 94.2% of lines and 95.5% of branches. Lint, tsc, prettier and depcruise (110 modules) are clean.
+- CP-05 co-review (codex; checkpoint cp-05-public-contract-review; T011 in e448f0e and the schema-gap fix in f127a04). The owner typed `approved for review round` twice.
+  - Round 3 of 4 (run-20261106-101104249-3bb26085, 11 minutes) found 2 minor findings, both verified by reading the code. The contract check missed an enum added to an input that took any value. Local time dropped the milliseconds, so it named a different instant from `as_of`. Both were fixed before round 4 (above).
+  - Round 4 of 4 (run-20261106-103654987-16f7e75c, 11 minutes; Specrew's total is 46 minutes over 4 rounds) found nothing wrong with the fixes. It found 1 new minor finding, also verified by reading the code. The contract check skips a `pattern` change whenever the `format` is unchanged. UTC and local times share `format: date-time` and differ only in the pattern, so a reply time switched from UTC to an offset would pass unseen.
+  - The owner typed `stop the review here`. Review sign-off completed on 2026-11-06, on exactly the tree round 4 reviewed. The pattern finding was saved as a follow-up.
+- The private GitHub repository was created at the owner's typed request (`create the private repo`, then `push as is`). Draft pull request #1 runs CI on this branch.
+  - The first run passed every job: lint, test, build and secret-scan, plus Specrew's governance check. The new base-commit step ran the 62 contract checks against `main`, which has no published schemas yet.
+  - In CI, 509 tests passed with SQL Server and Azurite, and 6 skipped as expected. Coverage was 99.7% of lines and 97.3% of branches.
+  - The push used about 7 of the 2,000 free Actions minutes a month. That's an estimate, because GitHub's billing figure still showed 0.
 
 - The T011 schema gap is closed, at the owner's typed choice (`close the schema gap`, 2026-11-05). CI's lint job now checks the Public Contract against the base commit's published schemas too, so a hand edit to the committed files cannot hide a removal or narrowing. Details are in DRIFT-001-15.
   - Tested locally on real commits. A removed reply field, with the committed file edited to match, passed the existing checks and failed the base comparison. A base document that is now gone fails, and so does a missing base directory. The CI step has not run on GitHub yet, because the repository has no remote.

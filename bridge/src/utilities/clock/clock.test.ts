@@ -160,20 +160,33 @@ describe("time formatting", () => {
 
   it("formats a location's local time with its offset at that moment", () => {
     expect(formatInTimeZone(START, "Europe/Athens")).toBe(
-      "2026-11-03T11:00:00+02:00",
+      "2026-11-03T11:00:00.000+02:00",
     );
     const summer = Date.UTC(2026, 6, 1, 9, 0, 0);
     expect(formatInTimeZone(summer, "Europe/Athens")).toBe(
-      "2026-07-01T12:00:00+03:00",
+      "2026-07-01T12:00:00.000+03:00",
     );
     expect(formatInTimeZone(START, "America/St_Johns")).toBe(
-      "2026-11-03T05:30:00-03:30",
+      "2026-11-03T05:30:00.000-03:30",
     );
+  });
+
+  it("keeps the milliseconds, so UTC and local time name the same instant", () => {
+    for (const millis of [250, 7, 999]) {
+      const at = START + millis;
+      const local = formatInTimeZone(at, "Europe/Athens");
+      expect(local).toBe(
+        `2026-11-03T11:00:00.${String(millis).padStart(3, "0")}+02:00`,
+      );
+      expect(Date.parse(local)).toBe(Date.parse(formatUtc(at)));
+    }
   });
 
   it("formats UTC itself with +00:00 and midnight as 00", () => {
     const midnight = Date.UTC(2026, 10, 3, 0, 0, 0);
-    expect(formatInTimeZone(midnight, "UTC")).toBe("2026-11-03T00:00:00+00:00");
+    expect(formatInTimeZone(midnight, "UTC")).toBe(
+      "2026-11-03T00:00:00.000+00:00",
+    );
   });
 
   it("knows real zones and refuses unknown ones", () => {

@@ -3,6 +3,7 @@ import { ClockError } from "./clock-error.ts";
 
 const UTC_OFFSET = "+00:00";
 const GMT_PREFIX = "GMT";
+const MILLISECOND_DIGITS = 3;
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -32,6 +33,17 @@ function offsetFrom(timeZoneName: string): string {
   return offset === "" ? UTC_OFFSET : offset;
 }
 
+/**
+ * The milliseconds as `formatUtc` writes them. An offset is whole minutes, so they are the same in
+ * every zone; Intl's seconds drop them rather than round.
+ */
+function millisecondsOf(epochMs: number): string {
+  return String(new Date(epochMs).getUTCMilliseconds()).padStart(
+    MILLISECOND_DIGITS,
+    "0",
+  );
+}
+
 /** True when Intl knows the IANA time zone, for example `Europe/Athens`. */
 export function isValidTimeZone(timeZone: string): boolean {
   try {
@@ -48,7 +60,8 @@ export function formatUtc(epochMs: number): string {
 }
 
 /**
- * ISO 8601 in the time zone, with its offset at that moment: `2026-11-03T11:00:00+02:00`.
+ * ISO 8601 in the time zone, with milliseconds and its offset at that moment:
+ * `2026-11-03T11:00:00.000+02:00`. It names the same instant as `formatUtc` (FR-006).
  * Throws `ClockError` (`unknown_time_zone`) for a zone Intl does not know.
  */
 export function formatInTimeZone(epochMs: number, timeZone: string): string {
@@ -63,6 +76,6 @@ export function formatInTimeZone(epochMs: number, timeZone: string): string {
   const part = (type: Intl.DateTimeFormatPartTypes): string =>
     parts.find((candidate) => candidate.type === type)?.value ?? "";
   const date = `${part("year")}-${part("month")}-${part("day")}`;
-  const time = `${part("hour")}:${part("minute")}:${part("second")}`;
+  const time = `${part("hour")}:${part("minute")}:${part("second")}.${millisecondsOf(epochMs)}`;
   return `${date}T${time}${offsetFrom(part("timeZoneName"))}`;
 }

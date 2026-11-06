@@ -2,11 +2,11 @@
 // a published document with the current one and lists every change that can break an agent built
 // against the published one. Additive change means the opposite for the two directions:
 //   - input (what agents send): an agent's old call must still be accepted. A removed field, a
-//     field that became required, a removed enum value, a tighter bound or format, or unknown
-//     fields becoming rejected all fail. Looser inputs pass.
+//     field that became required, a removed enum value, a new enum on a field that took any value,
+//     a tighter bound or format, or unknown fields becoming rejected all fail. Looser inputs pass.
 //   - output (what the bridge returns): what an agent relied on must still hold. A removed field, a
-//     field that became optional, a removed enum value, or a looser bound or format all fail. New
-//     fields and new enum values pass: the contract adds both (FR-046; contracts/errors.md).
+//     field that became optional, a removed or dropped enum, or a looser bound or format all fail.
+//     New fields and new enum values pass: the contract adds both (FR-046; contracts/errors.md).
 // Any other change to a keyword the check does not know fails, so nothing changes unseen.
 // Prose (`title`, `description`) and the untrusted mark are not compared here; the marking check
 // covers the mark.
@@ -108,12 +108,25 @@ const required: KeywordRule = (comparison) => {
   });
 };
 
+// A removed value breaks both directions. Adding or dropping the whole enum breaks only one: a new
+// enum refuses input values that were accepted, and a dropped one frees the values an agent gets.
 const enumValues: KeywordRule = (comparison) => {
-  const current = comparison.current.enum;
-  const values = Array.isArray(current) ? current : [];
   const published = comparison.published.enum;
-  for (const value of Array.isArray(published) ? published : []) {
-    if (!values.some((now) => isDeepStrictEqual(now, value))) {
+  const current = comparison.current.enum;
+  if (!Array.isArray(published)) {
+    if (comparison.direction === "input" && Array.isArray(current)) {
+      comparison.report("enum added, so other values became rejected");
+    }
+    return;
+  }
+  if (!Array.isArray(current)) {
+    if (comparison.direction === "output") {
+      comparison.report("enum dropped, so any value can be returned");
+    }
+    return;
+  }
+  for (const value of published) {
+    if (!current.some((now) => isDeepStrictEqual(now, value))) {
       comparison.report(`enum value ${JSON.stringify(value)} was removed`);
     }
   }
