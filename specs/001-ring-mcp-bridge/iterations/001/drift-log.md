@@ -367,6 +367,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - call `inventoryRequested` on `inventory_request`;
     - read the heartbeat's outbox depth from `depth`;
     - Core Link is a client, so it reaches the outbox through Ingest, which gains these pass-through operations then (the IDesign call rules).
+  - **A carry-forward to CP-08b (iteration 002):** the contract says an event's `message_id` is its `event_id`, but `append` always makes a new UUID, and `message_id` is unique. Events need `append` to take the id they already have, and a repeat of the same event must be handled as a duplicate, not reported as `unavailable`.
 - **Requirement citation**: tasks.md T014; `contracts/connector-link.md` "Frames" and "Device inventory and state"; data-model.md "Other stored state" and "Delivery rules" 2; spec FR-006 and FR-042; research R21 and PT-30; implementation-rules.yml `code-rule.robustness-state-boundaries`, `code-rule.concurrency-over-locks` and `code-rule.idiomatic-error-handling`.
 - **Resolution**: implementation choices, recorded for the co-review. The contract row gains one trigger, which adds a send of an existing message and changes no field. Cost: 0 SP and $0.
 - **Class closure**: 28 tests run in the suite: the store's on the fake clock and over a real file across a restart, and Ingest's over the simulated home and a real outbox. A deliberate break of eight parts was caught:

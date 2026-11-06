@@ -5,7 +5,7 @@
 **Tasks Remaining**: T015-T036 (22 tasks, 25 story_points)
 **In Progress**: none; CP-08a (T014) is complete; next T015 (CP-09). CP-07 is reviewed with CP-06 after T028 (owner, 2026-11-06), which needs an allowance reset first
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-06T23:55:00Z
+**Updated**: 2026-11-06T21:55:00Z
 
 ## Execution Summary
 
