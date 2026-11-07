@@ -2,17 +2,17 @@
 
 **Schema**: v2
 **Last Completed Task**: T021
-**Tasks Remaining**: T023-T036 (14 tasks, 17 story_points)
+**Tasks Remaining**: T023-T036 (14 tasks, 17 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
 **In Progress**: CP-14 (the read path): T019, T020 and T021 are done, and T018 (CP-11a); review round 3's three findings are fixed (DRIFT-001-36); next round 4, the last of the allowance, on the owner's approval
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T22:37:10Z
+**Updated**: 2026-11-07T22:41:44Z
 
 ## Execution Summary
 
 - CP-14 review round 3 found three ways old data could look current or come back, and all three are fixed (DRIFT-001-36), on the owner's choice to fix them and run round 4:
   - a resent older inventory can no longer bring back what a newer one removed, and an empty one now clears the home: every inventory carries its own version, and State skips one older than the newest it applied (migration 5);
   - after a reconnect, the data stays stale until that session's own inventory is stored, even when the first try fails: every inventory names the session it was composed for;
-  - the link contract gains the two fields, an additive change within version 1.
+  - the link contract's `inventory` gains the two fields, before version 1's release: `snapshot_version` is required, so the change is not additive, and no deployed home sends the old shape.
 
   About 2 SP (estimate), in CP-14's actual. The owner's (y) for the Ring library's reconnect is a carry-forward to T027 (DRIFT-001-35). A deliberate break of twelve parts was caught. Checks:
   - 920 tests: 819 pass and 101 skip without SQL Server; with it, 908 pass and 12 skip;

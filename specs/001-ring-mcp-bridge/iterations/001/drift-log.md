@@ -1085,7 +1085,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 ### DRIFT-001-36: CP-14 review round 3 found three ways old data could look current or come back; fixed with ordered snapshots and a refresh each session owes
 
 - **Detected**: 2026-11-07, implement, CP-14 review round 3 (Codex). The reviewer reported three findings as major; Specrew kept them as notes because they named no concrete failure. Each was checked against the code and is real.
-- **Kind**: three defects against FR-006 and the link's latest-wins rules (PT-30), and an additive change to the link contract. No spec change
+- **Kind**: three defects against FR-006 and the link's latest-wins rules (PT-30), and a change to version 1's `inventory` before its release. No spec change
 - **Observed**:
   - **A replayed older inventory could bring back what a newer one removed.**
     - A deleted row keeps no version, so an older inventory resent after a newer one (its ack lost) inserted the removed device or location again, with its old state.
@@ -1105,7 +1105,14 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - a session's opening owes a refresh, since the last time the data was known true: the earliest of a refresh already owed, the time it became stale, and the last sign of life before the session. It is kept in the health snapshot (`refresh_owed_since`, migration 5);
     - the Health engine counts it as stale. Event ends it when an inventory composed for the current session is processed, also when State skips it as already applied, as after a health save that failed;
     - an earlier session's inventory, or a heartbeat, does not end it.
-  - **The link contract** (`connector-link.md`) gains the two fields and the two rules, an additive change within version 1, which is not deployed. Its "new enrollment" rule now says when the reset happens, as DRIFT-001-32 decided. `data-model.md`'s health snapshot names the new field.
+  - **The link contract** (`connector-link.md`) gains the two fields and the two rules, a change to version 1's `inventory` before its release (PT-07: version 1 is not released before iteration 004).
+    - `snapshot_version` is required, so the change is not additive: a home that leaves it out is refused. No deployed home sends the old shape. `session_id` is optional.
+    - The fixes' commit message called both fields additive; this record corrects it.
+    - Its "new enrollment" rule now says when the reset happens, as DRIFT-001-32 decided. `data-model.md`'s health snapshot names the new field.
+- **A known limit, carried to T027 and T028**:
+  - The home keeps its version counter in the outbox file and its key in the Secrets File. If the outbox file is lost and made again while the key is kept, the counter starts again at 1, while the core keeps the newest snapshot and the stored versions.
+  - The core then skips every inventory and device change from that home as older, until a new key is enrolled. Device changes behaved this way before the fix; ordered snapshots extend it to inventories.
+  - T027 and T028 settle it: a new outbox means a new key, or the hello carries the counter.
 - **Requirement citation**: spec FR-006 and SC-005; research.md PT-30; `contracts/connector-link.md` "Device inventory and state"; DRIFT-001-06, DRIFT-001-08 and DRIFT-001-32.
 - **Resolution**: fixed after the owner chose (a), to fix all three and run round 4. Cost: about 2 SP (estimate after the work, against 1.5 SP estimated before it), recorded in CP-14's actual, and $0.
 - **Class closure**: new tests:
