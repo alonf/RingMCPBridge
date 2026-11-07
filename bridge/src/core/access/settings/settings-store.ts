@@ -6,8 +6,8 @@
 //   a time, for 10 minutes (PT-32), and approving it revokes every older key (FR-032);
 // - `setting`: the global battery threshold (FR-001), or the configured default until it is set.
 //
-// Times are UTC milliseconds since 1970, stored and in the DTOs. The caller that builds the
-// contract's form turns them into ISO 8601 text.
+// DTO fields that data-model.md or the link contract names keep those names; times are UTC
+// milliseconds since 1970, stored and in the DTOs (see ../README.md).
 import { z } from "zod";
 import type { Clock } from "../../../utilities/clock/index.ts";
 import {
@@ -46,18 +46,18 @@ export type AgentScope = (typeof AGENT_SCOPES)[number];
 
 /** One agent as deployment configuration lists it (PT-18). */
 export interface AgentSeed {
-  readonly clientId: string;
+  readonly client_id: string;
   /** What the admin page shows for it, such as the agent's product name. */
   readonly platform?: string;
   readonly scopes: readonly AgentScope[];
-  readonly redirectUris: readonly string[];
+  readonly redirect_uris: readonly string[];
 }
 
 /** A listed agent. Its scopes come in the order `read`, `media`, `control`, each once. */
 export interface ListedAgent extends AgentSeed {
   /** When the owner revoked it (FR-031). A revoked agent may not link. */
-  readonly revokedAt?: number;
-  readonly lastSeenAt?: number;
+  readonly revoked_at?: number;
+  readonly last_seen_at?: number;
 }
 
 /** What a seed changed. */
@@ -71,31 +71,31 @@ export interface AgentSeedReport {
 
 /** The home part asks to be trusted (`enroll`, SC2). */
 export interface EnrollmentRequest {
-  readonly publicKey: PublicSigningKey;
+  readonly public_key: PublicSigningKey;
   /** The code the Setup CLI printed, which the owner compares on the admin page. */
   readonly code: string;
 }
 
 /**
- * - `pending`: the request waits for the owner until `expiresAt`, replacing any other request;
+ * - `pending`: the request waits for the owner until `expires_at`, replacing any other request;
  * - `already_active`: the key is enrolled already;
  * - `revoked`: the key was revoked, and a revoked key is never trusted again.
  */
 export type EnrollmentRequestOutcome =
   | {
       readonly kind: "pending";
-      readonly keyId: string;
-      readonly expiresAt: number;
+      readonly key_id: string;
+      readonly expires_at: number;
     }
-  | { readonly kind: "already_active"; readonly keyId: string }
-  | { readonly kind: "revoked"; readonly keyId: string };
+  | { readonly kind: "already_active"; readonly key_id: string }
+  | { readonly kind: "revoked"; readonly key_id: string };
 
 /** The request waiting for the owner, as the admin page shows it. */
 export interface PendingEnrollment {
-  readonly keyId: string;
-  readonly code: string;
-  readonly requestedAt: number;
-  readonly expiresAt: number;
+  readonly key_id: string;
+  readonly enrollment_code: string;
+  readonly requested_at: number;
+  readonly expires_at: number;
 }
 
 /**
@@ -109,7 +109,7 @@ export type EnrollmentApproval =
 
 /** A key as Connector Link checks it at `hello`. A pending key is not enrolled yet. */
 export type ConnectorKey =
-  | { readonly kind: "active"; readonly publicKey: PublicSigningKey }
+  | { readonly kind: "active"; readonly public_key: PublicSigningKey }
   | { readonly kind: "revoked" }
   | { readonly kind: "not_enrolled" };
 
@@ -229,7 +229,7 @@ export class SettingsStore {
             signal,
           );
         }
-        const configured = new Set(seeds.map((seed) => seed.clientId));
+        const configured = new Set(seeds.map((seed) => seed.client_id));
         const removed = listed
           .map((row) => parseRow(CLIENT_ID_ROW, row, "agent").client_id)
           .filter((clientId) => !configured.has(clientId));
@@ -265,7 +265,7 @@ export class SettingsStore {
     signal: AbortSignal,
   ): Promise<EnrollmentRequestOutcome> {
     checkLength(request.code, MAX_ENROLLMENT_CODE_LENGTH, "enrollment code");
-    const keyId = signingKeyId(request.publicKey);
+    const keyId = signingKeyId(request.public_key);
     return this.#guard(
       signal,
       "The enrollment request could not be saved.",
@@ -281,10 +281,10 @@ export class SettingsStore {
                 ? undefined
                 : parseRow(KEY_ROW, row, "connector").status;
             if (status === "active") {
-              return { kind: "already_active", keyId };
+              return { kind: "already_active", key_id: keyId };
             }
             if (status === "revoked") {
-              return { kind: "revoked", keyId };
+              return { kind: "revoked", key_id: keyId };
             }
             const requestedAt = this.#clock.now();
             const expiresAt = requestedAt + ENROLLMENT_REQUEST_TTL_MS;
@@ -292,14 +292,14 @@ export class SettingsStore {
             await session.run(
               statement(INSERT_PENDING, {
                 key_id: keyId,
-                public_key: request.publicKey,
+                public_key: request.public_key,
                 requested_at: requestedAt,
                 expires_at: expiresAt,
                 enrollment_code: request.code,
               }),
               signal,
             );
-            return { kind: "pending", keyId, expiresAt };
+            return { kind: "pending", key_id: keyId, expires_at: expiresAt };
           },
           signal,
         ),
@@ -325,10 +325,10 @@ export class SettingsStore {
     }
     const pending = parseRow(PENDING_ROW, row, "connector");
     return {
-      keyId: pending.key_id,
-      code: pending.enrollment_code,
-      requestedAt: pending.requested_at,
-      expiresAt: pending.expires_at,
+      key_id: pending.key_id,
+      enrollment_code: pending.enrollment_code,
+      requested_at: pending.requested_at,
+      expires_at: pending.expires_at,
     };
   }
 
@@ -389,7 +389,7 @@ export class SettingsStore {
     if (publicKey === undefined) {
       throw unreadableRow("connector");
     }
-    return { kind: "active", publicKey };
+    return { kind: "active", public_key: publicKey };
   }
 
   /** The global battery threshold, in percent (FR-001): the owner's, or the configured default. */
@@ -457,17 +457,17 @@ export class SettingsStore {
 function checkSeeds(seeds: readonly AgentSeed[]): void {
   const clientIds = new Set<string>();
   for (const seed of seeds) {
-    checkLength(seed.clientId, MAX_CLIENT_ID_LENGTH, "client id");
+    checkLength(seed.client_id, MAX_CLIENT_ID_LENGTH, "client id");
     if (seed.platform !== undefined) {
       checkLength(seed.platform, MAX_PLATFORM_LENGTH, "platform");
     }
-    if (seed.redirectUris.some((uri) => uri.length === 0)) {
+    if (seed.redirect_uris.some((uri) => uri.length === 0)) {
       throw new RangeError("A redirect URI cannot be empty.");
     }
-    if (clientIds.has(seed.clientId)) {
+    if (clientIds.has(seed.client_id)) {
       throw new RangeError("Deployment configuration lists a client twice.");
     }
-    clientIds.add(seed.clientId);
+    clientIds.add(seed.client_id);
   }
 }
 
@@ -489,24 +489,26 @@ function checkPercent(percent: number): void {
 
 function agentValues(seed: AgentSeed): SqlParams {
   return {
-    client_id: seed.clientId,
+    client_id: seed.client_id,
     platform: seed.platform ?? null,
     scopes: JSON.stringify(
       AGENT_SCOPES.filter((scope) => seed.scopes.includes(scope)),
     ),
-    redirect_uris: JSON.stringify(seed.redirectUris),
+    redirect_uris: JSON.stringify(seed.redirect_uris),
   };
 }
 
 function agentOf(row: SqlRow): ListedAgent {
   const agent = parseRow(AGENT_ROW, row, "agent");
   return {
-    clientId: agent.client_id,
+    client_id: agent.client_id,
     ...(agent.platform === null ? {} : { platform: agent.platform }),
     scopes: agent.scopes,
-    redirectUris: agent.redirect_uris,
-    ...(agent.revoked_at === null ? {} : { revokedAt: agent.revoked_at }),
-    ...(agent.last_seen_at === null ? {} : { lastSeenAt: agent.last_seen_at }),
+    redirect_uris: agent.redirect_uris,
+    ...(agent.revoked_at === null ? {} : { revoked_at: agent.revoked_at }),
+    ...(agent.last_seen_at === null
+      ? {}
+      : { last_seen_at: agent.last_seen_at }),
   };
 }
 

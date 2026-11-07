@@ -13,6 +13,7 @@ export {
   HOME_MESSAGE_TYPES,
   inventoryLocationSchema,
   inventorySchema,
+  MAX_ENROLLMENT_CODE_LENGTH,
 } from "./home-messages.ts";
 export type {
   ChallengeResponseMessage,

@@ -16,6 +16,15 @@ export type DialOutcome =
   | { readonly kind: "connected"; readonly link: LinkConnection }
   | { readonly kind: "unreachable" };
 
+/** What a dial may be told. There is no option to turn certificate checks off. */
+export interface DialOptions {
+  /**
+   * The certificates to trust for this dial, in PEM, in place of Node's own list: a test's
+   * throwaway certificate (T017). Production leaves it out and trusts the public CAs.
+   */
+  readonly trustedCertificates?: string;
+}
+
 const UNREACHABLE: DialOutcome = { kind: "unreachable" };
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set([
   "localhost",
@@ -25,12 +34,13 @@ const LOOPBACK_HOSTS: ReadonlySet<string> = new Set([
 
 /**
  * Dials `url`. Throws `RangeError` for a URL that is not `wss:` (or `ws:` to this machine), and
- * the signal's reason if it aborts first.
+ * the signal's reason if it aborts first. A certificate that does not check out is `unreachable`.
  */
 export function dialLink(
   url: string,
   context: SocketLinkContext,
   signal: AbortSignal,
+  options: DialOptions = {},
 ): Promise<DialOutcome> {
   const target = new URL(url);
   if (!isAllowedTarget(target)) {
@@ -42,6 +52,9 @@ export function dialLink(
   const socket = new WebSocket(target, {
     maxPayload: MAX_FRAME_BYTES,
     perMessageDeflate: false,
+    ...(options.trustedCertificates === undefined
+      ? {}
+      : { ca: options.trustedCertificates }),
   });
   // ws reports a failed handshake as an error event, which must have a listener.
   socket.on("error", () => undefined);

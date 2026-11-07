@@ -30,15 +30,15 @@ const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 const DEFAULT_THRESHOLD = 25;
 
 const CHAT_AGENT: AgentSeed = {
-  clientId: "https://chat.example/client.json",
+  client_id: "https://chat.example/client.json",
   platform: "Chat",
   scopes: ["read"],
-  redirectUris: ["https://chat.example/callback"],
+  redirect_uris: ["https://chat.example/callback"],
 };
 const RELAY: AgentSeed = {
-  clientId: "desktop-relay",
+  client_id: "desktop-relay",
   scopes: ["read"],
-  redirectUris: ["http://127.0.0.1/callback"],
+  redirect_uris: ["http://127.0.0.1/callback"],
 };
 
 function never(): AbortSignal {
@@ -107,10 +107,10 @@ describeStoreMatrix("Settings", (store) => {
       ),
     ).resolves.toEqual({ removed: [] });
 
-    await expect(settings.agent(CHAT_AGENT.clientId, never())).resolves.toEqual(
-      { ...CHAT_AGENT, scopes: ["read", "control"] },
-    );
-    await expect(settings.agent(RELAY.clientId, never())).resolves.toEqual(
+    await expect(
+      settings.agent(CHAT_AGENT.client_id, never()),
+    ).resolves.toEqual({ ...CHAT_AGENT, scopes: ["read", "control"] });
+    await expect(settings.agent(RELAY.client_id, never())).resolves.toEqual(
       RELAY,
     );
     await expect(
@@ -127,24 +127,28 @@ describeStoreMatrix("Settings", (store) => {
       {
         revoked_at: START + 1,
         last_seen_at: START + 2,
-        client_id: CHAT_AGENT.clientId,
+        client_id: CHAT_AGENT.client_id,
       },
     );
     const changed: AgentSeed = {
-      clientId: CHAT_AGENT.clientId,
+      client_id: CHAT_AGENT.client_id,
       scopes: ["read", "media"],
-      redirectUris: ["https://chat.example/new-callback"],
+      redirect_uris: ["https://chat.example/new-callback"],
     };
 
     await expect(settings.seedAgents([changed], never())).resolves.toEqual({
-      removed: [RELAY.clientId],
+      removed: [RELAY.client_id],
     });
 
-    await expect(settings.agent(CHAT_AGENT.clientId, never())).resolves.toEqual(
-      { ...changed, revokedAt: START + 1, lastSeenAt: START + 2 },
-    );
     await expect(
-      settings.agent(RELAY.clientId, never()),
+      settings.agent(CHAT_AGENT.client_id, never()),
+    ).resolves.toEqual({
+      ...changed,
+      revoked_at: START + 1,
+      last_seen_at: START + 2,
+    });
+    await expect(
+      settings.agent(RELAY.client_id, never()),
     ).resolves.toBeUndefined();
   });
 
@@ -154,22 +158,22 @@ describeStoreMatrix("Settings", (store) => {
 
     for (const seeds of [
       [CHAT_AGENT, { ...CHAT_AGENT, platform: "Other" }],
-      [{ ...CHAT_AGENT, clientId: "" }],
-      [{ ...CHAT_AGENT, clientId: "c".repeat(401) }],
+      [{ ...CHAT_AGENT, client_id: "" }],
+      [{ ...CHAT_AGENT, client_id: "c".repeat(401) }],
       [{ ...CHAT_AGENT, platform: "" }],
       [{ ...CHAT_AGENT, platform: "p".repeat(65) }],
-      [{ ...CHAT_AGENT, redirectUris: [""] }],
+      [{ ...CHAT_AGENT, redirect_uris: [""] }],
     ]) {
       await expect(settings.seedAgents(seeds, never())).rejects.toThrow(
         RangeError,
       );
     }
 
-    await expect(settings.agent(RELAY.clientId, never())).resolves.toEqual(
+    await expect(settings.agent(RELAY.client_id, never())).resolves.toEqual(
       RELAY,
     );
     await expect(
-      settings.agent(CHAT_AGENT.clientId, never()),
+      settings.agent(CHAT_AGENT.client_id, never()),
     ).resolves.toBeUndefined();
   });
 
@@ -179,17 +183,20 @@ describeStoreMatrix("Settings", (store) => {
     const keyId = signingKeyId(publicKey);
 
     await expect(
-      settings.requestEnrollment({ publicKey, code: "7Q4K-29XM" }, never()),
+      settings.requestEnrollment(
+        { public_key: publicKey, code: "7Q4K-29XM" },
+        never(),
+      ),
     ).resolves.toEqual({
       kind: "pending",
-      keyId,
-      expiresAt: START + ENROLLMENT_REQUEST_TTL_MS,
+      key_id: keyId,
+      expires_at: START + ENROLLMENT_REQUEST_TTL_MS,
     });
     await expect(settings.pendingEnrollment(never())).resolves.toEqual({
-      keyId,
-      code: "7Q4K-29XM",
-      requestedAt: START,
-      expiresAt: START + ENROLLMENT_REQUEST_TTL_MS,
+      key_id: keyId,
+      enrollment_code: "7Q4K-29XM",
+      requested_at: START,
+      expires_at: START + ENROLLMENT_REQUEST_TTL_MS,
     });
     await expect(settings.connectorKey(keyId, never())).resolves.toEqual({
       kind: "not_enrolled",
@@ -197,7 +204,7 @@ describeStoreMatrix("Settings", (store) => {
 
     await clock.advance(ENROLLMENT_REQUEST_TTL_MS - 1);
     await expect(settings.pendingEnrollment(never())).resolves.toMatchObject({
-      keyId,
+      key_id: keyId,
     });
     await clock.advance(1);
     await expect(settings.pendingEnrollment(never())).resolves.toBeUndefined();
@@ -211,21 +218,21 @@ describeStoreMatrix("Settings", (store) => {
     const first = await newKey();
     const second = await newKey();
     await settings.requestEnrollment(
-      { publicKey: first, code: "AAAA" },
+      { public_key: first, code: "AAAA" },
       never(),
     );
     await clock.advance(1_000);
 
     await settings.requestEnrollment(
-      { publicKey: second, code: "BBBB" },
+      { public_key: second, code: "BBBB" },
       never(),
     );
 
     await expect(settings.pendingEnrollment(never())).resolves.toEqual({
-      keyId: signingKeyId(second),
-      code: "BBBB",
-      requestedAt: START + 1_000,
-      expiresAt: START + 1_000 + ENROLLMENT_REQUEST_TTL_MS,
+      key_id: signingKeyId(second),
+      enrollment_code: "BBBB",
+      requested_at: START + 1_000,
+      expires_at: START + 1_000 + ENROLLMENT_REQUEST_TTL_MS,
     });
     await expect(
       settings.approveEnrollment(signingKeyId(first), never()),
@@ -235,14 +242,20 @@ describeStoreMatrix("Settings", (store) => {
   it("asks again with a fresh 10 minutes when the same key repeats its request", async () => {
     const { settings, clock } = await setUp();
     const publicKey = await newKey();
-    await settings.requestEnrollment({ publicKey, code: "AAAA" }, never());
+    await settings.requestEnrollment(
+      { public_key: publicKey, code: "AAAA" },
+      never(),
+    );
     await clock.advance(ENROLLMENT_REQUEST_TTL_MS - 1);
 
-    await settings.requestEnrollment({ publicKey, code: "CCCC" }, never());
+    await settings.requestEnrollment(
+      { public_key: publicKey, code: "CCCC" },
+      never(),
+    );
 
     await clock.advance(ENROLLMENT_REQUEST_TTL_MS - 1);
     await expect(settings.pendingEnrollment(never())).resolves.toMatchObject({
-      code: "CCCC",
+      enrollment_code: "CCCC",
     });
   });
 
@@ -252,11 +265,14 @@ describeStoreMatrix("Settings", (store) => {
     const olderKey = await newKey();
     const newestKey = await newKey();
     for (const publicKey of [oldestKey, olderKey]) {
-      await settings.requestEnrollment({ publicKey, code: "AAAA" }, never());
+      await settings.requestEnrollment(
+        { public_key: publicKey, code: "AAAA" },
+        never(),
+      );
       await settings.approveEnrollment(signingKeyId(publicKey), never());
     }
     await settings.requestEnrollment(
-      { publicKey: newestKey, code: "NEW1" },
+      { public_key: newestKey, code: "NEW1" },
       never(),
     );
     await clock.advance(5_000);
@@ -269,7 +285,7 @@ describeStoreMatrix("Settings", (store) => {
 
     await expect(settings.connectorKey(newest, never())).resolves.toEqual({
       kind: "active",
-      publicKey: newestKey,
+      public_key: newestKey,
     });
     for (const publicKey of [oldestKey, olderKey]) {
       await expect(
@@ -301,27 +317,33 @@ describeStoreMatrix("Settings", (store) => {
     const active = await newKey();
     const waiting = await newKey();
     for (const publicKey of [revoked, active]) {
-      await settings.requestEnrollment({ publicKey, code: "AAAA" }, never());
+      await settings.requestEnrollment(
+        { public_key: publicKey, code: "AAAA" },
+        never(),
+      );
       await settings.approveEnrollment(signingKeyId(publicKey), never());
     }
     await settings.requestEnrollment(
-      { publicKey: waiting, code: "WAIT" },
+      { public_key: waiting, code: "WAIT" },
       never(),
     );
 
     await expect(
-      settings.requestEnrollment({ publicKey: active, code: "BBBB" }, never()),
+      settings.requestEnrollment({ public_key: active, code: "BBBB" }, never()),
     ).resolves.toEqual({
       kind: "already_active",
-      keyId: signingKeyId(active),
+      key_id: signingKeyId(active),
     });
     await expect(
-      settings.requestEnrollment({ publicKey: revoked, code: "CCCC" }, never()),
-    ).resolves.toEqual({ kind: "revoked", keyId: signingKeyId(revoked) });
+      settings.requestEnrollment(
+        { public_key: revoked, code: "CCCC" },
+        never(),
+      ),
+    ).resolves.toEqual({ kind: "revoked", key_id: signingKeyId(revoked) });
 
     await expect(settings.pendingEnrollment(never())).resolves.toMatchObject({
-      keyId: signingKeyId(waiting),
-      code: "WAIT",
+      key_id: signingKeyId(waiting),
+      enrollment_code: "WAIT",
     });
   });
 
@@ -339,11 +361,14 @@ describeStoreMatrix("Settings", (store) => {
 
     for (const code of ["", "x".repeat(65)]) {
       await expect(
-        settings.requestEnrollment({ publicKey, code }, never()),
+        settings.requestEnrollment({ public_key: publicKey, code }, never()),
       ).rejects.toThrow(RangeError);
     }
     await expect(
-      settings.requestEnrollment({ publicKey, code: "x".repeat(64) }, never()),
+      settings.requestEnrollment(
+        { public_key: publicKey, code: "x".repeat(64) },
+        never(),
+      ),
     ).resolves.toMatchObject({ kind: "pending" });
   });
 
@@ -408,8 +433,12 @@ describeStoreMatrix("Settings", (store) => {
 
     for (const work of [
       () => settings.seedAgents([RELAY], never()),
-      () => settings.agent(RELAY.clientId, never()),
-      () => settings.requestEnrollment({ publicKey, code: "A" }, never()),
+      () => settings.agent(RELAY.client_id, never()),
+      () =>
+        settings.requestEnrollment(
+          { public_key: publicKey, code: "A" },
+          never(),
+        ),
       () => settings.pendingEnrollment(never()),
       () => settings.approveEnrollment("k", never()),
       () => settings.connectorKey("k", never()),
@@ -428,7 +457,7 @@ describeStoreMatrix("Settings", (store) => {
     controller.abort(reason);
 
     await expect(
-      settings.agent(RELAY.clientId, controller.signal),
+      settings.agent(RELAY.client_id, controller.signal),
     ).rejects.toBe(reason);
   });
 });

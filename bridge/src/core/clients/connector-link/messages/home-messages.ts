@@ -18,12 +18,22 @@ export const HOME_MESSAGE_TYPES = {
 const utcTime = z.iso.datetime();
 const stateVersion = z.number().int().positive();
 
+/** The longest enrollment code the core keeps: Settings' column size (T022). */
+export const MAX_ENROLLMENT_CODE_LENGTH = 64;
+
+// These fields arrive before the connector has proved its key, and the core logs some of them, so
+// they are held to the exact form the home sends: a key id is 16 base64url characters
+// (`signingKeyId`), a public key 43 (an Ed25519 key's 32 bytes), a session id a UUID, and the
+// connector's version a package version of at most 64 characters (the health snapshot's column).
+const keyId = z.string().regex(/^[A-Za-z0-9_-]{16}$/);
+const publicKey = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
 /** `hello`: opens a session at a link version. */
 export const helloSchema = z.strictObject({
   version: z.number().int().positive(),
-  key_id: z.string().min(1),
-  connector_version: z.string().min(1),
-  session_id: z.string().min(1),
+  key_id: keyId,
+  connector_version: z.string().regex(/^[0-9A-Za-z.+-]{1,64}$/),
+  session_id: z.uuid(),
 });
 export type HelloMessage = z.infer<typeof helloSchema>;
 
@@ -35,8 +45,8 @@ export type ChallengeResponseMessage = z.infer<typeof challengeResponseSchema>;
 
 /** `enroll`: asks to be trusted, with the code the Setup CLI printed (SC2). */
 export const enrollSchema = z.strictObject({
-  public_key: z.string().min(1),
-  code: z.string().min(1),
+  public_key: publicKey,
+  code: z.string().min(1).max(MAX_ENROLLMENT_CODE_LENGTH),
 });
 export type EnrollMessage = z.infer<typeof enrollSchema>;
 

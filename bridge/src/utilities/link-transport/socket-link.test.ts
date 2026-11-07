@@ -3,9 +3,11 @@
 // plays an other end that misbehaves.
 import { createServer } from "node:http";
 import type { IncomingHttpHeaders, Server } from "node:http";
+import { createServer as createTlsServer } from "node:https";
+import type { Server as TlsServer } from "node:https";
 import { createServer as createTcpServer } from "node:net";
 import type { AddressInfo, Socket } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 import type { WebSocket } from "ws";
 import { FakeClock } from "../clock/index.ts";
@@ -17,6 +19,12 @@ import { MAX_FRAME_BYTES } from "./link-frame.ts";
 import type { LinkFrame } from "./link-frame.ts";
 import { LinkServer } from "./link-server.ts";
 import { PING_INTERVAL_MS } from "./socket-link.ts";
+import {
+  makeThrowawayCertificate,
+  OPENSSL_AVAILABLE,
+  requireOpensslInCi,
+} from "../../../test/support/index.ts";
+import type { ThrowawayCertificate } from "../../../test/support/index.ts";
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 const RING_NAME = "דלת כניסה";
@@ -46,7 +54,7 @@ async function until(condition: () => boolean): Promise<void> {
   }
 }
 
-async function listen(server: Server): Promise<number> {
+async function listen(server: Server | TlsServer): Promise<number> {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanups.push(
     () =>
@@ -336,5 +344,77 @@ describe("a link over WebSockets", () => {
       { cause: "closed_by_peer", reason: "shutting down" },
     ]);
     expect(server.linkServer.openLinks).toBe(0);
+  });
+});
+
+requireOpensslInCi();
+
+// The certificate is made once per run; making it takes the openssl command a moment.
+const CERTIFICATE_TIMEOUT_MS = 30_000;
+
+describe.skipIf(!OPENSSL_AVAILABLE)("a link over TLS (wss:)", () => {
+  let certificate: ThrowawayCertificate;
+  let stranger: ThrowawayCertificate;
+
+  beforeAll(async () => {
+    certificate = await makeThrowawayCertificate();
+    stranger = await makeThrowawayCertificate();
+  }, CERTIFICATE_TIMEOUT_MS);
+
+  async function tlsServer(clock: FakeClock): Promise<Accepting> {
+    const accepted: LinkConnection[] = [];
+    const linkServer = new LinkServer({
+      clock,
+      logger: quietLogger(),
+      onLink: (link) => accepted.push(link),
+    });
+    const server = createTlsServer({
+      cert: certificate.cert,
+      key: certificate.key,
+    });
+    server.on("upgrade", (request, socket, head) => {
+      linkServer.handleUpgrade(request, socket, head);
+    });
+    const port = await listen(server);
+    cleanups.push(() => {
+      linkServer.close("test over");
+    });
+    return {
+      url: `wss://localhost:${String(port)}${LINK_PATH}`,
+      clock,
+      linkServer,
+      accepted,
+      upgradeHeaders: [],
+    };
+  }
+
+  it("connects only when the other end's certificate checks out", async () => {
+    const { url, clock, accepted } = await tlsServer(new FakeClock(START));
+    const context = { clock, logger: quietLogger() };
+    const signal = new AbortController().signal;
+
+    await expect(dialLink(url, context, signal)).resolves.toEqual({
+      kind: "unreachable",
+    });
+    await expect(
+      dialLink(url, context, signal, { trustedCertificates: stranger.cert }),
+    ).resolves.toEqual({ kind: "unreachable" });
+
+    const outcome = await dialLink(url, context, signal, {
+      trustedCertificates: certificate.cert,
+    });
+    if (outcome.kind !== "connected") {
+      throw new Error("The dial over TLS did not connect.");
+    }
+    cleanups.push(() => {
+      outcome.link.close("test over");
+    });
+    await until(() => accepted.length === 1);
+    const received = framesOf(firstOf(accepted));
+    await outcome.link.send({ type: "note", body: { name: RING_NAME } });
+    await until(() => received.length === 1);
+    expect(received).toEqual([
+      { kind: "message", type: "note", body: { name: RING_NAME } },
+    ]);
   });
 });

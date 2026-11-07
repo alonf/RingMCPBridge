@@ -26,7 +26,7 @@ export type { SendOutcome } from "./send-queue.ts";
 
 /** The dialing end: `dialLink` resolves `connected` with a link, or `unreachable`. */
 export { DIAL_TIMEOUT_MS, dialLink } from "./dial-link.ts";
-export type { DialOutcome } from "./dial-link.ts";
+export type { DialOptions, DialOutcome } from "./dial-link.ts";
 
 /** The accepting end, which the Host's HTTP server hands each upgrade request. */
 export { LinkServer } from "./link-server.ts";

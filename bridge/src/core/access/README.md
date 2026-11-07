@@ -6,7 +6,7 @@ Each resource-access component (State, Settings, Grants, Lease, and from iterati
 
 - **Rows map to DTOs inside each accessor.** A row, a column name or a SQL statement never leaves the accessor. The accessor exports its DTOs and its error class from its one entry file, `index.ts`. The callee declares its DTOs, and there is no shared types file (CD4, the custom rule `project.cd4-callee-declares-dtos`).
 - **State maps `kind` to the contract's `type`** (PT-26). The `device` table keeps the column `kind`. State's DTO calls the field `type`, and State turns a `type` filter from `list_devices` into a condition on `kind`.
-- **DTO fields take the contract's names** from `specs/001-ring-mcp-bridge/data-model.md`. For example `device_id` is the contract's `id` inside a device reference.
+- **DTO fields take the contract's names** from `specs/001-ring-mcp-bridge/data-model.md` and the contracts, in their snake_case. For example `device_id` is the contract's `id` inside a device reference, and Settings' agent has `client_id` and `redirect_uris`. A field no record names, such as an outcome's `kind` or Settings' `revokedKeyIds`, is camelCase like any TypeScript value. The Ring port at home follows the same rule (settled at T017).
 
 ## Mapping the stored forms
 
