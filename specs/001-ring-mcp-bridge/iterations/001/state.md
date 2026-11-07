@@ -1,13 +1,31 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T022
-**Tasks Remaining**: T017-T021 and T023-T036 (19 tasks, 22 story_points)
-**In Progress**: CP-09 (the link): T015 and T016 are done, and T022 (the core's accessors, first of CP-16, which T017 needs) is done; next T017 (Connector Link), then CP-09's co-review (round 3 of 4)
+**Last Completed Task**: T017
+**Tasks Remaining**: T018-T021 and T023-T036 (18 tasks, 21 story_points)
+**In Progress**: CP-09 (the link): its three tasks (T015, T016, T017) are done; next CP-09's co-review (round 3 of 4), which needs the owner's `approved for review round`; T022 (first of CP-16) is done too
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T12:00:19Z
+**Updated**: 2026-11-07T13:20:25Z
 
 ## Execution Summary
+
+- T017 (Connector Link, the last of CP-09's three tasks) is done:
+  - **Connector Link** (`bridge/src/core/clients/connector-link/`), the core's end of the link:
+    - checks the signed hello through Admin: the version, the key, a fresh challenge and its signature (SC2);
+    - closes with the exact reasons the home acts on, and with its own reasons, after which the home simply dials again;
+    - holds an `enroll` request until the owner approves it, then says `enrolled` on the same link;
+    - hands the inventory, device changes and heartbeats to Event, and acks only after Event commits;
+    - takes each link's messages one at a time, in order;
+    - keeps one session per key, one link waiting for the owner, and at most 8 links that have not proved a key.
+  - **Ahead of their tasks:** a minimal Admin manager (the key check and the enroll request; T029 adds approval), and Event's intake, which T018 implements.
+  - **Approvals and revocations are found by polling:** every 2 s while a request waits, and every 15 s for an open session's key.
+  - **Prep, in its own commit (042f941):** Settings' DTOs take the records' names, the hello and enroll schemas are tighter, and `dialLink` can trust a test's throwaway certificate.
+
+  The choices, one deviation (the hand-over to Event is an awaited call, not a queued one) and the carry-forwards to T018, T027 and T029 are in DRIFT-001-26. A deliberate break of 24 parts was caught. Checks:
+  - 794 tests: 714 pass and 80 skip without SQL Server; with it, 783 pass and 11 skip;
+  - the both-ends contract test ran over the in-memory pair with faults, and over real WSS with TLS on localhost;
+  - coverage without SQL Server: 95.8% of lines and 93.3% of branches;
+  - lint, tsc, prettier and depcruise (202 modules) are clean.
 
 - T022 (the core's accessors for sign-in, first of CP-16's two tasks, done ahead of T017, which needs it) is done:
   - **Settings** (`bridge/src/core/access/settings/`):

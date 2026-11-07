@@ -4,6 +4,7 @@
 // This file imports only zod, so the home's wiring can use the types without reaching anything
 // of the core.
 import { z } from "zod";
+import type { LinkFrame } from "../../../../utilities/link-transport/index.ts";
 
 /** The link frame type of each message the home sends. */
 export const HOME_MESSAGE_TYPES = {
@@ -117,3 +118,66 @@ export const heartbeatSchema = z.strictObject({
   as_of: utcTime,
 });
 export type HeartbeatMessage = z.infer<typeof heartbeatSchema>;
+
+/** A message from the home, read from a frame. */
+export type HomeMessage =
+  | { readonly type: "hello"; readonly body: HelloMessage }
+  | {
+      readonly type: "challenge_response";
+      readonly body: ChallengeResponseMessage;
+    }
+  | { readonly type: "enroll"; readonly body: EnrollMessage }
+  | { readonly type: "inventory"; readonly body: InventoryMessage }
+  | { readonly type: "device_state"; readonly body: DeviceStateMessage }
+  | { readonly type: "heartbeat"; readonly body: HeartbeatMessage };
+
+/**
+ * The message in a frame from the home, or `undefined` for a frame that is not one of them or whose
+ * body does not match. Nothing of a refused body is kept: it can hold Ring's names.
+ */
+export function readHomeMessage(frame: LinkFrame): HomeMessage | undefined {
+  if (frame.kind !== "message") {
+    return undefined;
+  }
+  const { body } = frame;
+  switch (frame.type) {
+    case HOME_MESSAGE_TYPES.hello:
+      return read(helloSchema, body, (data) => ({ type: "hello", body: data }));
+    case HOME_MESSAGE_TYPES.challengeResponse:
+      return read(challengeResponseSchema, body, (data) => ({
+        type: "challenge_response",
+        body: data,
+      }));
+    case HOME_MESSAGE_TYPES.enroll:
+      return read(enrollSchema, body, (data) => ({
+        type: "enroll",
+        body: data,
+      }));
+    case HOME_MESSAGE_TYPES.inventory:
+      return read(inventorySchema, body, (data) => ({
+        type: "inventory",
+        body: data,
+      }));
+    case HOME_MESSAGE_TYPES.deviceState:
+      return read(deviceStateSchema, body, (data) => ({
+        type: "device_state",
+        body: data,
+      }));
+    case HOME_MESSAGE_TYPES.heartbeat:
+      return read(heartbeatSchema, body, (data) => ({
+        type: "heartbeat",
+        body: data,
+      }));
+    default:
+      return undefined;
+  }
+}
+
+function read<Body>(
+  schema: z.ZodType<Body>,
+  body: unknown,
+  message: (data: Body) => HomeMessage,
+): HomeMessage | undefined {
+  const result = schema.safeParse(body);
+  return result.success ? message(result.data) : undefined;
+}

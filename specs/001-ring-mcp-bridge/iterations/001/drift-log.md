@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 25
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 6 in implement on 2026-11-07)
+**Total drift events**: 26
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 7 in implement on 2026-11-07)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -657,6 +657,94 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - a write over a file that does not open;
     - the home file's seal purpose.
   - Security: a public key accepted in any spelling.
+
+### DRIFT-001-26: T017 builds Connector Link, with a minimal Admin manager and Event's intake ahead of their tasks; the hand-over to Event is an awaited call, and approvals are found by polling
+
+- **Detected**: 2026-11-07, implement, while doing T017
+- **Kind**: details the records leave open, one deviation from the component map's "queued" hand-over, and two parts built ahead of their tasks. No spec change
+- **Observed**:
+  - **Connector Link** (`bridge/src/core/clients/connector-link/`):
+    - The Host hands it each link the `LinkServer` accepts. `accept` never throws: a failure inside ws's upgrade callback would end the core process, so it is logged once and the link is closed.
+    - **Session start** (SC2):
+      - `hello` at version 1, checked with `isAcceptedLinkVersion` (N or N-1). The N-1 test comes with the first version bump (PT-07);
+      - the key checked through Admin, then a fresh nonce, and the signature checked with `verifyChallenge`;
+      - `hello_ok` repeats the hello's version, because the home checks it for equality.
+    - **Close reasons.**
+      - The home acts on Core Link's four reasons, which are sent exactly. `key_revoked` is sent only when Settings reports the key revoked, because it stops the home for good.
+      - The core's own reasons make the home dial again with its usual backoff: `handshake_timeout`, `message_refused`, `session_replaced`, `enrollment_expired`, `enrollment_replaced`, `too_many_links`, `core_unavailable`, `core_stopping` and `core_error`.
+    - **One step at a time per link.** Frames and timers queue on one chain, so an `ack` always follows its commit, and messages reach Event in the order the home sent them (L2).
+    - **One state value per phase** (L3): `first`, `challenged`, `enrolling`, `open` and `closed`, each holding only what it needs. A challenge response is checked only against the nonce this link sent, and the nonce is used once.
+    - **A message out of turn.** Before a session opens, any other message, or one that does not parse, closes the link as `message_refused`. In an open session it is logged by its type and left unacked, so the home sends it again, and the link stays.
+    - **Limits** [P]:
+      - 30 s from a link's start to `hello_ok`. The home's own limit for the same span is also 30 s;
+      - at most 8 links that have not proved a key;
+      - one open session per key: a newer one replaces the older (`session_replaced`);
+      - one link waiting for the owner: a newer `enroll` replaces the older (`enrollment_replaced`).
+    - **Failures**, each logged once:
+      - a key that cannot be checked closes the link as `core_unavailable`;
+      - Event's failure leaves the message unacked (`connector_link_intake_failed`, by `message_id`);
+      - an unexpected failure of a step closes the link as `core_error`.
+    - **Not logged: the key id.** The logger's identifier check refuses `_`, which base64url ids often contain. The session id, a UUID, is the correlation id on every line (OR2).
+  - **Admin** (`bridge/src/core/managers/admin/`) is built ahead of T029, with only the connector's part: the key check and the enroll request, over Settings, with its own error class. The component map says Connector Link checks the hello "through Admin", and clients call managers. T029 adds approval.
+  - **Event's intake** (`bridge/src/core/managers/event/`) is declared ahead of T018, which implements it: `homeSessionOpened`, `inventory`, `deviceState` and `heartbeat`, in Event's own DTOs. They keep the contract's names, with times in milliseconds, and Connector Link maps the link's messages to them.
+    - **Deviation:** the component map draws this hand-over as queued. It is an awaited call, because the `ack` waits for Event's commit (AC B10), and Pub/Sub tells a publisher nothing. Event may still queue its work inside.
+    - The interface exists ahead of its one implementation, Event's (T018). The tests use a recorder in its place.
+  - **Approvals and revocations are found by polling**, not by a message from the admin page. T029 and Connector Link are both clients, clients cannot call clients, and Pub/Sub is for calls between managers.
+    - A link waiting for the owner checks every 2 s (`ENROLLMENT_POLL_MS` [P]) until the request expires at 10 minutes. On approval it sends `enrolled` on the same link and expects `hello` there.
+    - An open session checks its key again every 15 s (`KEY_RECHECK_MS` [P]). When the owner approves a newer key, the older key's link closes as `key_revoked` within 15 s. A check that fails keeps the session.
+    - Polling also survives a core restart while an enrollment waits. The reads cost $0 more, because Azure SQL Basic is priced by DTU, not per read (derived).
+    - **An expired wait** closes the link as `enrollment_expired`. The home keeps its enroll flag, so its next connection enrolls again and renews the 10 minutes; the owner sees the request again.
+  - **Prep, in its own commit (042f941):**
+    - Settings' entity DTOs take the records' names (`client_id`, `redirect_uris`, `key_id`, `public_key`, `enrollment_code` and the rest), as the Ring port's do. The access README states the rule. T023 has not used them yet.
+    - The hello and enroll schemas now accept only the exact form the home sends, for the fields the core reads before a key is proved:
+      - a 16-character key id and a 43-character public key;
+      - a UUID session id;
+      - a connector version of at most 64 characters;
+      - a code of at most 64 characters, Settings' column size.
+
+      This closes DRIFT-001-25's carry-forward to T017.
+    - `dialLink` takes an optional set of trusted certificates, for a test's throwaway certificate. There is still no option to turn certificate checks off. The certificate is made with `openssl` at test time (the owner's choice a), and CI fails rather than skips without `openssl`.
+  - **Carry-forwards:**
+    - **T018:** Event implements `EventIntake`, committing before each call resolves. `homeSessionOpened` carries the connector's version, for "connector behind".
+    - **T027:**
+      - wire `ConnectorLink.accept` as the `LinkServer`'s `onLink`, for the link's path on the HTTPS server, and stop it before the store closes;
+      - add a dependency rule that keeps Azure out of `host/all-in-one.ts`, as the connector's rule does, or soften DRIFT-001-25's wording. Its claim that mode A never reaches Azure is not enforced yet.
+    - **T029:** approving a request through Admin. The waiting link learns of it within 2 s.
+- **Requirement citation**: tasks.md T017, T018, T027 and T029; `contracts/connector-link.md` "Transport and identity", "Versioning", "Frames", "Session start", "Enrollment and re-enrollment" and "Ordering, priority and guarantees"; component-design.md CD4, X2 and the component map v3 (Connector Link, Admin, Event); spec FR-032, FR-042 and FR-046; SC2; implementation-rules.yml `code-rule.concurrency-over-locks`, `code-rule.strategy-state-over-repeated-conditionals` and `code-rule.idiomatic-error-handling`.
+- **Resolution**: implementation choices and one documented deviation, recorded for the CP-09 co-review. Cost: 0 SP and $0.
+- **Class closure**: 36 new tests run in the suite.
+  - **Connector Link's own tests** run over the in-memory pair, with the test playing the home, against real Admin and Settings on SQLite.
+  - **The version 1 contract test** runs both real ends, Core Link with Ingest, its outbox and the simulated home against Connector Link:
+    - over the in-memory pair, with drops, delays past the resend time, and duplicates in front of the core;
+    - over real WSS with TLS on localhost, where the home is back within 60 s of the core's return after 3 minutes away.
+
+  A deliberate break of 24 parts was caught:
+  - an ack before the commit;
+  - no signature check;
+  - no version check;
+  - a key that is not enrolled accepted;
+  - a revoked key reported as not enrolled;
+  - steps run side by side;
+  - no handshake time limit;
+  - a request that never expires;
+  - no key recheck in an open session;
+  - a failed recheck that closes the session;
+  - a failed key check logged every time;
+  - a refusal before the session opens that keeps the link;
+  - an enroll key in any spelling;
+  - an older session not replaced;
+  - an older waiting link not replaced;
+  - no cap on unproven links;
+  - a failure that escapes `accept`;
+  - `stop` leaving links open;
+  - links accepted after `stop`;
+  - times not turned into milliseconds;
+  - any session id accepted;
+  - an enrollment code of any length;
+  - `dialLink` ignoring the trusted certificates;
+  - a backoff cap that misses the 60 s goal.
+
+  The first version of the 60 s test missed that last break: its core happened to return just before the home's next dial. The test now brings the core back just after a failed dial, the worst moment for the home, and catches it.
 
 ### Resolution Strategies (Unused)
 

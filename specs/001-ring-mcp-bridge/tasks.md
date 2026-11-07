@@ -260,7 +260,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
     - run the 10 s resend tick.
 
   (Trace: FR-032, FR-042, FR-005; CP-09)
-- [ ] T017 [US1] [assigned_to: Implementer] [effort: 1] Connector Link in the core, in `bridge/src/core/clients/connector-link/`, the WSS upgrade endpoint:
+- [x] T017 [US1] [assigned_to: Implementer] [effort: 1] Connector Link in the core, in `bridge/src/core/clients/connector-link/`, the WSS upgrade endpoint:
   - **Version:** accept version 1. The N-1 rule is coded now, and its test comes with the first version bump (PT-07).
   - **Identity:**
     - check that the key is enrolled in Settings;

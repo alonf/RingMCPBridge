@@ -1,6 +1,7 @@
 // Connector Link's link messages (CP-09): what the home sends the core, declared by its receiver
 // (CD4). A second, narrow entry point beside Connector Link's own, so the home can import these
-// declarations without reaching the core's components; it exports schemas and types only.
+// declarations without reaching the core's components. It exports schemas, types and the
+// reader, and imports only zod and the Link transport.
 
 /** The frame type names, and each message's schema and type. */
 export {
@@ -14,6 +15,7 @@ export {
   inventoryLocationSchema,
   inventorySchema,
   MAX_ENROLLMENT_CODE_LENGTH,
+  readHomeMessage,
 } from "./home-messages.ts";
 export type {
   ChallengeResponseMessage,
@@ -22,6 +24,7 @@ export type {
   EnrollMessage,
   HeartbeatMessage,
   HelloMessage,
+  HomeMessage,
   InventoryLocation,
   InventoryMessage,
 } from "./home-messages.ts";
