@@ -36,6 +36,9 @@ export type { LinkServerOptions } from "./link-server.ts";
 export { PING_INTERVAL_MS, SILENCE_LIMIT_MS } from "./socket-link.ts";
 export type { SocketLinkContext } from "./socket-link.ts";
 
+/** The link that is open and ready to carry messages, which the Host shares; it only holds. */
+export { LinkSlot } from "./link-slot.ts";
+
 /** Two linked ends in one process, for tests: no sockets, the same frames and order. */
 export { createLinkPair } from "./link-pair.ts";
 export type { LinkPair } from "./link-pair.ts";

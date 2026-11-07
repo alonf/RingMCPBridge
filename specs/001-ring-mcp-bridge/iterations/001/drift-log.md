@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 22
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 3 in implement on 2026-11-07)
+**Total drift events**: 23
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 4 in implement on 2026-11-07)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -366,7 +366,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - call `sessionStarted` after `hello_ok`, and try again on the 10 s tick while the outcome is not `queued`;
     - call `inventoryRequested` on `inventory_request`;
     - read the heartbeat's outbox depth from `depth`;
-    - Core Link is a client, so it reaches the outbox through Ingest, which gains these pass-through operations then (the IDesign call rules).
+    - Core Link is a client, so it reaches the outbox through Ingest, which gains these pass-through operations then (the IDesign call rules). (Changed at T016: Ingest sends through the `LinkSlot` instead, and Core Link calls Ingest only for what the core sends; see DRIFT-001-23.)
   - **A carry-forward to CP-08b (iteration 002):** the contract says an event's `message_id` is its `event_id`, but `append` always makes a new UUID, and `message_id` is unique. Events need `append` to take the id they already have, and a repeat of the same event must be handled as a duplicate, not reported as `unavailable`.
 - **Requirement citation**: tasks.md T014; `contracts/connector-link.md` "Frames" and "Device inventory and state"; data-model.md "Other stored state" and "Delivery rules" 2; spec FR-006 and FR-042; research R21 and PT-30; implementation-rules.yml `code-rule.robustness-state-boundaries`, `code-rule.concurrency-over-locks` and `code-rule.idiomatic-error-handling`.
 - **Resolution**: implementation choices, recorded for the co-review. The contract row gains one trigger, which adds a send of an existing message and changes no field. Cost: 0 SP and $0.
@@ -446,7 +446,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **How a link ends**: `closed_here`, `closed_by_peer` (with the other end's reason, untrusted text, at most 123 bytes), `no_pong`, `malformed_frame` or `connection_lost`.
   - **Errors.** Every outcome is a value: `send`, `dialLink` and the close cause. Misuse (a bad type name, an oversized frame, a long close reason, a URL that is not allowed) is a `RangeError`. So the transport has no error class of its own. A listener that throws is logged once as `link_listener_failed`, with the frame's type only, and the other listeners still hear the frame.
   - **WSS only (SC2).** `dialLink` dials `wss:`, which always checks the certificate, and has no option to turn that off. Plain `ws:` is allowed only to this machine (`localhost`, `127.0.0.1`, `[::1]`), for tests.
-    - **Carry-forward to T017**, whose test says "the real WSS on localhost": a TLS test needs a certificate. That means either a new dev dependency to make one, or a private key in the repository, which gitleaks would flag. Until the owner decides, the link tests run `ws:` on localhost, and the TLS path is covered only by a `wss:` dial that is refused.
+    - **Carry-forward to T017**, whose test says "the real WSS on localhost": a TLS test needs a certificate. That means either a new dev dependency to make one, or a private key in the repository, which gitleaks would flag. Until the owner decides, the link tests run `ws:` on localhost, and the TLS path is covered only by a `wss:` dial that is refused. **The owner chose (a) on 2026-11-07:** T017's test makes a throwaway certificate with the `openssl` command at test time ($0, no new package), and is skipped with a visible note where `openssl` is missing.
   - **CI check for "no Ring or bridge words"** (the workshop's CD4 check, which did not exist yet). Two dependency rules were added: `ws-only-in-link-transport`, and `link-transport-knows-no-bridge-components` (nothing from the core, the connector, the Host or the Public Contract). A deliberate break of each was caught.
   - **Found by the tests before commit:** a Node `Buffer`'s `slice` shares memory, so a received chunk's bytes were not the receiver's own. They are now copied.
   - **Carry-forwards to T016 and T017:**
@@ -457,6 +457,79 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: tasks.md T015, T016 and T017; `contracts/connector-link.md` "Transport and identity" and "Ordering, priority and guarantees"; component-design.md X2; spec FR-042, FR-046 and FR-034; research.md R21; implementation-rules.yml `code-rule.validation-boundaries`, `code-rule.concurrency-over-locks`, `code-rule.polymorphism-mechanism` (one interface, two carriers) and the `ws` and `@types/ws` dependency entries.
 - **Resolution**: implementation choices, recorded for the CP-09 co-review. The wire format is the transport's to choose (CD X2). Cost: 0 SP and $0.
 - **Class closure**: 38 tests run in the suite: the codec, the order with writes that really wait, the in-memory pair and the shared endpoint, and real sockets on localhost. A deliberate break of nine parts was caught: chunks before messages, silence that never ends the link, an envelope that is not checked, compression on, no payload cap, chunk bytes shared, a pair's close that overtakes its frames, a listener's failure that is not contained, and a refused frame that does not close the link.
+
+### DRIFT-001-23: T016 has Ingest send through a shared link slot, declares the link messages where each receiver lives, and names the key by its hash
+
+- **Detected**: 2026-11-07, implement, while doing T016
+- **Kind**: details the records leave open, one change to DRIFT-001-19's carry-forward, and one amendment to CD4's "one public entry file", for the owner to confirm or reject. No spec change
+- **Observed**:
+  - **Who sends what.** DRIFT-001-19 planned for Core Link to send through pass-throughs on Ingest. That doesn't work: the Home Scheduler is a client and cannot call Core Link, another client (the IDesign call rules), and the component map gives Ingest "normalize, outbox, send". So:
+    - **Core Link** (a client) owns the connection.
+      - It dials through a `dial` seam: the Link transport's `dialLink` in production.
+      - It sends `enroll` or `hello`, signs the `challenge`, and on `hello_ok` puts the link in the `LinkSlot`.
+      - It hands `ack` and `inventory_request` to Ingest, and dials again whenever the link is down.
+    - **Ingest** (a manager) sends on the link in the slot.
+      - `sessionOpened` makes every unacked message due again, and owes a fresh inventory.
+      - A message written while a session is open goes out at once.
+      - `sendDue` and `sendHeartbeat` are the ticks' work.
+    - **The Home Scheduler** (a client) calls `sendDue` every 10 s and `sendHeartbeat` every 15 s. A tick starts when the last one ends, and a tick's unexpected failure is logged once (`home_tick_failed`).
+    - **`LinkSlot`** is a bare holder in the Link transport: put, current, and clear only if the link is the same one. Only Core Link decides when a link may carry messages, because CD X2 warns against logic in the transport. A test checks that nothing from the outbox goes out before `hello_ok`.
+  - **Order at session open.** Ingest's outbox work runs one step at a time, so "everything is due again" finishes before anything is sent on the new link. A test drops a session that has an unacked inventory, and checks that the next session sends it first.
+  - **Link messages: the receiver declares them, in a narrow second entry** (CD4, amended).
+    - Core Link declares what the core sends: `challenge`, `hello_ok`, `enrolled`, `inventory_request` and `ack`, and the close reasons. They are in `connector/clients/core-link/messages/index.ts`.
+    - Connector Link declares what the home sends: `hello`, `challenge_response`, `enroll`, `inventory`, `device_state` and `heartbeat`. They are in `core/clients/connector-link/messages/index.ts`. That folder is made now, ahead of T017, as DRIFT-001-14 did for the Ring port.
+    - Each `messages/index.ts` imports only zod and the Link transport.
+    - **Why a second entry:** without it, the home would reach the core's components, and their libraries, through Connector Link's own entry file. `connector-reaches-no-cloud-libraries` forbids that, and type-only imports count (`tsPreCompilationDeps`).
+    - **The amendment to CD4:** a component may have a second entry, `messages/index.ts`, holding only the link messages it receives. `component-only-through-index` now allows exactly that.
+      - Before, the rule allowed any nested `index.ts`. A deliberate break showed the loophole, and it is now closed.
+      - **The owner may reject this.** The alternative is a separate schemas module for the link, as the Public Contract is for agents.
+  - **Names new at implement** [P]:
+    - **`key_id`** is the first 16 base64url characters of the public key's SHA-256 (`signingKeyId`, in the security utility).
+      - The home keeps no enrollment state. It says `hello` with that id, and enrolls only after the core closes with `key_not_enrolled`.
+      - Core Link checks that `enrolled` names its own id, and closes with `key_mismatch` if not.
+      - T017 must name keys with the same helper.
+    - **The enrollment code** is an input (`identity.enrollmentCode`), not derived from the key, because T028 makes it one-time.
+    - **Close reasons from the core**, sent exactly:
+      - `key_not_enrolled`: enroll next time;
+      - `key_revoked`: stop dialing until there is a new key, and log it once;
+      - `version_not_accepted`: dial again after 30 s;
+      - `challenge_failed`: dial again.
+    - **The home's own close reasons:** `handshake_timeout`, `key_mismatch`, `version_mismatch` and `connector_stopping`.
+    - **The heartbeat:** `ring_session`, `push` (`off` until 002), `outbox_depth` (`null` when the outbox cannot be read), `last_ring_event_at` (`null` until 002), `error_counts` (since start, by code) and `as_of`.
+    - **On the wire**, an outbox message's body is its stored body plus `message_id`.
+  - **Timings** [P]:
+    - The reconnect backoff is 1 s, doubling to 30 s, with full jitter, and never under 1 s. It starts over only after `hello_ok`, so a core that accepts and then closes at once is not dialed every second.
+    - From `hello` to `hello_ok`, the core gets 30 s (`HANDSHAKE_TIMEOUT_MS`).
+    - While enrolling, the home sets no limit, because the owner may take up to the pending request's 10 minutes (PT-32).
+  - **Handled once, then moved past:**
+    - A core message that is not one of the five, or arrives out of turn, is logged with its type only and ignored.
+    - An outbox message too large for one frame is logged once by its `message_id`, cleared, and counted (`message_too_large`). The next inventory carries its state.
+    - The logger gains a `message_id` field, an identifier.
+  - **No secret on a frame.** A test runs enrollment, a session, the inventory and a heartbeat. It checks that the private key appears on no frame in any encoding: the DER and the raw seed, each as base64, base64url and hex. Only the public key, its id and the enrollment code go out (AC B5, SC4).
+  - **Carry-forwards to T017:**
+    - name keys with `signingKeyId`, check the signature with `verifyChallenge`, and send the close reasons above exactly;
+    - put a time limit on a link that has not finished its hello, leaving room for an `enroll` that waits for the owner, up to PT-32's 10 minutes;
+    - Connector Link's `onLink` handler must contain its own failures, because one thrown inside ws's upgrade callback ends the core process;
+    - the TLS test uses a throwaway certificate made with `openssl` (the owner's choice a).
+  - **Carry-forwards to T027 and T028:**
+    - The Host wires `dial` to `dialLink` with the configured `wss:` core URL, and takes `connectorVersion` from the package.
+    - The enrollment code's home store and its log line belong to T028. Logging the code needs a new log field, because the logger writes only declared fields.
+- **Requirement citation**: tasks.md T016 and T017; `contracts/connector-link.md` "Frames", "Session start", "Heartbeat and home offline", "Enrollment and re-enrollment" and "Ordering, priority and guarantees"; data-model.md "Home part enrollment"; component-design.md CD4, X2 and the component map v3; spec FR-005, FR-032 and FR-042; implementation-rules.yml `code-rule.careful-retries`, `code-rule.concurrency-over-locks` and `code-rule.idiomatic-error-handling`.
+- **Resolution**: implementation choices, recorded for the CP-09 co-review. The CD4 amendment awaits the owner's confirmation. Cost: 0 SP and $0.
+- **Class closure**: 21 new tests run in the suite. Core Link's tests run over the in-memory pair, with the test playing the core, against the simulated home and a real outbox. A deliberate break of eleven parts was caught:
+  - a signature over the wrong text;
+  - no "everything is due again" at session open;
+  - a backoff that does not grow;
+  - a revoked key that keeps dialing;
+  - a version refusal that is not slowed;
+  - no handshake timeout;
+  - an enrollment that is never cleared;
+  - an `enrolled` id that is not checked;
+  - an oversized message that is not contained;
+  - out-of-turn messages that are acted on;
+  - a link put in the slot before `hello_ok`.
+
+  The narrowed dependency rule caught a nested `index.ts` that is not `messages/`.
 
 ### Resolution Strategies (Unused)
 

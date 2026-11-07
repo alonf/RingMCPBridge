@@ -1,6 +1,7 @@
 // Ed25519 for the connector's identity (SC2): the key pair is made at home, the core keeps the
 // public key, and at every hello the connector signs a fresh challenge from the core.
 import {
+  createHash,
   createPrivateKey,
   createPublicKey,
   generateKeyPair,
@@ -15,6 +16,8 @@ import { SecurityError } from "./security-error.ts";
 const generateEd25519KeyPair = promisify(generateKeyPair);
 
 const CHALLENGE_NONCE_BYTES = 32;
+// 16 base64url characters: 96 bits of the key's SHA-256, ample for one key per Ring account.
+const KEY_ID_LENGTH = 16;
 const ED25519 = "ed25519";
 // Domain separation: a challenge signature can never be reused as any other signature.
 const CHALLENGE_CONTEXT = Buffer.from(
@@ -111,4 +114,16 @@ export function verifyChallenge(
   } catch {
     return false;
   }
+}
+
+/**
+ * The connector key's id: the start of the public key's SHA-256, as base64url. Both ends work it
+ * out the same way, so the home keeps no enrollment state: the `hello` carries it, and the core
+ * names the enrolled key by it.
+ */
+export function signingKeyId(publicKey: PublicSigningKey): string {
+  return createHash("sha256")
+    .update(publicKey, "utf8")
+    .digest("base64url")
+    .slice(0, KEY_ID_LENGTH);
 }

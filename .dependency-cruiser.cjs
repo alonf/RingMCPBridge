@@ -54,14 +54,17 @@ module.exports = {
     {
       name: "component-only-through-index",
       comment:
-        "Another component is imported only through its index.ts; implementations are imported only by the Host wiring and the tests (CD4).",
+        "Another component is imported only through its index.ts, or, for the link messages a receiver declares, its messages/index.ts (CD4, amended at T016); implementations are imported only by the Host wiring and the tests.",
       severity: "error",
       from: {
         path: "^(bridge/src/(?:core|connector)/[^/]+/[^/]+)/",
       },
       to: {
         path: "^bridge/src/(?:core|connector)/[^/]+/[^/]+/",
-        pathNot: ["^$1/", "/index\\.ts$"],
+        pathNot: [
+          "^$1/",
+          "^bridge/src/(?:core|connector)/[^/]+/[^/]+/(?:messages/)?index\\.ts$",
+        ],
       },
     },
     {

@@ -13,6 +13,7 @@ export {
   generateSigningKeyPair,
   importPrivateKey,
   signChallenge,
+  signingKeyId,
   verifyChallenge,
 } from "./signing.ts";
 export type { PublicSigningKey, SigningKeyPair } from "./signing.ts";

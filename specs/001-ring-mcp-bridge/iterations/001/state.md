@@ -1,13 +1,29 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T015
-**Tasks Remaining**: T016-T036 (21 tasks, 24 story_points)
-**In Progress**: CP-09 (the link): T015 is done; next T016 (Core Link and Home Scheduler), then T017 (Connector Link)
+**Last Completed Task**: T016
+**Tasks Remaining**: T017-T036 (20 tasks, 23 story_points)
+**In Progress**: CP-09 (the link): T015 and T016 are done; next T017 (Connector Link), then CP-09's co-review (round 3 of 4)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T01:40:00Z
+**Updated**: 2026-11-07T02:29:00Z
 
 ## Execution Summary
+
+- T016 (Core Link and the Home Scheduler, second of CP-09's three tasks) is done:
+  - **Core Link** (`bridge/src/connector/clients/core-link/`):
+    - dials out, says `hello` with its key's id, signs the core's challenge, and on `hello_ok` puts the link in the `LinkSlot`;
+    - enrolls with the public key and the printed code after the core says the key is not enrolled;
+    - stops for good on a revoked key;
+    - dials again after 1 to 30 s with jitter, starting over only after a session opened.
+  - **The Home Scheduler** (`bridge/src/connector/clients/home-scheduler/`): Ingest sends what is due every 10 s and the heartbeat every 15 s.
+  - **Ingest now sends** on the link in the slot. A new session first makes every unacked message due again, then sends a fresh inventory. A change goes out at once, and an oversized message is logged once and dropped.
+  - **The link messages** are declared by their receivers in narrow `messages/index.ts` entries. Connector Link's is made ahead of T017. This is an amendment to CD4 that the owner may reject. The dependency rule now allows exactly this, and closes a loophole that allowed any nested `index.ts`.
+  - **The key's id** is derived from its public key (`signingKeyId`), so the home keeps no enrollment state.
+
+  The choices and the carry-forwards to T017, T027 and T028 are in DRIFT-001-23. The owner chose (a) for T017's TLS test: a throwaway `openssl` certificate. A deliberate break of eleven parts was caught. Checks:
+  - 675 tests: 626 pass and 49 skip without SQL Server;
+  - coverage without SQL Server: 95.1% of lines and 92.7% of branches;
+  - lint, tsc, prettier and depcruise (166 modules) are clean.
 
 - T015 (the Link transport, first of CP-09's three tasks) is done, in `bridge/src/utilities/link-transport/`, over ws 8.22.0 with `@types/ws` 8.18.2 (the owner's choice a):
   - **frames:** a message (a type name and a JSON body) or a chunk (a type name, a JSON header and bytes). Only the envelope is checked. A frame the link does not accept closes it as `malformed_frame`, keeping nothing of its text;

@@ -17,6 +17,7 @@ export const LOG_FIELD_KINDS = {
   command_id: "identifier",
   client_id: "identifier",
   event_id: "identifier",
+  message_id: "identifier",
   location_id: "identifier",
   device_id: "identifier",
   tool: "code",

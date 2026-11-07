@@ -245,7 +245,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - an in-memory link pair for tests.
 
   It knows no Ring words and no bridge words (Trace: FR-046, FR-042; CP-09)
-- [ ] T016 [US1] [assigned_to: Implementer] [effort: 1] Core Link and Home Scheduler at home, in `bridge/src/connector/clients/core-link/` and `bridge/src/connector/clients/home-scheduler/`:
+- [x] T016 [US1] [assigned_to: Implementer] [effort: 1] Core Link and Home Scheduler at home, in `bridge/src/connector/clients/core-link/` and `bridge/src/connector/clients/home-scheduler/`:
   - **Connecting:**
     - dial out over WSS, with no inbound port;
     - send `hello` with version 1, `key_id`, `connector_version` and `session_id`;

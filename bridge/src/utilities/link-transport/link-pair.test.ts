@@ -7,6 +7,7 @@ import { CLOSE_CODES, LinkEndpoint } from "./link-connection.ts";
 import type { LinkClosed, LinkConnection } from "./link-connection.ts";
 import type { LinkFrame } from "./link-frame.ts";
 import { createLinkPair } from "./link-pair.ts";
+import { LinkSlot } from "./link-slot.ts";
 
 const RING_NAME = "דלת כניסה";
 
@@ -202,5 +203,20 @@ describe("LinkEndpoint", () => {
     expect(log).toContain("link_listener_failed");
     expect(log).toContain('"message_type":"named"');
     expect(log).not.toContain(RING_NAME);
+  });
+});
+
+describe("LinkSlot", () => {
+  it("holds one link, and clears only when told to clear that same link", () => {
+    const slot = new LinkSlot();
+    const first = createLinkPair(logger()).dialer;
+    const second = createLinkPair(logger()).dialer;
+    expect(slot.current).toBeUndefined();
+    slot.put(first);
+    slot.put(second);
+    slot.clear(first);
+    expect(slot.current).toBe(second);
+    slot.clear(second);
+    expect(slot.current).toBeUndefined();
   });
 });

@@ -10,6 +10,7 @@ import {
   open,
   seal,
   signChallenge,
+  signingKeyId,
   verifyChallenge,
 } from "./index.ts";
 
@@ -28,6 +29,16 @@ function securityErrorFrom(action: () => unknown): SecurityError {
 }
 
 describe("challenge signing (SC2)", () => {
+  it("names a key by the start of its public key's hash: the same on both ends, different per key", async () => {
+    const pair = await generateSigningKeyPair();
+    const other = await generateSigningKeyPair();
+    const keyId = signingKeyId(pair.publicKey);
+    expect(keyId).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(signingKeyId(pair.publicKey)).toBe(keyId);
+    expect(signingKeyId(other.publicKey)).not.toBe(keyId);
+    expect(pair.publicKey).not.toContain(keyId);
+  });
+
   it("makes a key pair whose public key is 32 raw bytes as base64url", async () => {
     const pair = await generateSigningKeyPair();
     expect(pair.publicKey).toMatch(BASE64URL_43);

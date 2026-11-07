@@ -6,6 +6,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeClock, formatUtc } from "../../../utilities/clock/index.ts";
 import { Logger } from "../../../utilities/logging/index.ts";
+import {
+  createLinkPair,
+  LinkSlot,
+} from "../../../utilities/link-transport/index.ts";
+import type { LinkFrame } from "../../../utilities/link-transport/index.ts";
 import { OutboxStore } from "../../access/outbox-store/index.ts";
 import type { OutboxItem } from "../../access/outbox-store/index.ts";
 import type {
@@ -79,6 +84,7 @@ function startIngest(ring: RingPort, outbox: OutboxStore): Ingest {
   const ingest = new Ingest({
     ring,
     outbox,
+    link: new LinkSlot(),
     clock,
     logger: new Logger({
       sink: (line) => lines.push(line),
@@ -175,7 +181,7 @@ describe("Ingest", () => {
   it("queues one inventory at session start, every entry in the link's names with its own rising version", async () => {
     const { store, ingest } = await setup();
 
-    expect(await ingest.sessionStarted(signal)).toBe("queued");
+    expect(await ingest.inventoryRequested(signal)).toBe("queued");
 
     const items = await takeAll(store);
     expect(items).toHaveLength(1);
@@ -205,7 +211,7 @@ describe("Ingest", () => {
 
   it("queues a fresh inventory on inventory_request, with higher versions and a later as_of", async () => {
     const { store, ingest } = await setup();
-    await ingest.sessionStarted(signal);
+    await ingest.inventoryRequested(signal);
     await clock.advance(5_000);
 
     expect(await ingest.inventoryRequested(signal)).toBe("queued");
@@ -219,7 +225,7 @@ describe("Ingest", () => {
 
   it("queues a changed device's full current entry, never only the changed field", async () => {
     const { engine, store, ingest } = await setup();
-    await ingest.sessionStarted(signal);
+    await ingest.inventoryRequested(signal);
     await takeAll(store);
     await clock.advance(1_000);
 
@@ -252,7 +258,7 @@ describe("Ingest", () => {
 
   it("sends the whole inventory again when an alarm mode changes, with the new mode", async () => {
     const { engine, store, ingest } = await setup();
-    await ingest.sessionStarted(signal);
+    await ingest.inventoryRequested(signal);
     openDoor(engine);
     await ingest.flush();
     const before = await takeAll(store);
@@ -302,7 +308,7 @@ describe("Ingest", () => {
     const store = await openStore();
     const ingest = startIngest(new StaleReads(engine, SLOW_MS), store);
 
-    const outcome = ingest.sessionStarted(signal);
+    const outcome = ingest.inventoryRequested(signal);
     await clock.advance(SLOW_MS / 2);
     openDoor(engine);
     expect(await driveFakeClock(clock, outcome)).toBe("queued");
@@ -327,7 +333,7 @@ describe("Ingest", () => {
       fault: { kind: fault as "ring_down" | "blocked" | "session_lost" },
     });
 
-    expect(await ingest.sessionStarted(signal)).toBe(expected);
+    expect(await ingest.inventoryRequested(signal)).toBe(expected);
     expect(await store.depth(signal)).toBe(0);
   });
 
@@ -335,7 +341,7 @@ describe("Ingest", () => {
     const { engine, store, ingest } = await setup();
     await store.close();
 
-    expect(await ingest.sessionStarted(signal)).toBe("outbox_unavailable");
+    expect(await ingest.inventoryRequested(signal)).toBe("outbox_unavailable");
     openDoor(engine);
     await ingest.flush();
 
@@ -358,15 +364,15 @@ describe("Ingest", () => {
         engine.devices(locationId, readSignal),
       watch: (listener) => engine.watch(listener),
     };
-    await expect(startIngest(ring, store).sessionStarted(signal)).rejects.toBe(
-      broken,
-    );
+    await expect(
+      startIngest(ring, store).inventoryRequested(signal),
+    ).rejects.toBe(broken);
 
     const controller = new AbortController();
     const reason = new Error("the caller left");
     controller.abort(reason);
     await expect(
-      startIngest(engine, store).sessionStarted(controller.signal),
+      startIngest(engine, store).inventoryRequested(controller.signal),
     ).rejects.toBe(reason);
     expect(await store.depth(signal)).toBe(0);
   });
@@ -386,13 +392,13 @@ describe("Ingest", () => {
     const engine = new ScenarioEngine(clock);
     const before = await openStore(path);
     const first = startIngest(engine, before);
-    await first.sessionStarted(signal);
+    await first.inventoryRequested(signal);
     const firstVersions = versionsOf(inventoryOf((await takeAll(before))[0]));
     await first.stop();
     await before.close();
 
     const after = await openStore(path);
-    await startIngest(engine, after).sessionStarted(signal);
+    await startIngest(engine, after).inventoryRequested(signal);
 
     const secondVersions = versionsOf(inventoryOf((await takeAll(after))[0]));
     expect(Math.min(...secondVersions)).toBeGreaterThan(
@@ -404,3 +410,48 @@ describe("Ingest", () => {
 function fail(): never {
   throw new Error("A queued message was missing.");
 }
+
+describe("Ingest's heartbeat", () => {
+  it("reports the outbox as unreadable and counts it, and sends nothing without a session", async () => {
+    const engine = new ScenarioEngine(clock);
+    const store = await openStore();
+    const slot = new LinkSlot();
+    const pair = createLinkPair(
+      new Logger({ sink: () => undefined, now: () => 0, minLevel: "debug" }),
+    );
+    const frames: LinkFrame[] = [];
+    pair.acceptor.onFrame((frame) => frames.push(frame));
+    const ingest = new Ingest({
+      ring: engine,
+      outbox: store,
+      link: slot,
+      clock,
+      logger: new Logger({
+        sink: (line) => lines.push(line),
+        now: () => clock.now(),
+        minLevel: "debug",
+      }),
+    });
+    await ingest.sendHeartbeat(signal);
+    await ingest.sendDue(signal);
+    slot.put(pair.dialer);
+    await store.close();
+    await ingest.sendHeartbeat(signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(frames).toEqual([
+      {
+        kind: "message",
+        type: "heartbeat",
+        body: {
+          ring_session: "ok",
+          push: "off",
+          outbox_depth: null,
+          last_ring_event_at: null,
+          error_counts: { outbox_unavailable: 1 },
+          as_of: formatUtc(START),
+        },
+      },
+    ]);
+    expect(lines.join("\n")).toContain("ingest_depth_not_read");
+  });
+});
