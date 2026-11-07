@@ -79,8 +79,16 @@ export class HomeView {
     }
   }
 
-  /** The `inventory` body: every location, then every device, each with a fresh version. */
-  inventory(versions: StateVersions): OutboxBody {
+  /**
+   * The `inventory` body: its own version first, so every entry's is higher and the core can order
+   * snapshots (CP-14 review round 3); the session it is composed for, when one is open; then every
+   * location and every device, each with a fresh version.
+   */
+  inventory(
+    versions: StateVersions,
+    sessionId: string | undefined,
+  ): OutboxBody {
+    const snapshotVersion = versions.next();
     const locations = [...this.#locations.values()].map(({ entry, at }) => ({
       ...entry,
       as_of: formatUtc(at),
@@ -89,6 +97,11 @@ export class HomeView {
     const devices = [...this.#devices.values()].map(({ entry, at }) =>
       deviceEntry(entry, at, versions.next()),
     );
-    return { locations, devices };
+    return {
+      snapshot_version: snapshotVersion,
+      ...(sessionId === undefined ? {} : { session_id: sessionId }),
+      locations,
+      devices,
+    };
   }
 }

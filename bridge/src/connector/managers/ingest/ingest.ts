@@ -83,6 +83,8 @@ export class Ingest {
   #steps: Promise<void> = Promise.resolve();
   #stopWatching: StopWatching | undefined;
   #inventoryOwed = false;
+  // The session last opened, which an inventory composed while its link is in the slot is for.
+  #sessionId: string | undefined;
   // True from a session's start until its "everything is due again" step is done: nothing is sent
   // meanwhile, so a send step queued before the session cannot overtake older unacked messages.
   #sessionStarting = false;
@@ -111,10 +113,11 @@ export class Ingest {
 
   /**
    * A session opened, and its link is in the slot. Every unacked message becomes due again before
-   * anything is sent on the new link, and a fresh inventory is owed until it is queued. Then what
-   * is due is sent.
+   * anything is sent on the new link, and a fresh inventory, stamped with this session, is owed
+   * until it is queued. Then what is due is sent.
    */
-  async sessionOpened(signal: AbortSignal): Promise<void> {
+  async sessionOpened(sessionId: string, signal: AbortSignal): Promise<void> {
+    this.#sessionId = sessionId;
     this.#inventoryOwed = true;
     this.#sessionStarting = true;
     try {
@@ -173,6 +176,11 @@ export class Ingest {
     void link.send({ type: HOME_MESSAGE_TYPES.heartbeat, body: heartbeat });
   }
 
+  // The session an inventory composed now is for: none while no link is in the slot.
+  #composingFor(): string | undefined {
+    return this.#link.current === undefined ? undefined : this.#sessionId;
+  }
+
   /** Resolves once every step accepted so far is done, or has failed and been logged. */
   flush(): Promise<void> {
     return this.#steps;
@@ -205,7 +213,10 @@ export class Ingest {
     }
     this.#view = view;
     try {
-      await this.#write(inventoryDraft(view), signal);
+      await this.#write(
+        inventoryDraft(view, () => this.#composingFor()),
+        signal,
+      );
       return "queued";
     } catch (error) {
       if (error instanceof OutboxStoreError) {
@@ -246,10 +257,13 @@ export class Ingest {
       return;
     }
     if (this.#view !== undefined) {
-      this.#writeChange(inventoryDraft(this.#view), {
-        message_type: "inventory",
-        location_id: change.location.location_id,
-      });
+      this.#writeChange(
+        inventoryDraft(this.#view, () => this.#composingFor()),
+        {
+          message_type: "inventory",
+          location_id: change.location.location_id,
+        },
+      );
     }
   }
 
@@ -406,11 +420,16 @@ export class Ingest {
   }
 }
 
-// The body is built when the write runs, so it holds every change taken in before then.
+// The body is built when the write runs, so it holds every change taken in before then, and names
+// the session open then.
 function inventoryDraft(
   view: HomeView,
+  sessionId: () => string | undefined,
 ): (versions: StateVersions) => OutboxDraft {
-  return (versions) => ({ kind: "inventory", body: view.inventory(versions) });
+  return (versions) => ({
+    kind: "inventory",
+    body: view.inventory(versions, sessionId()),
+  });
 }
 
 function ringFailure(error: unknown): InventoryOutcome {

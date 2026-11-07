@@ -561,7 +561,7 @@ Field names are [P]. The content is CD-A2's.
 
 | State | Owner | Fields | Source | Iteration |
 |---|---|---|---|---|
-| Health snapshot | State | home link, Ring session, push, last event, `stale_since`, outbox depth, connector version | CD map v3 State, OR §journey | 001 (push and last event: filled from 002) |
+| Health snapshot | State | home link, Ring session, push, last event, `stale_since`, outbox depth, connector version, and since when a session's own inventory is owed [P] (CP-14 review round 3) | CD map v3 State, OR §journey | 001 (push and last event: filled from 002) |
 | Single-instance lease | Lease | holder, expiry; renewed every 15 s, expires after 45 s | OR §Amendments, CD C6 | 001 |
 | Outbox | Outbox Store (home) | `event_id`, `received_at`, the normalized event, send state | CD map v3, DS §Inventory | 001 (event rows: 002) |
 | Executed command ids | Outbox Store (home) | `command_id`, the stored result | CD map v3, IA D8 step 8 | 003 |

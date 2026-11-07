@@ -81,7 +81,7 @@ These two messages fill the core's State (PT-30).
 
 | Message | When it is sent | Fields [P names] |
 |---|---|---|
-| `inventory` | on every session start, after the catch-up (from 002), on `inventory_request`, and when a location's alarm mode changes, because no other message carries a location (DRIFT-001-19) | `message_id`; `locations` (each: `location_id`, `name`, `time_zone`, `alarm_mode`, `ownership`, `as_of`, `state_version`); `devices` (each: `device_id`, `location_id`, `name`, `type`, `room`, `battery_pct`, `battery_low`, `power_mode`, `online`, `state`, `as_of`, `state_version`) |
+| `inventory` | on every session start, after the catch-up (from 002), on `inventory_request`, and when a location's alarm mode changes, because no other message carries a location (DRIFT-001-19) | `message_id`; `snapshot_version` [P]; `session_id` [P], present when a session was open as it was composed; `locations` (each: `location_id`, `name`, `time_zone`, `alarm_mode`, `ownership`, `as_of`, `state_version`); `devices` (each: `device_id`, `location_id`, `name`, `type`, `room`, `battery_pct`, `battery_low`, `power_mode`, `online`, `state`, `as_of`, `state_version`) |
 | `device_state` | when one device's state changes without an event | `message_id`, and the device's full current entry: the same fields as a device in `inventory` (`device_id`, `location_id`, `name`, `type`, `room`, `battery_pct`, `battery_low`, `power_mode`, `online`, `state`, `as_of`, `state_version`) |
 
 Rules:
@@ -90,7 +90,9 @@ Rules:
 - **Full state, never a delta:** every message that carries a `state_version` carries the device's complete state, never only the changed fields. So when latest-wins drops an older or resent message, no field is lost (the T001 hardening review, 2026-11-03; DRIFT-001-06).
 - **Locations too:** each location entry carries its own `state_version`, from the same home counter as devices. The core applies a location's fields only if that version is higher than the one it holds for that location, so a resent older inventory cannot roll back an alarm mode (DRIFT-001-08).
 - **The counter:** the home keeps `state_version` in the Outbox Store, so it survives a connector restart [P].
-- **A new enrollment:** when a new enrollment becomes active, the core resets its stored versions, because the new connector's counter starts again [P].
+- **Snapshots in order** [P] (CP-14 review round 3): an inventory's `snapshot_version` comes from the same counter, drawn before its entries' versions. The core keeps the newest one it applied. It acks, but skips, an inventory at or below that one, so a resent older inventory cannot bring back what a newer one removed. A newer inventory removes each stored entry it leaves out whose version is below its `snapshot_version`, so an empty one clears the home.
+- **A session's own inventory** [P] (CP-14 review round 3): `session_id` names the session the inventory was composed for. After a session opens, the core keeps the home's data stale until an inventory composed for that session is stored (FR-006). A heartbeat says the link is up, not that the data has caught up.
+- **A new enrollment:** when a session of a newly enrolled key opens, the core resets its stored versions and forgets the newest snapshot, because the new connector's counter starts again [P] (DRIFT-001-32).
 - **Field names:** they are the contract names. A device's type is `type` on the link and in the tools; State maps it to its storage column `kind` (PT-26, CD4).
 - **Untrusted text:** names and rooms are untrusted text (FR-033).
 

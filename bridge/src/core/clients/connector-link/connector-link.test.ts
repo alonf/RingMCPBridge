@@ -194,6 +194,7 @@ async function openSession(
 function inventory(messageId: string): Record<string, unknown> {
   return {
     message_id: messageId,
+    snapshot_version: 1,
     locations: [
       {
         location_id: "loc-1",
@@ -202,7 +203,7 @@ function inventory(messageId: string): Record<string, unknown> {
         alarm_mode: "home",
         ownership: "owned",
         as_of: AS_OF,
-        state_version: 1,
+        state_version: 2,
       },
     ],
     devices: [deviceEntry()],
@@ -493,6 +494,7 @@ describe("ConnectorLink: the home's messages", () => {
     expect(test.intake.calls.slice(1).map((call) => call.body)).toEqual([
       {
         message_id: "m-1",
+        snapshot_version: 1,
         locations: [
           {
             location_id: "loc-1",
@@ -501,7 +503,7 @@ describe("ConnectorLink: the home's messages", () => {
             alarm_mode: "home",
             ownership: "owned",
             as_of: asOf,
-            state_version: 1,
+            state_version: 2,
           },
         ],
         devices: [{ ...deviceEntry(), as_of: asOf }],
@@ -670,6 +672,52 @@ describe("ConnectorLink: what Event decided (T018)", () => {
     );
     expect(refused).toContain('"count":2');
     expect(removed).toContain('"count":5');
+  });
+
+  // CP-14 review round 3: an inventory carries the session it was composed for, and one State skips
+  // as older is acked but answers no pending request, as the home's answer is a newer one.
+  it("hands Event the session an inventory was composed for", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    const composedFor = randomUUID();
+
+    send(home, "inventory", { ...inventory("m-1"), session_id: composedFor });
+
+    await frameOf(home, "ack");
+    expect(test.intake.calls.at(-1)?.body).toMatchObject({
+      snapshot_version: 1,
+      session_id: composedFor,
+    });
+  });
+
+  it("acks an inventory State skipped as older, still waiting for the answer to its request", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    test.intake.deviceOutcomes.push(
+      "needs_inventory",
+      "needs_inventory",
+      "needs_inventory",
+    );
+
+    send(home, "device_state", { ...deviceEntry(), message_id: "m-1" });
+    await frameOf(home, "ack");
+    test.intake.inventoryOutcome = { kind: "older" };
+    send(home, "inventory", inventory("m-2"));
+    await frameOf(home, "ack", 2);
+    send(home, "device_state", { ...deviceEntry(), message_id: "m-3" });
+    await frameOf(home, "ack", 3);
+    expect(messagesOf(home, "inventory_request")).toHaveLength(1);
+
+    test.intake.inventoryOutcome = { kind: "applied", refused: 0, removed: 0 };
+    send(home, "inventory", inventory("m-4"));
+    await frameOf(home, "ack", 4);
+    send(home, "device_state", { ...deviceEntry(), message_id: "m-5" });
+    await frameOf(home, "ack", 5);
+    expect(messagesOf(home, "inventory_request")).toHaveLength(2);
   });
 });
 

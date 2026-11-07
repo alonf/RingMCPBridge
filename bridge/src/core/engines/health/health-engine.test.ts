@@ -1,18 +1,25 @@
 // The Health engine's link rules (T018), written before the engine, on the core's clock: a home
 // silent for the configured time shows offline with `stale_since`, and a sign of life brings it
-// back; the Ring session's status follows the heartbeat, its `since` kept while it holds.
+// back; the Ring session's status follows the heartbeat, its `since` kept while it holds. Since
+// CP-14 review round 3, a session's data is stale until its own inventory is stored.
 import { describe, expect, it } from "vitest";
 import {
   afterHeartbeat,
+  afterRefresh,
   afterSessionOpened,
   asOf,
   healthChanges,
 } from "./index.ts";
-import type { HealthPolicy } from "./index.ts";
+import type { HealthPolicy, HealthView } from "./index.ts";
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 const POLICY: HealthPolicy = { homeOfflineAfterMs: 120_000 };
 const BEAT = { ring_session: "ok", outbox_depth: 3 } as const;
+
+/** A session opened at `at` whose own inventory is stored. */
+function refreshed(at: number): HealthView {
+  return afterRefresh(afterSessionOpened(undefined, "0.1.0", at));
+}
 
 describe("the Health engine: the home link", () => {
   it("shows the home up from the session's start, with its connector version", () => {
@@ -23,15 +30,12 @@ describe("the Health engine: the home link", () => {
       home_link_since: START,
       connector_version: "0.1.0",
       as_of: START,
+      refresh_owed_since: START,
     });
   });
 
   it("shows the home offline, stale since its last sign of life, after the configured silence", () => {
-    const view = afterHeartbeat(
-      afterSessionOpened(undefined, "0.1.0", START),
-      BEAT,
-      START + 15_000,
-    );
+    const view = afterHeartbeat(refreshed(START), BEAT, START + 15_000);
 
     expect(asOf(view, START + 15_000 + 119_999, POLICY)).toEqual(view);
     expect(asOf(view, START + 15_000 + 120_000, POLICY)).toEqual({
@@ -43,11 +47,7 @@ describe("the Health engine: the home link", () => {
   });
 
   it("brings the home back up on the next sign of life, clearing stale_since", () => {
-    const silent = asOf(
-      afterSessionOpened(undefined, "0.1.0", START),
-      START + 200_000,
-      POLICY,
-    );
+    const silent = asOf(refreshed(START), START + 200_000, POLICY);
 
     const back = afterHeartbeat(silent, BEAT, START + 300_000);
 
@@ -57,7 +57,7 @@ describe("the Health engine: the home link", () => {
   });
 
   it("keeps the up-since time across heartbeats while the home stays up", () => {
-    let view = afterSessionOpened(undefined, "0.1.0", START);
+    let view = refreshed(START);
     for (let beat = 1; beat <= 10; beat += 1) {
       view = afterHeartbeat(
         asOf(view, START + beat * 15_000, POLICY),
@@ -73,7 +73,7 @@ describe("the Health engine: the home link", () => {
 
 describe("the Health engine: the Ring session and the outbox", () => {
   it("takes the Ring session's status and the outbox depth from the heartbeat, keeping since while it holds", () => {
-    const opened = afterSessionOpened(undefined, "0.1.0", START);
+    const opened = refreshed(START);
     const first = afterHeartbeat(opened, BEAT, START + 15_000);
     const same = afterHeartbeat(
       first,
@@ -105,11 +105,7 @@ describe("the Health engine: the Ring session and the outbox", () => {
   });
 
   it("names what changed: the home link and the Ring session, not the outbox depth or the time", () => {
-    const up = afterHeartbeat(
-      afterSessionOpened(undefined, "0.1.0", START),
-      BEAT,
-      START,
-    );
+    const up = afterHeartbeat(refreshed(START), BEAT, START);
     const deeper = afterHeartbeat(
       up,
       { ...BEAT, outbox_depth: 9 },
@@ -131,11 +127,7 @@ describe("the Health engine: the Ring session and the outbox", () => {
 
 describe("the Health engine: stale data while Ring is down (SC-005, T021)", () => {
   it("marks the data stale since the Ring session stopped being ok, the home still up", () => {
-    const up = afterHeartbeat(
-      afterSessionOpened(undefined, "0.1.0", START),
-      BEAT,
-      START,
-    );
+    const up = afterHeartbeat(refreshed(START), BEAT, START);
     const down = afterHeartbeat(
       up,
       { ring_session: "unavailable", outbox_depth: 0 },
@@ -153,11 +145,7 @@ describe("the Health engine: stale data while Ring is down (SC-005, T021)", () =
   });
 
   it("takes the earlier of the two when Ring and the home link are both down", () => {
-    const up = afterHeartbeat(
-      afterSessionOpened(undefined, "0.1.0", START),
-      BEAT,
-      START,
-    );
+    const up = afterHeartbeat(refreshed(START), BEAT, START);
     const lost = afterHeartbeat(
       up,
       { ring_session: "lost", outbox_depth: 0 },
@@ -177,13 +165,55 @@ describe("the Health engine: stale data while Ring is down (SC-005, T021)", () =
   });
 
   it("takes the home link's time when Ring went down after the home fell silent", () => {
-    const up = afterHeartbeat(
-      afterSessionOpened(undefined, "0.1.0", START),
-      BEAT,
-      START,
-    );
+    const up = afterHeartbeat(refreshed(START), BEAT, START);
     const silent = asOf(up, START + 120_000, POLICY);
 
     expect(asOf(silent, START + 300_000, POLICY).stale_since).toBe(START);
+  });
+});
+
+describe("the Health engine: fresh only once the session's own inventory is stored (CP-14 review round 3)", () => {
+  it("keeps a home back from silence stale, since it went silent, until its session's inventory is stored", () => {
+    const silent = asOf(refreshed(START), START + 300_000, POLICY);
+    const reopened = afterSessionOpened(silent, "0.1.0", START + 300_000);
+    const beating = afterHeartbeat(reopened, BEAT, START + 315_000);
+
+    expect(asOf(beating, START + 320_000, POLICY)).toMatchObject({
+      home_link_status: "up",
+      stale_since: START,
+    });
+    expect(
+      asOf(afterRefresh(beating), START + 320_000, POLICY).stale_since,
+    ).toBeUndefined();
+  });
+
+  it("owes a refresh after a quick reconnect too, since the last sign of life before it", () => {
+    const up = afterHeartbeat(refreshed(START), BEAT, START + 15_000);
+    const reopened = afterSessionOpened(up, "0.1.0", START + 20_000);
+
+    expect(reopened.refresh_owed_since).toBe(START + 15_000);
+    expect(asOf(reopened, START + 21_000, POLICY).stale_since).toBe(
+      START + 15_000,
+    );
+  });
+
+  it("keeps the earliest time owed across sessions that open before any inventory is stored", () => {
+    const first = afterSessionOpened(undefined, "0.1.0", START);
+    const second = afterSessionOpened(
+      asOf(first, START + 5_000, POLICY),
+      "0.1.0",
+      START + 5_000,
+    );
+
+    expect(second.refresh_owed_since).toBe(START);
+  });
+
+  it("does not let a heartbeat end the refresh owed", () => {
+    const opened = afterSessionOpened(undefined, "0.1.0", START);
+
+    const beating = afterHeartbeat(opened, BEAT, START + 15_000);
+
+    expect(beating.refresh_owed_since).toBe(START);
+    expect(asOf(beating, START + 16_000, POLICY).stale_since).toBe(START);
   });
 });

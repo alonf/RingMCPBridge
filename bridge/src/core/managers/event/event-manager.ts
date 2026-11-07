@@ -12,12 +12,17 @@
 //   home's own time. Two minutes without one (Config `staleAfterMs`) and the home shows offline:
 //   a check runs that long after each sign of life, and Inquiry also reads through `asOf`, so a core
 //   restart never shows a silent home as up.
+// - **Fresh only once the session's own inventory is stored** (CP-14 review round 3). A session's
+//   opening owes a refresh; an inventory the home composed for that session ends it, even when
+//   State skips it as already applied, as after a health save that failed. An inventory from an
+//   earlier session, or a heartbeat, does not.
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { PubSub } from "../../../utilities/pub-sub/index.ts";
 import { StateStoreError } from "../../access/state/index.ts";
 import type { DeviceApplied, StateStore } from "../../access/state/index.ts";
 import {
   afterHeartbeat,
+  afterRefresh,
   afterSessionOpened,
   asOf,
   healthChanges,
@@ -103,11 +108,18 @@ export class EventManager implements EventIntake {
         "The inventory could not be committed.",
         () =>
           this.#options.state.applyInventory(
-            { locations: inventory.locations, devices: inventory.devices },
+            {
+              snapshot_version: inventory.snapshot_version,
+              locations: inventory.locations,
+              devices: inventory.devices,
+            },
             signal,
           ),
       );
-      return { kind: "applied", ...applied };
+      if (inventory.session_id === session.session_id) {
+        await this.#refreshed(signal);
+      }
+      return applied;
     });
   }
 
@@ -163,6 +175,22 @@ export class EventManager implements EventIntake {
     const after = change(before);
     await this.#saveHealth(before, after, signal);
     this.#scheduleSilenceCheck();
+  }
+
+  // The current session's own inventory is stored: the refresh it owed ends. The stored view is
+  // changed as it is, so nothing `asOf` works out for now is saved with it. Runs only on the queue.
+  async #refreshed(signal: AbortSignal): Promise<void> {
+    const stored = await this.#guard(
+      signal,
+      "The health could not be read.",
+      () => this.#options.state.health(signal),
+    );
+    if (stored?.refresh_owed_since === undefined) {
+      return;
+    }
+    await this.#guard(signal, "The health could not be saved.", () =>
+      this.#options.state.saveHealth(afterRefresh(stored), signal),
+    );
   }
 
   async #health(signal: AbortSignal): Promise<HealthView | undefined> {

@@ -9,6 +9,7 @@ import { StateStore, StateStoreError } from "../../access/state/index.ts";
 import type { DeviceState, LocationState } from "../../access/state/index.ts";
 import {
   afterHeartbeat,
+  afterRefresh,
   afterSessionOpened,
 } from "../../engines/health/index.ts";
 import type { HealthView } from "../../engines/health/index.ts";
@@ -72,8 +73,9 @@ const LIGHT = device("d-light", {
   state: { on: true },
 });
 
+// A session whose own inventory is stored, then a heartbeat: the data is fresh.
 const UP: HealthView = afterHeartbeat(
-  afterSessionOpened(undefined, "0.1.0", START),
+  afterRefresh(afterSessionOpened(undefined, "0.1.0", START)),
   { ring_session: "ok", outbox_depth: 0 },
   START,
 );
@@ -138,7 +140,10 @@ async function harness(
     clock,
     defaultBatteryThresholdPct: THRESHOLD,
   });
-  await state.applyInventory({ locations, devices }, never);
+  await state.applyInventory(
+    { snapshot_version: 0, locations, devices },
+    never,
+  );
   if (health !== "never_reported") {
     await state.saveHealth(health, never);
   }

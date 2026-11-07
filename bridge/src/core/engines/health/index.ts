@@ -4,6 +4,7 @@
 /** The rules and the view they work on. */
 export {
   afterHeartbeat,
+  afterRefresh,
   afterSessionOpened,
   asOf,
   healthChanges,

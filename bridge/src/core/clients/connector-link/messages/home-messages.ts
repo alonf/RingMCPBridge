@@ -90,9 +90,15 @@ export const deviceEntrySchema = z.strictObject({
 });
 export type DeviceEntry = z.infer<typeof deviceEntrySchema>;
 
-/** `inventory`: a full snapshot of the home, through the outbox. */
+/**
+ * `inventory`: a full snapshot of the home, through the outbox. `snapshot_version` comes from the
+ * home's counter before its entries' versions; `session_id` names the session it was composed for,
+ * left out when none was open (CP-14 review round 3).
+ */
 export const inventorySchema = z.strictObject({
   message_id: z.string().min(1),
+  snapshot_version: stateVersion,
+  session_id: z.uuid().optional(),
   locations: z.array(inventoryLocationSchema),
   devices: z.array(deviceEntrySchema),
 });

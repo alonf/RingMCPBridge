@@ -5,8 +5,9 @@
 // home must be back within 60 s of the core's return.
 //
 // Both ends run on one fake clock. The N-1 contract test comes with the first version bump (PT-07).
-// One scenario reads through the Inquiry manager (T021): Ring down at home, by fault injection,
-// shows as stale within 2 minutes (SC-005).
+// Two scenarios read through the Inquiry manager: Ring down at home, by fault injection, shows as
+// stale within 2 minutes (T021, SC-005); and a home back from away stays stale until its session's
+// own inventory is stored, even when the first try fails (CP-14 review round 3, FR-006).
 import { createServer as createTlsServer } from "node:https";
 import type { Server as TlsServer } from "node:https";
 import type { AddressInfo } from "node:net";
@@ -19,7 +20,10 @@ import { SettingsStore } from "../../src/core/access/settings/index.ts";
 import { StateStore } from "../../src/core/access/state/index.ts";
 import { ConnectorLink } from "../../src/core/clients/connector-link/index.ts";
 import { AdminManager } from "../../src/core/managers/admin/index.ts";
-import { EventManager } from "../../src/core/managers/event/index.ts";
+import {
+  EventError,
+  EventManager,
+} from "../../src/core/managers/event/index.ts";
 import { InquiryManager } from "../../src/core/managers/inquiry/index.ts";
 import type {
   EventIntake,
@@ -118,10 +122,16 @@ function loggerOn(clock: FakeClock, lines: string[]): Logger {
   });
 }
 
-/** The real Event manager and State, on a database whose next transaction can be made to fail. */
+/**
+ * The real Event manager and State, on a database whose next transaction can be made to fail, and
+ * whose next inventory can be refused as the store being down, as a failed commit is.
+ */
 interface RealEvent {
   readonly state: StateStore;
   readonly failNextTransaction: () => void;
+  readonly failNextInventory: () => void;
+  /** How many inventories were refused that way. */
+  readonly inventoriesRefused: () => number;
 }
 
 async function realEvent(clock: FakeClock): Promise<{
@@ -158,13 +168,36 @@ async function realEvent(clock: FakeClock): Promise<{
     () => layer.close(),
     () => event.stop(),
   );
+  const inventories = { failNext: false, refused: 0 };
+  const intake: EventIntake = {
+    homeSessionOpened: (session, opened) =>
+      event.homeSessionOpened(session, opened),
+    inventory: (inventory, session, sent) => {
+      if (inventories.failNext) {
+        inventories.failNext = false;
+        inventories.refused += 1;
+        return Promise.reject(
+          new EventError("unavailable", "The test cut the store."),
+        );
+      }
+      return event.inventory(inventory, session, sent);
+    },
+    deviceState: (change, session, sent) =>
+      event.deviceState(change, session, sent),
+    heartbeat: (heartbeat, session, sent) =>
+      event.heartbeat(heartbeat, session, sent),
+  };
   return {
-    intake: event,
+    intake,
     real: {
       state,
       failNextTransaction: () => {
         failing = true;
       },
+      failNextInventory: () => {
+        inventories.failNext = true;
+      },
+      inventoriesRefused: () => inventories.refused,
     },
   };
 }
@@ -526,6 +559,46 @@ describe("the link, version 1, both ends", () => {
 
     test.engine.apply({ kind: "recover" });
     await driveUntil(test.clock, async () => (await freshness()) === "cached");
+  });
+
+  it("with the real Event manager, State and Inquiry: a home back from away stays stale until its session's own inventory is stored, even when the first try fails (CP-14 review round 3)", async () => {
+    const test = await both(true);
+    await enrolled(test);
+    const core = inMemoryCore(test);
+    const real = test.real;
+    if (real === undefined) {
+      throw new Error("The real Event manager was not built.");
+    }
+    const inquiry = new InquiryManager({
+      state: real.state,
+      settings: test.settings,
+      clock: test.clock,
+      homeOfflineAfterMs: OFFLINE_AFTER_MS,
+    });
+    const freshness = async (): Promise<string> =>
+      (await inquiry.getOverview({}, signal)).freshness;
+    test.start(core.dial);
+    await driveUntil(
+      test.clock,
+      async () =>
+        (await real.state.devices({}, signal)).length > 0 &&
+        (await outboxEmpty(test)),
+    );
+    await driveUntil(test.clock, async () => (await freshness()) === "cached");
+
+    core.down = true;
+    core.returnAt = test.clock.now() + CORE_AWAY_MS;
+    lastOf(core.pairs).drop();
+    await driveUntil(test.clock, async () => (await freshness()) === "stale");
+    real.failNextInventory();
+    await driveUntil(test.clock, () => real.inventoriesRefused() === 1);
+
+    const back = await inquiry.getOverview({}, signal);
+    expect(back.data.health.home_link.status).toBe("up");
+    expect(back.freshness).toBe("stale");
+
+    await driveUntil(test.clock, async () => (await freshness()) === "cached");
+    expect(real.inventoriesRefused()).toBe(1);
   });
 
   it("acks a duplicated message each time it arrives, and the home clears it once", async () => {

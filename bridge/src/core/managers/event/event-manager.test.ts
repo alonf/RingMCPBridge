@@ -62,12 +62,23 @@ const DOOR: IncomingDevice = {
   state_version: 2,
 };
 
+/** An inventory whose own version the home drew just before its entries' versions. */
 function inventory(
   messageId: string,
   locations: readonly IncomingLocation[],
   devices: readonly IncomingDevice[],
+  sessionId?: string,
 ): IncomingInventory {
-  return { message_id: messageId, locations, devices };
+  const versions = [...locations, ...devices].map(
+    (entry) => entry.state_version,
+  );
+  return {
+    message_id: messageId,
+    snapshot_version: versions.length === 0 ? 0 : Math.min(...versions) - 1,
+    ...(sessionId === undefined ? {} : { session_id: sessionId }),
+    locations,
+    devices,
+  };
 }
 
 /** The real Query layer, whose next `transaction` or `run` fails as the store being down. */
@@ -376,6 +387,7 @@ describe("Event: the home's health", () => {
       outbox_depth: 4,
       connector_version: "0.1.0",
       as_of: START + 15_000,
+      refresh_owed_since: START,
     });
     expect(test.published.map((change) => change.changed)).toEqual([
       ["home_link"],
@@ -466,6 +478,71 @@ describe("Event: the home's health", () => {
 
     expect(test.failures).toHaveLength(1);
     expect(test.failures[0]).toMatchObject({ kind: "unavailable" });
+  });
+});
+
+describe("Event: fresh only once the session's own inventory is stored (CP-14 review round 3)", () => {
+  it("keeps a refresh owed from the session's start until an inventory composed for that session is stored", async () => {
+    const test = await harness();
+    await test.event.homeSessionOpened(SESSION_A, never);
+    await expect(test.state.health(never)).resolves.toMatchObject({
+      refresh_owed_since: START,
+    });
+
+    await test.event.inventory(
+      inventory("m-old", [HOME], [DOOR], "session-earlier"),
+      SESSION_A,
+      never,
+    );
+    await test.event.heartbeat(
+      {
+        ring_session: "ok",
+        push: "off",
+        outbox_depth: 0,
+        last_ring_event_at: null,
+        error_counts: {},
+        as_of: START,
+      },
+      SESSION_A,
+      never,
+    );
+    await expect(test.state.health(never)).resolves.toMatchObject({
+      refresh_owed_since: START,
+    });
+
+    await test.event.inventory(
+      inventory(
+        "m-own",
+        [{ ...HOME, state_version: 10 }],
+        [{ ...DOOR, state_version: 11 }],
+        SESSION_A.session_id,
+      ),
+      SESSION_A,
+      never,
+    );
+
+    const health = await test.state.health(never);
+    expect(health?.refresh_owed_since).toBeUndefined();
+    expect(health?.home_link_status).toBe("up");
+  });
+
+  it("ends the refresh owed when the session's inventory comes again after its health could not be saved, though State skips it", async () => {
+    const test = await harness();
+    await test.event.homeSessionOpened(SESSION_A, never);
+    const own = inventory("m-own", [HOME], [DOOR], SESSION_A.session_id);
+
+    test.failNext("run");
+    await expect(
+      failureOf(test.event.inventory(own, SESSION_A, never)),
+    ).resolves.toMatchObject({ kind: "unavailable" });
+    await expect(test.state.devices({}, never)).resolves.toHaveLength(1);
+
+    await expect(test.event.inventory(own, SESSION_A, never)).resolves.toEqual({
+      kind: "older",
+    });
+    await expect(test.state.health(never)).resolves.not.toHaveProperty(
+      "refresh_owed_since",
+    );
   });
 });
 

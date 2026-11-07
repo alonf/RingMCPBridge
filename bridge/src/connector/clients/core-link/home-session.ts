@@ -240,7 +240,11 @@ export class HomeSession {
     this.#opened = true;
     this.#context.slot.put(this.#context.link);
     this.#logger.info("core_link_session_open");
-    this.#settle("session", this.#context.ingest.sessionOpened(signal), signal);
+    this.#settle(
+      "session",
+      this.#context.ingest.sessionOpened(this.#context.sessionId, signal),
+      signal,
+    );
   }
 
   // Ingest handles the outbox's failures itself; anything else that escapes is logged here, once.

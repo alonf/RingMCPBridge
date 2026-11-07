@@ -12,6 +12,9 @@
 // - A Ring session that is not `ok` makes the data stale too, since it stopped being `ok` (SC-005,
 //   T021): the home is up, but what it reports is no longer Ring's current state. With both down,
 //   the data is stale since the earlier of the two.
+// - A session opening owes the core a fresh inventory: the data stays stale until that session's
+//   own inventory is stored, since the last time it was known true (FR-006, CP-14 review round
+//   3). A heartbeat says the link is up, not that the data has caught up.
 
 /** The engine's thresholds, from the Config utility (`staleAfterMs`, 2 minutes by default). */
 export interface HealthPolicy {
@@ -32,6 +35,11 @@ export interface HealthView {
   readonly connector_version?: string;
   /** The last sign of life from home, on the core's clock. */
   readonly as_of: number;
+  /**
+   * Since when a session has owed its own fresh inventory: the data was known true until then.
+   * Left out once that inventory is stored.
+   */
+  readonly refresh_owed_since?: number;
 }
 
 /** What a heartbeat says about the home. */
@@ -46,13 +54,29 @@ export type HealthPart = "home_link" | "ring_session";
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
 
-/** The view after a session opened, at `now` on the core's clock. */
+/**
+ * The view after a session opened, at `now` on the core's clock, from the view as of now. The
+ * session owes a fresh inventory, and the data was known true until the earliest of: a refresh
+ * already owed, the time it became stale, and the last sign of life before this session. A home
+ * that never reported, until now.
+ */
 export function afterSessionOpened(
   view: HealthView | undefined,
   connectorVersion: string,
   now: number,
 ): HealthView {
-  return { ...homeUp(view, now), connector_version: connectorVersion };
+  return {
+    ...homeUp(view, now),
+    connector_version: connectorVersion,
+    refresh_owed_since: knownTrueUntil(view, now),
+  };
+}
+
+/** The view after the current session's own inventory was stored: nothing is owed any more. */
+export function afterRefresh(view: HealthView): HealthView {
+  const next: Mutable<HealthView> = { ...view };
+  delete next.refresh_owed_since;
+  return next;
 }
 
 /** The view after a heartbeat received at `now` on the core's clock. */
@@ -81,8 +105,8 @@ export function afterHeartbeat(
 
 /**
  * The view as of `now`: a home up but silent for `homeOfflineAfterMs` or longer is down since its
- * last sign of life. The data is stale while the home is down or its Ring session is not `ok`,
- * since the earlier of the two (SC-005).
+ * last sign of life. The data is stale while the home is down, its Ring session is not `ok`, or a
+ * session's own inventory is still owed, since the earliest of these (SC-005, FR-006).
  */
 export function asOf(
   view: HealthView,
@@ -116,12 +140,16 @@ export function healthChanges(
   return changed;
 }
 
-// The earliest of: when the data was already stale, when the home link went down, and when the Ring
-// session stopped being `ok`. Undefined while both are fine.
+// The earliest of: when the data was already stale, when the home link went down, when the Ring
+// session stopped being `ok`, and since when a session's inventory has been owed. Undefined while
+// all are fine.
 function staleSince(view: HealthView): number | undefined {
   const times: number[] = [];
   if (view.stale_since !== undefined) {
     times.push(view.stale_since);
+  }
+  if (view.refresh_owed_since !== undefined) {
+    times.push(view.refresh_owed_since);
   }
   if (view.home_link_status === "down" && view.home_link_since !== undefined) {
     times.push(view.home_link_since);
@@ -136,7 +164,19 @@ function staleSince(view: HealthView): number | undefined {
   return times.length === 0 ? undefined : Math.min(...times);
 }
 
-// The home is up from `now`, or since it came up if it already was; nothing is stale.
+function knownTrueUntil(view: HealthView | undefined, now: number): number {
+  if (view === undefined) {
+    return now;
+  }
+  return Math.min(
+    view.as_of,
+    view.refresh_owed_since ?? view.as_of,
+    view.stale_since ?? view.as_of,
+  );
+}
+
+// The home is up from `now`, or since it came up if it already was. The link's own staleness ends;
+// a refresh still owed stays.
 function homeUp(view: HealthView | undefined, now: number): HealthView {
   const next: Mutable<HealthView> = {
     ...(view ?? { as_of: now }),

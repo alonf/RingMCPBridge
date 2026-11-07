@@ -497,7 +497,10 @@ export class CoreSession {
           inventory.message_id,
         );
         if (outcome !== NOT_COMMITTED) {
-          this.#inventoryAsked = false;
+          // A snapshot State skipped as older answers no request: the answer is a newer one.
+          if (outcome.kind !== "older") {
+            this.#inventoryAsked = false;
+          }
           this.#ack(inventory.message_id);
           this.#noteInventory(outcome);
         }
@@ -538,6 +541,9 @@ export class CoreSession {
   }
 
   #noteInventory(outcome: InventoryOutcome): void {
+    if (outcome.kind === "older") {
+      return;
+    }
     if (outcome.kind === "not_current") {
       this.#logger.warn("connector_link_not_current", {
         message_type: "inventory",

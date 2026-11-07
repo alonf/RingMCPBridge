@@ -56,6 +56,8 @@ interface DeviceEntry extends RingDevice {
 }
 
 interface InventoryBody {
+  readonly snapshot_version: number;
+  readonly session_id?: string;
   readonly locations: readonly LocationEntry[];
   readonly devices: readonly DeviceEntry[];
 }
@@ -203,18 +205,21 @@ describe("Ingest", () => {
         alarm_mode: "disarmed",
         ownership: "owned",
         as_of: asOf,
-        state_version: 1,
+        state_version: 2,
       },
     ]);
     expect(inventory.devices).toHaveLength(DEVICE_COUNT);
     expect(inventory.devices[0]).toEqual({
       ...standardDevice(HEBREW_DEVICE_ID),
       as_of: asOf,
-      state_version: 2,
+      state_version: 3,
     });
+    // The snapshot's own version comes first, so every entry's is higher (CP-14 review round 3).
+    expect(inventory.snapshot_version).toBe(1);
     expect(versionsOf(inventory)).toEqual(
-      Array.from({ length: DEVICE_COUNT + 1 }, (_, index) => index + 1),
+      Array.from({ length: DEVICE_COUNT + 1 }, (_, index) => index + 2),
     );
+    expect(inventory).not.toHaveProperty("session_id");
   });
 
   it("queues a fresh inventory on inventory_request, with higher versions and a later as_of", async () => {
@@ -246,7 +251,8 @@ describe("Ingest", () => {
       ...standardDevice(HEBREW_DEVICE_ID),
       state: { open: true },
       as_of: formatUtc(START + 1_000),
-      state_version: DEVICE_COUNT + 2,
+      // After the inventory's own version and its entries' versions.
+      state_version: DEVICE_COUNT + 3,
     });
     expect(deviceStateOf(items[0]).name).toBe(HEBREW_DEVICE_NAME);
   });
@@ -497,7 +503,10 @@ describe("Ingest at a session's start", () => {
 
     const queuedBefore = ingest.sendDue(signal);
     slot.put(pair.dialer);
-    await Promise.all([queuedBefore, ingest.sessionOpened(signal)]);
+    await Promise.all([
+      queuedBefore,
+      ingest.sessionOpened("session-one", signal),
+    ]);
     await new Promise((resolve) => setImmediate(resolve));
     const sent = frames
       .filter((frame) => frame.type === "device_state")
@@ -581,7 +590,7 @@ describe("Ingest after review round 3", () => {
     ingest.start();
     ingests.push(ingest);
     slot.put(pair.dialer);
-    await ingest.sessionOpened(signal);
+    await ingest.sessionOpened("session-one", signal);
     await new Promise((resolve) => setImmediate(resolve));
     for (const item of await store.takeDue(10, signal)) {
       await store.acknowledge(item.messageId, signal);
@@ -662,5 +671,56 @@ describe("Ingest after review round 3", () => {
     );
     expect(ids).toHaveLength(5);
     expect(new Set(ids).size).toBe(5);
+  });
+});
+
+describe("Ingest after CP-14 review round 3", () => {
+  it("stamps the session's inventory with that session, and one composed with no link in the slot with none", async () => {
+    const engine = new ScenarioEngine(clock);
+    const store = await openStore();
+    const slot = new LinkSlot();
+    const pair = createLinkPair(
+      new Logger({ sink: () => undefined, now: () => 0, minLevel: "debug" }),
+    );
+    const frames: LinkFrame[] = [];
+    pair.acceptor.onFrame((frame) => frames.push(frame));
+    const ingest = new Ingest({
+      ring: engine,
+      outbox: store,
+      link: slot,
+      clock,
+      logger: new Logger({
+        sink: (line) => lines.push(line),
+        now: () => clock.now(),
+        minLevel: "debug",
+      }),
+    });
+    ingest.start();
+    ingests.push(ingest);
+
+    slot.put(pair.dialer);
+    await ingest.sessionOpened("session-one", signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    const [sent] = frames
+      .filter((frame) => frame.type === "inventory")
+      .map((frame) =>
+        frame.kind === "message" ? (frame.body as InventoryBody) : undefined,
+      );
+    expect(sent?.session_id).toBe("session-one");
+    expect(sent?.snapshot_version).toBeLessThan(
+      Math.min(...versionsOf(sent ?? fail())),
+    );
+
+    slot.clear(pair.dialer);
+    engine.apply({
+      kind: "alarm_mode",
+      locationId: STANDARD_LOCATION_ID,
+      mode: "away",
+    });
+    await ingest.flush();
+    const queued = (await takeAll(store)).filter(
+      (item) => item.kind === "inventory",
+    );
+    expect(queued.at(-1)?.body).not.toHaveProperty("session_id");
   });
 });

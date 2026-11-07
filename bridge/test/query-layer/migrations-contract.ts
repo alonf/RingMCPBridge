@@ -72,6 +72,7 @@ const EXPECTED_TABLES: Readonly<
     ["outbox_depth", false],
     ["connector_version", false],
     ["as_of", true],
+    ["refresh_owed_since", false],
   ],
   setting: [
     ["name", true],
@@ -114,6 +115,10 @@ const EXPECTED_TABLES: Readonly<
     ["source_id", true],
     ["key_id", true],
     ["claimed_at", true],
+  ],
+  state_snapshot: [
+    ["snapshot_id", true],
+    ["snapshot_version", true],
   ],
 };
 
@@ -176,6 +181,7 @@ const ROWS: Readonly<Record<string, readonly [SqlParams, SqlParams]>> = {
       outbox_depth: 3,
       connector_version: "0.1.0",
       as_of: AS_OF,
+      refresh_owed_since: AS_OF,
     },
     {
       snapshot_id: 1,
@@ -190,6 +196,7 @@ const ROWS: Readonly<Record<string, readonly [SqlParams, SqlParams]>> = {
       outbox_depth: null,
       connector_version: null,
       as_of: AS_OF,
+      refresh_owed_since: null,
     },
   ],
   setting: [
@@ -263,6 +270,10 @@ const ROWS: Readonly<Record<string, readonly [SqlParams, SqlParams]>> = {
   state_source: [
     { source_id: 1, key_id: "key-1", claimed_at: AS_OF },
     { source_id: 1, key_id: "key-2", claimed_at: LATER },
+  ],
+  state_snapshot: [
+    { snapshot_id: 1, snapshot_version: 12 },
+    { snapshot_id: 1, snapshot_version: 9_007_199_254_740_991 },
   ],
 };
 

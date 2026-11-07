@@ -1,7 +1,7 @@
 // State (T019) on SQLite and on SQL Server: latest-wins by state_version for locations and
 // devices (PT-30, DRIFT-001-06, DRIFT-001-08), `type` mapped from `kind` (PT-26), what a full
-// snapshot removes, the same input taken on both dialects, the health snapshot, and the
-// store-down error.
+// snapshot removes, snapshots kept in order (CP-14 review round 3), the same input taken on both
+// dialects, the health snapshot, and the store-down error.
 import { expect, it } from "vitest";
 import {
   StateStore,
@@ -9,6 +9,7 @@ import {
 } from "../../src/core/access/state/index.ts";
 import type {
   DeviceState,
+  InventorySnapshot,
   LocationState,
   StateStoreErrorKind,
 } from "../../src/core/access/state/index.ts";
@@ -65,6 +66,15 @@ function never(): AbortSignal {
   return new AbortController().signal;
 }
 
+/** An inventory whose own version the home drew before its entries' versions. */
+function snapshot(
+  snapshotVersion: number,
+  locations: readonly LocationState[],
+  devices: readonly DeviceState[],
+): InventorySnapshot {
+  return { snapshot_version: snapshotVersion, locations, devices };
+}
+
 async function failureOf(work: Promise<unknown>): Promise<unknown> {
   try {
     await work;
@@ -100,11 +110,8 @@ describeStoreMatrix("State", (store) => {
     const { state } = await setUp();
 
     await expect(
-      state.applyInventory(
-        { locations: [HOME], devices: [DOOR, SIREN] },
-        never(),
-      ),
-    ).resolves.toEqual({ refused: 0, removed: 0 });
+      state.applyInventory(snapshot(0, [HOME], [DOOR, SIREN]), never()),
+    ).resolves.toEqual({ kind: "applied", refused: 0, removed: 0 });
 
     await expect(state.locations(never())).resolves.toEqual([HOME]);
     await expect(state.location("loc-1", never())).resolves.toEqual(HOME);
@@ -129,7 +136,7 @@ describeStoreMatrix("State", (store) => {
       state_version: 5,
     };
     await state.applyInventory(
-      { locations: [HOME, other], devices: [DOOR, SIREN, garage] },
+      snapshot(0, [HOME, other], [DOOR, SIREN, garage]),
       never(),
     );
 
@@ -152,7 +159,7 @@ describeStoreMatrix("State", (store) => {
 
   it("applies a device or a location only when its version is higher, keeping the full newer entry", async () => {
     const { state } = await setUp();
-    await state.applyInventory({ locations: [HOME], devices: [DOOR] }, never());
+    await state.applyInventory(snapshot(0, [HOME], [DOOR]), never());
     const newer: DeviceState = {
       ...DOOR,
       online: false,
@@ -173,19 +180,19 @@ describeStoreMatrix("State", (store) => {
     await expect(state.device("d-door", never())).resolves.toEqual(newer);
 
     await state.applyInventory(
-      {
-        locations: [{ ...HOME, alarm_mode: "away", state_version: 20 }],
-        devices: [],
-      },
+      snapshot(19, [{ ...HOME, alarm_mode: "away", state_version: 20 }], []),
       never(),
     );
-    await state.applyInventory(
-      {
-        locations: [{ ...HOME, alarm_mode: "disarmed", state_version: 12 }],
-        devices: [],
-      },
-      never(),
-    );
+    await expect(
+      state.applyInventory(
+        snapshot(
+          11,
+          [{ ...HOME, alarm_mode: "disarmed", state_version: 12 }],
+          [],
+        ),
+        never(),
+      ),
+    ).resolves.toEqual({ kind: "older" });
     await expect(state.location("loc-1", never())).resolves.toMatchObject({
       alarm_mode: "away",
       state_version: 20,
@@ -201,27 +208,28 @@ describeStoreMatrix("State", (store) => {
       state_version: 4,
     };
     await state.applyInventory(
-      { locations: [HOME], devices: [DOOR, SIREN, camera] },
+      snapshot(0, [HOME], [DOOR, SIREN, camera]),
       never(),
     );
     const later = { ...SIREN, state_version: 30 };
     await state.applyDevice(later, never());
 
     const resent = await state.applyInventory(
-      { locations: [HOME], devices: [DOOR] },
+      snapshot(0, [HOME], [DOOR]),
       never(),
     );
-    expect(resent.removed).toBe(0);
+    expect(resent).toEqual({ kind: "older" });
 
     const fresh = await state.applyInventory(
-      {
-        locations: [{ ...HOME, state_version: 21 }],
-        devices: [{ ...DOOR, state_version: 22 }],
-      },
+      snapshot(
+        20,
+        [{ ...HOME, state_version: 21 }],
+        [{ ...DOOR, state_version: 22 }],
+      ),
       never(),
     );
 
-    expect(fresh).toEqual({ refused: 0, removed: 1 });
+    expect(fresh).toEqual({ kind: "applied", refused: 0, removed: 1 });
     await expect(
       state
         .devices({}, never())
@@ -231,15 +239,13 @@ describeStoreMatrix("State", (store) => {
 
   it("adds a device only from an inventory, so a late change cannot bring a removed one back", async () => {
     const { state } = await setUp();
+    await state.applyInventory(snapshot(0, [HOME], [DOOR, SIREN]), never());
     await state.applyInventory(
-      { locations: [HOME], devices: [DOOR, SIREN] },
-      never(),
-    );
-    await state.applyInventory(
-      {
-        locations: [{ ...HOME, state_version: 10 }],
-        devices: [{ ...DOOR, state_version: 11 }],
-      },
+      snapshot(
+        9,
+        [{ ...HOME, state_version: 10 }],
+        [{ ...DOOR, state_version: 11 }],
+      ),
       never(),
     );
 
@@ -279,24 +285,96 @@ describeStoreMatrix("State", (store) => {
       state_version: 3,
     };
     await state.applyInventory(
-      { locations: [HOME, away], devices: [DOOR, awayDoor] },
+      snapshot(0, [HOME, away], [DOOR, awayDoor]),
       never(),
     );
 
     const fresh = await state.applyInventory(
-      {
-        locations: [{ ...HOME, state_version: 10 }],
-        devices: [{ ...DOOR, state_version: 11 }],
-      },
+      snapshot(
+        9,
+        [{ ...HOME, state_version: 10 }],
+        [{ ...DOOR, state_version: 11 }],
+      ),
       never(),
     );
 
-    expect(fresh.removed).toBe(2);
+    expect(fresh).toMatchObject({ kind: "applied", removed: 2 });
     await expect(
       state
         .locations(never())
         .then((locations) => locations.map((location) => location.location_id)),
     ).resolves.toEqual(["loc-1"]);
+  });
+
+  // CP-14 review round 3: a resent inventory, older than one already applied, must not bring back
+  // what the newer one removed; an empty one is ordered too, so it can clear the home.
+  it("skips a resent older snapshot, so it cannot bring back what a newer one removed", async () => {
+    const { state } = await setUp();
+    const older = snapshot(0, [HOME], [DOOR, SIREN]);
+    await state.applyInventory(older, never());
+    await state.applyInventory(
+      snapshot(
+        9,
+        [{ ...HOME, state_version: 10 }],
+        [{ ...DOOR, state_version: 11 }],
+      ),
+      never(),
+    );
+
+    await expect(state.applyInventory(older, never())).resolves.toEqual({
+      kind: "older",
+    });
+
+    await expect(state.devices({}, never())).resolves.toEqual([
+      { ...DOOR, state_version: 11 },
+    ]);
+  });
+
+  it("clears the home on an empty newer snapshot, and changes nothing on an empty older one", async () => {
+    const { state } = await setUp();
+    await state.applyInventory(snapshot(5, [HOME], [DOOR, SIREN]), never());
+
+    await expect(
+      state.applyInventory(snapshot(4, [], []), never()),
+    ).resolves.toEqual({ kind: "older" });
+    await expect(state.devices({}, never())).resolves.toHaveLength(2);
+
+    await expect(
+      state.applyInventory(snapshot(9, [], []), never()),
+    ).resolves.toEqual({ kind: "applied", refused: 0, removed: 3 });
+    await expect(state.devices({}, never())).resolves.toEqual([]);
+    await expect(state.locations(never())).resolves.toEqual([]);
+  });
+
+  it("forgets the newest snapshot when another key claims the versions, so the new connector's first one applies", async () => {
+    const { state } = await setUp();
+    await state.claimVersions("key-a", AS_OF, never());
+    await state.applyInventory(
+      snapshot(499, [{ ...HOME, state_version: 500 }], []),
+      never(),
+    );
+
+    await state.claimVersions("key-b", AS_OF + 1, never());
+
+    await expect(
+      state.applyInventory(
+        snapshot(1, [{ ...HOME, name: "New", state_version: 2 }], []),
+        never(),
+      ),
+    ).resolves.toEqual({ kind: "applied", refused: 0, removed: 0 });
+    await expect(state.location("loc-1", never())).resolves.toMatchObject({
+      name: "New",
+    });
+  });
+
+  it("refuses a snapshot version that is not a whole number, 0 or more", async () => {
+    const { state } = await setUp();
+
+    for (const version of [-1, 1.5, Number.NaN]) {
+      await expect(
+        state.applyInventory(snapshot(version, [HOME], []), never()),
+      ).rejects.toThrow(RangeError);
+    }
   });
 
   it("resets the versions when another connector key claims them, and keeps them for the same key (T018)", async () => {
@@ -305,13 +383,14 @@ describeStoreMatrix("State", (store) => {
       "reset",
     );
     await state.applyInventory(
-      {
-        locations: [{ ...HOME, state_version: 500 }],
-        devices: [
+      snapshot(
+        499,
+        [{ ...HOME, state_version: 500 }],
+        [
           { ...DOOR, state_version: 501 },
           { ...SIREN, state_version: 502 },
         ],
-      },
+      ),
       never(),
     );
     await expect(state.claimVersions("key-a", AS_OF, never())).resolves.toBe(
@@ -324,21 +403,23 @@ describeStoreMatrix("State", (store) => {
     await expect(
       state.claimVersions("key-b", AS_OF + 1, never()),
     ).resolves.toBe("reset");
+    // The new connector's counter starts again: its first snapshot is 1, its entries above it.
     const first = await state.applyInventory(
-      {
-        locations: [{ ...HOME, name: "New", state_version: 1 }],
-        devices: [{ ...DOOR, online: false, state_version: 2 }],
-      },
+      snapshot(
+        1,
+        [{ ...HOME, name: "New", state_version: 2 }],
+        [{ ...DOOR, online: false, state_version: 3 }],
+      ),
       never(),
     );
 
-    expect(first.removed).toBe(1);
+    expect(first).toMatchObject({ kind: "applied", removed: 1 });
     await expect(state.location("loc-1", never())).resolves.toMatchObject({
       name: "New",
-      state_version: 1,
+      state_version: 2,
     });
     await expect(state.devices({}, never())).resolves.toEqual([
-      { ...DOOR, online: false, state_version: 2 },
+      { ...DOOR, online: false, state_version: 3 },
     ]);
     await expect(
       layer.all(
@@ -381,10 +462,10 @@ describeStoreMatrix("State", (store) => {
 
     await expect(
       state.applyInventory(
-        { locations: [HOME, longZone], devices: [longName, longId, orphan] },
+        snapshot(0, [HOME, longZone], [longName, longId, orphan]),
         never(),
       ),
-    ).resolves.toEqual({ refused: 3, removed: 0 });
+    ).resolves.toEqual({ kind: "applied", refused: 3, removed: 0 });
     await expect(state.applyDevice(longId, never())).resolves.toBe("refused");
 
     const stored = await state.device("d-door", never());
@@ -415,6 +496,7 @@ describeStoreMatrix("State", (store) => {
         home_link_since: AS_OF,
         stale_since: AS_OF,
         as_of: AS_OF + 1,
+        refresh_owed_since: AS_OF - 3_000,
       },
       never(),
     );
@@ -424,6 +506,7 @@ describeStoreMatrix("State", (store) => {
       home_link_since: AS_OF,
       stale_since: AS_OF,
       as_of: AS_OF + 1,
+      refresh_owed_since: AS_OF - 3_000,
     });
     await expect(
       state.saveHealth(
@@ -435,7 +518,7 @@ describeStoreMatrix("State", (store) => {
 
   it("reports a row it did not write as failed, quoting nothing from it", async () => {
     const { state, layer } = await setUp();
-    await state.applyInventory({ locations: [HOME], devices: [] }, never());
+    await state.applyInventory(snapshot(0, [HOME], []), never());
     for (const sql of [
       `INSERT INTO device (device_id, location_id, name, kind, power_mode, online, state, as_of, state_version) VALUES ('bad-kind', 'loc-1', '${HEBREW_NAME}', 'toaster', 'wired', 1, '{}', 0, 1)`,
       `INSERT INTO device (device_id, location_id, name, kind, power_mode, online, state, as_of, state_version) VALUES ('bad-state', 'loc-1', 'n', 'other', 'wired', 1, '${HEBREW_NAME}', 0, 1)`,
@@ -456,7 +539,7 @@ describeStoreMatrix("State", (store) => {
     await layer.close();
 
     for (const work of [
-      () => state.applyInventory({ locations: [HOME], devices: [] }, never()),
+      () => state.applyInventory(snapshot(0, [HOME], []), never()),
       () => state.applyDevice(DOOR, never()),
       () => state.locations(never()),
       () => state.location("loc-1", never()),

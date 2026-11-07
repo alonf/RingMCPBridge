@@ -5,12 +5,19 @@
 // - **Latest wins.** A location or device is written only when its `state_version` is higher than
 //   the stored one, in one conditional statement, so a resent or late message never rolls state
 //   back and no field is lost (PT-30, DRIFT-001-06, DRIFT-001-08).
-// - **A full snapshot removes what Ring no longer lists.** The home draws an inventory's versions
-//   in one block, so an entry stored below the snapshot's lowest version, and absent from it, is
-//   gone at Ring. A newer change keeps its higher version and stays (T019).
+// - **Snapshots in order** (CP-14 review round 3). Every inventory carries a `snapshot_version`
+//   the home draws from its counter before its entries' versions. State keeps the newest one
+//   applied (`state_snapshot`, migration 5) and skips an inventory at or below it: once a newer
+//   snapshot is applied, every stored row is newer than an older one's entries, so the older one
+//   could only bring back what was removed.
+// - **A newer snapshot removes what Ring no longer lists**: each stored row it leaves out whose
+//   version is below its `snapshot_version` was not changed after the snapshot was composed, so it
+//   is gone at Ring. A newer change keeps its higher version and stays (T019). An empty snapshot is
+//   ordered the same way, so it clears a home Ring no longer lists.
 // - **Versions belong to one connector key** (`state_source`, migration 4). A session of another
-//   key resets them to 0 in the same transaction that records the new key, so a newly enrolled
-//   connector, whose counter starts again, wins; a core restart does not reset them (T018).
+//   key resets them to 0, and forgets the newest snapshot, in the same transaction that records
+//   the new key, so a newly enrolled connector, whose counter starts again, wins; a core restart
+//   does not reset them (T018).
 // - **Only an inventory adds a device.** A device change updates a device State holds, so a late
 //   change cannot bring back one a snapshot removed (T019 follow-up).
 // - **The same input is accepted on both dialects.** An id over the column's size, or a time zone
@@ -59,6 +66,7 @@ const MAX_TIME_ZONE_LENGTH = 64;
 const MAX_VERSION_LENGTH = 64;
 const SNAPSHOT_ROW = 1;
 const SOURCE_ROW = 1;
+const STATE_SNAPSHOT_ROW = 1;
 const HIGH_SURROGATE_START = 0xd800;
 const HIGH_SURROGATE_END = 0xdbff;
 
@@ -95,20 +103,29 @@ export interface DeviceState {
 
 /** A full snapshot of the home, as the link's `inventory` carries it. */
 export interface InventorySnapshot {
+  /** Drawn from the home's counter before its entries' versions: lower than all of them. */
+  readonly snapshot_version: number;
   readonly locations: readonly LocationState[];
   readonly devices: readonly DeviceState[];
 }
 
-/** What applying an inventory changed. */
-export interface InventoryApplied {
-  /**
-   * Entries left out: an id longer than its column, a time zone over 64 characters, or a device
-   * whose location is neither in the snapshot nor stored.
-   */
-  readonly refused: number;
-  /** Devices and locations removed because Ring no longer lists them. */
-  readonly removed: number;
-}
+/**
+ * What applying an inventory changed:
+ * - `applied`: the snapshot is the newest State has seen and is stored;
+ * - `older`: State already applied this snapshot or a newer one; nothing changed.
+ */
+export type InventoryApplied =
+  | {
+      readonly kind: "applied";
+      /**
+       * Entries left out: an id longer than its column, a time zone over 64 characters, or a
+       * device whose location is neither in the snapshot nor stored.
+       */
+      readonly refused: number;
+      /** Devices and locations removed because Ring no longer lists them. */
+      readonly removed: number;
+    }
+  | { readonly kind: "older" };
 
 /**
  * - `applied`: the device is updated;
@@ -145,6 +162,8 @@ export interface HealthSnapshot {
   readonly outbox_depth?: number;
   readonly connector_version?: string;
   readonly as_of: number;
+  /** Since when a session has owed the core its own fresh inventory (FR-006, migration 5). */
+  readonly refresh_owed_since?: number;
 }
 
 /** What State is wired with. */
@@ -158,7 +177,7 @@ const LOCATION_COLUMNS =
 const DEVICE_COLUMNS =
   "device_id, location_id, name, kind, room, battery_pct, battery_low, power_mode, online, state, as_of, state_version";
 const HEALTH_COLUMNS =
-  "home_link_status, home_link_since, ring_session_status, ring_session_since, push_status, push_since, last_event_at, stale_since, outbox_depth, connector_version, as_of";
+  "home_link_status, home_link_since, ring_session_status, ring_session_since, push_status, push_since, last_event_at, stale_since, outbox_depth, connector_version, as_of, refresh_owed_since";
 
 const SELECT_LOCATIONS = `SELECT ${LOCATION_COLUMNS} FROM location ORDER BY location_id`;
 const SELECT_LOCATION = `SELECT ${LOCATION_COLUMNS} FROM location WHERE location_id = @location_id`;
@@ -178,6 +197,8 @@ const SELECT_HEALTH = `SELECT ${HEALTH_COLUMNS} FROM health_snapshot WHERE snaps
 const RESET_LOCATION_VERSIONS = "UPDATE location SET state_version = 0";
 const SELECT_SOURCE = `SELECT key_id FROM state_source WHERE source_id = ${String(SOURCE_ROW)}`;
 const RESET_DEVICE_VERSIONS = "UPDATE device SET state_version = 0";
+const SELECT_NEWEST_SNAPSHOT = `SELECT snapshot_version FROM state_snapshot WHERE snapshot_id = ${String(STATE_SNAPSHOT_ROW)}`;
+const FORGET_NEWEST_SNAPSHOT = "DELETE FROM state_snapshot";
 
 const storedTime = z.number().int();
 const flag = z.union([z.literal(0), z.literal(1)]);
@@ -219,9 +240,12 @@ const HEALTH_ROW = z.object({
   outbox_depth: z.number().int().nullable(),
   connector_version: z.string().nullable(),
   as_of: storedTime,
+  refresh_owed_since: storedTime.nullable(),
 });
 
 const VERSION_ROW = z.object({ state_version: z.number().int() });
+const SNAPSHOT_VERSION_ROW = z.object({ snapshot_version: z.number().int() });
+const OLDER_SNAPSHOT: InventoryApplied = { kind: "older" };
 const SOURCE_KEY_ROW = z.object({ key_id: z.string() });
 
 /**
@@ -246,6 +270,12 @@ export class StateStore {
     snapshot: InventorySnapshot,
     signal: AbortSignal,
   ): Promise<InventoryApplied> {
+    if (
+      !Number.isSafeInteger(snapshot.snapshot_version) ||
+      snapshot.snapshot_version < 0
+    ) {
+      throw new RangeError("A snapshot version is a whole number, 0 or more.");
+    }
     return this.#guard(signal, "The inventory could not be stored.", () =>
       this.#store.transaction(
         (session) => applySnapshot(session, snapshot, signal),
@@ -411,6 +441,7 @@ export class StateStore {
         }
         await session.run(statement(RESET_DEVICE_VERSIONS), signal);
         await session.run(statement(RESET_LOCATION_VERSIONS), signal);
+        await session.run(statement(FORGET_NEWEST_SNAPSHOT), signal);
         await session.run(
           upsertStatement(session.dialect, {
             table: "state_source",
@@ -453,6 +484,14 @@ async function applySnapshot(
   snapshot: InventorySnapshot,
   signal: AbortSignal,
 ): Promise<InventoryApplied> {
+  const newest = await session.get(statement(SELECT_NEWEST_SNAPSHOT), signal);
+  if (
+    newest !== undefined &&
+    snapshot.snapshot_version <=
+      parseRow(SNAPSHOT_VERSION_ROW, newest, "state_snapshot").snapshot_version
+  ) {
+    return OLDER_SNAPSHOT;
+  }
   let refused = 0;
   const listedLocations = new Set<string>();
   for (const location of snapshot.locations) {
@@ -477,18 +516,24 @@ async function applySnapshot(
     listedDevices.add(device.device_id);
     await session.run(deviceUpsert(session.dialect, device), signal);
   }
-  const below = lowestVersion(snapshot);
-  if (below === undefined) {
-    return { refused, removed: 0 };
-  }
+  const below = snapshot.snapshot_version;
   const removed =
     (await removeUnlisted(session, "device", listedDevices, below, signal)) +
     (await removeUnlisted(session, "location", listedLocations, below, signal));
-  return { refused, removed };
+  await session.run(
+    upsertStatement(session.dialect, {
+      table: "state_snapshot",
+      key: ["snapshot_id"],
+      values: { snapshot_id: STATE_SNAPSHOT_ROW, snapshot_version: below },
+      onConflict: "update",
+    }),
+    signal,
+  );
+  return { kind: "applied", refused, removed };
 }
 
-// Removes each stored row the snapshot leaves out whose version is below the snapshot's lowest:
-// it was not changed after the snapshot was composed, so Ring no longer lists it. A location goes
+// Removes each stored row the snapshot leaves out whose version is below the snapshot's own: it
+// was not changed after the snapshot was composed, so Ring no longer lists it. A location goes
 // only once none of its devices is left.
 async function removeUnlisted(
   session: SqlSession,
@@ -522,14 +567,6 @@ async function removeUnlisted(
     );
   }
   return removed;
-}
-
-function lowestVersion(snapshot: InventorySnapshot): number | undefined {
-  const versions = [
-    ...snapshot.locations.map((location) => location.state_version),
-    ...snapshot.devices.map((device) => device.state_version),
-  ];
-  return versions.length === 0 ? undefined : Math.min(...versions);
 }
 
 function fitsLocation(location: LocationState): boolean {
@@ -645,6 +682,7 @@ function healthValues(health: HealthSnapshot): SqlParams {
     outbox_depth: health.outbox_depth ?? null,
     connector_version: health.connector_version ?? null,
     as_of: health.as_of,
+    refresh_owed_since: health.refresh_owed_since ?? null,
   };
 }
 
@@ -697,6 +735,7 @@ function healthOf(row: SqlRow): HealthSnapshot {
     ...present("outbox_depth", health.outbox_depth),
     ...present("connector_version", health.connector_version),
     as_of: health.as_of,
+    ...present("refresh_owed_since", health.refresh_owed_since),
   };
 }
 

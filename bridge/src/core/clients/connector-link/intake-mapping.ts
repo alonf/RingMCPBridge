@@ -22,6 +22,10 @@ export function incomingInventory(
 ): IncomingInventory {
   return {
     message_id: message.message_id,
+    snapshot_version: message.snapshot_version,
+    ...(message.session_id === undefined
+      ? {}
+      : { session_id: message.session_id }),
     locations: message.locations.map(incomingLocation),
     devices: message.devices.map(incomingDevice),
   };

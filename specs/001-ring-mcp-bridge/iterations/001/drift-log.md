@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 35
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; one question in DRIFT-001-35 open for the owner)
+**Total drift events**: 36
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 1 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -1070,7 +1070,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - So after a Ring outage that answers with a server error, alarm devices' changes may stop arriving until the connector restarts. The adapter shows that as `unavailable`, so replies say stale rather than present old data as current.
     - An unhandled rejection ends a Node process by default, and the connector's wiring (T027) has no handler yet. Whether Ring's real answers lead there is for the pilot.
 - **Requirement citation**: spec SC-005, FR-005, FR-026 and FR-042; DRIFT-001-34; tasks.md T013 and T021.
-- **Resolution**: built as the owner chose, in the Ring Adapter (CP-07). Cost: about 1 SP (estimate), recorded in CP-07's actual, and $0. The library's reconnect after a server error is put to the owner and stays open until they choose.
+- **Resolution**: built as the owner chose, in the Ring Adapter (CP-07). Cost: about 1 SP (estimate), recorded in CP-07's actual, and $0. For the library's reconnect after a server error, the owner chose (y), typed "Yes, agree y is the best approach": a carry-forward to T027, where the connector's process and service are set up. If Ring's web calls work but a hub's live connection stays closed for 5 minutes, the connector exits and its service restarts it; T027 also logs a library error that escapes, rather than letting the connector end without a word. About 0.5 SP (estimate) and $0.
 - **Class closure**: 9 new tests on the fake client, written before the code: the grace, a short reconnect, the first `false`, hubs only, the probe's pace and recovery, no probe while fine, a closed connection outlasting a probe, and the probe stopping on a lost session and on close. A deliberate break of nine parts was caught:
   - the grace ignored;
   - the connection's first `false` counted;
@@ -1081,6 +1081,53 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - the probe not stopping on close;
   - the probe not counted as reaching Ring;
   - a reconnect within the grace not cancelling it.
+
+### DRIFT-001-36: CP-14 review round 3 found three ways old data could look current or come back; fixed with ordered snapshots and a refresh each session owes
+
+- **Detected**: 2026-11-07, implement, CP-14 review round 3 (Codex). The reviewer reported three findings as major; Specrew kept them as notes because they named no concrete failure. Each was checked against the code and is real.
+- **Kind**: three defects against FR-006 and the link's latest-wins rules (PT-30), and an additive change to the link contract. No spec change
+- **Observed**:
+  - **A replayed older inventory could bring back what a newer one removed.**
+    - A deleted row keeps no version, so an older inventory resent after a newer one (its ack lost) inserted the removed device or location again, with its old state.
+  - **An empty inventory never cleared the home.**
+    - State ordered a snapshot by its lowest entry version, which an empty one does not have, so nothing was removed and the old home stayed readable.
+  - **A reconnect made old data look fresh before the new inventory arrived.**
+    - A session's opening cleared `stale_since` at once. A delayed or failed inventory then left old door and alarm states marked `cached`, as of the reconnect.
+- **Fix**:
+  - **Snapshots in order** [P]:
+    - every `inventory` now carries a `snapshot_version`, drawn from the home's counter before its entries' versions;
+    - State keeps the newest one applied (`state_snapshot`, migration 5) and skips one at or below it as `older`: once a newer one is applied, every stored row is newer than an older one's entries;
+    - a newer one removes each unlisted row below its `snapshot_version`, so an empty one clears the home;
+    - a new connector key forgets the newest snapshot along with the versions;
+    - Connector Link acks a skipped one, but it does not answer a pending `inventory_request`.
+  - **Fresh only once the session's own inventory is stored** [P]:
+    - every `inventory` names the session it was composed for (`session_id`), left out when no session was open;
+    - a session's opening owes a refresh, since the last time the data was known true: the earliest of a refresh already owed, the time it became stale, and the last sign of life before the session. It is kept in the health snapshot (`refresh_owed_since`, migration 5);
+    - the Health engine counts it as stale. Event ends it when an inventory composed for the current session is processed, also when State skips it as already applied, as after a health save that failed;
+    - an earlier session's inventory, or a heartbeat, does not end it.
+  - **The link contract** (`connector-link.md`) gains the two fields and the two rules, an additive change within version 1, which is not deployed. Its "new enrollment" rule now says when the reset happens, as DRIFT-001-32 decided. `data-model.md`'s health snapshot names the new field.
+- **Requirement citation**: spec FR-006 and SC-005; research.md PT-30; `contracts/connector-link.md` "Device inventory and state"; DRIFT-001-06, DRIFT-001-08 and DRIFT-001-32.
+- **Resolution**: fixed after the owner chose (a), to fix all three and run round 4. Cost: about 2 SP (estimate after the work, against 1.5 SP estimated before it), recorded in CP-14's actual, and $0.
+- **Class closure**: new tests:
+  - State, on both databases: replaying A after B, an empty newer and an empty older snapshot, a new key forgetting the newest snapshot, and a bad snapshot version;
+  - the Health engine: back from silence, a quick reconnect, two sessions before any inventory, and a heartbeat;
+  - Event: an earlier session's inventory and a heartbeat do not end the refresh; the session's own resent inventory does, after its health save failed;
+  - Connector Link and Ingest: the session named and passed on, and an older inventory not answering a request;
+  - the link contract with the real Event manager, State and Inquiry: a home back from three minutes away stays stale while its first inventory fails, and is fresh once the resend is stored.
+
+  A deliberate break of twelve parts was caught:
+  - an older snapshot not skipped;
+  - the newest snapshot kept across a new key;
+  - an empty newer snapshot removing nothing;
+  - the refresh ended by any session's inventory;
+  - the refresh not ended by the session's own inventory skipped as older;
+  - a heartbeat ending the refresh owed;
+  - a session opening owing nothing;
+  - the refresh owed since the new session rather than since the data was last known true;
+  - a refresh owed not counted as stale;
+  - an older inventory answering a pending request;
+  - the snapshot's version drawn after its entries';
+  - the inventory not naming its session.
 
 ### Resolution Strategies (Unused)
 

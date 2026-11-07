@@ -54,6 +54,10 @@ export interface IncomingDevice {
 /** A full snapshot of the home (PT-30). */
 export interface IncomingInventory {
   readonly message_id: string;
+  /** Drawn from the home's counter before the entries' versions, so snapshots are ordered. */
+  readonly snapshot_version: number;
+  /** The session the home composed it for; left out when no session was open then. */
+  readonly session_id?: string;
   readonly locations: readonly IncomingLocation[];
   readonly devices: readonly IncomingDevice[];
 }
@@ -89,9 +93,10 @@ export interface HomeLinkSession {
 }
 
 /**
- * What became of an inventory:
+ * What became of an inventory; each ends the message, so Connector Link acks it:
  * - `applied`: committed; `refused` entries could not be stored and were left out, `removed` ones
  *   Ring no longer lists;
+ * - `older`: State already applied this snapshot or a newer one; nothing changed;
  * - `not_current`: it came on a session of a key that is no longer the current one; nothing changed.
  */
 export type InventoryOutcome =
@@ -100,6 +105,7 @@ export type InventoryOutcome =
       readonly refused: number;
       readonly removed: number;
     }
+  | { readonly kind: "older" }
   | { readonly kind: "not_current" };
 
 /**
@@ -128,6 +134,8 @@ export interface HomeHealth {
   readonly connector_version?: string;
   /** The last sign of life from home, on the core's clock. */
   readonly as_of: number;
+  /** Since when the current session has owed its own fresh inventory; left out once stored. */
+  readonly refresh_owed_since?: number;
 }
 
 /** A change of the home link's or the Ring session's status, published on Pub/Sub. */
