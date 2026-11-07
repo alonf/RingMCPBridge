@@ -182,15 +182,17 @@ export class RingCallGate {
   /**
    * Runs `work` when its turn comes. Throws `RingAdapterError` (`ring_unavailable`) without
    * calling Ring while the circuit is open, the signal's reason if it aborts first, and whatever
-   * `work` throws.
+   * `work` throws. Only work that `reachesRing` closes the circuit when it succeeds: a read the
+   * library answers from its own memory proves nothing about Ring (CP-09 review round 5).
    */
   async call<T>(
     signal: AbortSignal,
     work: (signal: AbortSignal) => Promise<T>,
+    reachesRing = true,
   ): Promise<T> {
     const release = await this.#takeTurn(signal);
     try {
-      return await this.#callInTurn(signal, work);
+      return await this.#callInTurn(signal, work, reachesRing);
     } finally {
       release();
     }
@@ -216,6 +218,7 @@ export class RingCallGate {
   async #callInTurn<T>(
     signal: AbortSignal,
     work: (signal: AbortSignal) => Promise<T>,
+    reachesRing: boolean,
   ): Promise<T> {
     if (this.#circuit.admit() === "refuse") {
       throw new RingAdapterError("ring_unavailable", PAUSED_MESSAGE);
@@ -227,7 +230,11 @@ export class RingCallGate {
       }
       this.#nextStartAt = this.#clock.now() + this.#limits.spacingMs;
       const value = await work(signal);
-      this.#circuit.succeeded();
+      if (reachesRing) {
+        this.#circuit.succeeded();
+      } else {
+        this.#circuit.ended();
+      }
       return value;
     } catch (error) {
       this.#settleFailure(error);

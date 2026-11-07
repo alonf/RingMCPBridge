@@ -274,6 +274,68 @@ describe("RingApiAdapter failures", () => {
   });
 });
 
+// An inventory as Ingest reads it: the locations, then each location's devices.
+async function inventoryOf(adapter: RingApiAdapter): Promise<void> {
+  const locations = await adapter.locations(never());
+  for (const location of locations) {
+    await adapter.devices(location.location_id, never());
+  }
+}
+
+describe("RingApiAdapter counts only requests that reach Ring (CP-09 review round 5)", () => {
+  it("opens the circuit after five failed requests in a row, however much the library answers from memory", async () => {
+    const { clock, client, adapter, changes } = setup();
+    await driveFakeClock(clock, inventoryOf(adapter));
+    changes.splice(0);
+    client.nextFailure = () => Promise.reject(ringHttpError(503));
+
+    for (let failure = 0; failure < 5; failure += 1) {
+      const error = await failureOf(clock, inventoryOf(adapter));
+      expect(error.kind).toBe("ring_unavailable");
+    }
+    const refused = await failureOf(clock, inventoryOf(adapter));
+
+    expect(refused.message).toContain("paused");
+    expect(changes).toEqual([{ kind: "session", status: "unavailable" }]);
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    expect(client.getLocationsCalls).toBe(1);
+  });
+
+  it("keeps counting a location read's failures while its memory reads succeed", async () => {
+    const { clock, client, adapter, changes } = setup();
+    await driveFakeClock(clock, inventoryOf(adapter));
+    changes.splice(0);
+    client.nextFailure = () => Promise.reject(ringHttpError(503));
+
+    for (let failure = 0; failure < 5; failure += 1) {
+      await failureOf(clock, adapter.devices("loc-1", never()));
+    }
+    const refused = await failureOf(clock, adapter.devices("loc-1", never()));
+
+    expect(refused.message).toContain("paused");
+    expect(changes).toEqual([{ kind: "session", status: "unavailable" }]);
+  });
+
+  it("says the session is fine again only after a request reaches Ring and succeeds", async () => {
+    const { clock, client, adapter, changes } = setup();
+    await driveFakeClock(clock, inventoryOf(adapter));
+    client.nextFailure = () => Promise.reject(ringHttpError(503));
+    await failureOf(clock, inventoryOf(adapter));
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    const profileCalls = client.getProfileCalls;
+
+    client.nextFailure = undefined;
+    await driveFakeClock(clock, inventoryOf(adapter));
+
+    expect(adapter.sessionStatus()).toBe("ok");
+    expect(client.getProfileCalls).toBe(profileCalls + 1);
+    expect(changes.filter((change) => change.kind === "session")).toEqual([
+      { kind: "session", status: "unavailable" },
+      { kind: "session", status: "ok" },
+    ]);
+  });
+});
+
 // ring-client-api retries a call that gets no answer on its own, without end, and cannot be
 // cancelled; a call the adapter gave up on can still be reaching Ring (CP-07 review round 1).
 describe("RingApiAdapter calls Ring one at a time, counting the calls it gave up on", () => {

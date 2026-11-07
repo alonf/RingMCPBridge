@@ -194,24 +194,36 @@ export class FakeRingClient implements RingClient {
   upstreamCameras: readonly FakeCameraData[] = [FAKE_DOORBELL];
   getLocationsCalls = 0;
   fetchRingDevicesCalls = 0;
+  getProfileCalls = 0;
   disconnected = false;
+  /** Every request that reaches Ring fails this way while it is set: an outage. */
   nextFailure: (() => Promise<never>) | undefined;
+  #located = false;
 
-  // As ring-client-api does: the same location objects every time, built once.
-  getLocations(): Promise<readonly RingClientLocation[]> {
+  // As ring-client-api does: the locations are fetched once, then the same objects come from its
+  // memory, even while Ring is down (CP-09 review round 5).
+  async getLocations(): Promise<readonly RingClientLocation[]> {
     this.getLocationsCalls += 1;
-    return this.nextFailure?.() ?? Promise.resolve(this.locationsList);
+    if (this.#located) {
+      return this.locationsList;
+    }
+    await this.nextFailure?.();
+    this.#located = true;
+    return this.locationsList;
   }
 
-  fetchRingDevices(): Promise<{
+  async fetchRingDevices(): Promise<{
     readonly allCameras: readonly FakeCameraData[];
   }> {
     this.fetchRingDevicesCalls += 1;
-    return Promise.resolve({ allCameras: this.upstreamCameras });
+    await this.nextFailure?.();
+    return { allCameras: this.upstreamCameras };
   }
 
-  getProfile(): Promise<{ readonly profile: { readonly id: number } }> {
-    return Promise.resolve({ profile: { id: FAKE_RING_PROFILE_ID } });
+  async getProfile(): Promise<{ readonly profile: { readonly id: number } }> {
+    this.getProfileCalls += 1;
+    await this.nextFailure?.();
+    return { profile: { id: FAKE_RING_PROFILE_ID } };
   }
 
   disconnect(): void {

@@ -45,6 +45,8 @@ import type {
 export const RING_CALL_TIMEOUT_MS = 30_000;
 
 const SECURITY_PANEL = "security-panel";
+/** A read the library answers from its own memory: `#call`'s `reachesRing` set to false. */
+const FROM_MEMORY = false;
 const NO_ANSWER = "Ring did not answer in time.";
 const EARLIER_CALL_RUNNING =
   "Ring has not yet answered an earlier call, so no new call was made.";
@@ -86,6 +88,7 @@ export class RingApiAdapter implements RingPort {
   readonly #listeners = new Set<(change: RingChange) => void>();
   readonly #subscriptions: Unsubscribe[] = [];
   #status: RingSessionStatus = "ok";
+  #locationList: readonly RingClientLocation[] | undefined;
   #profileId: number | undefined;
   // Settles when the last library call settles, including one the adapter gave up on; it never
   // rejects.
@@ -110,13 +113,14 @@ export class RingApiAdapter implements RingPort {
   }
 
   async locations(signal: AbortSignal): Promise<readonly RingLocation[]> {
-    const found = await this.#call(signal, () => this.#client.getLocations());
+    await this.#reachRingWhileUnavailable(signal);
+    const found = await this.#knownLocations(signal);
     const profileId = await this.#profile(signal);
     const entries: RingLocation[] = [];
     for (const location of found) {
       this.#remember(location);
       const ringMode = location.hasAlarmBaseStation
-        ? await this.#call(signal, () => location.getAlarmMode())
+        ? await this.#call(signal, () => location.getAlarmMode(), FROM_MEMORY)
         : undefined;
       entries.push(locationEntry(location, profileId, alarmModeOf(ringMode)));
     }
@@ -134,7 +138,11 @@ export class RingApiAdapter implements RingPort {
     if (location === undefined) {
       return [];
     }
-    const alarmDevices = await this.#call(signal, () => location.getDevices());
+    const alarmDevices = await this.#call(
+      signal,
+      () => location.getDevices(),
+      FROM_MEMORY,
+    );
     const cameras = await this.#currentCameras(location, signal);
     return [
       ...alarmDevices
@@ -186,6 +194,33 @@ export class RingApiAdapter implements RingPort {
     return listed;
   }
 
+  // ring-client-api fetches the locations once and then answers from its memory, even while Ring
+  // is down. So the adapter keeps them after the first answer, and asks again only until then:
+  // a later read is not a Ring call, and must not count as one (CP-09 review round 5).
+  async #knownLocations(
+    signal: AbortSignal,
+  ): Promise<readonly RingClientLocation[]> {
+    if (this.#locationList === undefined) {
+      this.#locationList = await this.#call(signal, () =>
+        this.#client.getLocations(),
+      );
+    }
+    return this.#locationList;
+  }
+
+  // While Ring counts as unavailable, a read starts with one request that reaches Ring: the
+  // profile. Its answer, not the library's memory, decides whether Ring is back, so an account
+  // without cameras, whose other reads come from memory, still finds its way back to `ok`.
+  async #reachRingWhileUnavailable(signal: AbortSignal): Promise<void> {
+    if (this.#status !== "unavailable") {
+      return;
+    }
+    const { profile } = await this.#call(signal, () =>
+      this.#client.getProfile(),
+    );
+    this.#profileId = profile.id;
+  }
+
   async #profile(signal: AbortSignal): Promise<number> {
     if (this.#profileId === undefined) {
       const { profile } = await this.#call(signal, () =>
@@ -196,15 +231,26 @@ export class RingApiAdapter implements RingPort {
     return this.#profileId;
   }
 
-  async #call<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+  // A read the library answers from its own memory (`FROM_MEMORY`) still goes through the gate,
+  // and its failure still counts, but its success says nothing about Ring: it neither closes the
+  // circuit nor marks the session `ok` (CP-09 review round 5).
+  async #call<T>(
+    signal: AbortSignal,
+    work: () => Promise<T>,
+    reachesRing = true,
+  ): Promise<T> {
     if (this.#status === "lost") {
       throw sessionLost();
     }
     try {
-      const value = await this.#gate.call(signal, () =>
-        this.#attempt(signal, work),
+      const value = await this.#gate.call(
+        signal,
+        () => this.#attempt(signal, work),
+        reachesRing,
       );
-      this.#setStatus("ok");
+      if (reachesRing) {
+        this.#setStatus("ok");
+      }
       return value;
     } catch (error) {
       if (error instanceof RingAdapterError) {

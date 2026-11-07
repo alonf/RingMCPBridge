@@ -3,11 +3,16 @@
 **Schema**: v2
 **Last Completed Task**: T017
 **Tasks Remaining**: T018-T021 and T023-T036 (18 tasks, 21 story_points)
-**In Progress**: CP-09 (the link): its three tasks are done; co-review rounds 3 and 4 found six defects, all fixed test-first (DRIFT-001-27, DRIFT-001-28); the owner reset the round allowance; next the round that reviews the round 4 fixes
+**In Progress**: CP-09 (the link): its three tasks are done; co-review rounds 3 to 5 found seven defects, all fixed test-first (DRIFT-001-27 to DRIFT-001-29); next another round, which needs the owner's `approved for review round`
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T16:00:44Z
+**Updated**: 2026-11-07T16:32:05Z
 
 ## Execution Summary
+
+- CP-09's co-review round 5 (10 minutes, $0) passed the round 4 fixes and found one more real defect, in the Ring Adapter, now fixed test-first (DRIFT-001-29): reads the Ring library answers from memory reset the outage circuit and marked the session as fine. The test fake now models that memory. A deliberate break of four parts was caught. Checks:
+  - 811 tests: 728 pass and 83 skip without SQL Server; with it, 800 pass and 11 skip;
+  - coverage without SQL Server: 95.8% of lines and 93.8% of branches;
+  - lint, tsc, prettier and depcruise (203 modules) are clean.
 
 - CP-09's co-review round 4 (11 minutes, $0) passed the round 3 fixes and found two more real defects, now fixed test-first (DRIFT-001-28):
   - two enrollment requests at the same instant could both stay waiting on SQL Server; migration 3 allows one, and the losing request tries once more;

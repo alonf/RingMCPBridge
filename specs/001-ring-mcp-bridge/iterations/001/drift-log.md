@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 28
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 9 in implement on 2026-11-07)
+**Total drift events**: 29
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 10 in implement on 2026-11-07)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -807,6 +807,32 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - no index for one waiting request;
   - no second try after losing the race;
   - the scheduler keeping every timer it made.
+
+### DRIFT-001-29: CP-09's co-review round 5 found that reads the Ring library answers from memory reset the outage circuit and marked the Ring session as fine
+
+- **Detected**: 2026-11-07, implement, by Codex co-review round 5, the first after the allowance reset (run `run-20261107-160555736-14798783`, checkpoint `cp-09-link-and-cp-16-accessors-review`, 10 minutes, $0). The round 4 fixes passed.
+- **Kind**: a defect in the Ring Adapter (T013), found by review because this review's span includes the camera fix (37e298d). No spec change
+- **Observed**: Specrew marked it as a note. Checked against the code, it was real. The owner chose to fix it and run another round.
+  - **The defect.**
+    - The circuit should open after 5 Ring failures in a row (OR5). But each inventory starts by reading the locations, which ring-client-api fetches once and then answers from its memory, even while Ring is down.
+    - The library also answers a location's devices and alarm mode from the state its live connection keeps; for a location without hubs, the device list is an empty one it never asks Ring for.
+    - Each such answer passed through the call gate as a successful Ring call. During an outage it reset the failure count and set the session back to `ok` at every inventory, so the circuit never opened.
+    - The home kept calling Ring at its shortest retry delay, and its heartbeat reported the session as fine although nothing had reached Ring.
+  - **The test fake hid it:** it failed every location read during an outage, which the real library never does. It now answers from memory after the first fetch, as the library does, and fails only the requests that reach Ring (fetching devices, the profile, the first location read).
+  - **Fixed:**
+    - The adapter keeps the locations after the first answer and does not call the library for them again.
+    - A read the library answers from memory still goes through the call gate, and its failure still counts. Its success neither closes the circuit (it ends neutrally, freeing a probe slot) nor marks the session `ok`.
+    - While the session counts as unavailable, a read starts with one request that does reach Ring, the profile. Its answer decides whether Ring is back, so an account without cameras, whose other reads come from memory, still recovers.
+  - **Carry-forward to the pilot and to iteration 002:** alarm devices and the alarm mode come from the state the library's live connection keeps. If that connection drops while Ring's web requests still work, those reads return the last known state, and no call outcome shows it. Health needs the connection's own state, with push, in 002. The pilot should check what a dropped connection looks like.
+- **Requirement citation**: tasks.md T013; spec FR-005 and FR-042; OR5 (the Ring circuit); implementation-rules.yml `code-rule.careful-retries` and `code-rule.robustness-state-boundaries`.
+- **Resolution**: fixed on 2026-11-07, test-first, for review in the next round. Cost: 0 SP and $0.
+- **Class closure**: 3 new tests, and the fake now models the library's memory. A deliberate break of four parts was caught:
+  - every location read going to the library again;
+  - reads from memory counting as Ring calls;
+  - no request to Ring while unavailable;
+  - the gate closing the circuit on any success.
+
+  The first two tests missed the second and fourth breaks. The request to Ring that comes first while unavailable made memory reads irrelevant in the inventory path, so a third test reads one location's devices on its own during an outage, and catches both.
 
 ### Resolution Strategies (Unused)
 
