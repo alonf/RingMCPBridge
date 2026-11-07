@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 21
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 2 in implement on 2026-11-07)
+**Total drift events**: 22
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 3 in implement on 2026-11-07)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -419,6 +419,44 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: spec FR-002 and FR-026; tasks.md T013 and T027; research.md R25; implementation-rules.yml `code-rule.anti-corruption-layers`; DRIFT-001-18.
 - **Resolution**: fixed on 2026-11-07, after two tests that failed on the old code. It is reviewed in the next co-review round. Cost: 0 SP and $0.
 - **Class closure**: the fake now models the library's caching, so a read that trusts the cached copy fails a test. A deliberate break of three parts was caught: a camera that is not refreshed, a camera Ring no longer lists that is kept, and a refresh call for a location without cameras.
+
+### DRIFT-001-22: T015 builds the Link transport as a pipe only, and settles its wire format and timings
+
+- **Detected**: 2026-11-07, implement, while doing T015
+- **Kind**: details the records leave open, and a split between two records, versus the code. No spec change
+- **Observed**:
+  - **The scope follows the tasks, not X2's sketch.** component-design.md's X2 drawing has the transport owning the hello at N or N-1, the signed challenge and reconnect. T016 and T017 give those to Core Link and Connector Link, and T015 lists only frames, the version, the order, ping and the in-memory pair. The code follows the tasks. The transport supplies:
+    - `isAcceptedLinkVersion` (N or N-1) for Connector Link's version check;
+    - `dialLink`, which returns `connected` or `unreachable` so Core Link can reconnect with its own backoff;
+    - `LinkServer.handleUpgrade`, for the Host's HTTPS server to pass the link's upgrade requests to.
+  - **Frames** [P: the names and the wire format, which contract "Transport and identity" leaves unrecorded]:
+    - A message is a text frame holding `{"type", "body"}`.
+    - A chunk is a binary frame: a 4-byte header length, `{"type", "header"}`, then the bytes.
+    - A type name is lower case, digits and `_`, at most 64 characters.
+    - The transport checks only this envelope, with zod. The body and header are the receiver's to declare and parse (CD4), and a chunk's header carries no bridge names.
+  - **A refused frame keeps nothing of itself.** A frame that is not JSON, breaks the envelope, or is over the limit closes the link as `malformed_frame`, sends close code 1007, and keeps no cause and no excerpt, because frames carry names from Ring (FR-034). A test sends a broken frame with a Hebrew device name and checks that it appears in neither the close nor the log.
+  - **Limits** (SC2, raised in planning the task):
+    - Frames are capped at 1 MiB (`MAX_FRAME_BYTES`, derived) on both ends, through ws's `maxPayload`. ws's default is 100 MiB, and the core accepts frames before the challenge is verified. A test checks that ws itself refuses an oversized frame (close code 1009) before reading it whole.
+    - Compression (`perMessageDeflate`) is off on both ends. A test checks that the dialer does not offer it.
+  - **Sending order** (CD X2): every waiting message goes before every waiting chunk, each kind in order, one frame written at a time. A chunk already being written finishes first, so priority works one frame at a time; that is why iteration 003 sets a small chunk size (PT-08). `send` resolves `sent` or `closed`, and frames still waiting when the link closes resolve `closed`, never left pending.
+  - **Liveness** [P numbers]:
+    - Each end pings every 10 s (`PING_INTERVAL_MS`), and any frame or pong counts as hearing the other end. 20 s of silence (`SILENCE_LIMIT_MS`) ends the link as `no_pong`, so a half-open connection is noticed within 30 s.
+    - This sits inside the core's 2-minute home-offline window and leaves time for Core Link's backoff (capped at 30 s) toward the 60 s reconnect goal (FR-042).
+    - A dial gives up after 10 s (`DIAL_TIMEOUT_MS`). All timers run on the injected Clock.
+  - **How a link ends**: `closed_here`, `closed_by_peer` (with the other end's reason, untrusted text, at most 123 bytes), `no_pong`, `malformed_frame` or `connection_lost`.
+  - **Errors.** Every outcome is a value: `send`, `dialLink` and the close cause. Misuse (a bad type name, an oversized frame, a long close reason, a URL that is not allowed) is a `RangeError`. So the transport has no error class of its own. A listener that throws is logged once as `link_listener_failed`, with the frame's type only, and the other listeners still hear the frame.
+  - **WSS only (SC2).** `dialLink` dials `wss:`, which always checks the certificate, and has no option to turn that off. Plain `ws:` is allowed only to this machine (`localhost`, `127.0.0.1`, `[::1]`), for tests.
+    - **Carry-forward to T017**, whose test says "the real WSS on localhost": a TLS test needs a certificate. That means either a new dev dependency to make one, or a private key in the repository, which gitleaks would flag. Until the owner decides, the link tests run `ws:` on localhost, and the TLS path is covered only by a `wss:` dial that is refused.
+  - **CI check for "no Ring or bridge words"** (the workshop's CD4 check, which did not exist yet). Two dependency rules were added: `ws-only-in-link-transport`, and `link-transport-knows-no-bridge-components` (nothing from the core, the connector, the Host or the Public Contract). A deliberate break of each was caught.
+  - **Found by the tests before commit:** a Node `Buffer`'s `slice` shares memory, so a received chunk's bytes were not the receiver's own. They are now copied.
+  - **Carry-forwards to T016 and T017:**
+    - Core Link dials with `dialLink` and reconnects on `unreachable` or any close, with its own 1 to 30 s jittered backoff.
+    - Connector Link takes links from a `LinkServer` that the Host wires to its HTTPS server's upgrade event for the link's path, and checks the hello with `isAcceptedLinkVersion`.
+    - The close reasons ("version not accepted", "key not enrolled", "challenge failed") are theirs, at most 123 bytes.
+    - The connector's configured core URL is `wss:`; `dialLink` refuses anything else.
+- **Requirement citation**: tasks.md T015, T016 and T017; `contracts/connector-link.md` "Transport and identity" and "Ordering, priority and guarantees"; component-design.md X2; spec FR-042, FR-046 and FR-034; research.md R21; implementation-rules.yml `code-rule.validation-boundaries`, `code-rule.concurrency-over-locks`, `code-rule.polymorphism-mechanism` (one interface, two carriers) and the `ws` and `@types/ws` dependency entries.
+- **Resolution**: implementation choices, recorded for the CP-09 co-review. The wire format is the transport's to choose (CD X2). Cost: 0 SP and $0.
+- **Class closure**: 38 tests run in the suite: the codec, the order with writes that really wait, the in-memory pair and the shared endpoint, and real sockets on localhost. A deliberate break of nine parts was caught: chunks before messages, silence that never ends the link, an envelope that is not checked, compression on, no payload cap, chunk bytes shared, a pair's close that overtakes its frames, a listener's failure that is not contained, and a refused frame that does not close the link.
 
 ### Resolution Strategies (Unused)
 

@@ -238,7 +238,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 
 ### The link
 
-- [ ] T015 [US1] [assigned_to: Implementer] [effort: 1] Link transport in `bridge/src/utilities/link-transport/`, over ws 8.22.0:
+- [x] T015 [US1] [assigned_to: Implementer] [effort: 1] Link transport in `bridge/src/utilities/link-transport/`, over ws 8.22.0:
   - frame types and the protocol version;
   - send priority: commands, events, state messages and heartbeats go before media chunks;
   - WSS ping and pong;

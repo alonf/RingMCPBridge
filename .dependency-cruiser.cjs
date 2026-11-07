@@ -36,6 +36,22 @@ module.exports = {
       to: { path: "node_modules/(ring-client-api|werift)" },
     },
     {
+      name: "ws-only-in-link-transport",
+      comment:
+        "ws is imported only inside the Link transport, so the WSS carrier stays in one utility (CD X2, T015).",
+      severity: "error",
+      from: { pathNot: "^bridge/src/utilities/link-transport/" },
+      to: { path: "node_modules/ws/" },
+    },
+    {
+      name: "link-transport-knows-no-bridge-components",
+      comment:
+        "The Link transport imports nothing from the core, the connector, the Host or the Public Contract: it knows frame kinds, versions and order, never a Ring or bridge word (CD X2, T015).",
+      severity: "error",
+      from: { path: "^bridge/src/utilities/link-transport/" },
+      to: { path: "^bridge/src/(core|connector|host|contract)/" },
+    },
+    {
       name: "component-only-through-index",
       comment:
         "Another component is imported only through its index.ts; implementations are imported only by the Host wiring and the tests (CD4).",

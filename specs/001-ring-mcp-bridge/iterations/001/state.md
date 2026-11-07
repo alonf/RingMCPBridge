@@ -1,13 +1,26 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T014
-**Tasks Remaining**: T015-T036 (22 tasks, 25 story_points)
-**In Progress**: none; the CP-08a co-review is signed off (2026-11-07), and its follow-up and the external review's camera fix are done. Next: `@types/ws` (owner's choice a), then T015 (CP-09)
+**Last Completed Task**: T015
+**Tasks Remaining**: T016-T036 (21 tasks, 24 story_points)
+**In Progress**: CP-09 (the link): T015 is done; next T016 (Core Link and Home Scheduler), then T017 (Connector Link)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T01:10:00Z
+**Updated**: 2026-11-07T01:40:00Z
 
 ## Execution Summary
+
+- T015 (the Link transport, first of CP-09's three tasks) is done, in `bridge/src/utilities/link-transport/`, over ws 8.22.0 with `@types/ws` 8.18.2 (the owner's choice a):
+  - **frames:** a message (a type name and a JSON body) or a chunk (a type name, a JSON header and bytes). Only the envelope is checked. A frame the link does not accept closes it as `malformed_frame`, keeping nothing of its text;
+  - **the protocol version** (1) and the receiver's check for N or N-1;
+  - **the sending order:** messages before chunks, one frame at a time. `send` resolves `sent` or `closed`;
+  - **WSS:** `dialLink` (wss:, or ws: to this machine for tests) and `LinkServer` for the Host's upgrade requests. Frames are capped at 1 MiB and compression is off on both ends. Ping runs every 10 s, and 20 s of silence ends the link;
+  - **the in-memory pair** for tests, with the same frames and order, and the controls to hold writes and drop the connection;
+  - **two new dependency rules:** ws only inside the transport, and the transport imports nothing from the bridge's components.
+
+  The choices and the carry-forwards to T016 and T017 are in DRIFT-001-22. One of them is for the owner: a certificate for T017's TLS test. A deliberate break of nine parts was caught. Checks:
+  - 654 tests: 605 pass and 49 skip without SQL Server;
+  - coverage without SQL Server: 95.4% of lines and 93.7% of branches; the transport is at 97.6% of lines;
+  - lint, tsc, prettier and depcruise (154 modules) are clean.
 
 - CP-08a co-review (codex; checkpoint `cp-08a-outbox-ingest-review`). The owner typed `approved for allowance reset` to review T014 and the migration-runner change now, rather than fold them into the round after T028. The reset cost $0, and Specrew counted it as the round approval.
   - **Round 1 of 4** (`run-20261106-234102754-7edcd9ba`, 9 minutes) reviewed everything since the last sign-off (T011): T012, T013, T014 and the runner change. CP-07 has therefore had its co-review. It found nothing in T012, T014 or the runner. It found two faults in the Ring Adapter, both confirmed by reading the code and both demoted to minor by Specrew:
