@@ -65,6 +65,11 @@ export const CORE_HANDSHAKE_TIMEOUT_MS = 30_000;
 export const ENROLLMENT_POLL_MS = 2_000;
 /** How often an open session checks that its key is still the active one [P]. */
 export const KEY_RECHECK_MS = 15_000;
+/**
+ * The most messages an open session may have waiting for Event, each at most 1 MiB, so a link
+ * cannot fill the core's memory (round 3) [P]. The home sends up to 100 at a time.
+ */
+export const MAX_PENDING_MESSAGES = 256;
 
 /**
  * The core's own close reasons. The home dials again after each of them, with its usual backoff
@@ -80,6 +85,7 @@ export const CORE_CLOSE_REASONS = {
   coreUnavailable: "core_unavailable",
   coreStopping: "core_stopping",
   coreError: "core_error",
+  tooManyMessages: "too_many_messages",
 } as const;
 
 // Where a link stands. Each phase carries exactly what it needs, so a challenge response is only
@@ -134,6 +140,8 @@ export class CoreSession {
   #steps: Promise<void> = Promise.resolve();
   #cancelTimer: Cancel = () => undefined;
   #checkFailing = false;
+  #pendingFrames = 0;
+  #releaseFrame: (() => void) | undefined;
 
   constructor(context: CoreSessionContext) {
     this.#context = context;
@@ -150,11 +158,16 @@ export class CoreSession {
     return this.#state.phase === "open";
   }
 
+  /** True while an `enroll` request on this link waits for the owner. */
+  get isWaitingForOwner(): boolean {
+    return this.#state.phase === "enrolling";
+  }
+
   /** Starts listening, with the handshake's time limit running. */
   start(): void {
     const { link } = this.#context;
     link.onFrame((frame) => {
-      this.#enqueue(() => this.#received(frame));
+      this.#arrived(frame);
     });
     link.onClose((closed) => {
       this.#ended(closed);
@@ -193,6 +206,50 @@ export class CoreSession {
     }
     this.#logger.error("connector_link_session_failed", undefined, error);
     this.#close(CORE_CLOSE_REASONS.coreError);
+  }
+
+  // Frames wait their turn in memory, so their number is bounded (round 3). Before a session
+  // opens, the home sends one message and waits for the core's answer, so a second one before that
+  // answer ends the link at once, unqueued. An open session may queue up to `MAX_PENDING_MESSAGES`.
+  // A frame stops counting once the core has answered it, or when its step ends.
+  #arrived(frame: LinkFrame): void {
+    if (this.#state.phase === "closed") {
+      return;
+    }
+    if (this.#state.phase !== "open" && this.#pendingFrames > 0) {
+      this.#refuse(frame.type);
+      return;
+    }
+    if (this.#pendingFrames >= MAX_PENDING_MESSAGES) {
+      this.#logger.warn("connector_link_too_many_messages", {
+        count: this.#pendingFrames,
+      });
+      this.#close(CORE_CLOSE_REASONS.tooManyMessages);
+      return;
+    }
+    this.#pendingFrames += 1;
+    let counted = true;
+    const release = (): void => {
+      if (counted) {
+        counted = false;
+        this.#pendingFrames -= 1;
+      }
+    };
+    this.#enqueue(async () => {
+      this.#releaseFrame = release;
+      try {
+        await this.#received(frame);
+      } finally {
+        release();
+        this.#releaseFrame = undefined;
+      }
+    });
+  }
+
+  // The core answers the message it is handling. The home may send its next one at once (over the
+  // in-memory pair, even before this step has ended), so that message is no longer a second one.
+  #answered(): void {
+    this.#releaseFrame?.();
   }
 
   async #received(frame: LinkFrame): Promise<void> {
@@ -245,6 +302,7 @@ export class CoreSession {
       return;
     }
     const key = await this.#checkKey(hello.key_id);
+    this.#signal.throwIfAborted();
     if (key === undefined) {
       this.#close(CORE_CLOSE_REASONS.coreUnavailable);
       return;
@@ -262,6 +320,7 @@ export class CoreSession {
       session,
     };
     const challenge: ChallengeMessage = { nonce };
+    this.#answered();
     this.#send(CORE_MESSAGE_TYPES.challenge, challenge);
   }
 
@@ -275,6 +334,7 @@ export class CoreSession {
     this.#state = { phase: "open", keyId, session };
     this.#context.onProven(this);
     const helloOk: HelloOkMessage = { version: session.version };
+    this.#answered();
     this.#send(CORE_MESSAGE_TYPES.helloOk, helloOk);
     this.#logger.info("connector_link_session_open");
     this.#timer(KEY_RECHECK_MS, () => {
@@ -310,6 +370,7 @@ export class CoreSession {
       this.#close(CORE_CLOSE_REASONS.coreUnavailable);
       return;
     }
+    this.#signal.throwIfAborted();
     if (outcome.kind === "revoked") {
       this.#close(LINK_CLOSE_REASONS.keyRevoked);
       return;
@@ -339,6 +400,7 @@ export class CoreSession {
       return;
     }
     const key = await this.#checkKey(state.keyId);
+    this.#signal.throwIfAborted();
     if (key?.kind === "active") {
       this.#enrolled(state.keyId);
       return;
@@ -356,6 +418,7 @@ export class CoreSession {
   #enrolled(keyId: string): void {
     this.#state = FIRST;
     const enrolled: EnrolledMessage = { key_id: keyId };
+    this.#answered();
     this.#send(CORE_MESSAGE_TYPES.enrolled, enrolled);
     this.#logger.info("connector_link_enrolled");
     this.#timer(CORE_HANDSHAKE_TIMEOUT_MS, () => {
@@ -371,6 +434,7 @@ export class CoreSession {
       return;
     }
     const key = await this.#checkKey(state.keyId);
+    this.#signal.throwIfAborted();
     if (key !== undefined && key.kind !== "active") {
       this.#close(closeReasonFor(key));
       return;

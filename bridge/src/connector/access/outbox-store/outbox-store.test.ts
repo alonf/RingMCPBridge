@@ -102,6 +102,33 @@ describe("OutboxStore", () => {
     expect(await store.takeDue(10, signal)).toEqual([]);
   });
 
+  it("counts the 10 s from when a message's write finished, once told (round 3)", async () => {
+    const store = await open();
+    const id = await appendOne(store, "front door");
+    await store.takeDue(1, signal);
+    await clock.advance(RESEND_AFTER_MS - 1);
+
+    await store.markWritten(id, signal);
+
+    await clock.advance(RESEND_AFTER_MS - 1);
+    expect(await store.takeDue(10, signal)).toEqual([]);
+    await clock.advance(1);
+    expect(idsOf(await store.takeDue(10, signal))).toEqual([id]);
+  });
+
+  it("leaves a message never taken, or already acked, as it is when told it was written", async () => {
+    const store = await open();
+    const waiting = await appendOne(store, "front door");
+    const acked = await appendOne(store, "back door");
+    await store.acknowledge(acked, signal);
+
+    await store.markWritten(waiting, signal);
+    await store.markWritten(acked, signal);
+
+    expect(idsOf(await store.takeDue(10, signal))).toEqual([waiting]);
+    expect(await store.depth(signal)).toBe(1);
+  });
+
   it("sends the oldest first, up to the limit asked for", async () => {
     const store = await open();
     const ids = [

@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 26
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 7 in implement on 2026-11-07)
+**Total drift events**: 27
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 8 in implement on 2026-11-07)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -745,6 +745,44 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a backoff cap that misses the 60 s goal.
 
   The first version of the 60 s test missed that last break: its core happened to return just before the home's next dial. Both 60 s tests now bring the core back just after a failed dial, the worst moment for the home, and the in-memory one catches it.
+
+### DRIFT-001-27: CP-09's co-review round 3 found four real defects, two in Connector Link and two in Ingest; all four fixed test-first
+
+- **Detected**: 2026-11-07, implement, by Codex co-review round 3 (run `run-20261107-142057378-515c9071`, checkpoint `cp-09-link-and-cp-16-accessors-review`, 13 minutes, $0)
+- **Kind**: defects in code written at T016 and T017, found by review. No spec change
+- **Observed**: Specrew demoted all four findings to notes, because none stated its failure in Specrew's form. Checked against the code, each was real. The owner chose to fix all four and run round 4.
+  1. **A stranger's `enroll` ended an enrolled home's session** (T017).
+     - After a home enrolled and opened its session on the same link, Connector Link still held that link as "the one waiting for the owner".
+     - A later `enroll` from anyone, even with a key nobody approved, closed the home's working link as `enrollment_replaced`. Repeated, that kept the home offline.
+     - **Fixed:** a newer request closes the older link only while that link still waits for the owner.
+  2. **A device change the home could not queue stayed lost** (T016, Ingest).
+     - If the outbox could not take a change (a full disk, or a lock that outlasts the Query layer's one retry), Ingest logged it, and the core kept the old state until another change, an `inventory_request` or a reconnect.
+     - **Fixed:** such a failure makes a fresh inventory owed, so the next 10 s tick sends the device's state again, with no other change needed.
+  3. **A link could make the core hold many frames in memory** (T017).
+     - Every frame was queued before it was checked. While a `hello` or `enroll` waited on the database, a peer that had proved nothing could keep sending frames of up to 1 MiB, and all of them were kept.
+     - **Fixed:**
+       - Before a session opens, the home sends one message and waits for the core's answer, so a second message before that answer closes the link at once (`message_refused`), unqueued.
+       - An open session may have at most 256 messages waiting for Event (`MAX_PENDING_MESSAGES` [P]); one more closes the link as `too_many_messages`, and the home sends them again from its durable outbox.
+     - A frame stops counting once the core has answered it. Over the in-memory pair, which mode A uses, the home answers the challenge before the core's step has ended. The first version counted until the step ended, so it refused the challenge response; the both-ends contract tests caught that before commit.
+     - A step that resumes after its link closed now stops there. This is defensive: no test can observe the difference.
+  4. **The home could queue copies of its backlog in memory** (T016, Ingest).
+     - Ingest read the whole due backlog and handed every message to the link without waiting for any write. The outbox stamped them as sent when they were taken, so after 10 s a slow link was handed copies of messages it had not written yet.
+     - **Fixed:**
+       - Ingest takes one message at a time and waits for its write, so the rest stays on disk;
+       - after 100 messages it continues in a new step, behind the acks that arrived meanwhile;
+       - the 10 s resend counts from the finished write, through a new Outbox Store operation, `markWritten`.
+- **Requirement citation**: tasks.md T016 and T017; `contracts/connector-link.md` "Session start", "Enrollment and re-enrollment" and "Ordering, priority and guarantees"; spec FR-032 and FR-042; AC B10; SC2; implementation-rules.yml `code-rule.concurrency-over-locks`, `code-rule.robustness-state-boundaries` and `code-rule.careful-retries`.
+- **Resolution**: fixed on 2026-11-07, test-first, for review in round 4 (the last before an allowance reset). Cost: 0 SP and $0.
+- **Class closure**: 7 new tests, each failing on the old code. A deliberate break of nine parts was caught:
+  - a stranger's `enroll` ending an enrolled home's session;
+  - a second message before the answer, queued;
+  - no cap on an open session's waiting messages;
+  - the challenge not counted as the core's answer;
+  - a change that was not queued, leaving no inventory owed;
+  - the backlog sent without waiting for each write;
+  - the resend counted from when a message was taken;
+  - `markWritten` restarting nothing;
+  - `markWritten` making a message never taken look sent.
 
 ### Resolution Strategies (Unused)
 

@@ -9,7 +9,8 @@
 //   core's sockets open;
 // - one open session per key: a newer one replaces the older, which closes as `session_replaced`;
 // - one link waiting for the owner: a newer `enroll` replaces the request, and the older link
-//   closes as `enrollment_replaced`.
+//   closes as `enrollment_replaced`, but only while it still waits: a link whose key was approved
+//   meanwhile carries a session, which no `enroll` may end (round 3).
 import type { Clock } from "../../../utilities/clock/index.ts";
 import type { LinkConnection } from "../../../utilities/link-transport/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
@@ -134,7 +135,7 @@ export class ConnectorLink {
   #enrollmentWaiting(session: CoreSession): void {
     const older = this.#enrolling;
     this.#enrolling = session;
-    if (older !== undefined && older !== session) {
+    if (older !== undefined && older !== session && older.isWaitingForOwner) {
       older.close(CORE_CLOSE_REASONS.enrollmentReplaced);
     }
   }

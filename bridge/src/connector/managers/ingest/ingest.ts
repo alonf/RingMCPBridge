@@ -22,6 +22,7 @@ import { formatUtc } from "../../../utilities/clock/index.ts";
 import type {
   LinkConnection,
   LinkSlot,
+  SendOutcome,
 } from "../../../utilities/link-transport/index.ts";
 import type { Logger, LogFields } from "../../../utilities/logging/index.ts";
 import { HOME_MESSAGE_TYPES } from "../../../core/clients/connector-link/messages/index.ts";
@@ -63,7 +64,7 @@ export interface IngestOptions {
   readonly logger: Logger;
 }
 
-/** How many due messages are read from the outbox at a time. */
+/** How many due messages one step sends, one at a time, before another step continues. */
 const SEND_BATCH = 100;
 
 // A change Ring reports has no caller to cancel it; Ingest's own writes run to the end.
@@ -252,8 +253,8 @@ export class Ingest {
     }
   }
 
-  // Ingest handles a change's failure itself: no caller waits for it. The next inventory sends the
-  // device's state again.
+  // Ingest handles a change's failure itself: no caller waits for it. A fresh inventory is then owed,
+  // so the next 10 s tick sends the device's state again, with no other change needed (round 3).
   #writeChange(
     compose: (versions: StateVersions) => OutboxDraft,
     fields: LogFields,
@@ -275,6 +276,7 @@ export class Ingest {
   }
 
   #stateNotQueued(fields: LogFields, error: unknown): void {
+    this.#inventoryOwed = true;
     if (error instanceof OutboxStoreError) {
       this.#count("outbox_unavailable");
       this.#logger.warn(
@@ -302,23 +304,36 @@ export class Ingest {
     }
   }
 
+  // One message at a time: each is taken from the outbox, and so stamped as sent, only when the
+  // previous one has been written, so the rest of a backlog stays on disk and the 10 s resend
+  // counts from the actual write (round 3). After `SEND_BATCH` messages the work continues in a
+  // new step, behind the acks that arrived meanwhile.
   async #sendDue(signal: AbortSignal): Promise<void> {
     if (this.#sessionStarting) {
       return;
     }
-    for (;;) {
+    for (let sent = 0; sent < SEND_BATCH; sent += 1) {
       const link = this.#link.current;
       if (link === undefined) {
         return;
       }
-      const items = await this.#outbox.takeDue(SEND_BATCH, signal);
-      for (const item of items) {
-        await this.#send(link, item, signal);
-      }
-      if (items.length < SEND_BATCH) {
+      const [item] = await this.#outbox.takeDue(1, signal);
+      if (item === undefined) {
         return;
       }
+      if ((await this.#send(link, item, signal)) === "closed") {
+        return;
+      }
+      await this.#outbox.markWritten(item.messageId, signal);
     }
+    this.#continueSending(signal);
+  }
+
+  #continueSending(signal: AbortSignal): void {
+    this.#sendDueSafely(signal).catch((error: unknown) => {
+      this.#count("internal");
+      this.#logger.error("ingest_not_sent", { error_code: "internal" }, error);
+    });
   }
 
   // A message too large for one frame can never be sent; it is logged once and cleared, so it
@@ -327,9 +342,10 @@ export class Ingest {
     link: LinkConnection,
     item: OutboxItem,
     signal: AbortSignal,
-  ): Promise<void> {
+  ): Promise<SendOutcome> {
+    let written: Promise<SendOutcome>;
     try {
-      void link.send({
+      written = link.send({
         type: item.kind,
         body: { ...item.body, message_id: item.messageId },
       });
@@ -344,7 +360,9 @@ export class Ingest {
         error_code: "message_too_large",
       });
       await this.#outbox.acknowledge(item.messageId, signal);
+      return "sent";
     }
+    return written;
   }
 
   async #depth(signal: AbortSignal): Promise<number | null> {

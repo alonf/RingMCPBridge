@@ -3,11 +3,22 @@
 **Schema**: v2
 **Last Completed Task**: T017
 **Tasks Remaining**: T018-T021 and T023-T036 (18 tasks, 21 story_points)
-**In Progress**: CP-09 (the link): its three tasks (T015, T016, T017) are done; next CP-09's co-review (round 3 of 4), which needs the owner's `approved for review round`; T022 (first of CP-16) is done too
+**In Progress**: CP-09 (the link): its three tasks are done; co-review round 3 found four defects, fixed test-first (DRIFT-001-27); next round 4 of 4, which needs the owner's `approved for review round`
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T13:20:25Z
+**Updated**: 2026-11-07T14:57:11Z
 
 ## Execution Summary
+
+- CP-09's co-review round 3 (13 minutes, $0) found four real defects, now fixed test-first (DRIFT-001-27):
+  - a stranger's `enroll` could end an enrolled home's session;
+  - a device change the home could not queue stayed lost until something else happened;
+  - a link could make the core hold many frames in memory;
+  - the home could queue copies of its backlog in memory after a long outage.
+
+  A deliberate break of nine parts was caught. Checks:
+  - 801 tests: 721 pass and 80 skip without SQL Server; with it, 790 pass and 11 skip;
+  - coverage without SQL Server: 95.8% of lines and 93.6% of branches;
+  - lint, tsc, prettier and depcruise (202 modules) are clean.
 
 - T017 (Connector Link, the last of CP-09's three tasks) is done:
   - **Connector Link** (`bridge/src/core/clients/connector-link/`), the core's end of the link:

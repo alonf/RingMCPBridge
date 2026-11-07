@@ -10,8 +10,16 @@ import {
   createLinkPair,
   LinkSlot,
 } from "../../../utilities/link-transport/index.ts";
-import type { LinkFrame } from "../../../utilities/link-transport/index.ts";
-import { OutboxStore } from "../../access/outbox-store/index.ts";
+import type {
+  LinkConnection,
+  LinkFrame,
+  LinkMessage,
+  SendOutcome,
+} from "../../../utilities/link-transport/index.ts";
+import {
+  OutboxStore,
+  OutboxStoreError,
+} from "../../access/outbox-store/index.ts";
 import type { OutboxItem } from "../../access/outbox-store/index.ts";
 import type {
   RingChange,
@@ -499,5 +507,160 @@ describe("Ingest at a session's start", () => {
           : "",
       );
     expect(sent.slice(0, 2)).toEqual([older, newer]);
+  });
+});
+
+/** The real outbox, whose writes fail while `failing` is set: a full disk, or a lock that lasts. */
+function failingWrites(store: OutboxStore): {
+  outbox: OutboxStore;
+  failing: { value: boolean };
+} {
+  const failing = { value: false };
+  const outbox = new Proxy(store, {
+    get(target, property) {
+      if (property === "append" && failing.value) {
+        return () =>
+          Promise.reject(new OutboxStoreError("unavailable", "Disk full."));
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      if (typeof value !== "function") {
+        return value;
+      }
+      const method = value as (...args: unknown[]) => unknown;
+      return method.bind(target);
+    },
+  });
+  return { outbox, failing };
+}
+
+/** A link whose writes finish only when the test lets each one go: a slow socket. */
+function slowLink(): {
+  link: LinkConnection;
+  writes: { message: LinkMessage; finish: (outcome: SendOutcome) => void }[];
+} {
+  const writes: {
+    message: LinkMessage;
+    finish: (outcome: SendOutcome) => void;
+  }[] = [];
+  const link: LinkConnection = {
+    send: (message) =>
+      new Promise((finish) => {
+        writes.push({ message, finish });
+      }),
+    sendChunk: () => Promise.resolve("closed"),
+    onFrame: () => () => undefined,
+    onClose: () => () => undefined,
+    close: () => undefined,
+    closed: undefined,
+  };
+  return { link, writes };
+}
+
+describe("Ingest after review round 3", () => {
+  it("sends a fresh inventory on the next tick after a change it could not queue, with no other change", async () => {
+    const engine = new ScenarioEngine(clock);
+    const store = await openStore();
+    const { outbox, failing } = failingWrites(store);
+    const slot = new LinkSlot();
+    const pair = createLinkPair(
+      new Logger({ sink: () => undefined, now: () => 0, minLevel: "debug" }),
+    );
+    const frames: LinkFrame[] = [];
+    pair.acceptor.onFrame((frame) => frames.push(frame));
+    const ingest = new Ingest({
+      ring: engine,
+      outbox,
+      link: slot,
+      clock,
+      logger: new Logger({
+        sink: (line) => lines.push(line),
+        now: () => clock.now(),
+        minLevel: "debug",
+      }),
+    });
+    ingest.start();
+    ingests.push(ingest);
+    slot.put(pair.dialer);
+    await ingest.sessionOpened(signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    for (const item of await store.takeDue(10, signal)) {
+      await store.acknowledge(item.messageId, signal);
+    }
+    for (const frame of frames.splice(0)) {
+      if (frame.kind === "message") {
+        await store.acknowledge(
+          (frame.body as { message_id: string }).message_id,
+          signal,
+        );
+      }
+    }
+
+    failing.value = true;
+    openDoor(engine);
+    await ingest.flush();
+    expect(lines.join("\n")).toContain("ingest_state_not_queued");
+    failing.value = false;
+    await ingest.sendDue(signal);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const inventories = frames.filter((frame) => frame.type === "inventory");
+    expect(inventories).toHaveLength(1);
+    const devices = (
+      inventories[0]?.kind === "message"
+        ? (inventories[0].body as { devices: DeviceEntry[] }).devices
+        : []
+    ).filter((device) => device.device_id === HEBREW_DEVICE_ID);
+    expect(devices.map((device) => device.state)).toEqual([{ open: true }]);
+  });
+
+  it("writes the outbox's backlog one message at a time, leaving the rest on disk, and never queues copies", async () => {
+    const engine = new ScenarioEngine(clock);
+    const store = await openStore();
+    const slot = new LinkSlot();
+    const { link, writes } = slowLink();
+    const ingest = new Ingest({
+      ring: engine,
+      outbox: store,
+      link: slot,
+      clock,
+      logger: new Logger({
+        sink: (line) => lines.push(line),
+        now: () => clock.now(),
+        minLevel: "debug",
+      }),
+    });
+    ingests.push(ingest);
+    for (let index = 0; index < 5; index += 1) {
+      await store.append(
+        () => ({ kind: "device_state", body: { index } }),
+        signal,
+      );
+    }
+    slot.put(link);
+
+    const first = ingest.sendDue(signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(writes).toHaveLength(1);
+    await clock.advance(10_000);
+    const tick = ingest.sendDue(signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(writes).toHaveLength(1);
+
+    for (let index = 0; index < 5; index += 1) {
+      for (let round = 0; writes.length <= index; round += 1) {
+        if (round > 500) {
+          throw new Error(`Write ${String(index + 1)} never started.`);
+        }
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(writes).toHaveLength(index + 1);
+      writes[index]?.finish("sent");
+    }
+    await Promise.all([first, tick]);
+    const ids = writes.map(
+      (write) => (write.message.body as { message_id: string }).message_id,
+    );
+    expect(ids).toHaveLength(5);
+    expect(new Set(ids).size).toBe(5);
   });
 });

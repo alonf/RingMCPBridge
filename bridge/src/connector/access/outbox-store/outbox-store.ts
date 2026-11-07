@@ -76,6 +76,8 @@ const INSERT_MESSAGE =
 const SELECT_DUE = `SELECT seq, message_id, kind, body FROM outbox WHERE ${IS_KNOWN_KIND} AND ${IS_DUE} ORDER BY seq LIMIT @limit`;
 const MARK_SENT = `UPDATE outbox SET sent_at = @now WHERE seq <= @last_seq AND ${IS_KNOWN_KIND} AND ${IS_DUE}`;
 const DELETE_MESSAGE = "DELETE FROM outbox WHERE message_id = @message_id";
+const MARK_WRITTEN =
+  "UPDATE outbox SET sent_at = @now WHERE message_id = @message_id AND sent_at IS NOT NULL";
 const MARK_ALL_UNSENT =
   "UPDATE outbox SET sent_at = NULL WHERE sent_at IS NOT NULL";
 const COUNT_MESSAGES = "SELECT COUNT(*) AS depth FROM outbox";
@@ -200,6 +202,23 @@ export class OutboxStore {
         ),
     );
     return deleted > 0;
+  }
+
+  /**
+   * A taken message's write has finished: its `RESEND_AFTER_MS` counts from now, not from when it
+   * was taken, so a slow write does not make it due again at once (round 3). A message never taken
+   * or already acked is left as it is.
+   */
+  async markWritten(messageId: string, signal: AbortSignal): Promise<void> {
+    await this.#guard(signal, "The outbox could not be updated.", () =>
+      this.#layer.run(
+        statement(MARK_WRITTEN, {
+          now: this.#clock.now(),
+          message_id: messageId,
+        }),
+        signal,
+      ),
+    );
   }
 
   /** Makes every unacked message due now, so a new session sends them all again, oldest first. */

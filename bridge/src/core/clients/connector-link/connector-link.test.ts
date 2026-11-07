@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { SettingsStore } from "../../access/settings/index.ts";
 import { AdminManager } from "../../managers/admin/index.ts";
+import type { ConnectorKeyCheck } from "../../managers/admin/index.ts";
 import { FakeClock } from "../../../utilities/clock/index.ts";
 import { createLinkPair } from "../../../utilities/link-transport/index.ts";
 import type {
@@ -34,6 +35,7 @@ import {
   ConnectorLink,
   ENROLLMENT_POLL_MS,
   KEY_RECHECK_MS,
+  MAX_PENDING_MESSAGES,
   MAX_UNPROVEN_LINKS,
 } from "./index.ts";
 
@@ -667,7 +669,107 @@ describe("ConnectorLink: enrollment", () => {
   });
 });
 
+/** Admin whose key checks wait until the test lets them go: a slow database. */
+class HeldAdmin extends AdminManager {
+  #release: (() => void) | undefined;
+  #gate = new Promise<void>((resolve) => {
+    this.#release = resolve;
+  });
+
+  release(): void {
+    this.#release?.();
+  }
+
+  override async connectorKey(
+    keyId: string,
+    signal: AbortSignal,
+  ): Promise<ConnectorKeyCheck> {
+    await this.#gate;
+    return super.connectorKey(keyId, signal);
+  }
+}
+
 describe("ConnectorLink: across links", () => {
+  it("keeps an enrolled home's session when a stranger asks to enroll afterwards (round 3)", async () => {
+    const test = await harness();
+    const key = await generateSigningKeyPair();
+    const keyId = signingKeyId(key.publicKey);
+    const home = connect(test);
+    send(home, "enroll", { public_key: key.publicKey, code: CODE });
+    await until(() => test.lines.join("\n").includes("enrollment_waiting"));
+    await test.settings.approveEnrollment(keyId, never);
+    await test.clock.advance(ENROLLMENT_POLL_MS);
+    await frameOf(home, "enrolled");
+    await openSession(home, key);
+
+    const stranger = connect(test);
+    send(stranger, "enroll", {
+      public_key: (await generateSigningKeyPair()).publicKey,
+      code: "BBBB",
+    });
+    await until(
+      () =>
+        test.lines.filter((line) => line.includes("enrollment_waiting"))
+          .length === 2,
+    );
+    await settle();
+
+    expect(home.link.closed).toBeUndefined();
+    expect(stranger.link.closed).toBeUndefined();
+    send(home, "inventory", inventory("m-1"));
+    expect(await frameOf(home, "ack")).toEqual({ message_id: "m-1" });
+  });
+
+  it("closes a link that sends a second message before the core has answered the first, without queueing it (round 3)", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const admin = new HeldAdmin({ settings: test.settings });
+    const held = new ConnectorLink({
+      admin,
+      intake: test.intake,
+      clock: test.clock,
+      logger: test.logger,
+      newNonce: () => NONCE,
+    });
+    stops.push(() => held.stop());
+    const pair = createLinkPair(test.logger);
+    const home: Home = { pair, link: pair.dialer, frames: [] };
+    pair.dialer.onFrame((frame) => home.frames.push(frame));
+    held.accept(pair.acceptor);
+
+    send(home, "hello", hello(key));
+    send(home, "inventory", inventory("m-1"));
+
+    expect(await closedWith(home)).toMatchObject({
+      reason: CORE_CLOSE_REASONS.messageRefused,
+    });
+    admin.release();
+    await settle();
+    expect(messagesOf(home, "challenge")).toEqual([]);
+  });
+
+  it(`closes an open session with more than ${String(MAX_PENDING_MESSAGES)} messages waiting for Event (round 3)`, async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    test.intake.holding = true;
+
+    for (let sent = 0; sent < MAX_PENDING_MESSAGES; sent += 1) {
+      send(home, "heartbeat", heartbeat());
+    }
+    await until(() => test.intake.calls.length === 2);
+    await settle();
+    expect(home.link.closed).toBeUndefined();
+
+    send(home, "heartbeat", heartbeat());
+
+    expect(await closedWith(home)).toMatchObject({
+      reason: CORE_CLOSE_REASONS.tooManyMessages,
+    });
+    test.intake.release();
+  });
+
   it("replaces an older session for the same key", async () => {
     const test = await harness();
     const key = await enrolledKey(test);

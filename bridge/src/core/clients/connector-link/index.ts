@@ -11,4 +11,5 @@ export {
   CORE_HANDSHAKE_TIMEOUT_MS,
   ENROLLMENT_POLL_MS,
   KEY_RECHECK_MS,
+  MAX_PENDING_MESSAGES,
 } from "./core-session.ts";
