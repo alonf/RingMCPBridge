@@ -9,6 +9,9 @@
 //   since the last sign of life [P] (OR5, FR-005).
 // - The Ring session's status and the outbox depth come from the heartbeat; the Ring session's
 //   `since` is kept while its status holds.
+// - A Ring session that is not `ok` makes the data stale too, since it stopped being `ok` (SC-005,
+//   T021): the home is up, but what it reports is no longer Ring's current state. With both down,
+//   the data is stale since the earlier of the two.
 
 /** The engine's thresholds, from the Config utility (`staleAfterMs`, 2 minutes by default). */
 export interface HealthPolicy {
@@ -77,26 +80,25 @@ export function afterHeartbeat(
 }
 
 /**
- * The view as of `now`: a home up but silent for `homeOfflineAfterMs` or longer is down and its
- * data stale, both since its last sign of life. Otherwise the view as it is.
+ * The view as of `now`: a home up but silent for `homeOfflineAfterMs` or longer is down since its
+ * last sign of life. The data is stale while the home is down or its Ring session is not `ok`,
+ * since the earlier of the two (SC-005).
  */
 export function asOf(
   view: HealthView,
   now: number,
   policy: HealthPolicy,
 ): HealthView {
-  if (
-    view.home_link_status !== "up" ||
-    now - view.as_of < policy.homeOfflineAfterMs
-  ) {
-    return view;
-  }
-  return {
-    ...view,
-    home_link_status: "down",
-    home_link_since: view.as_of,
-    stale_since: view.as_of,
-  };
+  const silent =
+    view.home_link_status === "up" &&
+    now - view.as_of >= policy.homeOfflineAfterMs;
+  const linked: HealthView = silent
+    ? { ...view, home_link_status: "down", home_link_since: view.as_of }
+    : view;
+  const since = staleSince(linked);
+  return since === undefined || since === linked.stale_since
+    ? linked
+    : { ...linked, stale_since: since };
 }
 
 /** The parts whose status changed from `before` to `after`, in a fixed order. */
@@ -112,6 +114,26 @@ export function healthChanges(
     changed.push("ring_session");
   }
   return changed;
+}
+
+// The earliest of: when the data was already stale, when the home link went down, and when the Ring
+// session stopped being `ok`. Undefined while both are fine.
+function staleSince(view: HealthView): number | undefined {
+  const times: number[] = [];
+  if (view.stale_since !== undefined) {
+    times.push(view.stale_since);
+  }
+  if (view.home_link_status === "down" && view.home_link_since !== undefined) {
+    times.push(view.home_link_since);
+  }
+  if (
+    view.ring_session_status !== undefined &&
+    view.ring_session_status !== "ok" &&
+    view.ring_session_since !== undefined
+  ) {
+    times.push(view.ring_session_since);
+  }
+  return times.length === 0 ? undefined : Math.min(...times);
 }
 
 // The home is up from `now`, or since it came up if it already was; nothing is stale.

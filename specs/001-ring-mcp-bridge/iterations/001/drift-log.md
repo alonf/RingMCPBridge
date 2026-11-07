@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 33
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 14 in implement on 2026-11-07)
+**Total drift events**: 34
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 15 in implement on 2026-11-07)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -1001,6 +1001,51 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - tokens estimated at four characters each;
   - a home that never reported shown with Ring fine;
   - a stale home's `stale_since` dropped.
+
+### DRIFT-001-34: T021 builds the Inquiry manager; a Ring session that is not `ok` makes the data stale, and Ring outages at a real home are not yet detected
+
+- **Detected**: 2026-11-07, implement, while doing T021
+- **Kind**: details the records leave open, and a gap at home for the owner to decide. No spec change
+- **Observed**:
+  - **The Inquiry manager** (`bridge/src/core/managers/inquiry/`) serves `get_overview`, `list_devices` (filtered by `type` and `room`), `get_device` and `get_health` over State and Settings, with the Health engine's view as of now and the Summary engine's data.
+    - It declares its requests and the reply around each tool's data, in the contract's shapes; MCP Endpoint (T024) wraps them for MCP.
+    - The battery threshold comes from Settings, which falls back to the Config utility's.
+    - The Summary engine gains `deviceDetail`, `get_device`'s data.
+  - **Freshness** (FR-006, SC-005):
+    - a reply is `cached` while the home link is up and the Ring session is `ok`, and `stale` otherwise, since the earlier of the two. `live` is not used in 001, as the core never reads Ring itself [P];
+    - the rule is the Health engine's `asOf`, so the reply's `stale_since`, `get_health`'s and the stored health agree;
+    - `errors.md` says "stale applies only to the home link" in contrast with the store being down, and its next line says a lost Ring connection is shown as stale within 2 minutes. The engine follows both;
+    - `as_of` is the home's last sign of life while the data is fresh, and the time it became stale once it is [P];
+    - a home that never reported is stale since now, so DRIFT-001-33's health for it gains `stale_since`;
+    - `as_of_local` is in the location's time zone. A zone Intl does not know falls back to UTC, and `get_health` uses the first owned location's zone, or UTC before the home reported one [P].
+  - **Which location:**
+    - an omitted `location_id` resolves to the only owned location; otherwise the call fails with `INVALID_ARGUMENT`, with the owned locations' ids in `details`, an empty list before the home reported one [P];
+    - shared locations are off in 001 (FR-036), so a shared location and its devices answer `NOT_FOUND` [P].
+  - **The store down** fails every read as `unavailable` (`BRIDGE_UNAVAILABLE`, retryable), never with stale data. An abort passes through unchanged.
+  - **A gap at home, open for the owner.** The real Ring Adapter's session status changes only when a call reaches Ring, and nothing at home calls Ring on a timer.
+    - So a Ring outage while no read is running keeps the heartbeat at `ok`, and an outage once seen stays `unavailable` until the next read (for example, a new session's inventory).
+    - SC-005 is met in the simulated home, where the fault is reported at once, but not yet at a real one.
+    - The options and their costs are put to the owner with CP-14's review request; nothing is changed until they choose.
+- **Requirement citation**: tasks.md T021; `contracts/mcp-tools.md` the four read tools; `contracts/errors.md` the reply envelope and its freshness rules; spec FR-001, FR-002, FR-005, FR-006, FR-036, SC-005 and SC-006.
+- **Resolution**: implementation choices, recorded for the CP-14 co-review. The gap at home stays open until the owner decides. Cost so far: 0 SP and $0.
+- **Class closure**: 23 new tests.
+  - The Health engine's and the Summary engine's were written first.
+  - The Inquiry manager's run over a real State and Settings on SQLite: the four tools, which location, `NOT_FOUND`, shared locations hidden, the three kinds of stale, the store down, the local-time fallback, and the whole reply within 8,000 tokens on the 100-device home.
+  - The link contract gains one scenario over the real Event manager, State and Inquiry: Ring down by fault injection shows as stale within 2 minutes on the fake clock, and as cached again once Ring is back.
+
+  A deliberate break of thirteen parts was caught:
+  - a Ring session not `ok` ignored;
+  - stale since the later of the two;
+  - every reply `cached`;
+  - the store down answered as `failed`;
+  - a named shared location readable;
+  - a shared location's device readable;
+  - an omitted `location_id` taking the first of several;
+  - an unknown time zone not caught;
+  - the owner's threshold ignored;
+  - the type filter dropped;
+  - a home that never reported not stale, in Inquiry and in the Summary engine;
+  - `as_of` always now.
 
 ### Resolution Strategies (Unused)
 

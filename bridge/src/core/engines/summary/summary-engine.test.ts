@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { standardHome } from "../../../../test/scenarios/index.ts";
 import {
   DATA_BUDGET_TOKENS,
+  deviceDetail,
   deviceList,
   estimateTokens,
   healthData,
@@ -139,13 +140,14 @@ describe("the Summary engine: the health", () => {
     });
   });
 
-  it("shows a home that never reported as down, and its Ring session as unavailable, since now", () => {
+  it("shows a home that never reported as down, its Ring session unavailable and its data stale, since now", () => {
     expect(healthData(undefined, NOW)).toEqual({
       home_link: { status: "down", since: new Date(NOW).toISOString() },
       ring_session: {
         status: "unavailable",
         since: new Date(NOW).toISOString(),
       },
+      stale_since: new Date(NOW).toISOString(),
       database: { status: "ok" },
     });
   });
@@ -244,5 +246,52 @@ describe("the Summary engine: the agent-economy budget (SC-006)", () => {
     expect(estimateTokens(data)).toBeLessThanOrEqual(DATA_BUDGET_TOKENS);
     expect(data.open_contacts.length).toBeGreaterThan(0);
     expect(data.health).toEqual(healthData(UP, NOW));
+  });
+});
+
+describe("the Summary engine: one device (T021)", () => {
+  it("gives the device's full entry, its state as Ring reports it, and when that was true", () => {
+    expect(
+      deviceDetail(
+        device("d-1", "contact", {
+          room: "כניסה",
+          battery_pct: 70,
+          battery_low: false,
+          state: { open: true },
+        }),
+        "loc-1",
+      ),
+    ).toEqual({
+      device: {
+        id: "d-1",
+        location_id: "loc-1",
+        name: "Device d-1",
+        type: "contact",
+        room: "כניסה",
+        battery_pct: 70,
+        battery_low: false,
+        power_mode: "battery",
+        online: true,
+        state: { open: true },
+        as_of: new Date(SEEN).toISOString(),
+      },
+    });
+  });
+
+  it("leaves out what Ring does not report", () => {
+    expect(
+      deviceDetail(device("d-2", "light", { power_mode: "wired" }), "loc-1"),
+    ).toEqual({
+      device: {
+        id: "d-2",
+        location_id: "loc-1",
+        name: "Device d-2",
+        type: "light",
+        power_mode: "wired",
+        online: true,
+        state: {},
+        as_of: new Date(SEEN).toISOString(),
+      },
+    });
   });
 });

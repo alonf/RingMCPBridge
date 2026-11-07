@@ -1,13 +1,23 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T020
-**Tasks Remaining**: T021 and T023-T036 (15 tasks, 18 story_points)
-**In Progress**: CP-14 (the read path): T019 and T020 are done, and T018 (CP-11a); next T021 (Inquiry), then CP-14's co-review
+**Last Completed Task**: T021
+**Tasks Remaining**: T023-T036 (14 tasks, 17 story_points)
+**In Progress**: CP-14 (the read path): T019, T020 and T021 are done, and T018 (CP-11a); next CP-14's co-review, on the owner's approval of a round
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T19:22:23Z
+**Updated**: 2026-11-07T19:59:50Z
 
 ## Execution Summary
+
+- T021 (the Inquiry manager, last of CP-14) is done, in `bridge/src/core/managers/inquiry/`:
+  - `get_overview`, `list_devices` (by type and room), `get_device` and `get_health`, each reply saying when its data was true, in UTC and the location's local time, and whether it is `cached` or `stale`;
+  - the data is stale while the home link is down or the Ring session is not `ok`, since the earlier of the two (SC-005); the store down fails a read as `BRIDGE_UNAVAILABLE`, never with stale data;
+  - an omitted `location_id` resolves to the only owned location; shared locations stay hidden (FR-036).
+
+  Ring down at the simulated home shows as stale within 2 minutes, end to end. At a real home, a Ring outage is not yet detected while no read runs; that is open for the owner (DRIFT-001-34, with the other choices). A deliberate break of thirteen parts was caught. Checks:
+  - 893 tests: 796 pass and 97 skip without SQL Server; with it, 881 pass and 12 skip;
+  - coverage without SQL Server: 96.1% of lines and 93.8% of branches;
+  - lint, tsc, prettier and depcruise (221 modules) are clean.
 
 - T020 (the Summary engine, second of CP-14) is done, in `bridge/src/core/engines/summary/`, with its tests written first:
   - `get_overview`'s data (location, alarm mode, open contacts, active motion, offline devices, low batteries and health), the default device list, and the health, in the contract's shapes;

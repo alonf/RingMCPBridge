@@ -128,3 +128,62 @@ describe("the Health engine: the Ring session and the outbox", () => {
     expect(healthChanges(down, lost)).toEqual(["home_link", "ring_session"]);
   });
 });
+
+describe("the Health engine: stale data while Ring is down (SC-005, T021)", () => {
+  it("marks the data stale since the Ring session stopped being ok, the home still up", () => {
+    const up = afterHeartbeat(
+      afterSessionOpened(undefined, "0.1.0", START),
+      BEAT,
+      START,
+    );
+    const down = afterHeartbeat(
+      up,
+      { ring_session: "unavailable", outbox_depth: 0 },
+      START + 15_000,
+    );
+
+    expect(asOf(down, START + 30_000, POLICY)).toEqual({
+      ...down,
+      stale_since: START + 15_000,
+    });
+    expect(
+      asOf(afterHeartbeat(down, BEAT, START + 45_000), START + 50_000, POLICY)
+        .stale_since,
+    ).toBeUndefined();
+  });
+
+  it("takes the earlier of the two when Ring and the home link are both down", () => {
+    const up = afterHeartbeat(
+      afterSessionOpened(undefined, "0.1.0", START),
+      BEAT,
+      START,
+    );
+    const lost = afterHeartbeat(
+      up,
+      { ring_session: "lost", outbox_depth: 0 },
+      START + 15_000,
+    );
+    const stillLost = afterHeartbeat(
+      lost,
+      { ring_session: "lost", outbox_depth: 0 },
+      START + 30_000,
+    );
+
+    const silent = asOf(stillLost, START + 30_000 + 120_000, POLICY);
+
+    expect(silent.home_link_status).toBe("down");
+    expect(silent.home_link_since).toBe(START + 30_000);
+    expect(silent.stale_since).toBe(START + 15_000);
+  });
+
+  it("takes the home link's time when Ring went down after the home fell silent", () => {
+    const up = afterHeartbeat(
+      afterSessionOpened(undefined, "0.1.0", START),
+      BEAT,
+      START,
+    );
+    const silent = asOf(up, START + 120_000, POLICY);
+
+    expect(asOf(silent, START + 300_000, POLICY).stale_since).toBe(START);
+  });
+});

@@ -4,6 +4,7 @@
 /** The rules, the budget, and the types it reads and composes. */
 export {
   DATA_BUDGET_TOKENS,
+  deviceDetail,
   deviceList,
   ENVELOPE_RESERVE_TOKENS,
   estimateTokens,
@@ -12,6 +13,7 @@ export {
   TOKEN_BUDGET,
 } from "./summary-engine.ts";
 export type {
+  DeviceDetailData,
   DeviceListData,
   DeviceReference,
   HealthData,

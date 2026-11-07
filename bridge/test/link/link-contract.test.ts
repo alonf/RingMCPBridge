@@ -5,6 +5,8 @@
 // home must be back within 60 s of the core's return.
 //
 // Both ends run on one fake clock. The N-1 contract test comes with the first version bump (PT-07).
+// One scenario reads through the Inquiry manager (T021): Ring down at home, by fault injection,
+// shows as stale within 2 minutes (SC-005).
 import { createServer as createTlsServer } from "node:https";
 import type { Server as TlsServer } from "node:https";
 import type { AddressInfo } from "node:net";
@@ -18,6 +20,7 @@ import { StateStore } from "../../src/core/access/state/index.ts";
 import { ConnectorLink } from "../../src/core/clients/connector-link/index.ts";
 import { AdminManager } from "../../src/core/managers/admin/index.ts";
 import { EventManager } from "../../src/core/managers/event/index.ts";
+import { InquiryManager } from "../../src/core/managers/inquiry/index.ts";
 import type {
   EventIntake,
   EventTopics,
@@ -69,6 +72,9 @@ const LINK_PATH = "/link";
 const STEP_MS = 100;
 const DRIVE_LIMIT_MS = 5 * 60_000;
 const RECONNECT_GOAL_MS = 60_000;
+const OFFLINE_AFTER_MS = 120_000;
+/** SC-005: a lost Ring connection is shown as stale within 2 minutes. */
+const STALE_GOAL_MS = 2 * 60_000;
 const CORE_AWAY_MS = 3 * 60_000;
 // Longer than the 10 s resend time plus one 10 s scheduler tick, so a resend always goes out
 // before the delayed message arrives.
@@ -145,7 +151,7 @@ async function realEvent(clock: FakeClock): Promise<{
     state,
     events: new PubSub<EventTopics>(() => undefined),
     clock,
-    homeOfflineAfterMs: 120_000,
+    homeOfflineAfterMs: OFFLINE_AFTER_MS,
     reportFailure: () => undefined,
   });
   stops.push(
@@ -473,6 +479,53 @@ describe("the link, version 1, both ends", () => {
         }),
       ]),
     );
+  });
+
+  it("with the real Event manager, State and Inquiry: Ring down at home shows as stale within 2 minutes, and fresh again once Ring is back (T021, SC-005)", async () => {
+    const test = await both(true);
+    await enrolled(test);
+    const core = inMemoryCore(test);
+    const real = test.real;
+    if (real === undefined) {
+      throw new Error("The real Event manager was not built.");
+    }
+    const inquiry = new InquiryManager({
+      state: real.state,
+      settings: test.settings,
+      clock: test.clock,
+      homeOfflineAfterMs: OFFLINE_AFTER_MS,
+    });
+    const freshness = async (): Promise<string> =>
+      (await inquiry.getOverview({}, signal)).freshness;
+    test.start(core.dial);
+    await driveUntil(
+      test.clock,
+      async () =>
+        (await real.state.devices({}, signal)).length > 0 &&
+        (await outboxEmpty(test)),
+    );
+    expect(await freshness()).toBe("cached");
+
+    test.engine.apply({ kind: "fault", fault: { kind: "ring_down" } });
+    const tookMs = await driveUntil(
+      test.clock,
+      async () => (await freshness()) === "stale",
+    );
+
+    expect(tookMs).toBeLessThanOrEqual(STALE_GOAL_MS);
+    const stale = await inquiry.getOverview({}, signal);
+    expect(stale.stale_since).toBeDefined();
+    expect(stale.data.health.ring_session.status).toBe("unavailable");
+    expect(stale.data.health.home_link.status).toBe("up");
+    await expect(
+      inquiry.getDevice({ device_id: HEBREW_DEVICE_ID }, signal),
+    ).resolves.toMatchObject({
+      freshness: "stale",
+      data: { device: { name: HEBREW_DEVICE_NAME } },
+    });
+
+    test.engine.apply({ kind: "recover" });
+    await driveUntil(test.clock, async () => (await freshness()) === "cached");
   });
 
   it("acks a duplicated message each time it arrives, and the home clears it once", async () => {

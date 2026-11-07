@@ -306,7 +306,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - both stay within about 8,000 tokens, estimated as characters ÷ 3, rounded up (PT-22).
 
   Write its tests first. The agent-economy test runs `get_overview` and `list_devices` on the 100-device fixture and asserts the budget (Trace: FR-001, SC-006; CP-14)
-- [ ] T021 [US1] [assigned_to: Implementer] [effort: 1] Inquiry manager in `bridge/src/core/managers/inquiry/`:
+- [x] T021 [US1] [assigned_to: Implementer] [effort: 1] Inquiry manager in `bridge/src/core/managers/inquiry/`:
   - **Tools:**
     - `get_overview`;
     - `list_devices`, with the filters `type` and `room`;

@@ -143,6 +143,25 @@ export interface ListedDevice {
   readonly online: boolean;
 }
 
+/** `get_device`'s data: the device's full entry. */
+export interface DeviceDetailData {
+  readonly device: {
+    readonly id: string;
+    readonly location_id: string;
+    readonly name: string;
+    readonly type: SummaryDeviceType;
+    readonly room?: string;
+    readonly battery_pct?: number;
+    readonly battery_low?: boolean;
+    readonly power_mode: "battery" | "wired";
+    readonly online: boolean;
+    /** Ring's own state for the device, as Ring reports it. */
+    readonly state: Readonly<Record<string, unknown>>;
+    /** When this state was true, UTC. */
+    readonly as_of: string;
+  };
+}
+
 /** `list_devices`' data. */
 export interface DeviceListData {
   readonly devices: readonly ListedDevice[];
@@ -155,11 +174,15 @@ export function estimateTokens(value: unknown): number {
   return Math.ceil(JSON.stringify(value).length / CHARACTERS_PER_TOKEN);
 }
 
-/** `get_health`'s data from the health as of now. A home that never reported is down since now. */
+/**
+ * `get_health`'s data from the health as of now. A home that never reported is down, its Ring
+ * session unavailable and its data stale, all since now.
+ */
 export function healthData(
   health: SummaryHealth | undefined,
   now: number,
 ): HealthData {
+  const staleSince = health === undefined ? now : health.stale_since;
   return {
     home_link: {
       status: health?.home_link_status ?? "down",
@@ -180,9 +203,7 @@ export function healthData(
     ...(health?.last_event_at === undefined
       ? {}
       : { last_event_at: formatUtc(health.last_event_at) }),
-    ...(health?.stale_since === undefined
-      ? {}
-      : { stale_since: formatUtc(health.stale_since) }),
+    ...(staleSince === undefined ? {} : { stale_since: formatUtc(staleSince) }),
     database: { status: "ok" },
   };
 }
@@ -246,6 +267,32 @@ export function deviceList(
     devices: listed.slice(0, cap),
     count: listed.length,
   }));
+}
+
+/** `get_device`'s data: one device's full entry, small enough for any budget. */
+export function deviceDetail(
+  device: SummaryDevice,
+  locationId: string,
+): DeviceDetailData {
+  return {
+    device: {
+      id: device.device_id,
+      location_id: locationId,
+      name: device.name,
+      type: device.type,
+      ...(device.room === undefined ? {} : { room: device.room }),
+      ...(device.battery_pct === undefined
+        ? {}
+        : { battery_pct: device.battery_pct }),
+      ...(device.battery_low === undefined
+        ? {}
+        : { battery_low: device.battery_low }),
+      power_mode: device.power_mode,
+      online: device.online,
+      state: device.state,
+      as_of: formatUtc(device.as_of),
+    },
+  };
 }
 
 // The reply with the longest lists that fits: `compose(cap)` cuts every list to `cap`. A binary
