@@ -1,4 +1,4 @@
-// The Secrets File's key in its Docker secret (T012), and the Secret placeholder.
+// The Secrets File's key in its Docker secret (T012).
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,6 @@ import { generateSealingKey } from "../../../utilities/security/index.ts";
 import {
   encodeSecretsFileKey,
   readSecretsFileKey,
-  Secret,
   SecretsFileError,
 } from "./index.ts";
 
@@ -64,16 +63,5 @@ describe("the Secrets File key", () => {
     expect(() => encodeSecretsFileKey(new Uint8Array(16))).toThrow(
       SecretsFileError,
     );
-  });
-});
-
-describe("Secret", () => {
-  it("hands out its value only through reveal()", () => {
-    const secret = new Secret("value-SECRET");
-    expect(secret.reveal()).toBe("value-SECRET");
-    expect(String(secret)).toBe("[secret]");
-    expect(String(secret)).toBe("[secret]");
-    expect(JSON.stringify({ secret })).toBe('{"secret":"[secret]"}');
-    expect(inspect({ secret })).not.toContain("value-SECRET");
   });
 });

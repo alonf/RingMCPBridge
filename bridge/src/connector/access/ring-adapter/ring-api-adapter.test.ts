@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { FakeClock } from "../../../utilities/clock/index.ts";
 import { Logger } from "../../../utilities/logging/index.ts";
-import type { Secret } from "../secrets-file/index.ts";
+import type { Secret } from "../../../utilities/security/index.ts";
 import { RING_CALL_LIMITS, RingCallGate } from "./call-limits.ts";
 import { RingApiAdapter } from "./ring-api-adapter.ts";
 import {

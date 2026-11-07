@@ -1,4 +1,5 @@
-// Writing the Secrets File so a reader, or a restart, only ever sees the old file or the new one.
+// Writing a sealed file (the Secrets File at home, the core's secrets file in mode A) so a reader,
+// or a restart, only ever sees the old file or the new one.
 // The bytes go to a temporary file in the same folder, which is flushed to disk and then moved
 // over the file (a rename replaces it in one step). On a failure the temporary file is removed
 // and the old file stays as it was.

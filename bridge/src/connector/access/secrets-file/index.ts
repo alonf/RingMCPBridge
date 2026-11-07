@@ -10,17 +10,11 @@ export type {
   SecretsFileLocation,
 } from "./secrets-file.ts";
 
-/** A value that prints and serializes as a placeholder; `reveal()` reads it. */
-export { Secret } from "./secret.ts";
-
 /** The key's Docker secret: base64url text, read at start and written by the Setup CLI. */
 export {
   encodeSecretsFileKey,
   readSecretsFileKey,
 } from "./secrets-file-key.ts";
-
-/** The step that puts a written file in place, which tests replace. */
-export type { MoveOver } from "./atomic-write.ts";
 
 /** The component's error, with a closed `kind` (see `SecretsFileErrorKind`). */
 export { SecretsFileError } from "./secrets-file-error.ts";

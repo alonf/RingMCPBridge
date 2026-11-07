@@ -1,7 +1,8 @@
 // Security utility (CP-02, T006): the connector's Ed25519 identity, AES-256-GCM sealing for the
-// encrypted files, and the owner's Entra sign-in. The only entry point (CD4). Nothing exported here
-// imports an Azure library, so the connector can use it (I5.3): the managed-identity client
-// assertion is in managed-identity-assertion.live.ts, which only the core's wiring imports.
+// encrypted files and their one-step write, the `Secret` wrapper, and the owner's Entra sign-in.
+// The only entry point (CD4). Nothing exported here imports an Azure library, so the connector can
+// use it (I5.3): the managed-identity client assertion is in managed-identity-assertion.live.ts,
+// which only the core's wiring imports.
 
 /**
  * Ed25519 key pairs, challenge nonces, and signing and checking a challenge (SC2). The Setup CLI
@@ -21,6 +22,20 @@ export type { PublicSigningKey, SigningKeyPair } from "./signing.ts";
 /** AES-256-GCM seal and open, bytes in and bytes out, bound to a purpose (SC4, DS3). */
 export { generateSealingKey, open, seal } from "./sealing.ts";
 export type { SealPurpose } from "./sealing.ts";
+
+/**
+ * Writing a sealed file in one step, so a reader or a restart sees only the old file or the new
+ * one. `MoveOver` is the step that puts the written file in place, which tests replace.
+ */
+export {
+  createAtomically,
+  moveOverWithRename,
+  replaceAtomically,
+} from "./atomic-write.ts";
+export type { MoveOver } from "./atomic-write.ts";
+
+/** A value that prints and serializes as a placeholder; `reveal()` reads it (FR-034, SC4). */
+export { Secret } from "./secret.ts";
 
 /**
  * The owner's sign-in (SC1, FR-029): the `OwnerSignIn` seam and `EntraOwnerSignIn`, the

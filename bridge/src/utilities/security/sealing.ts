@@ -1,5 +1,6 @@
 // AES-256-GCM for the encrypted files (SC4, DS3: the Secrets File at home, keyed from a Docker
-// secret). Bytes in, bytes out: reading and writing the files belongs to their accessors.
+// secret). Bytes in, bytes out: what a file holds, and when it is read or written, belongs to its
+// accessor; atomic-write.ts supplies the one-step write.
 //
 // Sealed layout: [format version: 1 byte][IV: 12 bytes][ciphertext][tag: 16 bytes].
 // The additional data binds the purpose and the format version, so a sealed Secrets File cannot be

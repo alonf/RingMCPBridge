@@ -21,10 +21,14 @@ import {
   generateSealingKey,
   generateSigningKeyPair,
   seal,
+  Secret,
 } from "../../../utilities/security/index.ts";
-import type { SigningKeyPair } from "../../../utilities/security/index.ts";
-import { Secret, SecretsFile, SecretsFileError } from "./index.ts";
-import type { HomeSecrets, MoveOver, SecretsFileErrorKind } from "./index.ts";
+import type {
+  MoveOver,
+  SigningKeyPair,
+} from "../../../utilities/security/index.ts";
+import { SecretsFile, SecretsFileError } from "./index.ts";
+import type { HomeSecrets, SecretsFileErrorKind } from "./index.ts";
 
 const TOKEN = "rt-SECRET-token-0001";
 const ROTATED_TOKEN = "rt-SECRET-token-0002";

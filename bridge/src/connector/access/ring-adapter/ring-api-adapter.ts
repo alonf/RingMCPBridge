@@ -15,7 +15,7 @@
 //   update, wired by the Host).
 import type { Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
-import { Secret } from "../secrets-file/index.ts";
+import { Secret } from "../../../utilities/security/index.ts";
 import type { RingCallGate } from "./call-limits.ts";
 import { RingAdapterError } from "./ring-adapter-error.ts";
 import type {

@@ -6,22 +6,20 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import {
+  createAtomically,
   exportPrivateKey,
   importPrivateKey,
+  moveOverWithRename,
+  replaceAtomically,
+  Secret,
   open as unseal,
   seal,
 } from "../../../utilities/security/index.ts";
 import type {
+  MoveOver,
   SealPurpose,
   SigningKeyPair,
 } from "../../../utilities/security/index.ts";
-import {
-  createAtomically,
-  moveOverWithRename,
-  replaceAtomically,
-} from "./atomic-write.ts";
-import type { MoveOver } from "./atomic-write.ts";
-import { Secret } from "./secret.ts";
 import { SecretsFileError } from "./secrets-file-error.ts";
 
 const PURPOSE: SealPurpose = "secrets-file";
