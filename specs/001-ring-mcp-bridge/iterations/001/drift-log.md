@@ -22,9 +22,9 @@
 
 ## Summary
 
-**Total drift events**: 23
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 4 in implement on 2026-11-07)
-**Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
+**Total drift events**: 24
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 5 in implement on 2026-11-07)
+**Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
 
@@ -461,7 +461,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 ### DRIFT-001-23: T016 has Ingest send through a shared link slot, declares the link messages where each receiver lives, and names the key by its hash
 
 - **Detected**: 2026-11-07, implement, while doing T016
-- **Kind**: details the records leave open, one change to DRIFT-001-19's carry-forward, and one amendment to CD4's "one public entry file", for the owner to confirm or reject. No spec change
+- **Kind**: details the records leave open, one change to DRIFT-001-19's carry-forward, and one amendment to CD4's "one public entry file", which the owner confirmed. No spec change
 - **Observed**:
   - **Who sends what.** DRIFT-001-19 planned for Core Link to send through pass-throughs on Ingest. That doesn't work: the Home Scheduler is a client and cannot call Core Link, another client (the IDesign call rules), and the component map gives Ingest "normalize, outbox, send". So:
     - **Core Link** (a client) owns the connection.
@@ -484,7 +484,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - **Why a second entry:** without it, the home would reach the core's components, and their libraries, through Connector Link's own entry file. `connector-reaches-no-cloud-libraries` forbids that, and type-only imports count (`tsPreCompilationDeps`).
     - **The amendment to CD4:** a component may have a second entry, `messages/index.ts`, holding only the link messages it receives. `component-only-through-index` now allows exactly that.
       - Before, the rule allowed any nested `index.ts`. A deliberate break showed the loophole, and it is now closed.
-      - **The owner may reject this.** The alternative is a separate schemas module for the link, as the Public Contract is for agents.
+      - **The owner confirmed this on 2026-11-07 (choice a).** The alternative was a separate schemas module for the link, as the Public Contract is for agents.
   - **Names new at implement** [P]:
     - **`key_id`** is the first 16 base64url characters of the public key's SHA-256 (`signingKeyId`, in the security utility).
       - The home keeps no enrollment state. It says `hello` with that id, and enrolls only after the core closes with `key_not_enrolled`.
@@ -523,7 +523,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - The Host's readiness shows the link down after `core_link_failed`.
     - The enrollment code's home store and its log line belong to T028. Logging the code needs a new log field, because the logger writes only declared fields.
 - **Requirement citation**: tasks.md T016 and T017; `contracts/connector-link.md` "Frames", "Session start", "Heartbeat and home offline", "Enrollment and re-enrollment" and "Ordering, priority and guarantees"; data-model.md "Home part enrollment"; component-design.md CD4, X2 and the component map v3; spec FR-005, FR-032 and FR-042; implementation-rules.yml `code-rule.careful-retries`, `code-rule.concurrency-over-locks` and `code-rule.idiomatic-error-handling`.
-- **Resolution**: implementation choices, recorded for the CP-09 co-review. The CD4 amendment awaits the owner's confirmation. Cost: 0 SP and $0.
+- **Resolution**: implementation choices, recorded for the CP-09 co-review. The owner confirmed the CD4 amendment on 2026-11-07. Cost: 0 SP and $0.
 - **Class closure**: 24 new tests run in the suite. Core Link's tests run over the in-memory pair, with the test playing the core, against the simulated home and a real outbox. A deliberate break of fourteen parts was caught:
   - a signature over the wrong text;
   - no "everything is due again" at session open;
@@ -541,6 +541,24 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an error logged for work cut short by stopping.
 
   The narrowed dependency rule caught a nested `index.ts` that is not `messages/`.
+
+### DRIFT-001-24: Specrew's session start-up rewrote state.md's header to "not started", and named T017 as next although it waits on T022
+
+- **Detected**: 2026-11-07, implement, when the session resumed
+- **Kind**: tooling output versus the records. No spec change
+- **Observed**:
+  - At 03:33:48Z, the session start-up rewrote the header of `iterations/001/state.md`:
+    - `Iteration Status: not-started`, `Last Completed Task: (none)`, and the 19 checkpoints as remaining;
+    - a managed block saying "Execution has not started yet".
+
+    The body below the header was intact, and all work was committed and pushed at 49ca21c.
+  - It also created `iterations/001/tasks-progress.yml`, with all 19 checkpoints `pending`.
+  - The start-up summary then said both "16 of 36 done", from tasks.md, and "Start CP-01", from the new file.
+  - It named T017 as the next task, by number. tasks.md's dependency list says T017 needs T022, because enrolled keys live in Settings, and T022 is open. I repeated that to the owner, and then corrected it.
+  - Governance validation still passed, with 6 soft warnings. No documented format or command for `tasks-progress.yml` was found. The governed scripts are invoked, never read, so the cause is not investigated here.
+- **Requirement citation**: tasks.md (T017 depends on T022); the launch contract's rule that a surprising result from the governed machinery is reported, not investigated.
+- **Resolution**: on the owner's `restore` (2026-11-07), state.md was restored from 49ca21c. `tasks-progress.yml` stays uncommitted and unfilled, because its format is not documented. Work goes on with T022, then T017. Cost: 0 SP and $0.
+- **Class closure**: none in this repository, because the start-up is Specrew's machinery. If a later start-up rewrites state.md again, it is restored and reported to the owner. The next task is read from tasks.md's dependency list, not from the start-up summary.
 
 ### Resolution Strategies (Unused)
 

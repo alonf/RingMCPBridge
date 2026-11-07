@@ -3,9 +3,9 @@
 **Schema**: v2
 **Last Completed Task**: T016
 **Tasks Remaining**: T017-T036 (20 tasks, 23 story_points)
-**In Progress**: CP-09 (the link): T015 and T016 are done; next T017 (Connector Link), then CP-09's co-review (round 3 of 4)
+**In Progress**: CP-09 (the link): T015 and T016 are done; next T022 (the core's Settings, Grants and Secrets accessors, which T017 needs), then T017 (Connector Link), then CP-09's co-review (round 3 of 4)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T02:29:00Z
+**Updated**: 2026-11-07T11:04:22Z
 
 ## Execution Summary
 
