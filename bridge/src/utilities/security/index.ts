@@ -13,6 +13,7 @@ export {
   exportPrivateKey,
   generateSigningKeyPair,
   importPrivateKey,
+  parsePublicSigningKey,
   signChallenge,
   signingKeyId,
   verifyChallenge,

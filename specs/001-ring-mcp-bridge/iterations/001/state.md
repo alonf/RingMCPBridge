@@ -1,13 +1,28 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T016
-**Tasks Remaining**: T017-T036 (20 tasks, 23 story_points)
-**In Progress**: CP-09 (the link): T015 and T016 are done; next T022 (the core's Settings, Grants and Secrets accessors, which T017 needs), then T017 (Connector Link), then CP-09's co-review (round 3 of 4)
+**Last Completed Task**: T022
+**Tasks Remaining**: T017-T021 and T023-T036 (19 tasks, 22 story_points)
+**In Progress**: CP-09 (the link): T015 and T016 are done, and T022 (the core's accessors, first of CP-16, which T017 needs) is done; next T017 (Connector Link), then CP-09's co-review (round 3 of 4)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T11:04:22Z
+**Updated**: 2026-11-07T12:00:19Z
 
 ## Execution Summary
+
+- T022 (the core's accessors for sign-in, first of CP-16's two tasks, done ahead of T017, which needs it) is done:
+  - **Settings** (`bridge/src/core/access/settings/`):
+    - the agent listing, seeded from configuration in one transaction; an agent still listed keeps the owner's revocation, and one no longer configured is removed and reported;
+    - the enrollment keys: a request waits 10 minutes and replaces any other; approving it makes its key the one active key and revokes every older one, in one transaction;
+    - the battery threshold, or Config's default until the owner sets one.
+  - **Grants** (`bridge/src/core/access/grants/`): oidc-provider's records in the one `(model, id)` table (PT-11). A bearer token's id is kept only as its hash, its `jti` is not stored, and `find` gives it back. A record whose time is up is never found.
+  - **Secrets** (`bridge/src/core/access/secrets/`): Key Vault in mode H, and a sealed file in mode A. A missing secret is a value, so `/readyz` can name it. Only one `.live.ts` file imports Azure.
+  - **Migration 2** adds the pending request's code to the `connector` table, for the admin page.
+  - `Secret` and the one-step file write moved into the security utility first, in their own commit (59490b6).
+
+  The choices and the carry-forwards to T017, T023 and T027 are in DRIFT-001-25. A deliberate break of 22 parts was caught. Settings and Grants were also run on a local SQL Server before the push. Checks:
+  - 753 tests: 675 pass and 78 skip without SQL Server; with it, 744 pass and 9 skip;
+  - coverage without SQL Server: 95.7% of lines and 93.5% of branches; with it, 98.0% and 94.4%;
+  - lint, tsc, prettier and depcruise (184 modules) are clean.
 
 - T016 (Core Link and the Home Scheduler, second of CP-09's three tasks) is done:
   - **Core Link** (`bridge/src/connector/clients/core-link/`):
@@ -20,7 +35,7 @@
     - A new session first makes every unacked message due again, and nothing is sent until that is done. Then it sends a fresh inventory.
     - A change goes out at once.
     - An oversized message is logged once and dropped.
-  - **The link messages** are declared by their receivers in narrow `messages/index.ts` entries. Connector Link's is made ahead of T017. This is an amendment to CD4 that the owner may reject. The dependency rule now allows exactly this, and closes a loophole that allowed any nested `index.ts`.
+  - **The link messages** are declared by their receivers in narrow `messages/index.ts` entries. Connector Link's is made ahead of T017. The owner confirmed this amendment to CD4 on 2026-11-07. The dependency rule now allows exactly this, and closes a loophole that allowed any nested `index.ts`.
   - **The key's id** is derived from its public key (`signingKeyId`), so the home keeps no enrollment state.
 
   The choices and the carry-forwards to T017, T027 and T028 are in DRIFT-001-23. The owner chose (a) for T017's TLS test: a throwaway `openssl` certificate. A deliberate break of fourteen parts was caught. Three of those defects were in the first version (c5322ff), found by a second look after it was pushed, and fixed test-first: a send that could overtake older unacked messages at a session's start, an unobserved failure of Core Link's loop, and an error logged on a clean stop. Checks:

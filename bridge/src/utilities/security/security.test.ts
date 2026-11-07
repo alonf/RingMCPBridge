@@ -8,6 +8,7 @@ import {
   generateSigningKeyPair,
   importPrivateKey,
   open,
+  parsePublicSigningKey,
   seal,
   signChallenge,
   signingKeyId,
@@ -15,6 +16,13 @@ import {
 } from "./index.ts";
 
 const BASE64URL_43 = /^[A-Za-z0-9_-]{43}$/;
+const BASE64URL_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/** The base64url character with its lowest bit flipped: a spare bit in a key's last character. */
+function withSpareBit(character: string): string {
+  return BASE64URL_ALPHABET.charAt(BASE64URL_ALPHABET.indexOf(character) ^ 1);
+}
 
 function securityErrorFrom(action: () => unknown): SecurityError {
   try {
@@ -37,6 +45,28 @@ describe("challenge signing (SC2)", () => {
     expect(signingKeyId(pair.publicKey)).toBe(keyId);
     expect(signingKeyId(other.publicKey)).not.toBe(keyId);
     expect(pair.publicKey).not.toContain(keyId);
+  });
+
+  it("reads a public key as `enroll` sends it, and only that form", async () => {
+    const pair = await generateSigningKeyPair();
+    const text: string = pair.publicKey;
+    expect(parsePublicSigningKey(text)).toBe(pair.publicKey);
+    for (const refused of [
+      "",
+      "not a key",
+      text.slice(1),
+      `${text}A`,
+      `${text}=`,
+      Buffer.from(text, "base64url").toString("base64"),
+      Buffer.from(text, "base64url").toString("hex"),
+      // 43 characters carry 258 bits for 32 bytes. Setting a spare bit decodes to the same key.
+      `${text.slice(0, -1)}${withSpareBit(text.slice(-1))}`,
+    ]) {
+      if (refused === text) {
+        continue;
+      }
+      expect(parsePublicSigningKey(refused), refused).toBeUndefined();
+    }
   });
 
   it("makes a key pair whose public key is 32 raw bytes as base64url", async () => {

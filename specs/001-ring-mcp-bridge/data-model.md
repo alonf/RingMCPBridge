@@ -483,6 +483,7 @@ Only the primary key is in the ERD. The other columns are [P].
 | `status` | enum `pending`, `active`, `revoked` | [P] | SC2 |
 | `enrolled_at`, `revoked_at` | timestamp | [P] | SC2 |
 | `connector_version` | string | [P]; from the hello; feeds "connector behind" on the admin page | DO carry-forward to ui-ux, IA D2 |
+| `enrollment_code` | string, optional | [P]; the code a pending request carries, shown on the admin page for the owner to compare; cleared on approval. Added at T022 by migration 2 (DRIFT-001-25) | SC2, PT-32 |
 
 - **Validation:**
   - one home part per Ring account: approving a new enrollment revokes the old one (FR-032, AC B7, SC2);
@@ -667,7 +668,7 @@ These names appear in the contracts but in no record. They are proposals for the
 | `bypass`, `consequence`, `exit_delay_s`, `status` on `prepare_action` | Action plan | IA D8 describes them in prose |
 | `command` columns beyond `command_id` | Command | the ERD gives the primary key only |
 | `disarm_lock`, `push_filter`, `lease` table names; health-snapshot fields | stores | the ERD does not draw them |
-| `status`, `enrolled_at`, `revoked_at`, `connector_version` | Home part enrollment | SC2 describes the flow, not the row |
+| `status`, `enrolled_at`, `revoked_at`, `connector_version`, `enrollment_code` | Home part enrollment | SC2 describes the flow, not the row |
 | `platform`, `elicitation_only`, `revoked_at`, `last_seen_at` | Agent client | UX and SC6 describe them, not their names |
 | Untrusted marker keyword `x-untrusted` | schemas | FR-033 and IA §Rules 5 ask for marking; no mechanism is recorded |
 | Link frame names other than `hello`, `cmd`, `result`, `EventMessage`, `CommandMessage` | `contracts/connector-link.md` | the records describe the rest in prose |

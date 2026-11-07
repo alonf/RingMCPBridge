@@ -16,8 +16,11 @@ const FORMAT_VERSION = 1;
 const VERSION_BYTES = 1;
 const HEADER_BYTES = VERSION_BYTES + IV_BYTES;
 
-/** What a sealed blob is for; it is bound into the additional data. */
-export type SealPurpose = "secrets-file";
+/**
+ * What a sealed blob is for; it is bound into the additional data, so one file cannot be opened as
+ * the other: the Secrets File at home, and the core's secrets file in mode A (T022).
+ */
+export type SealPurpose = "secrets-file" | "core-secrets-file";
 
 function additionalData(purpose: SealPurpose): Buffer {
   return Buffer.from(

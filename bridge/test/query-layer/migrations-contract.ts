@@ -95,6 +95,7 @@ const EXPECTED_TABLES: Readonly<
     ["enrolled_at", false],
     ["revoked_at", false],
     ["connector_version", false],
+    ["enrollment_code", false],
   ],
   oidc_item: [
     ["model", true],
@@ -218,6 +219,7 @@ const ROWS: Readonly<Record<string, readonly [SqlParams, SqlParams]>> = {
       enrolled_at: AS_OF,
       revoked_at: LATER,
       connector_version: "0.1.0",
+      enrollment_code: "7Q4K-29XM",
     },
     {
       key_id: "key-1",
@@ -228,6 +230,7 @@ const ROWS: Readonly<Record<string, readonly [SqlParams, SqlParams]>> = {
       enrolled_at: null,
       revoked_at: null,
       connector_version: null,
+      enrollment_code: null,
     },
   ],
   oidc_item: [

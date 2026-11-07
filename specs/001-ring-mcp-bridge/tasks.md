@@ -328,7 +328,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 
 ### Agent access
 
-- [ ] T022 [US1] [assigned_to: Implementer] [effort: 1] Core accessors for sign-in, with their tests:
+- [x] T022 [US1] [assigned_to: Implementer] [effort: 1] Core accessors for sign-in, with their tests:
   - `bridge/src/core/access/grants/`: the generic `oidc_item` `(model, id)` table (PT-11).
   - `bridge/src/core/access/settings/`:
     - the agent allowlist, seeded from deployment configuration: client ids, redirect URIs and scopes, read only in iteration 001 (PT-18);

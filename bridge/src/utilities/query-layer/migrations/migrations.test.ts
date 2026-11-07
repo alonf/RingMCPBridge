@@ -65,6 +65,11 @@ function shapeOf(statements: readonly string[]): string[] {
     if (index !== null) {
       return [`${index[1] ?? ""}index ${index[2] ?? ""} on ${index[3] ?? ""}`];
     }
+    // SQLite says `ADD COLUMN`; T-SQL says `ADD`.
+    const added = /^ALTER TABLE (\w+) ADD (?:COLUMN )?(\w+ .*)$/.exec(sql);
+    if (added !== null) {
+      return columnsOf(added[1] ?? "", added[2] ?? "");
+    }
     return [`other: ${sql}`];
   });
 }

@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 24
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 5 in implement on 2026-11-07)
+**Total drift events**: 25
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 6 in implement on 2026-11-07)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -558,7 +558,105 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - Governance validation still passed, with 6 soft warnings. No documented format or command for `tasks-progress.yml` was found. The governed scripts are invoked, never read, so the cause is not investigated here.
 - **Requirement citation**: tasks.md (T017 depends on T022); the launch contract's rule that a surprising result from the governed machinery is reported, not investigated.
 - **Resolution**: on the owner's `restore` (2026-11-07), state.md was restored from 49ca21c. `tasks-progress.yml` stays uncommitted and unfilled, because its format is not documented. Work goes on with T022, then T017. Cost: 0 SP and $0.
-- **Class closure**: none in this repository, because the start-up is Specrew's machinery. If a later start-up rewrites state.md again, it is restored and reported to the owner. The next task is read from tasks.md's dependency list, not from the start-up summary.
+- **Class closure**: NONE - the start-up is Specrew's machinery, not this repository's code. If a later start-up rewrites state.md again, it is restored and reported to the owner. The next task is read from tasks.md's dependency list, not from the start-up summary.
+
+### DRIFT-001-25: T022 builds the core's Settings, Grants and Secrets, adds one column, and settles the time form of the accessors' DTOs
+
+- **Detected**: 2026-11-07, implement, while doing T022
+- **Kind**: details the records leave open, one column that data-model.md did not list, and a choice the access README left to the first accessor. No spec change
+- **Observed**:
+  - **Migration 2** adds `connector.enrollment_code`, a nullable column [P name].
+    - The admin page must show a pending request's code, for the owner to compare with the code the connector printed (SC2). The table had no column for it.
+    - It is additive, so code N-1 still runs on the new schema (DS5). data-model.md's "Home part enrollment" now lists it. An approval clears it.
+    - The migrations' dialect-parity test now reads `ALTER TABLE ... ADD` as well.
+  - **The time form in the accessors' DTOs**, which `bridge/src/core/access/README.md` left "to settle with the first accessor": UTC milliseconds, as stored. The caller that builds the contract's form turns them into ISO 8601 text. The README now says so.
+  - **Settings** (`bridge/src/core/access/settings/`, `SettingsStore`):
+    - **The agent listing** (PT-18):
+      - `seedAgents` makes the listing match deployment configuration, in one transaction.
+      - An agent still listed keeps the owner's revocation and its last-seen time.
+      - An agent no longer configured is removed and reported, so a manager can end its grants through Grants. Settings cannot call Grants.
+      - Each scope is stored once, in the order `read`, `media`, `control`. The listing stores all three; "only `read` in iteration 001" is the Issuer's rule (T023).
+    - **Enrollment** (SC2, PT-32, FR-032):
+      - `requestEnrollment` takes the public key and the code, and names the key with `signingKeyId`. The request waits 10 minutes and replaces any other waiting request. A key that is active or revoked is reported, and nothing changes. A revoked key is never trusted again.
+      - `approveEnrollment(keyId)` activates the waiting request with one conditional update, so an expired or replaced request comes back `not_pending`. In the same transaction it revokes every older key, and returns their ids, so the caller can close an older key's open link.
+      - `connectorKey(keyId)` gives Connector Link `active` with the public key, `revoked`, or `not_enrolled` (no row, or a pending one).
+    - **The battery threshold** is the owner's value, or the Config utility's `batteryThresholdPct` until one is set. There is no second default.
+    - **Not built**, because no iteration 001 task needs it: revoking one agent, recording an agent's last-seen time, and writing the connector's version. The health snapshot carries the version.
+  - **Grants** (`bridge/src/core/access/grants/`, `GrantsStore`): the six storage operations of oidc-provider's adapter, by model and id. Grants imports nothing from oidc-provider. The Issuer wraps the operations in the adapter class, and answers `findByUserCode` with nothing, because the device flow is off.
+    - **Bearer ids are kept as hashes (SC4).** Some models' ids are a token, a code or a request handle that is found by id alone:
+      - access, refresh and client-credentials tokens;
+      - authorization codes;
+      - registration and initial-access tokens;
+      - pushed and CIBA requests.
+
+      For those, the id is stored as its SHA-256, and the payload's `jti`, which repeats the id, is not stored. `find` gives the `jti` back from the id it was asked for, because oidc-provider uses it to consume and destroy the record.
+    - **Kept as given:** clients, grants, sessions and interactions. oidc-provider finds a session by its `uid`, which leaves no id to give back, and an interaction's record names its session's id anyway.
+      - **Residual risk:** a copy of the database holds live session ids for their lifetime. Using one still needs a listed client's redirect URI to receive a code.
+    - **Expiry.** A record whose time is up is never found, as with oidc-provider's memory adapter. `expiresIn` is in seconds; the column is in milliseconds.
+    - **`consume` is one statement** (`json_set` on SQLite, `JSON_MODIFY` on SQL Server), so the check for a reused refresh token never reads and then writes.
+    - **`revokeByGrantId` deletes by model and grant.** oidc-provider calls it once per model, and removes the grant itself only when it means to.
+    - Expired records are not deleted yet.
+  - **Secrets** (`bridge/src/core/access/secrets/`): the `CoreSecrets` seam, with two implementations. A missing secret, or one set to nothing, is a value (`missing`), so `/readyz` can name it (PT-03).
+    - **Key Vault** (`KeyVaultSecrets`, mode H) works over a narrow client type declared here.
+      - Only `key-vault-client.live.ts` imports `@azure/identity` and `@azure/keyvault-secrets`, and only the core's wiring will import that file. So mode A and the connector never reach Azure.
+      - An answer of 404 is `missing`. 401, 403 and 409 (a deleted secret) are `refused`. Anything else is `unavailable`.
+      - Key Vault's own error is not kept as the cause, because a failed write's request holds the value. The message names only the HTTP status or the network error's code.
+    - **The sealed file** (`SealedFileSecrets`, mode A):
+      - AES-256-GCM under a key the Host supplies (T027), with a new seal purpose, `core-secrets-file`, so the home Secrets File and this file never open as each other;
+      - writes go one at a time, and each replaces the file in one step;
+      - a file that does not open is never overwritten;
+      - a secret written by a newer release is kept.
+  - **Moved first, in its own commit (59490b6):** `Secret` and the one-step file write, from the home Secrets File into the security utility. A core accessor must not reach into a connector component.
+  - **New in the security utility:** `parsePublicSigningKey`. It accepts only an Ed25519 key's canonical base64url spelling. Settings uses it to read a stored key back, and T017 will use it to parse `enroll`. Node does not check that the 32 bytes are a point on the curve. A bogus key fails the challenge anyway.
+  - **Errors.**
+    - Settings and Grants each throw one error class, of kind `unavailable` or `failed`. `unavailable` means the store is down, and managers answer `BRIDGE_UNAVAILABLE`. `failed` means a statement was refused, or a row holds what the store did not write.
+    - A row that does not parse is reported with no cause, because the cause could quote the row.
+    - Misuse, such as a value too long for its column, is a `RangeError` on both dialects alike.
+  - **Carry-forwards:**
+    - **T017:**
+      - cap `enroll.code` at 64 characters in `home-messages.ts` (`MAX_ENROLLMENT_CODE_LENGTH`);
+      - parse `public_key` with `parsePublicSigningKey`;
+      - when an approval revokes an older key, close that key's open link.
+    - **T023:**
+      - wrap Grants in oidc-provider's adapter;
+      - check the listing, including `revokedAt`, at each use;
+      - grant `read` only;
+      - keep DCR clients to the `none` auth method, because a client secret would be stored as given.
+    - **T027:**
+      - the agents' seed in the Config utility, and `seedAgents` at start, with the removed agents' grants ended;
+      - the mode A secrets file's path and key;
+      - wiring `createKeyVaultSecretClient`.
+    - **A later task with a schedule:** delete expired Grants records (DS retention).
+- **Requirement citation**: tasks.md T022, T017, T023 and T029; data-model.md "Agent client and grant", "Home part enrollment" and "Configuration"; research.md PT-03, PT-04, PT-11, PT-18, PT-32 and R12; spec FR-029, FR-030 and FR-032; SC2 and SC4; implementation-rules.yml `code-rule.idiomatic-error-handling`, `code-rule.concurrency-over-locks`, `code-rule.dependency-injection` and the `@azure/identity` and `@azure/keyvault-secrets` dependency entries.
+- **Resolution**: implementation choices, recorded for the CP-16 co-review. Cost: 0 SP and $0 to build.
+  - Running cost in mode H: Key Vault charges $0.0396 per 10,000 operations (R12, 2026-10-26).
+  - Reading the signing keys every 10 minutes (PT-04) is about 4,320 reads a month, under 2 cents (derived).
+- **Class closure**: 75 new tests run in the suite. Settings and Grants run on SQLite and on SQL Server, and were run on a local SQL Server before the push. A deliberate break of 22 parts was caught:
+  - Settings:
+    - an approval that revokes no older key;
+    - a waiting request that never expires;
+    - an expired request that can be approved;
+    - a seed that keeps agents no longer configured;
+    - a seed that clears the owner's revocation;
+    - a new request that does not replace the waiting one;
+    - a pending key counted as enrolled;
+    - a hard-coded battery default;
+    - a revoked key that may ask again.
+  - Grants:
+    - bearer ids stored as given;
+    - the `jti` stored;
+    - expiry ignored;
+    - revoking by grant across models;
+    - `consumed` in milliseconds;
+    - the `jti` not given back;
+    - a hashed model found by `uid`.
+  - Secrets:
+    - Key Vault's 404 as an error;
+    - Key Vault's error kept as the cause;
+    - sealed writes not one at a time;
+    - a write over a file that does not open;
+    - the home file's seal purpose.
+  - Security: a public key accepted in any spelling.
 
 ### Resolution Strategies (Unused)
 

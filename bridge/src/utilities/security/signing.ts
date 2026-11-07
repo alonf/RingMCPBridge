@@ -117,6 +117,25 @@ export function verifyChallenge(
 }
 
 /**
+ * Reads a public key in the form `enroll` sends: an Ed25519 key's raw 32 bytes as base64url, in
+ * its one canonical spelling. Anything else is `undefined`, never an error: the caller refuses it.
+ */
+export function parsePublicSigningKey(
+  text: string,
+): PublicSigningKey | undefined {
+  try {
+    const key = createPublicKey({
+      key: { kty: "OKP", crv: "Ed25519", x: text },
+      format: "jwk",
+    });
+    const canonical = publicKeyText(key);
+    return canonical === text ? canonical : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The connector key's id: the start of the public key's SHA-256, as base64url. Both ends work it
  * out the same way, so the home keeps no enrollment state: the `hello` carries it, and the core
  * names the enrolled key by it.

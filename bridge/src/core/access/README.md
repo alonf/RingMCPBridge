@@ -14,7 +14,7 @@ The schema stores a few things in one form on both SQLite and SQL Server, so one
 
 | Stored | In the DTO |
 |---|---|
-| a time: UTC milliseconds since 1970, in an integer column | converted by the accessor; the form a DTO carries (milliseconds or the contract's UTC ISO 8601 text) is settled with the first accessor |
+| a time: UTC milliseconds since 1970, in an integer column | milliseconds in the DTO too (settled with the first accessors, T022); the caller that builds the contract's form turns them into UTC ISO 8601 text |
 | a flag: the integer 0 or 1 (`BIT` on SQL Server) | a boolean |
 | a JSON document: text (`state`, `value`, `scopes`, `redirect_uris`, `data`) | the parsed value |
 | NULL in an optional column | the field left out, as the contract asks (for example `battery_pct` for a wired device) |
@@ -42,4 +42,4 @@ Names, rooms and Ring text inside `state` come from Ring. They are data, never i
 | Grants | `oidc_item` |
 | Lease | `lease` |
 
-The Query layer itself owns `schema_migration`, the record of applied migrations.
+The Query layer itself owns `schema_migration`, the record of applied migrations. Secrets owns no table: its values are in Key Vault in mode H and in a sealed file in mode A.
