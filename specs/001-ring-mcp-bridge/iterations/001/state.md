@@ -1,13 +1,23 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T018
-**Tasks Remaining**: T020, T021 and T023-T036 (16 tasks, 19 story_points)
-**In Progress**: CP-14 (the read path): T019 is done, and T018 (Event's intake, CP-11a) is done; next T020 (the Summary engine), then T021 (Inquiry)
+**Last Completed Task**: T020
+**Tasks Remaining**: T021 and T023-T036 (15 tasks, 18 story_points)
+**In Progress**: CP-14 (the read path): T019 and T020 are done, and T018 (CP-11a); next T021 (Inquiry), then CP-14's co-review
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T19:08:47Z
+**Updated**: 2026-11-07T19:22:23Z
 
 ## Execution Summary
+
+- T020 (the Summary engine, second of CP-14) is done, in `bridge/src/core/engines/summary/`, with its tests written first:
+  - `get_overview`'s data (location, alarm mode, open contacts, active motion, offline devices, low batteries and health), the default device list, and the health, in the contract's shapes;
+  - within 8,000 tokens per reply, estimated as characters ÷ 3: on the 100-device home, the overview takes about 401 tokens and the device list about 4,012 (derived);
+  - a home too large for the budget has its lists cut, keeping the full count.
+
+  The choices and the carry-forwards to T021 are in DRIFT-001-33. A deliberate break of eight parts was caught. Checks:
+  - 870 tests: 773 pass and 97 skip without SQL Server; with it, 858 pass and 12 skip;
+  - coverage without SQL Server: 96.1% of lines and 93.7% of branches;
+  - lint, tsc, prettier and depcruise (217 modules) are clean.
 
 - T018 (Event's intake and the Health engine's link rules, CP-11a) is done:
   - **the Health engine**, pure rules on the core's clock, with its tests written first: the home is offline and its data stale after 2 silent minutes, and comes back on the next sign of life;

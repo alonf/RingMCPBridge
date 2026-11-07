@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 32
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 13 in implement on 2026-11-07)
+**Total drift events**: 33
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 14 in implement on 2026-11-07)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -963,6 +963,44 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a session whose start was not recorded staying open;
   - no second key check after the signature;
   - no claimed key read as `not_current`.
+
+### DRIFT-001-33: T020 builds the Summary engine: the contract's shapes within the budget, and what a home too large for it gets
+
+- **Detected**: 2026-11-07, implement, while doing T020
+- **Kind**: details the records leave open. No spec change
+- **Observed**:
+  - **The Summary engine** (`bridge/src/core/engines/summary/`) has pure rules, no I/O, and its tests were written first. It composes `get_overview`'s data, the default `list_devices` data and the `health` object, in the Public Contract's shapes, with times as UTC ISO 8601 text.
+    - It declares its own types, because only MCP Endpoint and Delivery may import the Public Contract (CD4). Inquiry hands it State's view of the home and the health as of now.
+    - It does not call the Health engine: engines do not call each other.
+  - **The budget** (SC-006, PT-22):
+    - 8,000 tokens per reply, estimated as characters ÷ 3, rounded up, with no tokenizer. The `data` keeps 7,800, leaving 200 for the envelope Inquiry adds [P].
+    - On the 100-device fixture, the overview takes about 401 tokens and the default device list about 4,012 (derived, from the estimate).
+  - **A home too large for the budget** keeps its location and health, and its lists are cut in device-id order, every list to the same length [P].
+    - The device list's `count` still says how many devices match, so an agent sees that the list was cut and can filter by type or room [P].
+    - The contract's wording ("How many devices are listed") is read this way, and is to be confirmed with the contract's next additive change.
+  - **The overview's parts:**
+    - open contacts are contact sensors whose state says `open`;
+    - active motion is motion sensors whose state says `motion`, with `last_motion_at` taken from when that state was true [P]. No events are stored in 001; from 002, the last motion event can replace it;
+    - offline devices are those Ring does not see;
+    - a low battery is one Ring flags as low, or one at or below the threshold, matching the Config utility's definition.
+  - **The health.** A home that never reported shows its link `down` and its Ring session `unavailable`, both since now [P]. `database` is always `ok` in a reply, because a reply is read from the store; a store that is down fails the read with `BRIDGE_UNAVAILABLE` (FR-006).
+  - **Carry-forwards to T021:**
+    - pass the health through the Health engine's `asOf(now)`;
+    - take the threshold from Settings' `batteryThresholdPct`, which falls back to the Config utility's;
+    - wrap the data in the envelope within the 200-token reserve.
+
+    T024's end-to-end test measures the whole reply through MCP.
+- **Requirement citation**: tasks.md T020, T021 and T024; `contracts/mcp-tools.md` `get_overview`, `list_devices` and `get_health`; research.md PT-22; spec FR-001, FR-002 and SC-006; implementation-rules.yml `code-rule.complex-code-stable` and `code-rule.docs-as-api-test`.
+- **Resolution**: implementation choices, recorded for the CP-14 co-review. Cost: 0 SP and $0.
+- **Class closure**: 8 new tests, written before the engine, including the agent-economy test on the 100-device fixture and a 1,000-device home that must be cut. A deliberate break of eight parts was caught:
+  - a battery at the threshold not counted low;
+  - Ring's own low flag ignored;
+  - closed contacts listed as open;
+  - no cutting for a large home;
+  - the count of a cut list shrinking with it;
+  - tokens estimated at four characters each;
+  - a home that never reported shown with Ring fine;
+  - a stale home's `stale_since` dropped.
 
 ### Resolution Strategies (Unused)
 

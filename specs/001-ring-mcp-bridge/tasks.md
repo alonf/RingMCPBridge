@@ -300,7 +300,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - raises the store-down error.
 
   Integration tests run on SQLite and on SQL Server (Trace: FR-002, FR-006; CP-14)
-- [ ] T020 [US1] [assigned_to: Implementer] [effort: 1] Summary engine in `bridge/src/core/engines/summary/`:
+- [x] T020 [US1] [assigned_to: Implementer] [effort: 1] Summary engine in `bridge/src/core/engines/summary/`:
   - it composes the overview: alarm mode, open contacts, active motion, offline devices, low batteries below the configured threshold, and health;
   - it composes the default device list;
   - both stay within about 8,000 tokens, estimated as characters ÷ 3, rounded up (PT-22).
