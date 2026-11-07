@@ -299,8 +299,11 @@ describeStoreMatrix("State", (store) => {
     ).resolves.toEqual(["loc-1"]);
   });
 
-  it("starts over after a version reset, so a new connector's lower versions win", async () => {
-    const { state } = await setUp();
+  it("resets the versions when another connector key claims them, and keeps them for the same key (T018)", async () => {
+    const { state, layer } = await setUp();
+    await expect(state.claimVersions("key-a", AS_OF, never())).resolves.toBe(
+      "reset",
+    );
     await state.applyInventory(
       {
         locations: [{ ...HOME, state_version: 500 }],
@@ -311,8 +314,16 @@ describeStoreMatrix("State", (store) => {
       },
       never(),
     );
+    await expect(state.claimVersions("key-a", AS_OF, never())).resolves.toBe(
+      "same",
+    );
+    await expect(
+      state.applyDevice({ ...DOOR, state_version: 3 }, never()),
+    ).resolves.toBe("older");
 
-    await state.resetVersions(never());
+    await expect(
+      state.claimVersions("key-b", AS_OF + 1, never()),
+    ).resolves.toBe("reset");
     const first = await state.applyInventory(
       {
         locations: [{ ...HOME, name: "New", state_version: 1 }],
@@ -329,6 +340,15 @@ describeStoreMatrix("State", (store) => {
     await expect(state.devices({}, never())).resolves.toEqual([
       { ...DOOR, online: false, state_version: 2 },
     ]);
+    await expect(
+      layer.all(
+        { sql: "SELECT key_id, claimed_at FROM state_source", params: {} },
+        never(),
+      ),
+    ).resolves.toEqual([{ key_id: "key-b", claimed_at: AS_OF + 1 }]);
+    await expect(
+      state.claimVersions("k".repeat(129), AS_OF, never()),
+    ).rejects.toThrow(RangeError);
   });
 
   it("reports a change for a device it does not hold, changing nothing", async () => {
@@ -444,7 +464,7 @@ describeStoreMatrix("State", (store) => {
       () => state.device("d-door", never()),
       () => state.health(never()),
       () => state.saveHealth({ as_of: AS_OF }, never()),
-      () => state.resetVersions(never()),
+      () => state.claimVersions("key-a", AS_OF, never()),
     ]) {
       const error = await expectStoreError(work(), "unavailable");
       expect(error.cause).toMatchObject({ kind: "store_down" });

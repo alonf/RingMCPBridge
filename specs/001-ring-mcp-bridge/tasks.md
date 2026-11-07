@@ -277,7 +277,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 
 ### Core state and the read path
 
-- [ ] T018 [US1] [assigned_to: Implementer] [effort: 1] Event manager intake in `bridge/src/core/managers/event/`, and the Health engine's link rules in `bridge/src/core/engines/health/`:
+- [x] T018 [US1] [assigned_to: Implementer] [effort: 1] Event manager intake in `bridge/src/core/managers/event/`, and the Health engine's link rules in `bridge/src/core/engines/health/`:
   - **State:**
     - apply `inventory` and `device_state` to State latest-wins by `state_version`, per device and per location, in one transaction, and only then ack (a failed commit is not acked);
     - a new enrollment resets the stored versions.

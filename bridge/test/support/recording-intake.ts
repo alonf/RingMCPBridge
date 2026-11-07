@@ -1,8 +1,11 @@
-// Event's intake as a recorder (T017), for the link's tests until the Event manager exists (T018):
-// it records each call, and can hold the next calls or fail them.
+// Event's intake as a recorder (T017), for the link's own tests: it records each call, answers
+// with the outcomes a test sets, and can hold the next calls or fail them. The Event manager (T018)
+// implements the same seam over State.
 import type {
+  DeviceChangeOutcome,
   EventIntake,
   HomeLinkSession,
+  InventoryOutcome,
 } from "../../src/core/managers/event/index.ts";
 
 /** The intake operations, by name. */
@@ -22,6 +25,14 @@ export class RecordingIntake implements EventIntake {
   holding = false;
   /** Holds only this kind of call, while the others go through. */
   heldMethod: IntakeMethod | undefined;
+  /** What the next device changes are answered with, in order; `applied` once they run out. */
+  readonly deviceOutcomes: DeviceChangeOutcome[] = [];
+  /** What every inventory is answered with. */
+  inventoryOutcome: InventoryOutcome = {
+    kind: "applied",
+    refused: 0,
+    removed: 0,
+  };
   #failuresLeft = 0;
   #held: (() => void)[] = [];
 
@@ -41,12 +52,20 @@ export class RecordingIntake implements EventIntake {
     return this.#record("homeSessionOpened", session, session);
   }
 
-  inventory(body: unknown, session: HomeLinkSession): Promise<void> {
-    return this.#record("inventory", body, session);
+  async inventory(
+    body: unknown,
+    session: HomeLinkSession,
+  ): Promise<InventoryOutcome> {
+    await this.#record("inventory", body, session);
+    return this.inventoryOutcome;
   }
 
-  deviceState(body: unknown, session: HomeLinkSession): Promise<void> {
-    return this.#record("deviceState", body, session);
+  async deviceState(
+    body: unknown,
+    session: HomeLinkSession,
+  ): Promise<DeviceChangeOutcome> {
+    await this.#record("deviceState", body, session);
+    return this.deviceOutcomes.shift() ?? "applied";
   }
 
   heartbeat(body: unknown, session: HomeLinkSession): Promise<void> {

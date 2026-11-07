@@ -37,7 +37,7 @@ Names, rooms and Ring text inside `state` come from Ring. They are data, never i
 
 | Accessor | Tables |
 |---|---|
-| State | `location`, `device`, `health_snapshot` |
+| State | `location`, `device`, `health_snapshot`, `state_source` |
 | Settings | `setting`, `agent`, `connector` |
 | Grants | `oidc_item` |
 | Lease | `lease` |

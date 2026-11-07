@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 31
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 12 in implement on 2026-11-07)
+**Total drift events**: 32
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 13 in implement on 2026-11-07)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -897,6 +897,62 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an unknown health field shown as null.
 
   The removal has two guards, the check in code and the `DELETE`'s own version condition, which stays safe if a version changes in between. Breaking either alone is not caught, because the other still protects; breaking both is caught.
+
+### DRIFT-001-32: T018 builds Event's intake and the Health engine; versions now belong to one connector key and reset when a new key's session opens, not at approval
+
+- **Detected**: 2026-11-07, implement, while doing T018
+- **Kind**: details the records leave open, and one departure from T029's text ("approval ... resets the stored state versions"). No spec change
+- **Observed**:
+  - **The Health engine** (`bridge/src/core/engines/health/`) is pure rules with no I/O, thresholds as data (CD2), its tests written first on the fake clock:
+    - a session opening or a heartbeat is a sign of life, and the home link is `up`, its `since` kept while it stays up;
+    - after the Config utility's `staleAfterMs` (2 minutes) without one, the home link is `down` and the data stale. Both count from the last sign of life [P];
+    - the Ring session's status and the outbox depth come from the heartbeat, the Ring session's `since` kept while its status holds;
+    - `asOf(now)` gives the view as of now, so readers see a silent home as down even after a core restart.
+  - **The Event manager** (`bridge/src/core/managers/event/`, `EventManager`) implements the intake over State:
+    - **One step at a time.** Every State write, and every read-then-write of the health, runs on one queue (L2). The single-instance lease keeps one core writing (FR-044). No test can force the race this queue prevents, so no deliberate break covers it.
+    - **The core's clock.** A sign of life counts at the time the core received it, never at the home's own time. A home clock that is off can neither flip the home offline nor keep it falsely up.
+    - **Silence.** After each sign of life, a check runs once the threshold has passed. It stores the home as offline and stale and publishes the change. Its own failure goes to an injected reporter, which the Host wires to the log, as with Pub/Sub.
+    - **Health changes** of the home link or the Ring session are published on Pub/Sub (`health.changed`). Nothing subscribes in iteration 001.
+    - **Errors:** its own class, `unavailable` or `failed`, with State's error as the cause. Connector Link logs it, and the message stays unacked.
+  - **Versions belong to one connector key** (a change from T029's text, and from DRIFT-001-31's carry-forward):
+    - The session now carries the key it proved. Opening it claims State's versions for that key before any later message of that link, because Connector Link runs a link's steps in order.
+    - A new key resets every version to 0 and records the key, in one transaction, so a newly enrolled connector, whose counter starts again, wins.
+    - Migration 4 adds the one-row `state_source` table. Keeping the key there, not in memory, means a core restart does not reset the versions for the same connector.
+    - A message or heartbeat from a key that is no longer current changes nothing (`not_current`), and is still acked.
+    - Resetting at approval, through Pub/Sub, was rejected. A queued reset has no order against the link's own calls: the new connector's first inventory could lose to the old versions, or an old-key write could land after the reset.
+    - T029's approval therefore only approves.
+  - **The intake's outcomes**, which Connector Link turns into acks and logs:
+    - an inventory is `applied`, with how many entries were left out or removed (both logged), or `not_current`;
+    - a device change is `applied`, `older`, `needs_inventory`, `refused` (logged by `message_id`) or `not_current`. Every outcome ends the message and is acked;
+    - `needs_inventory` sends the home one `inventory_request` per session until an inventory arrives, so a burst of such changes asks once.
+  - **Push** is not mapped from the heartbeat in iteration 001. The heartbeat says `off` until 002, and the stored push status stays absent.
+  - **Carry-forwards:**
+    - **T021:** read the health through `asOf(now)` with the same threshold.
+    - **T027:**
+      - wire `EventManager` as Connector Link's intake, with State, the core's Pub/Sub, the clock, `homeOfflineAfterMs` from the Config utility's `staleAfterMs`, and `reportFailure` to the log;
+      - stop it before the store closes.
+    - **T029:** approving a request only approves; the versions reset when the new key's session opens.
+    - **Iteration 002:** after a core restart, the offline change is published only after the next sign of life; read-time `asOf` keeps replies right meanwhile. 002's `health.home_offline` event may want a core tick. `last_event_at` and push are filled in 002.
+- **Requirement citation**: tasks.md T018, T019, T021, T027 and T029; `contracts/connector-link.md` "Heartbeat and home offline" and "Device inventory and state"; `contracts/mcp-tools.md` `get_health`; component-design.md the component map v3 (Event, Health) and CD2; research.md PT-30; spec FR-005, FR-006 and FR-044; OR5; implementation-rules.yml `code-rule.concurrency-over-locks`, `code-rule.complex-code-stable` and `code-rule.idiomatic-error-handling`.
+- **Resolution**: implementation choices and one departure from T029's text, recorded for the next co-review. Cost: 0 SP and $0.
+- **Class closure**: 20 new tests:
+  - the Health engine's, written first;
+  - Event's over a real State on SQLite, including the two scenarios the plan names (DRIFT-001-06 and DRIFT-001-08), with a commit made to fail once;
+  - Connector Link's outcome handling.
+
+  A deliberate break of twelve parts was caught:
+  - the home offline a moment late;
+  - up-since reset at every heartbeat;
+  - the Ring session's since reset at every heartbeat;
+  - a new key not resetting the versions;
+  - a key no longer current not refused;
+  - liveness on the home's clock;
+  - no silence check;
+  - health changes not published;
+  - a heartbeat from an old key counted;
+  - an inventory request for every unplaced change;
+  - no new request after an inventory arrives;
+  - an unplaced change left unacked.
 
 ### Resolution Strategies (Unused)
 

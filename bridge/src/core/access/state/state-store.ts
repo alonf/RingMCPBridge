@@ -8,6 +8,9 @@
 // - **A full snapshot removes what Ring no longer lists.** The home draws an inventory's versions
 //   in one block, so an entry stored below the snapshot's lowest version, and absent from it, is
 //   gone at Ring. A newer change keeps its higher version and stays (T019).
+// - **Versions belong to one connector key** (`state_source`, migration 4). A session of another
+//   key resets them to 0 in the same transaction that records the new key, so a newly enrolled
+//   connector, whose counter starts again, wins; a core restart does not reset them (T018).
 // - **Only an inventory adds a device.** A device change updates a device State holds, so a late
 //   change cannot bring back one a snapshot removed (T019 follow-up).
 // - **The same input is accepted on both dialects.** An id over the column's size, or a time zone
@@ -55,6 +58,7 @@ const MAX_TEXT_LENGTH = 400;
 const MAX_TIME_ZONE_LENGTH = 64;
 const MAX_VERSION_LENGTH = 64;
 const SNAPSHOT_ROW = 1;
+const SOURCE_ROW = 1;
 const HIGH_SURROGATE_START = 0xd800;
 const HIGH_SURROGATE_END = 0xdbff;
 
@@ -172,6 +176,7 @@ const DELETE_LOCATION =
   "DELETE FROM location WHERE location_id = @location_id AND state_version < @below AND NOT EXISTS (SELECT 1 FROM device WHERE device.location_id = location.location_id)";
 const SELECT_HEALTH = `SELECT ${HEALTH_COLUMNS} FROM health_snapshot WHERE snapshot_id = ${String(SNAPSHOT_ROW)}`;
 const RESET_LOCATION_VERSIONS = "UPDATE location SET state_version = 0";
+const SELECT_SOURCE = `SELECT key_id FROM state_source WHERE source_id = ${String(SOURCE_ROW)}`;
 const RESET_DEVICE_VERSIONS = "UPDATE device SET state_version = 0";
 
 const storedTime = z.number().int();
@@ -217,6 +222,13 @@ const HEALTH_ROW = z.object({
 });
 
 const VERSION_ROW = z.object({ state_version: z.number().int() });
+const SOURCE_KEY_ROW = z.object({ key_id: z.string() });
+
+/**
+ * - `same`: State's versions already belong to this key; nothing changed;
+ * - `reset`: they belonged to another key, or to none: every version is now 0 and belongs to this key.
+ */
+export type VersionsClaim = "same" | "reset";
 
 /** The core's State. One per core process, over the core's database. */
 export class StateStore {
@@ -375,14 +387,40 @@ export class StateStore {
   }
 
   /**
-   * Sets every stored version to 0, so a newly enrolled connector's counter, which starts again,
-   * wins (PT-30). Call it once the old key's sessions are closed.
+   * A session of connector key `keyId` opened at `now`. When State's versions belong to another key,
+   * or to none, they are all set to 0 and recorded as this key's, in one transaction, so the new
+   * connector's counter, which starts again, wins (PT-30). Throws `RangeError` for a key id over 128
+   * characters.
    */
-  async resetVersions(signal: AbortSignal): Promise<void> {
-    await this.#guard(signal, "The versions could not be reset.", () =>
-      this.#store.transaction(async (session) => {
+  async claimVersions(
+    keyId: string,
+    now: number,
+    signal: AbortSignal,
+  ): Promise<VersionsClaim> {
+    if (keyId.length === 0 || keyId.length > MAX_ID_LENGTH) {
+      throw new RangeError("A key id is 1 to 128 characters long.");
+    }
+    return this.#guard(signal, "The versions could not be claimed.", () =>
+      this.#store.transaction(async (session): Promise<VersionsClaim> => {
+        const row = await session.get(statement(SELECT_SOURCE), signal);
+        if (
+          row !== undefined &&
+          parseRow(SOURCE_KEY_ROW, row, "state_source").key_id === keyId
+        ) {
+          return "same";
+        }
         await session.run(statement(RESET_DEVICE_VERSIONS), signal);
         await session.run(statement(RESET_LOCATION_VERSIONS), signal);
+        await session.run(
+          upsertStatement(session.dialect, {
+            table: "state_source",
+            key: ["source_id"],
+            values: { source_id: SOURCE_ROW, key_id: keyId, claimed_at: now },
+            onConflict: "update",
+          }),
+          signal,
+        );
+        return "reset";
       }, signal),
     );
   }

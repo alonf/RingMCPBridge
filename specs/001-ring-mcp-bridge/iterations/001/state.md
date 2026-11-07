@@ -1,13 +1,24 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T019
-**Tasks Remaining**: T018, T020, T021 and T023-T036 (17 tasks, 20 story_points)
-**In Progress**: CP-14 (the read path): T019 (State) is done; next T018 (Event's intake, CP-11a), which needs it, then T020 and T021
+**Last Completed Task**: T018
+**Tasks Remaining**: T020, T021 and T023-T036 (16 tasks, 19 story_points)
+**In Progress**: CP-14 (the read path): T019 is done, and T018 (Event's intake, CP-11a) is done; next T020 (the Summary engine), then T021 (Inquiry)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T18:07:04Z
+**Updated**: 2026-11-07T18:47:42Z
 
 ## Execution Summary
+
+- T018 (Event's intake and the Health engine's link rules, CP-11a) is done:
+  - **the Health engine**, pure rules on the core's clock, with its tests written first: the home is offline and its data stale after 2 silent minutes, and comes back on the next sign of life;
+  - **the Event manager** applies inventories and device changes to State latest-wins, one step at a time, and keeps the health, publishing each change on Pub/Sub;
+  - **versions belong to one connector key** (migration 4): a new key's session resets them, so a newly enrolled connector wins, while a key no longer current changes nothing. This replaces resetting them at approval, which a queued message could not order;
+  - **Connector Link** acks every outcome and asks the home for one inventory when a change names a device the core does not hold.
+
+  The choices and the carry-forwards to T021, T027 and T029 are in DRIFT-001-32. A deliberate break of twelve parts was caught. Checks:
+  - 858 tests: 761 pass and 97 skip without SQL Server; with it, 846 pass and 12 skip;
+  - coverage without SQL Server: 96.1% of lines and 93.9% of branches;
+  - lint, tsc, prettier and depcruise (214 modules) are clean.
 
 - T019 (State, first of CP-14) is done, in `bridge/src/core/access/state/`:
   - locations, devices and the health snapshot, with `type` mapped from `kind`;

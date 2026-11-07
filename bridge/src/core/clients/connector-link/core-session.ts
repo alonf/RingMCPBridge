@@ -11,6 +11,7 @@
 // acts on are Core Link's (`LINK_CLOSE_REASONS`); a key is reported revoked only when Settings
 // says so, because a revoked key stops the home for good. The core's other reasons are its own,
 // and the home dials again after them (SC2).
+import { randomUUID } from "node:crypto";
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import { isAcceptedLinkVersion } from "../../../utilities/link-transport/index.ts";
 import type {
@@ -30,8 +31,10 @@ import type {
   ConnectorKeyCheck,
 } from "../../managers/admin/index.ts";
 import type {
+  DeviceChangeOutcome,
   EventIntake,
   HomeLinkSession,
+  InventoryOutcome,
 } from "../../managers/event/index.ts";
 import {
   CORE_MESSAGE_TYPES,
@@ -42,6 +45,7 @@ import type {
   ChallengeMessage,
   EnrolledMessage,
   HelloOkMessage,
+  InventoryRequestMessage,
 } from "../../../connector/clients/core-link/messages/index.ts";
 import {
   incomingDeviceState,
@@ -112,6 +116,9 @@ type SessionState =
   | { readonly phase: "closed"; readonly keyId: string | undefined };
 
 type Challenged = Extract<SessionState, { phase: "challenged" }>;
+
+/** Event did not commit the message: it stays unacked, and the home sends it again. */
+const NOT_COMMITTED = Symbol("not committed");
 type Open = Extract<SessionState, { phase: "open" }>;
 
 const FIRST: SessionState = { phase: "first" };
@@ -142,6 +149,7 @@ export class CoreSession {
   #checkFailing = false;
   #pendingFrames = 0;
   #releaseFrame: (() => void) | undefined;
+  #inventoryAsked = false;
 
   constructor(context: CoreSessionContext) {
     this.#context = context;
@@ -293,6 +301,7 @@ export class CoreSession {
   async #hello(hello: HelloMessage): Promise<void> {
     const session: HomeLinkSession = {
       session_id: hello.session_id,
+      key_id: hello.key_id,
       connector_version: hello.connector_version,
       version: hello.version,
     };
@@ -465,16 +474,30 @@ export class CoreSession {
     switch (message.type) {
       case "inventory": {
         const inventory = incomingInventory(message.body);
-        await this.#committed(inventory.message_id, "inventory", (signal) =>
-          this.#context.intake.inventory(inventory, session, signal),
+        const outcome = await this.#toEvent(
+          "inventory",
+          (signal) =>
+            this.#context.intake.inventory(inventory, session, signal),
+          inventory.message_id,
         );
+        if (outcome !== NOT_COMMITTED) {
+          this.#inventoryAsked = false;
+          this.#ack(inventory.message_id);
+          this.#noteInventory(outcome);
+        }
         return;
       }
       case "device_state": {
         const change = incomingDeviceState(message.body);
-        await this.#committed(change.message_id, "device_state", (signal) =>
-          this.#context.intake.deviceState(change, session, signal),
+        const outcome = await this.#toEvent(
+          "device_state",
+          (signal) => this.#context.intake.deviceState(change, session, signal),
+          change.message_id,
         );
+        if (outcome !== NOT_COMMITTED) {
+          this.#ack(change.message_id);
+          this.#noteDeviceChange(outcome, change.message_id);
+        }
         return;
       }
       case "heartbeat": {
@@ -492,27 +515,72 @@ export class CoreSession {
     }
   }
 
-  // An outbox message is acked only after Event committed it (AC B10).
-  async #committed(
-    messageId: string,
-    messageType: string,
-    work: (signal: AbortSignal) => Promise<void>,
-  ): Promise<void> {
-    if (await this.#toEvent(messageType, work, messageId)) {
-      const ack: AckMessage = { message_id: messageId };
-      this.#send(CORE_MESSAGE_TYPES.ack, ack);
+  // An outbox message is acked once Event has committed it or decided it never will (AC B10).
+  #ack(messageId: string): void {
+    const ack: AckMessage = { message_id: messageId };
+    this.#send(CORE_MESSAGE_TYPES.ack, ack);
+  }
+
+  #noteInventory(outcome: InventoryOutcome): void {
+    if (outcome.kind === "not_current") {
+      this.#logger.warn("connector_link_not_current", {
+        message_type: "inventory",
+      });
+      return;
+    }
+    if (outcome.refused > 0) {
+      this.#logger.warn("connector_link_inventory_refused", {
+        count: outcome.refused,
+      });
+    }
+    if (outcome.removed > 0) {
+      this.#logger.info("connector_link_inventory_removed", {
+        count: outcome.removed,
+      });
     }
   }
 
+  #noteDeviceChange(outcome: DeviceChangeOutcome, messageId: string): void {
+    switch (outcome) {
+      case "applied":
+      case "older":
+        return;
+      case "needs_inventory":
+        this.#askForInventory();
+        return;
+      case "refused":
+        this.#logger.warn("connector_link_change_refused", {
+          message_id: messageId,
+        });
+        return;
+      case "not_current":
+        this.#logger.warn("connector_link_not_current", {
+          message_type: "device_state",
+        });
+        return;
+    }
+  }
+
+  // Only an inventory brings a device State does not hold. One request at a time per session: a
+  // burst of such changes asks once, and the next inventory clears the way for another.
+  #askForInventory(): void {
+    if (this.#inventoryAsked) {
+      return;
+    }
+    this.#inventoryAsked = true;
+    const request: InventoryRequestMessage = { request_id: randomUUID() };
+    this.#send(CORE_MESSAGE_TYPES.inventoryRequest, request);
+    this.#logger.info("connector_link_inventory_requested");
+  }
+
   // Event's failure is logged once, here: the message stays unacked, and the home sends it again.
-  async #toEvent(
+  async #toEvent<T>(
     messageType: string,
-    work: (signal: AbortSignal) => Promise<void>,
+    work: (signal: AbortSignal) => Promise<T>,
     messageId?: string,
-  ): Promise<boolean> {
+  ): Promise<T | typeof NOT_COMMITTED> {
     try {
-      await work(this.#signal);
-      return true;
+      return await work(this.#signal);
     } catch (error) {
       this.#signal.throwIfAborted();
       this.#logger.error(
@@ -523,7 +591,7 @@ export class CoreSession {
         },
         error,
       );
-      return false;
+      return NOT_COMMITTED;
     }
   }
 

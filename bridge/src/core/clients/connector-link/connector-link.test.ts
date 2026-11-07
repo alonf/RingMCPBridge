@@ -253,6 +253,7 @@ describe("ConnectorLink: the signed hello", () => {
         method: "homeSessionOpened",
         body: {
           session_id: body.session_id,
+          key_id: signingKeyId(key.publicKey),
           connector_version: VERSION,
           version: 1,
         },
@@ -563,6 +564,77 @@ describe("ConnectorLink: the home's messages", () => {
       ),
     ).toHaveLength(2);
     expect(test.lines.join("\n")).not.toContain(RING_NAME);
+  });
+});
+
+describe("ConnectorLink: what Event decided (T018)", () => {
+  it("acks a device change Event cannot place and asks the home for one inventory until it arrives", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    test.intake.deviceOutcomes.push(
+      "needs_inventory",
+      "needs_inventory",
+      "needs_inventory",
+    );
+
+    send(home, "device_state", { ...deviceEntry(), message_id: "m-1" });
+    send(home, "device_state", { ...deviceEntry(), message_id: "m-2" });
+    expect(await frameOf(home, "ack", 2)).toEqual({ message_id: "m-2" });
+    expect(messagesOf(home, "inventory_request")).toHaveLength(1);
+
+    send(home, "inventory", inventory("m-3"));
+    await frameOf(home, "ack", 3);
+    send(home, "device_state", { ...deviceEntry(), message_id: "m-4" });
+    await frameOf(home, "ack", 4);
+
+    expect(messagesOf(home, "inventory_request")).toHaveLength(2);
+    expect(messagesOf(home, "inventory_request")[0]?.request_id).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it("acks a change Event refuses, or one from a key no longer current, and logs each by its type", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    test.intake.deviceOutcomes.push("refused", "not_current");
+    test.intake.inventoryOutcome = { kind: "not_current" };
+
+    send(home, "device_state", { ...deviceEntry(), message_id: "m-1" });
+    send(home, "device_state", { ...deviceEntry(), message_id: "m-2" });
+    send(home, "inventory", inventory("m-3"));
+
+    expect(await frameOf(home, "ack", 3)).toEqual({ message_id: "m-3" });
+    const log = test.lines.join("\n");
+    expect(log).toContain("connector_link_change_refused");
+    expect(log).toContain('"message_id":"m-1"');
+    expect(
+      test.lines.filter((line) => line.includes("connector_link_not_current")),
+    ).toHaveLength(2);
+    expect(messagesOf(home, "inventory_request")).toEqual([]);
+  });
+
+  it("logs how many inventory entries were left out or removed", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    test.intake.inventoryOutcome = { kind: "applied", refused: 2, removed: 5 };
+
+    send(home, "inventory", inventory("m-1"));
+
+    await frameOf(home, "ack");
+    const refused = test.lines.find((line) =>
+      line.includes("connector_link_inventory_refused"),
+    );
+    const removed = test.lines.find((line) =>
+      line.includes("connector_link_inventory_removed"),
+    );
+    expect(refused).toContain('"count":2');
+    expect(removed).toContain('"count":5');
   });
 });
 

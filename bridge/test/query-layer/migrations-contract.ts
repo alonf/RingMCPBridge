@@ -110,6 +110,11 @@ const EXPECTED_TABLES: Readonly<
     ["holder", true],
     ["expires_at", true],
   ],
+  state_source: [
+    ["source_id", true],
+    ["key_id", true],
+    ["claimed_at", true],
+  ],
 };
 
 const LOCATION = {
@@ -254,6 +259,10 @@ const ROWS: Readonly<Record<string, readonly [SqlParams, SqlParams]>> = {
   lease: [
     { name: "core", holder: "replica-a", expires_at: LATER },
     { name: "core", holder: "replica-b", expires_at: LATER + 1 },
+  ],
+  state_source: [
+    { source_id: 1, key_id: "key-1", claimed_at: AS_OF },
+    { source_id: 1, key_id: "key-2", claimed_at: LATER },
   ],
 };
 
