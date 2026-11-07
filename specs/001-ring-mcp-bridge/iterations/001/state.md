@@ -23,7 +23,7 @@
 
   The choices, one deviation (the hand-over to Event is an awaited call, not a queued one) and the carry-forwards to T018, T027 and T029 are in DRIFT-001-26. A deliberate break of 24 parts was caught. Checks:
   - 794 tests: 714 pass and 80 skip without SQL Server; with it, 783 pass and 11 skip;
-  - the both-ends contract test ran over the in-memory pair with faults, and over real WSS with TLS on localhost;
+  - the both-ends contract test ran with drops, delays and duplicates, over the in-memory pair and over real WSS with TLS on localhost;
   - coverage without SQL Server: 95.8% of lines and 93.3% of branches;
   - lint, tsc, prettier and depcruise (202 modules) are clean.
 

@@ -716,7 +716,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **Connector Link's own tests** run over the in-memory pair, with the test playing the home, against real Admin and Settings on SQLite.
   - **The version 1 contract test** runs both real ends, Core Link with Ingest, its outbox and the simulated home against Connector Link:
     - over the in-memory pair, with drops, delays past the resend time, and duplicates in front of the core;
-    - over real WSS with TLS on localhost, where the home is back within 60 s of the core's return after 3 minutes away.
+    - over real WSS with TLS on localhost, with a duplicate and a delay past the resend time over the socket, where the home is back within 60 s of the core's return after 3 minutes away (added in a follow-up commit, before the review round).
 
   A deliberate break of 24 parts was caught:
   - an ack before the commit;
@@ -744,7 +744,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - `dialLink` ignoring the trusted certificates;
   - a backoff cap that misses the 60 s goal.
 
-  The first version of the 60 s test missed that last break: its core happened to return just before the home's next dial. The test now brings the core back just after a failed dial, the worst moment for the home, and catches it.
+  The first version of the 60 s test missed that last break: its core happened to return just before the home's next dial. Both 60 s tests now bring the core back just after a failed dial, the worst moment for the home, and the in-memory one catches it.
 
 ### Resolution Strategies (Unused)
 

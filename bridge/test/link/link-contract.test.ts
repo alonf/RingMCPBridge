@@ -500,33 +500,51 @@ describe.skipIf(!OPENSSL_AVAILABLE)(
       return (server.address() as AddressInfo).port;
     }
 
-    it("opens a session, commits the inventory, and is back within 60 s after the core restarts", async () => {
+    it("opens a session, takes a duplicate and a delay over the socket, and is back within 60 s of the core's restart", async () => {
       const test = await both();
       await enrolled(test);
-      let up = true;
+      const realWaitMs = 1;
+      const channels: FaultyChannel<LinkFrame>[] = [];
       const newLinkServer = (): LinkServer =>
         new LinkServer({
           clock: test.clock,
           logger: test.logger,
-          onLink: (link) => {
+          onLink: (accepted) => {
+            const { link, channel } = withFaults(accepted, test.clock);
+            channels.push(channel);
             test.connectorLink.accept(link);
           },
         });
-      let linkServer = newLinkServer();
+      const core = {
+        linkServer: newLinkServer(),
+        up: true,
+        returnAt: undefined as number | undefined,
+        returnedAt: undefined as number | undefined,
+      };
       const server = createTlsServer({
         cert: certificate.cert,
         key: certificate.key,
       });
       server.on("upgrade", (request, socket, head) => {
-        if (!up || request.url !== LINK_PATH) {
+        if (!core.up || request.url !== LINK_PATH) {
+          // The core returns just after this dial fails: the worst moment for the home.
+          if (
+            !core.up &&
+            core.returnAt !== undefined &&
+            test.clock.now() >= core.returnAt
+          ) {
+            core.linkServer = newLinkServer();
+            core.up = true;
+            core.returnedAt = test.clock.now();
+          }
           socket.destroy();
           return;
         }
-        linkServer.handleUpgrade(request, socket, head);
+        core.linkServer.handleUpgrade(request, socket, head);
       });
       const port = await listen(server);
       stops.push(() => {
-        linkServer.close("test over");
+        core.linkServer.close("test over");
       });
       const url = `wss://localhost:${String(port)}${LINK_PATH}`;
       test.start((dialSignal) =>
@@ -534,7 +552,6 @@ describe.skipIf(!OPENSSL_AVAILABLE)(
           trustedCertificates: certificate.cert,
         }),
       );
-      const realWaitMs = 1;
 
       await driveUntil(
         test.clock,
@@ -549,23 +566,57 @@ describe.skipIf(!OPENSSL_AVAILABLE)(
         ]),
       );
 
-      up = false;
-      linkServer.close("core restarting");
+      lastOf(channels).duplicateNext(1);
+      test.engine.apply({
+        kind: "device",
+        deviceId: HEBREW_DEVICE_ID,
+        changes: { battery_pct: 6 },
+      });
+      await driveUntil(
+        test.clock,
+        async () =>
+          deviceStateIds(test).length === 2 && (await outboxEmpty(test)),
+        realWaitMs,
+      );
+
+      lastOf(channels).delayBy(DELAY_PAST_RESEND_MS);
+      test.engine.apply({
+        kind: "device",
+        deviceId: HEBREW_DEVICE_ID,
+        changes: { battery_pct: 5 },
+      });
+      await driveUntil(
+        test.clock,
+        () => deviceStateIds(test).length >= 4,
+        realWaitMs,
+      );
+      lastOf(channels).delayBy(0);
+      await driveUntil(test.clock, () => outboxEmpty(test), realWaitMs);
+      expect(new Set(deviceStateIds(test)).size).toBe(2);
+
+      core.up = false;
+      core.returnAt = test.clock.now() + CORE_AWAY_MS;
+      core.linkServer.close("core restarting");
       await driveUntil(
         test.clock,
         () => test.slot.current === undefined,
         realWaitMs,
       );
-      await driveFor(test.clock, CORE_AWAY_MS, realWaitMs);
-      linkServer = newLinkServer();
-      up = true;
+      await driveUntil(
+        test.clock,
+        () => core.returnedAt !== undefined,
+        realWaitMs,
+      );
+      const returnedAt = core.returnedAt ?? 0;
 
-      const back = await driveUntil(
+      await driveUntil(
         test.clock,
         () => test.slot.current !== undefined,
         realWaitMs,
       );
-      expect(back).toBeLessThanOrEqual(RECONNECT_GOAL_MS);
+      expect(test.clock.now() - returnedAt).toBeLessThanOrEqual(
+        RECONNECT_GOAL_MS,
+      );
       await driveUntil(test.clock, () => outboxEmpty(test), realWaitMs);
     }, 120_000);
   },
