@@ -156,12 +156,14 @@ export class HomeSession {
         this.#settle(
           "ack",
           this.#context.ingest.acknowledged(message.body.message_id, signal),
+          signal,
         );
         return;
       case "inventory_request":
         this.#settle(
           "inventory_request",
           this.#context.ingest.inventoryRequested(signal),
+          signal,
         );
         return;
     }
@@ -238,13 +240,15 @@ export class HomeSession {
     this.#opened = true;
     this.#context.slot.put(this.#context.link);
     this.#logger.info("core_link_session_open");
-    this.#settle("session", this.#context.ingest.sessionOpened(signal));
+    this.#settle("session", this.#context.ingest.sessionOpened(signal), signal);
   }
 
   // Ingest handles the outbox's failures itself; anything else that escapes is logged here, once.
-  #settle(kind: string, work: Promise<unknown>): void {
+  #settle(kind: string, work: Promise<unknown>, signal: AbortSignal): void {
     work.catch((error: unknown) => {
-      this.#logger.error("core_link_work_failed", { kind }, error);
+      if (!signal.aborted) {
+        this.#logger.error("core_link_work_failed", { kind }, error);
+      }
     });
   }
 

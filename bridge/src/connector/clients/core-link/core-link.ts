@@ -75,7 +75,13 @@ export class CoreLink {
     }
     const controller = new AbortController();
     this.#controller = controller;
-    this.#running = this.#keepConnected(controller.signal);
+    // The loop's own failure is logged here, once, and ends the loop: the Host's readiness shows
+    // the link down (T027). Without this, Node would end the process with nothing in the log.
+    this.#running = this.#keepConnected(controller.signal).catch(
+      (error: unknown) => {
+        this.#logger.error("core_link_failed", undefined, error);
+      },
+    );
   }
 
   /** Closes the link, stops dialing, and resolves once the loop has ended. */

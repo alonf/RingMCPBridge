@@ -474,7 +474,9 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
       - `sendDue` and `sendHeartbeat` are the ticks' work.
     - **The Home Scheduler** (a client) calls `sendDue` every 10 s and `sendHeartbeat` every 15 s. A tick starts when the last one ends, and a tick's unexpected failure is logged once (`home_tick_failed`).
     - **`LinkSlot`** is a bare holder in the Link transport: put, current, and clear only if the link is the same one. Only Core Link decides when a link may carry messages, because CD X2 warns against logic in the transport. A test checks that nothing from the outbox goes out before `hello_ok`.
-  - **Order at session open.** Ingest's outbox work runs one step at a time, so "everything is due again" finishes before anything is sent on the new link. A test drops a session that has an unacked inventory, and checks that the next session sends it first.
+  - **Order at session open.** Ingest's outbox work runs one step at a time. From a session's start until its "everything is due again" step is done, Ingest sends nothing, so a send step queued just before the session cannot overtake the older unacked messages.
+    - A test queues a send just before a session starts, and checks that the older unacked message goes first.
+    - Before this fix, the newer message went first. This was in the first version (c5322ff), found by a second look after it was pushed. Latest-wins kept the data right, but the order the contract promises was not kept.
   - **Link messages: the receiver declares them, in a narrow second entry** (CD4, amended).
     - Core Link declares what the core sends: `challenge`, `hello_ok`, `enrolled`, `inventory_request` and `ack`, and the close reasons. They are in `connector/clients/core-link/messages/index.ts`.
     - Connector Link declares what the home sends: `hello`, `challenge_response`, `enroll`, `inventory`, `device_state` and `heartbeat`. They are in `core/clients/connector-link/messages/index.ts`. That folder is made now, ahead of T017, as DRIFT-001-14 did for the Ring port.
@@ -503,7 +505,11 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - While enrolling, the home sets no limit, because the owner may take up to the pending request's 10 minutes (PT-32).
   - **Handled once, then moved past:**
     - A core message that is not one of the five, or arrives out of turn, is logged with its type only and ignored.
-    - An outbox message too large for one frame is logged once by its `message_id`, cleared, and counted (`message_too_large`). The next inventory carries its state.
+    - An outbox message too large for one frame is logged once by its `message_id`, cleared, and counted (`message_too_large`).
+      - For a `device_state`, the next inventory carries its state.
+      - An inventory that large cannot be sent at all. At the 1 MiB cap, that means a home of several thousand devices (derived), far beyond the owner's, so it is logged, not split.
+    - An unexpected failure of Core Link's own loop is logged once (`core_link_failed`) and ends the loop. An example is a URL that `dialLink` refuses. Without this, Node would end the process with nothing in the log.
+    - Stopping logs no error for Ingest work it cuts short.
     - The logger gains a `message_id` field, an identifier.
   - **No secret on a frame.** A test runs enrollment, a session, the inventory and a heartbeat. It checks that the private key appears on no frame in any encoding: the DER and the raw seed, each as base64, base64url and hex. Only the public key, its id and the enrollment code go out (AC B5, SC4).
   - **Carry-forwards to T017:**
@@ -513,10 +519,12 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - the TLS test uses a throwaway certificate made with `openssl` (the owner's choice a).
   - **Carry-forwards to T027 and T028:**
     - The Host wires `dial` to `dialLink` with the configured `wss:` core URL, and takes `connectorVersion` from the package.
+    - The config refuses a URL that is not `wss:` when it loads.
+    - The Host's readiness shows the link down after `core_link_failed`.
     - The enrollment code's home store and its log line belong to T028. Logging the code needs a new log field, because the logger writes only declared fields.
 - **Requirement citation**: tasks.md T016 and T017; `contracts/connector-link.md` "Frames", "Session start", "Heartbeat and home offline", "Enrollment and re-enrollment" and "Ordering, priority and guarantees"; data-model.md "Home part enrollment"; component-design.md CD4, X2 and the component map v3; spec FR-005, FR-032 and FR-042; implementation-rules.yml `code-rule.careful-retries`, `code-rule.concurrency-over-locks` and `code-rule.idiomatic-error-handling`.
 - **Resolution**: implementation choices, recorded for the CP-09 co-review. The CD4 amendment awaits the owner's confirmation. Cost: 0 SP and $0.
-- **Class closure**: 21 new tests run in the suite. Core Link's tests run over the in-memory pair, with the test playing the core, against the simulated home and a real outbox. A deliberate break of eleven parts was caught:
+- **Class closure**: 24 new tests run in the suite. Core Link's tests run over the in-memory pair, with the test playing the core, against the simulated home and a real outbox. A deliberate break of fourteen parts was caught:
   - a signature over the wrong text;
   - no "everything is due again" at session open;
   - a backoff that does not grow;
@@ -527,7 +535,10 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an `enrolled` id that is not checked;
   - an oversized message that is not contained;
   - out-of-turn messages that are acted on;
-  - a link put in the slot before `hello_ok`.
+  - a link put in the slot before `hello_ok`;
+  - a send while a session's "everything is due again" step is still pending;
+  - an unobserved failure of Core Link's loop;
+  - an error logged for work cut short by stopping.
 
   The narrowed dependency rule caught a nested `index.ts` that is not `messages/`.
 

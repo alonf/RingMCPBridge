@@ -455,3 +455,49 @@ describe("Ingest's heartbeat", () => {
     expect(lines.join("\n")).toContain("ingest_depth_not_read");
   });
 });
+
+describe("Ingest at a session's start", () => {
+  it("sends nothing until every unacked message is due again, so older messages go first", async () => {
+    const engine = new ScenarioEngine(clock);
+    const store = await openStore();
+    const slot = new LinkSlot();
+    const pair = createLinkPair(
+      new Logger({ sink: () => undefined, now: () => 0, minLevel: "debug" }),
+    );
+    const frames: LinkFrame[] = [];
+    pair.acceptor.onFrame((frame) => frames.push(frame));
+    const ingest = new Ingest({
+      ring: engine,
+      outbox: store,
+      link: slot,
+      clock,
+      logger: new Logger({
+        sink: () => undefined,
+        now: () => 0,
+        minLevel: "debug",
+      }),
+    });
+    const older = await store.append(
+      () => ({ kind: "device_state", body: { order: "older" } }),
+      signal,
+    );
+    await store.takeDue(10, signal);
+    const newer = await store.append(
+      () => ({ kind: "device_state", body: { order: "newer" } }),
+      signal,
+    );
+
+    const queuedBefore = ingest.sendDue(signal);
+    slot.put(pair.dialer);
+    await Promise.all([queuedBefore, ingest.sessionOpened(signal)]);
+    await new Promise((resolve) => setImmediate(resolve));
+    const sent = frames
+      .filter((frame) => frame.type === "device_state")
+      .map((frame) =>
+        frame.kind === "message"
+          ? (frame.body as { message_id: string }).message_id
+          : "",
+      );
+    expect(sent.slice(0, 2)).toEqual([older, newer]);
+  });
+});

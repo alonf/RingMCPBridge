@@ -82,6 +82,9 @@ export class Ingest {
   #steps: Promise<void> = Promise.resolve();
   #stopWatching: StopWatching | undefined;
   #inventoryOwed = false;
+  // True from a session's start until its "everything is due again" step is done: nothing is sent
+  // meanwhile, so a send step queued before the session cannot overtake older unacked messages.
+  #sessionStarting = false;
 
   constructor(options: IngestOptions) {
     this.#ring = options.ring;
@@ -112,10 +115,13 @@ export class Ingest {
    */
   async sessionOpened(signal: AbortSignal): Promise<void> {
     this.#inventoryOwed = true;
+    this.#sessionStarting = true;
     try {
       await this.#step(() => this.#outbox.markAllUnsent(signal));
     } catch (error) {
       this.#outboxFailed("ingest_resend_not_marked", error);
+    } finally {
+      this.#sessionStarting = false;
     }
     await this.sendDue(signal);
   }
@@ -297,6 +303,9 @@ export class Ingest {
   }
 
   async #sendDue(signal: AbortSignal): Promise<void> {
+    if (this.#sessionStarting) {
+      return;
+    }
     for (;;) {
       const link = this.#link.current;
       if (link === undefined) {

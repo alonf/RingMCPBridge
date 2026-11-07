@@ -16,13 +16,16 @@
     - stops for good on a revoked key;
     - dials again after 1 to 30 s with jitter, starting over only after a session opened.
   - **The Home Scheduler** (`bridge/src/connector/clients/home-scheduler/`): Ingest sends what is due every 10 s and the heartbeat every 15 s.
-  - **Ingest now sends** on the link in the slot. A new session first makes every unacked message due again, then sends a fresh inventory. A change goes out at once, and an oversized message is logged once and dropped.
+  - **Ingest now sends** on the link in the slot.
+    - A new session first makes every unacked message due again, and nothing is sent until that is done. Then it sends a fresh inventory.
+    - A change goes out at once.
+    - An oversized message is logged once and dropped.
   - **The link messages** are declared by their receivers in narrow `messages/index.ts` entries. Connector Link's is made ahead of T017. This is an amendment to CD4 that the owner may reject. The dependency rule now allows exactly this, and closes a loophole that allowed any nested `index.ts`.
   - **The key's id** is derived from its public key (`signingKeyId`), so the home keeps no enrollment state.
 
-  The choices and the carry-forwards to T017, T027 and T028 are in DRIFT-001-23. The owner chose (a) for T017's TLS test: a throwaway `openssl` certificate. A deliberate break of eleven parts was caught. Checks:
-  - 675 tests: 626 pass and 49 skip without SQL Server;
-  - coverage without SQL Server: 95.1% of lines and 92.7% of branches;
+  The choices and the carry-forwards to T017, T027 and T028 are in DRIFT-001-23. The owner chose (a) for T017's TLS test: a throwaway `openssl` certificate. A deliberate break of fourteen parts was caught. Three of those defects were in the first version (c5322ff), found by a second look after it was pushed, and fixed test-first: a send that could overtake older unacked messages at a session's start, an unobserved failure of Core Link's loop, and an error logged on a clean stop. Checks:
+  - 678 tests: 629 pass and 49 skip without SQL Server;
+  - coverage without SQL Server: 95.2% of lines and 92.8% of branches;
   - lint, tsc, prettier and depcruise (166 modules) are clean.
 
 - T015 (the Link transport, first of CP-09's three tasks) is done, in `bridge/src/utilities/link-transport/`, over ws 8.22.0 with `@types/ws` 8.18.2 (the owner's choice a):

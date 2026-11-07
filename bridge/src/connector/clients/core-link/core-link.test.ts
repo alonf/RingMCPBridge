@@ -340,6 +340,76 @@ describe("CoreLink: the outbox over the link", () => {
     expect(second.message_id).not.toBe(unacked.message_id);
   });
 
+  it("sends the older unacked messages first, even when a change was written during the new handshake", async () => {
+    const test = await started();
+    const before = connection(test, 0);
+    await openSession(test, before);
+    const unacked = await frameOf(before, "inventory");
+    before.pair.drop();
+    await until(() => test.slot.current === undefined);
+    await test.clock.advance(RECONNECT_BACKOFF.initialMs);
+    await until(() => test.connections.length === 2);
+    const after = connection(test, 1);
+    await frameOf(after, "hello");
+    void after.core.send({ type: "challenge", body: { nonce: NONCE } });
+    await frameOf(after, "challenge_response");
+    test.engine.apply({
+      kind: "device",
+      deviceId: HEBREW_DEVICE_ID,
+      changes: { battery_pct: 3 },
+    });
+    await settle();
+    void after.core.send({ type: "hello_ok", body: { version: 1 } });
+    await frameOf(after, "device_state");
+    await frameOf(after, "inventory", 2);
+    const outbox = after.frames.filter(
+      (frame) => frame.type === "inventory" || frame.type === "device_state",
+    );
+    expect(outbox[0]).toMatchObject({
+      type: "inventory",
+      body: { message_id: unacked.message_id },
+    });
+  });
+
+  it("logs a failure of its own loop once instead of ending the process unseen", async () => {
+    const test = await harness();
+    const lines = test.lines;
+    const broken = new CoreLink({
+      dial: () => {
+        throw new RangeError("The link dials only wss:.");
+      },
+      slot: test.slot,
+      ingest: new Ingest({
+        ring: test.engine,
+        outbox: test.store,
+        link: test.slot,
+        clock: test.clock,
+        logger: new Logger({
+          sink: () => undefined,
+          now: () => 0,
+          minLevel: "debug",
+        }),
+      }),
+      identity: {
+        key: test.key,
+        enrollmentCode: CODE,
+        connectorVersion: VERSION,
+      },
+      clock: test.clock,
+      logger: new Logger({
+        sink: (line) => lines.push(line),
+        now: () => test.clock.now(),
+        minLevel: "debug",
+      }),
+    });
+    broken.start();
+    await settle();
+    await broken.stop();
+    expect(
+      lines.filter((line) => line.includes("core_link_failed")),
+    ).toHaveLength(1);
+  });
+
   it("drops a message too large for a frame, logs it once by id, and still sends the rest", async () => {
     const test = await harness();
     const tooLarge = await test.store.append(
@@ -461,10 +531,20 @@ describe("CoreLink: reconnecting", () => {
     await until(() => test.dialTimes.length === 2);
   });
 
-  it("closes the link when stopped, and dials no more", async () => {
+  it("closes the link when stopped, and dials no more, logging no error for work it cut short", async () => {
     const test = await started();
     const link = connection(test, 0);
     await openSession(test, link);
+    await frameOf(link, "inventory");
+    test.engine.apply({
+      kind: "fault",
+      fault: { kind: "slow", delayMs: 60 * SECOND_MS },
+    });
+    void link.core.send({
+      type: "inventory_request",
+      body: { request_id: "r-slow" },
+    });
+    await settle();
     await test.coreLink.stop();
     await until(() => link.core.closed !== undefined);
     expect(link.core.closed).toEqual({
@@ -474,6 +554,7 @@ describe("CoreLink: reconnecting", () => {
     await test.clock.advance(60 * SECOND_MS);
     await settle();
     expect(test.dialTimes).toHaveLength(1);
+    expect(test.lines.join("\n")).not.toContain('"level":"error"');
   });
 });
 
