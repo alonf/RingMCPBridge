@@ -11,11 +11,17 @@
 // - A lost session stays lost: calls are refused until the owner signs in again and the connector
 //   restarts. A call already queued when it is lost is refused when its turn comes, and no later
 //   outcome changes the status back.
+// - Ring counts as unavailable while calls to it fail, or while a hub's live connection has stayed
+//   closed past a grace, so an outage shows with no read running (the owner's choice (c)+(a),
+//   DRIFT-001-35, SC-005). While calls fail, the profile is asked once a minute, a request that
+//   reaches Ring, so the status comes back to `ok` without waiting for a read. Both are needed for
+//   `ok`: a probe that gets through does not hide a connection still closed.
 // - A rotated refresh token is saved at once through `saveRefreshToken` (the Secrets File's
 //   update, wired by the Host).
-import type { Clock } from "../../../utilities/clock/index.ts";
+import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
 import { Secret } from "../../../utilities/security/index.ts";
+import { RING_CALL_LIMITS } from "./call-limits.ts";
 import type { RingCallGate } from "./call-limits.ts";
 import { RingAdapterError } from "./ring-adapter-error.ts";
 import type {
@@ -43,6 +49,14 @@ import type {
 
 /** How long one Ring call may take before it counts as Ring unavailable. */
 export const RING_CALL_TIMEOUT_MS = 30_000;
+/**
+ * How long a hub's live connection may stay closed before Ring counts as unavailable [P]: longer
+ * than the library's routine reconnect of a second or two, and, with the 15 s heartbeat, well
+ * within SC-005's 2 minutes.
+ */
+export const RING_CONNECTION_GRACE_MS = 30_000;
+/** How often Ring is asked again while calls to it fail: the gate's probe, so the circuit admits it. */
+export const RING_RECOVERY_PROBE_MS = RING_CALL_LIMITS.circuit.probeIntervalMs;
 
 const SECURITY_PANEL = "security-panel";
 /** A read the library answers from its own memory: `#call`'s `reachesRing` set to false. */
@@ -60,6 +74,8 @@ export interface RingApiAdapterOptions {
   /** Saves a rotated refresh token: the Secrets File's update. */
   readonly saveRefreshToken: (token: Secret<string>) => Promise<void>;
   readonly callTimeoutMs?: number;
+  readonly connectionGraceMs?: number;
+  readonly recoveryProbeMs?: number;
 }
 
 interface Unsubscribe {
@@ -84,10 +100,19 @@ export class RingApiAdapter implements RingPort {
   readonly #logger: Logger;
   readonly #saveRefreshToken: (token: Secret<string>) => Promise<void>;
   readonly #timeoutMs: number;
+  readonly #graceMs: number;
+  readonly #probeMs: number;
   readonly #locations = new Map<string, RingClientLocation>();
   readonly #listeners = new Set<(change: RingChange) => void>();
   readonly #subscriptions: Unsubscribe[] = [];
+  // The status's inputs: calls failing, the hubs whose connection stayed closed past the grace, and
+  // a lost session, which is final.
+  #callsFailing = false;
+  readonly #connectionsClosed = new Set<string>();
+  #lost = false;
   #status: RingSessionStatus = "ok";
+  #cancelProbe: Cancel | undefined;
+  readonly #closing = new AbortController();
   #locationList: readonly RingClientLocation[] | undefined;
   #profileId: number | undefined;
   // Settles when the last library call settles, including one the adapter gave up on; it never
@@ -101,6 +126,8 @@ export class RingApiAdapter implements RingPort {
     this.#logger = options.logger;
     this.#saveRefreshToken = options.saveRefreshToken;
     this.#timeoutMs = options.callTimeoutMs ?? RING_CALL_TIMEOUT_MS;
+    this.#graceMs = options.connectionGraceMs ?? RING_CONNECTION_GRACE_MS;
+    this.#probeMs = options.recoveryProbeMs ?? RING_RECOVERY_PROBE_MS;
     this.#subscriptions.push(
       options.client.onRefreshTokenUpdated.subscribe(({ newRefreshToken }) => {
         this.#saveToken(newRefreshToken);
@@ -159,8 +186,10 @@ export class RingApiAdapter implements RingPort {
     };
   }
 
-  /** Stops every subscription and closes the Ring connection. */
+  /** Stops every subscription and the probe, and closes the Ring connection. */
   close(): void {
+    this.#stopProbe();
+    this.#closing.abort(new Error("The Ring Adapter is closing."));
     for (const subscription of this.#subscriptions.splice(0)) {
       subscription.unsubscribe();
     }
@@ -212,7 +241,7 @@ export class RingApiAdapter implements RingPort {
   // profile. Its answer, not the library's memory, decides whether Ring is back, so an account
   // without cameras, whose other reads come from memory, still finds its way back to `ok`.
   async #reachRingWhileUnavailable(signal: AbortSignal): Promise<void> {
-    if (this.#status !== "unavailable") {
+    if (!this.#callsFailing) {
       return;
     }
     const { profile } = await this.#call(signal, () =>
@@ -239,7 +268,7 @@ export class RingApiAdapter implements RingPort {
     work: () => Promise<T>,
     reachesRing = true,
   ): Promise<T> {
-    if (this.#status === "lost") {
+    if (this.#lost) {
       throw sessionLost();
     }
     try {
@@ -249,12 +278,12 @@ export class RingApiAdapter implements RingPort {
         reachesRing,
       );
       if (reachesRing) {
-        this.#setStatus("ok");
+        this.#callSucceeded();
       }
       return value;
     } catch (error) {
       if (error instanceof RingAdapterError) {
-        this.#setStatus(error.kind === "session_lost" ? "lost" : "unavailable");
+        this.#callFailed(error);
       }
       throw error;
     }
@@ -275,7 +304,7 @@ export class RingApiAdapter implements RingPort {
           return;
         }
         // Checked in the same turn as the call starts: a session lost while this call waited.
-        if (this.#status === "lost") {
+        if (this.#lost) {
           bounds.end(() => {
             reject(sessionLost());
           });
@@ -351,13 +380,110 @@ export class RingApiAdapter implements RingPort {
     return pending;
   }
 
-  // A lost session is final for this process: no later outcome changes it.
-  #setStatus(status: RingSessionStatus): void {
-    if (this.#status === "lost" || status === this.#status) {
+  // A request reached Ring and succeeded: calls are fine again, and the probe stops.
+  #callSucceeded(): void {
+    this.#callsFailing = false;
+    this.#stopProbe();
+    this.#updateStatus();
+  }
+
+  // A lost session is final for this process: the probe stops and no later outcome changes it.
+  // Ring unavailable starts the probe.
+  #callFailed(error: RingAdapterError): void {
+    if (error.kind === "session_lost") {
+      this.#lost = true;
+      this.#stopProbe();
+    } else {
+      this.#callsFailing = true;
+      this.#scheduleProbe();
+    }
+    this.#updateStatus();
+  }
+
+  #updateStatus(): void {
+    const status: RingSessionStatus = this.#lost
+      ? "lost"
+      : this.#callsFailing || this.#connectionsClosed.size > 0
+        ? "unavailable"
+        : "ok";
+    if (status === this.#status) {
       return;
     }
     this.#status = status;
     this.#emit({ kind: "session", status });
+  }
+
+  #scheduleProbe(): void {
+    if (
+      this.#cancelProbe !== undefined ||
+      this.#lost ||
+      this.#closing.signal.aborted
+    ) {
+      return;
+    }
+    this.#cancelProbe = this.#clock.schedule(this.#probeMs, () => {
+      this.#cancelProbe = undefined;
+      void this.#probe();
+    });
+  }
+
+  #stopProbe(): void {
+    this.#cancelProbe?.();
+    this.#cancelProbe = undefined;
+  }
+
+  // One request that reaches Ring. Its outcome is counted like any call's: a success ends the
+  // probing, and a failure schedules the next probe.
+  async #probe(): Promise<void> {
+    try {
+      const { profile } = await this.#call(this.#closing.signal, () =>
+        this.#client.getProfile(),
+      );
+      this.#profileId = profile.id;
+    } catch (error) {
+      if (error instanceof RingAdapterError) {
+        this.#logger.debug("ring_recovery_probe_failed", {
+          error_code: error.kind,
+        });
+      }
+    }
+  }
+
+  // A hub's live connection: closed past the grace after it had been open, Ring counts as
+  // unavailable until it opens again. Its first `false`, before the first connection, does not
+  // count, and a routine reconnect within the grace changes nothing.
+  #watchConnection(location: RingClientLocation): Unsubscribe {
+    let wasOpen = false;
+    let cancelGrace: Cancel | undefined;
+    const subscription = location.onConnected.subscribe((open) => {
+      if (open) {
+        wasOpen = true;
+        cancelGrace?.();
+        cancelGrace = undefined;
+        if (this.#connectionsClosed.delete(location.id)) {
+          this.#updateStatus();
+        }
+        return;
+      }
+      if (
+        !wasOpen ||
+        cancelGrace !== undefined ||
+        this.#connectionsClosed.has(location.id)
+      ) {
+        return;
+      }
+      cancelGrace = this.#clock.schedule(this.#graceMs, () => {
+        cancelGrace = undefined;
+        this.#connectionsClosed.add(location.id);
+        this.#updateStatus();
+      });
+    });
+    return {
+      unsubscribe: () => {
+        cancelGrace?.();
+        subscription.unsubscribe();
+      },
+    };
   }
 
   #remember(location: RingClientLocation): void {
@@ -365,6 +491,9 @@ export class RingApiAdapter implements RingPort {
       return;
     }
     this.#locations.set(location.id, location);
+    if (location.hasHubs) {
+      this.#subscriptions.push(this.#watchConnection(location));
+    }
     const watched = new Map<string, Unsubscribe>();
     this.#subscriptions.push(
       location.onDevices.subscribe((devices) => {

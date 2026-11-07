@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 34
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 15 in implement on 2026-11-07)
+**Total drift events**: 35
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; one question in DRIFT-001-35 open for the owner)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -1027,7 +1027,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - SC-005 is met in the simulated home, where the fault is reported at once, but not yet at a real one.
     - The options and their costs are put to the owner with CP-14's review request; nothing is changed until they choose.
 - **Requirement citation**: tasks.md T021; `contracts/mcp-tools.md` the four read tools; `contracts/errors.md` the reply envelope and its freshness rules; spec FR-001, FR-002, FR-005, FR-006, FR-036, SC-005 and SC-006.
-- **Resolution**: implementation choices, recorded for the CP-14 co-review. The gap at home stays open until the owner decides. Cost so far: 0 SP and $0.
+- **Resolution**: implementation choices, recorded for the CP-14 co-review. The gap at home was closed by the owner's choice of (c)+(a), built in DRIFT-001-35. Cost: 0 SP and $0.
 - **Class closure**: 23 new tests.
   - The Health engine's and the Summary engine's were written first.
   - The Inquiry manager's run over a real State and Settings on SQLite: the four tools, which location, `NOT_FOUND`, shared locations hidden, the three kinds of stale, the store down, the local-time fallback, and the whole reply within 8,000 tokens on the 100-device home.
@@ -1046,6 +1046,41 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - the type filter dropped;
   - a home that never reported not stale, in Inquiry and in the Summary engine;
   - `as_of` always now.
+
+### DRIFT-001-35: the owner chose (c)+(a), so the Ring Adapter notices Ring going away and coming back with no read running; the library may not reopen its live connection after a Ring server error
+
+- **Detected**: 2026-11-07, implement, after T021 (DRIFT-001-34's gap at home)
+- **Kind**: an owner decision, and a library behaviour found while building it. No spec change
+- **Observed**:
+  - **The owner's choice**: "a+c", typed in reply to the options in CP-14's review request.
+  - **(c) The live connection.**
+    - For each location with an alarm hub (`hasHubs`), the adapter watches ring-client-api's `onConnected`.
+    - Closed for longer than 30 s [P] after it had been open, Ring counts as unavailable until it opens again. Its first `false`, before the first connection, does not count, and a routine reconnect within the grace changes nothing.
+    - With the 15 s heartbeat, an outage the connection sees shows as stale within about 45 s (derived).
+  - **(a) The probe.**
+    - While calls to Ring fail, the adapter asks for the profile once a minute, the gate's probe interval, so the open circuit admits it.
+    - That is about 60 calls an hour at most, and only during an outage (derived); the one-call-at-a-time rule and the backoff make it fewer.
+    - Its success brings the status back to `ok` with no read. It stops on success, on a lost session and on close.
+  - **Both are needed for `ok`**: a probe that gets through does not hide a connection still closed.
+  - **The library port**: the narrow types gain `hasHubs` and `onConnected`, and the compile-time check in `ring-client.live.ts` shows ring-client-api 14.3.0 still fits.
+  - **Not covered**: an outage where only Ring's web calls fail while the live connection stays open is noticed only when a read runs, which (c) cannot see.
+  - **A finding while building, open for the owner.**
+    - ring-client-api 14.3.0 retries a request that gets no answer, or a 504, every 5 s without end, but throws on another status, such as 500, 502 or 503.
+    - Its live connection, once closed, reconnects by first asking Ring for a ticket. If that request throws, the library makes no further attempt, and the failure is left unhandled.
+    - So after a Ring outage that answers with a server error, alarm devices' changes may stop arriving until the connector restarts. The adapter shows that as `unavailable`, so replies say stale rather than present old data as current.
+    - An unhandled rejection ends a Node process by default, and the connector's wiring (T027) has no handler yet. Whether Ring's real answers lead there is for the pilot.
+- **Requirement citation**: spec SC-005, FR-005, FR-026 and FR-042; DRIFT-001-34; tasks.md T013 and T021.
+- **Resolution**: built as the owner chose, in the Ring Adapter (CP-07). Cost: about 1 SP (estimate), recorded in CP-07's actual, and $0. The library's reconnect after a server error is put to the owner and stays open until they choose.
+- **Class closure**: 9 new tests on the fake client, written before the code: the grace, a short reconnect, the first `false`, hubs only, the probe's pace and recovery, no probe while fine, a closed connection outlasting a probe, and the probe stopping on a lost session and on close. A deliberate break of nine parts was caught:
+  - the grace ignored;
+  - the connection's first `false` counted;
+  - a location without a hub watched;
+  - a probe that gets through hiding a closed connection;
+  - the probe not stopping once the session is lost;
+  - the probe running while Ring is fine;
+  - the probe not stopping on close;
+  - the probe not counted as reaching Ring;
+  - a reconnect within the grace not cancelling it.
 
 ### Resolution Strategies (Unused)
 

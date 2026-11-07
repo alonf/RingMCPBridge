@@ -70,6 +70,16 @@ export interface RingClientLocation {
   readonly id: string;
   readonly locationDetails: RingClientLocationDetails;
   readonly hasAlarmBaseStation: boolean;
+  /**
+   * True when the location has an alarm hub or bridge: only then does the library keep a live
+   * connection to Ring for it.
+   */
+  readonly hasHubs: boolean;
+  /**
+   * Whether the library's live connection for the location is open, now and on each change. It
+   * starts `false`, before the first connection, and goes `false` while the library reconnects.
+   */
+  readonly onConnected: RingClientStream<boolean>;
   readonly cameras: readonly RingClientCamera[];
   getDevices(): Promise<readonly RingClientDevice[]>;
   /** `none`, `some` or `all`. */

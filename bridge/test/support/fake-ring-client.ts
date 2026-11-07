@@ -147,6 +147,8 @@ export interface FakeLocation extends RingClientLocation {
   /** Replaceable, so a test can model a location without cameras. */
   cameras: readonly RingClientCamera[];
   readonly devicesStream: FakeRingStream<readonly RingClientDevice[]>;
+  /** The live connection, as the library's `BehaviorSubject`: `false` until a test opens it. */
+  readonly connectedStream: FakeRingStream<boolean>;
 }
 
 function fakeLocation(
@@ -158,6 +160,7 @@ function fakeLocation(
   },
 ): FakeLocation {
   const devicesStream = new FakeRingStream<readonly RingClientDevice[]>();
+  const connectedStream = new FakeRingStream<boolean>({ value: false });
   return {
     id,
     locationDetails: {
@@ -166,6 +169,10 @@ function fakeLocation(
       address: { timezone: "Europe/Athens" },
     },
     hasAlarmBaseStation: options.alarm,
+    // As ring-client-api: a location with an alarm hub has one; the second location has none.
+    hasHubs: options.alarm,
+    onConnected: connectedStream,
+    connectedStream,
     cameras: [new FakeCamera(FAKE_DOORBELL)],
     getDevices: () => Promise.resolve(options.devices),
     getAlarmMode: () => Promise.resolve("some"),

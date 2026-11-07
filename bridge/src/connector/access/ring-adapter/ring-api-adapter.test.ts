@@ -1,11 +1,16 @@
 // The Ring Adapter over a fake ring-client-api (T013): mapping through the gate, failures in the
 // bridge's own words, the deadline, the lost session, token rotation, and watching for changes.
+// Since DRIFT-001-35, also how it notices Ring going away and coming back with no read running.
 import { describe, expect, it } from "vitest";
 import { FakeClock } from "../../../utilities/clock/index.ts";
 import { Logger } from "../../../utilities/logging/index.ts";
 import type { Secret } from "../../../utilities/security/index.ts";
 import { RING_CALL_LIMITS, RingCallGate } from "./call-limits.ts";
-import { RingApiAdapter } from "./ring-api-adapter.ts";
+import {
+  RING_CONNECTION_GRACE_MS,
+  RING_RECOVERY_PROBE_MS,
+  RingApiAdapter,
+} from "./ring-api-adapter.ts";
 import {
   driveFakeClock,
   FAKE_DOORBELL,
@@ -13,6 +18,7 @@ import {
   FakeRingClient,
   ringHttpError,
 } from "../../../../test/support/fake-ring-client.ts";
+import type { FakeLocation } from "../../../../test/support/fake-ring-client.ts";
 import { RingAdapterError } from "./ring-adapter-error.ts";
 import type { RingChange, RingDevice } from "./ring-port.ts";
 
@@ -528,5 +534,195 @@ describe("RingApiAdapter token and changes", () => {
     expect(client.contact.stream.listeners).toBe(0);
     expect(client.onRefreshTokenUpdated.listeners).toBe(0);
     expect(client.disconnected).toBe(true);
+  });
+});
+
+/** Moves the fake clock by `ms` in steps, letting the adapter's own work run between them. */
+async function pass(clock: FakeClock, ms: number): Promise<void> {
+  for (let waited = 0; waited < ms; waited += STEP_MS) {
+    await clock.advance(STEP_MS);
+  }
+}
+
+/** Moves the fake clock until `condition` holds, for at most `limitMs`. */
+async function passUntil(
+  clock: FakeClock,
+  condition: () => boolean,
+  limitMs: number,
+): Promise<void> {
+  for (let waited = 0; !condition(); waited += STEP_MS) {
+    if (waited > limitMs) {
+      throw new Error("It did not happen in time.");
+    }
+    await clock.advance(STEP_MS);
+  }
+}
+
+function sessionChanges(changes: readonly RingChange[]): RingChange[] {
+  return changes.filter((change) => change.kind === "session");
+}
+
+function probeLines(lines: readonly string[]): number {
+  return lines.filter((line) => line.includes("ring_recovery_probe_failed"))
+    .length;
+}
+
+function signInGone(): Promise<never> {
+  return Promise.reject(
+    new Error(
+      "Refresh token is not valid.  Unable to authenticate with Ring servers.",
+    ),
+  );
+}
+
+// The owner's choice (c)+(a), DRIFT-001-35: a hub's live connection closing tells that Ring went
+// away, and a probe once a minute, only while calls to Ring fail, tells that it is back (SC-005).
+describe("RingApiAdapter notices Ring going away and coming back", () => {
+  async function watching(): Promise<Setup & { readonly hub: FakeLocation }> {
+    const ready = setup();
+    await driveFakeClock(ready.clock, ready.adapter.locations(never()));
+    const hub = ready.client.locationsList[0];
+    if (hub === undefined) {
+      throw new Error("The fake has no first location.");
+    }
+    hub.connectedStream.emit(true);
+    return { ...ready, hub };
+  }
+
+  it("counts Ring unavailable once a hub's live connection stays closed past the grace, and ok once it opens again", async () => {
+    const { clock, adapter, changes, hub } = await watching();
+
+    hub.connectedStream.emit(false);
+    await pass(clock, RING_CONNECTION_GRACE_MS - STEP_MS);
+    expect(adapter.sessionStatus()).toBe("ok");
+    await pass(clock, STEP_MS);
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    hub.connectedStream.emit(true);
+
+    expect(adapter.sessionStatus()).toBe("ok");
+    expect(sessionChanges(changes)).toEqual([
+      { kind: "session", status: "unavailable" },
+      { kind: "session", status: "ok" },
+    ]);
+  });
+
+  it("ignores a reconnect shorter than the grace", async () => {
+    const { clock, adapter, changes, hub } = await watching();
+
+    hub.connectedStream.emit(false);
+    await pass(clock, RING_CONNECTION_GRACE_MS / 2);
+    hub.connectedStream.emit(true);
+    await pass(clock, 2 * RING_CONNECTION_GRACE_MS);
+
+    expect(adapter.sessionStatus()).toBe("ok");
+    expect(sessionChanges(changes)).toEqual([]);
+  });
+
+  it("does not count the connection's first false, before it ever opened", async () => {
+    const { clock, adapter, changes } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+
+    await pass(clock, 2 * RING_CONNECTION_GRACE_MS);
+
+    expect(adapter.sessionStatus()).toBe("ok");
+    expect(sessionChanges(changes)).toEqual([]);
+  });
+
+  it("watches only locations with a hub, as one without never has a live connection", async () => {
+    const { clock, client, adapter } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+
+    expect(client.locationsList[0]?.connectedStream.listeners).toBe(1);
+    expect(client.locationsList[1]?.connectedStream.listeners).toBe(0);
+
+    adapter.close();
+    expect(client.locationsList[0]?.connectedStream.listeners).toBe(0);
+  });
+
+  it("asks Ring at most once a minute while calls fail, and says ok when it answers, with no read", async () => {
+    const { clock, client, adapter, changes } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+    client.nextFailure = () => Promise.reject(ringHttpError(503));
+    await failureOf(clock, adapter.devices("loc-1", never()));
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    const before = client.getProfileCalls;
+
+    await pass(clock, 3 * RING_RECOVERY_PROBE_MS);
+    const asked = client.getProfileCalls - before;
+    expect(asked).toBeGreaterThanOrEqual(2);
+    expect(asked).toBeLessThanOrEqual(3);
+    expect(adapter.sessionStatus()).toBe("unavailable");
+
+    client.nextFailure = undefined;
+    await passUntil(
+      clock,
+      () => adapter.sessionStatus() === "ok",
+      3 * RING_RECOVERY_PROBE_MS,
+    );
+    const afterBack = client.getProfileCalls;
+    await pass(clock, 3 * RING_RECOVERY_PROBE_MS);
+
+    expect(client.getProfileCalls).toBe(afterBack);
+    expect(sessionChanges(changes).at(-1)).toEqual({
+      kind: "session",
+      status: "ok",
+    });
+  });
+
+  it("makes no probe while Ring is fine", async () => {
+    const { clock, client, adapter } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+    const before = client.getProfileCalls;
+
+    await pass(clock, 5 * RING_RECOVERY_PROBE_MS);
+
+    expect(client.getProfileCalls).toBe(before);
+  });
+
+  it("does not say ok while a hub's connection is still closed, even when the probe gets through", async () => {
+    const { clock, client, adapter, hub } = await watching();
+    hub.connectedStream.emit(false);
+    client.nextFailure = () => Promise.reject(ringHttpError(503));
+    await failureOf(clock, adapter.devices("loc-1", never()));
+    await pass(clock, RING_CONNECTION_GRACE_MS);
+    client.nextFailure = undefined;
+    const before = client.getProfileCalls;
+
+    await pass(clock, 3 * RING_RECOVERY_PROBE_MS);
+
+    expect(client.getProfileCalls).toBe(before + 1);
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    hub.connectedStream.emit(true);
+    expect(adapter.sessionStatus()).toBe("ok");
+  });
+
+  it("stops probing once the session is lost", async () => {
+    const { clock, client, adapter, lines } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+    client.nextFailure = () => Promise.reject(ringHttpError(503));
+    await failureOf(clock, adapter.devices("loc-1", never()));
+    client.nextFailure = signInGone;
+    await failureOf(clock, adapter.devices("loc-1", never()));
+    expect(adapter.sessionStatus()).toBe("lost");
+    const before = { calls: client.getProfileCalls, lines: probeLines(lines) };
+
+    await pass(clock, 3 * RING_RECOVERY_PROBE_MS);
+
+    expect(client.getProfileCalls).toBe(before.calls);
+    expect(probeLines(lines)).toBe(before.lines);
+  });
+
+  it("stops probing on close", async () => {
+    const { clock, client, adapter, lines } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+    client.nextFailure = () => Promise.reject(ringHttpError(503));
+    await failureOf(clock, adapter.devices("loc-1", never()));
+    const before = { calls: client.getProfileCalls, lines: probeLines(lines) };
+
+    adapter.close();
+    await pass(clock, 3 * RING_RECOVERY_PROBE_MS);
+
+    expect(client.getProfileCalls).toBe(before.calls);
+    expect(probeLines(lines)).toBe(before.lines);
   });
 });

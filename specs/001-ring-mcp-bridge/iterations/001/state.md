@@ -5,9 +5,18 @@
 **Tasks Remaining**: T023-T036 (14 tasks, 17 story_points)
 **In Progress**: CP-14 (the read path): T019, T020 and T021 are done, and T018 (CP-11a); next CP-14's co-review, on the owner's approval of a round
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T19:59:50Z
+**Updated**: 2026-11-07T20:56:52Z
 
 ## Execution Summary
+
+- After T021, on the owner's choice of (c)+(a), the Ring Adapter notices Ring going away and coming back with no read running (DRIFT-001-35, CP-07):
+  - a hub's live connection closed for more than 30 s makes Ring unavailable until it opens again;
+  - while calls to Ring fail, it asks Ring once a minute, at most about 60 calls an hour and only during an outage (derived), and says `ok` again when Ring answers.
+
+  Open for the owner: after a Ring outage that answers with a server error, the library may not reopen its live connection until the connector restarts. About 1 SP (estimate), in CP-07's actual. A deliberate break of nine parts was caught. Checks:
+  - 902 tests: 805 pass and 97 skip without SQL Server; with it, 890 pass and 12 skip;
+  - coverage without SQL Server: 96.2% of lines and 93.8% of branches;
+  - lint, tsc, prettier and depcruise (221 modules) are clean.
 
 - T021 (the Inquiry manager, last of CP-14) is done, in `bridge/src/core/managers/inquiry/`:
   - `get_overview`, `list_devices` (by type and room), `get_device` and `get_health`, each reply saying when its data was true, in UTC and the location's local time, and whether it is `cached` or `stale`;
