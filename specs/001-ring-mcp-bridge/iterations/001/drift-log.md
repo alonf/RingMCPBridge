@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 30
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 11 in implement on 2026-11-07)
+**Total drift events**: 31
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 12 in implement on 2026-11-07)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -849,6 +849,51 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Requirement citation**: research.md PT-32; data-model.md "Home part enrollment" and "Schema lifecycle"; DS5; implementation-rules.yml `project.built-in-first` (B6, forward-only additive migrations).
 - **Resolution**: accepted by the owner on 2026-11-07, with no code change. Review sign-off is complete. Cost: 0 SP and $0.
 - **Class closure**: NONE - no affected database can exist before the first release, and the additive-only rule already keeps migrations from changing data.
+
+### DRIFT-001-31: T019 builds State; a full snapshot also removes what Ring no longer lists, and both dialects take the same input
+
+- **Detected**: 2026-11-07, implement, while doing T019
+- **Kind**: details the records leave open, and one rule the task text does not state (removal). No spec change
+- **Observed**:
+  - **State** (`bridge/src/core/access/state/`, `StateStore`) owns `location`, `device` and `health_snapshot`. Its DTOs carry the contract's names, with a device's `type` mapped from the column `kind` (PT-26), and times in milliseconds.
+  - **Latest wins** in one conditional statement per row (the Query layer's insert-or-update with `onlyIfNewer`). A version equal to or below the stored one changes nothing, so no field is lost and no location rolls back (PT-30, DRIFT-001-06, DRIFT-001-08).
+  - **Writes:**
+    - `applyInventory` applies a full snapshot in one transaction;
+    - `applyDevice` applies one device change, reporting `applied`, `older`, `unknown_location` (its location is not stored yet) or `refused`;
+    - `resetVersions` sets every stored version to 0 for a newly enrolled connector, whose counter starts again (PT-30).
+  - **Removal (new rule, T019).** T019 said only "inserts or updates", but the contract calls `inventory` a full snapshot. Since 37e298d the home leaves out a camera Ring no longer lists, and the core would have kept it forever in `list_devices`.
+    - The home draws an inventory's versions in one block, in one outbox write (`HomeView.inventory`).
+    - So a stored entry that a snapshot leaves out, with a version below the snapshot's lowest, was not changed after the snapshot was composed: Ring no longer lists it, and it is removed.
+    - A newer change keeps its higher version and stays. A resent older inventory removes nothing.
+    - A location goes only once none of its devices is left.
+    - Rows are deleted, not marked. Iteration 002's events will name devices by id, not by a foreign key; this is to be confirmed with 002's schema.
+  - **The same input on both dialects (T019).** SQL Server's columns have sizes that SQLite's do not. A long Ring name would otherwise fail on SQL Server only, inside the inventory's transaction; the inventory would never commit, and the home would send it again every 10 s.
+    - An entry with an id over 128 characters, or a time zone over 64, is left out and counted (`refused`), while the rest of the inventory is stored.
+    - A device whose location is neither in the snapshot nor stored is left out the same way.
+    - A name or room over 400 characters is cut to fit, never between the two halves of a character.
+  - **The health snapshot** keeps the `get_health` contract's values: home link `up` or `down`; Ring session `ok`, `unavailable` or `lost`; push `ok` or `down`. A field not known is left out.
+  - **Errors:** one class, `unavailable` (the store-down error: Inquiry answers `BRIDGE_UNAVAILABLE`, never stale data, FR-006) or `failed`. A row State did not write is reported with no cause.
+  - **Carry-forwards:**
+    - **T018:**
+      - answer `unknown_location` with an `inventory_request`;
+      - a message that can never commit needs an end (log it, count it, ack it), as the home's rule for oversized messages does;
+      - map the heartbeat's `push: off` to an absent push status;
+      - log the inventory's `refused` and `removed` counts.
+    - **T018 and T029:** reset the versions only once the old key's sessions are closed. Otherwise a session still open for the old key, until Connector Link's 15 s key check, can deliver high versions that beat the new connector's. A cheap tightening is for Connector Link to close every other key's open session when a key proves itself, since only one key can be active.
+    - **Iteration 002 (PT-23):** State's writes already run on a session inside the store, so sharing one transaction with Event Log and Audit is a small change.
+- **Requirement citation**: tasks.md T019, T018, T021 and T029; data-model.md "Location", "Device" and "Other stored state"; `contracts/connector-link.md` "Device inventory and state"; `contracts/mcp-tools.md` `list_devices` and `get_health`; research.md PT-26 and PT-30; spec FR-002, FR-005 and FR-006; implementation-rules.yml `code-rule.concurrency-over-locks` and `code-rule.robustness-state-boundaries`.
+- **Resolution**: implementation choices, recorded for the next co-review. Cost: 0 SP and $0.
+- **Class closure**: 25 new tests, run on SQLite and on a local SQL Server before the push. A deliberate break of eight parts was caught:
+  - a stale version applied;
+  - an older inventory deleting a newer device;
+  - `kind` not mapped to `type`;
+  - a long name only one dialect accepts;
+  - a device without its location breaking the inventory;
+  - an unknown location thrown instead of reported;
+  - nothing removed after a reset;
+  - an unknown health field shown as null.
+
+  The removal has two guards, the check in code and the `DELETE`'s own version condition, which stays safe if a version changes in between. Breaking either alone is not caught, because the other still protects; breaking both is caught.
 
 ### Resolution Strategies (Unused)
 

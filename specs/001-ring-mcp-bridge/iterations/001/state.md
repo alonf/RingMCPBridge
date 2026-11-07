@@ -1,13 +1,25 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T017
-**Tasks Remaining**: T018-T021 and T023-T036 (18 tasks, 21 story_points)
-**In Progress**: CP-09 (the link) is done and its review is signed off (2026-11-07, DRIFT-001-30); next T019 (the core's State accessor), then T018 (Event's intake), which needs it
+**Last Completed Task**: T019
+**Tasks Remaining**: T018, T020, T021 and T023-T036 (17 tasks, 20 story_points)
+**In Progress**: CP-14 (the read path): T019 (State) is done; next T018 (Event's intake, CP-11a), which needs it, then T020 and T021
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T17:47:22Z
+**Updated**: 2026-11-07T18:07:04Z
 
 ## Execution Summary
+
+- T019 (State, first of CP-14) is done, in `bridge/src/core/access/state/`:
+  - locations, devices and the health snapshot, with `type` mapped from `kind`;
+  - latest-wins by `state_version` in one statement per row;
+  - a full snapshot also removes what Ring no longer lists, safely against a resent older one;
+  - both dialects take the same input: an entry with an over-long id is left out and counted, and a long name is cut to fit;
+  - the store-down error for Inquiry's `BRIDGE_UNAVAILABLE`.
+
+  The choices and the carry-forwards to T018 and T029 are in DRIFT-001-31. A deliberate break of eight parts was caught. Checks:
+  - 836 tests: 740 pass and 96 skip without SQL Server; with it, 824 pass and 12 skip;
+  - coverage without SQL Server: 95.9% of lines and 93.7% of branches;
+  - lint, tsc, prettier and depcruise (207 modules) are clean.
 
 - **CP-09's review is signed off** (2026-11-07). The owner typed `stop the review here` after round 6. Its one finding, that migration 3 cannot install over two waiting enrollment requests, was accepted without a code change: no such database exists, and migrations may only add (DRIFT-001-30). Over rounds 3 to 6 (46 minutes, $0), seven real defects were found and fixed test-first. The signed-off tree is 000fd89.
 

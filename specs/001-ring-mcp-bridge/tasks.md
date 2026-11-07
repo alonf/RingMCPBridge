@@ -293,7 +293,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - no location rolls back (DRIFT-001-08). Inventory A fails to commit. Newer inventory B commits with a changed alarm mode. Then A is resent: its location fields are ignored, and the overview still shows B's alarm mode.
 
   (Trace: FR-005, FR-006, SC-005; CP-11a)
-- [ ] T019 [P] [US1] [assigned_to: Implementer] [effort: 1] State accessor in `bridge/src/core/access/state/`:
+- [x] T019 [P] [US1] [assigned_to: Implementer] [effort: 1] State accessor in `bridge/src/core/access/state/`:
   - holds `location`, `device` and the health snapshot;
   - inserts or updates devices and locations latest-wins by `state_version` (DRIFT-001-08);
   - its DTOs carry `type`, mapped from `kind` (PT-26);
