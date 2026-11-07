@@ -867,6 +867,8 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - A newer change keeps its higher version and stays. A resent older inventory removes nothing.
     - A location goes only once none of its devices is left.
     - Rows are deleted, not marked. Iteration 002's events will name devices by id, not by a foreign key; this is to be confirmed with 002's schema.
+    - **Only an inventory adds a device** (a follow-up commit the same day, after a second look). A device change updates only a device State holds, in one conditional `UPDATE`; a change for any other device is `unknown_device`. Otherwise a late change, such as a resend landing after the inventory, would have brought back a device the snapshot had just removed. A device new at Ring therefore appears one inventory round trip later.
+    - **Verified:** a partial inventory cannot leave the home. Ingest builds an inventory only from a complete read of every location and its devices; any failed read queues none.
   - **The same input on both dialects (T019).** SQL Server's columns have sizes that SQLite's do not. A long Ring name would otherwise fail on SQL Server only, inside the inventory's transaction; the inventory would never commit, and the home would send it again every 10 s.
     - An entry with an id over 128 characters, or a time zone over 64, is left out and counted (`refused`), while the rest of the inventory is stored.
     - A device whose location is neither in the snapshot nor stored is left out the same way.
@@ -875,7 +877,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **Errors:** one class, `unavailable` (the store-down error: Inquiry answers `BRIDGE_UNAVAILABLE`, never stale data, FR-006) or `failed`. A row State did not write is reported with no cause.
   - **Carry-forwards:**
     - **T018:**
-      - answer `unknown_location` with an `inventory_request`;
+      - answer `unknown_device` and `unknown_location` with an `inventory_request`;
       - a message that can never commit needs an end (log it, count it, ack it), as the home's rule for oversized messages does;
       - map the heartbeat's `push: off` to an absent push status;
       - log the inventory's `refused` and `removed` counts.
@@ -883,9 +885,10 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - **Iteration 002 (PT-23):** State's writes already run on a session inside the store, so sharing one transaction with Event Log and Audit is a small change.
 - **Requirement citation**: tasks.md T019, T018, T021 and T029; data-model.md "Location", "Device" and "Other stored state"; `contracts/connector-link.md` "Device inventory and state"; `contracts/mcp-tools.md` `list_devices` and `get_health`; research.md PT-26 and PT-30; spec FR-002, FR-005 and FR-006; implementation-rules.yml `code-rule.concurrency-over-locks` and `code-rule.robustness-state-boundaries`.
 - **Resolution**: implementation choices, recorded for the next co-review. Cost: 0 SP and $0.
-- **Class closure**: 25 new tests, run on SQLite and on a local SQL Server before the push. A deliberate break of eight parts was caught:
+- **Class closure**: 25 new tests, run on SQLite and on a local SQL Server before the push. A deliberate break of nine parts was caught:
   - a stale version applied;
   - an older inventory deleting a newer device;
+  - a late change bringing a removed device back (added with the follow-up);
   - `kind` not mapped to `type`;
   - a long name only one dialect accepts;
   - a device without its location breaking the inventory;

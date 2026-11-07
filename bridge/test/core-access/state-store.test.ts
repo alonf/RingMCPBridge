@@ -229,6 +229,42 @@ describeStoreMatrix("State", (store) => {
     ).resolves.toEqual(["d-door", "d-siren"]);
   });
 
+  it("adds a device only from an inventory, so a late change cannot bring a removed one back", async () => {
+    const { state } = await setUp();
+    await state.applyInventory(
+      { locations: [HOME], devices: [DOOR, SIREN] },
+      never(),
+    );
+    await state.applyInventory(
+      {
+        locations: [{ ...HOME, state_version: 10 }],
+        devices: [{ ...DOOR, state_version: 11 }],
+      },
+      never(),
+    );
+
+    await expect(
+      state.applyDevice({ ...SIREN, state_version: 9 }, never()),
+    ).resolves.toBe("unknown_device");
+    await expect(
+      state.applyDevice(
+        { ...SIREN, device_id: "d-new", state_version: 12 },
+        never(),
+      ),
+    ).resolves.toBe("unknown_device");
+    await expect(
+      state
+        .devices({}, never())
+        .then((devices) => devices.map((device) => device.device_id)),
+    ).resolves.toEqual(["d-door"]);
+    await expect(
+      state.applyDevice(
+        { ...DOOR, location_id: "loc-elsewhere", state_version: 13 },
+        never(),
+      ),
+    ).resolves.toBe("unknown_location");
+  });
+
   it("removes a location no longer listed once none of its devices is left", async () => {
     const { state } = await setUp();
     const away: LocationState = {
@@ -295,11 +331,11 @@ describeStoreMatrix("State", (store) => {
     ]);
   });
 
-  it("reports a device change for a location it does not hold, changing nothing", async () => {
+  it("reports a change for a device it does not hold, changing nothing", async () => {
     const { state } = await setUp();
 
     await expect(state.applyDevice(DOOR, never())).resolves.toBe(
-      "unknown_location",
+      "unknown_device",
     );
     await expect(state.devices({}, never())).resolves.toEqual([]);
   });

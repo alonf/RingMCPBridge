@@ -8,6 +8,8 @@
 // - **A full snapshot removes what Ring no longer lists.** The home draws an inventory's versions
 //   in one block, so an entry stored below the snapshot's lowest version, and absent from it, is
 //   gone at Ring. A newer change keeps its higher version and stays (T019).
+// - **Only an inventory adds a device.** A device change updates a device State holds, so a late
+//   change cannot bring back one a snapshot removed (T019 follow-up).
 // - **The same input is accepted on both dialects.** An id over the column's size, or a time zone
 //   over 64 characters, leaves that entry out, counted; a name or room over 400 characters is cut
 //   to fit. One odd entry never stops the rest of an inventory from being stored (T019).
@@ -105,13 +107,15 @@ export interface InventoryApplied {
 }
 
 /**
- * - `applied`: the device is stored;
+ * - `applied`: the device is updated;
  * - `older`: State already holds this version or a newer one; nothing changed;
- * - `unknown_location`: its location is not stored yet; an inventory brings it;
+ * - `unknown_device`: State does not hold the device: only an inventory adds one, so a late change
+ *   cannot bring back a device Ring no longer lists. Nothing changed; an inventory brings it;
+ * - `unknown_location`: the change moves it to a location State does not hold; nothing changed;
  * - `refused`: an id is longer than its column; nothing changed.
  */
 export type DeviceApplied =
-  "applied" | "older" | "unknown_location" | "refused";
+  "applied" | "older" | "unknown_device" | "unknown_location" | "refused";
 
 /** Which devices to read; each filter left out matches every device. */
 export interface DeviceFilter {
@@ -157,6 +161,10 @@ const SELECT_LOCATION = `SELECT ${LOCATION_COLUMNS} FROM location WHERE location
 const SELECT_LOCATION_VERSIONS =
   "SELECT location_id, state_version FROM location";
 const SELECT_DEVICE = `SELECT ${DEVICE_COLUMNS} FROM device WHERE device_id = @device_id`;
+const UPDATE_DEVICE =
+  "UPDATE device SET location_id = @location_id, name = @name, kind = @kind, room = @room, battery_pct = @battery_pct, battery_low = @battery_low, power_mode = @power_mode, online = @online, state = @state, as_of = @as_of, state_version = @state_version WHERE device_id = @device_id AND state_version < @state_version";
+const SELECT_DEVICE_ID =
+  "SELECT device_id FROM device WHERE device_id = @device_id";
 const SELECT_DEVICE_VERSIONS = "SELECT device_id, state_version FROM device";
 const DELETE_DEVICE =
   "DELETE FROM device WHERE device_id = @device_id AND state_version < @below";
@@ -234,7 +242,10 @@ export class StateStore {
     );
   }
 
-  /** Applies one device's full entry, latest-wins (a `device_state` message). */
+  /**
+   * Applies one device's full entry to a device State holds, latest-wins, in one conditional
+   * statement (a `device_state` message).
+   */
   async applyDevice(
     device: DeviceState,
     signal: AbortSignal,
@@ -247,9 +258,24 @@ export class StateStore {
         signal,
         "The device could not be stored.",
         () =>
-          this.#store.run(deviceUpsert(this.#store.dialect, device), signal),
+          this.#store.run(
+            statement(UPDATE_DEVICE, deviceValues(device)),
+            signal,
+          ),
       );
-      return changed > 0 ? "applied" : "older";
+      if (changed > 0) {
+        return "applied";
+      }
+      const held = await this.#guard(
+        signal,
+        "The device could not be read.",
+        () =>
+          this.#store.get(
+            statement(SELECT_DEVICE_ID, { device_id: device.device_id }),
+            signal,
+          ),
+      );
+      return held === undefined ? "unknown_device" : "older";
     } catch (error) {
       if (
         error instanceof StateStoreError &&
@@ -519,24 +545,28 @@ function deviceUpsert(dialect: SqlDialect, device: DeviceState): SqlStatement {
   return upsertStatement(dialect, {
     table: "device",
     key: ["device_id"],
-    values: {
-      device_id: device.device_id,
-      location_id: device.location_id,
-      name: fitted(device.name),
-      kind: device.type,
-      room: device.room === undefined ? null : fitted(device.room),
-      battery_pct: device.battery_pct ?? null,
-      battery_low:
-        device.battery_low === undefined ? null : Number(device.battery_low),
-      power_mode: device.power_mode,
-      online: Number(device.online),
-      state: JSON.stringify(device.state),
-      as_of: device.as_of,
-      state_version: device.state_version,
-    },
+    values: deviceValues(device),
     onConflict: "update",
     onlyIfNewer: "state_version",
   });
+}
+
+function deviceValues(device: DeviceState): SqlParams {
+  return {
+    device_id: device.device_id,
+    location_id: device.location_id,
+    name: fitted(device.name),
+    kind: device.type,
+    room: device.room === undefined ? null : fitted(device.room),
+    battery_pct: device.battery_pct ?? null,
+    battery_low:
+      device.battery_low === undefined ? null : Number(device.battery_low),
+    power_mode: device.power_mode,
+    online: Number(device.online),
+    state: JSON.stringify(device.state),
+    as_of: device.as_of,
+    state_version: device.state_version,
+  };
 }
 
 // Each filter adds a fixed condition with its own parameter; no text from the caller enters SQL.

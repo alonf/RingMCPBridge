@@ -129,7 +129,7 @@ Types:
   - when on, it is read-only, so control is refused (FR-036, US8 scenario 2);
   - its media is off by default (FR-036, SC7 C5);
   - it is turned on only after its owners' agreement is recorded (FR-036, SC7 C5).
-- **Retention:** overwritten (a projection kept for stale reads; DS §Inventory, AC B12).
+- **Retention:** overwritten (a projection kept for stale reads; DS §Inventory, AC B12). A newer full snapshot removes a location Ring no longer lists, once none of its devices is left (DRIFT-001-31).
 
 ### Device
 
@@ -156,7 +156,7 @@ Types:
   - names are stored and returned as written, in any language (FR-002);
   - names are never logged (OR6);
   - the battery alert is raised once per device per crossing of the threshold, or when Ring flags low (FR-007, RN §Sensor battery alerts). Battery alerts and the digest are 003 (CRP 2); `battery_pct` is listed from 001 (FR-002).
-- **Retention:** overwritten (DS §Inventory).
+- **Retention:** overwritten (DS §Inventory). A newer full snapshot removes a device Ring no longer lists, and only an inventory adds one (DRIFT-001-31).
 
 ### Event
 
