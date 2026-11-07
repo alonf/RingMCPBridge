@@ -500,7 +500,7 @@ Only the primary key is in the ERD. The other columns are [P].
                                 every older key ---------> [revoked]
  [active]  --at every hello: the core sends a fresh challenge; the connector signs it
  [active]  --a newer enrollment is approved-------------> [revoked]
- (a pending request lives 10 minutes as a `pending` row with its expiry in Settings' `connector` table; one per Ring account, a new one replaces it; PT-32)
+ (a pending request lives 10 minutes as a `pending` row with its expiry in Settings' `connector` table; one per Ring account, a new one replaces it; PT-32; a unique index allows one `pending` row, migration 3, DRIFT-001-28)
 ```
 
 ### Disarm lock

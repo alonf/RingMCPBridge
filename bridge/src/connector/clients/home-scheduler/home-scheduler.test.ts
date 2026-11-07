@@ -2,6 +2,7 @@
 // the heartbeat every 15 s, a failing tick logged once while the next still runs, and stopping.
 import { describe, expect, it } from "vitest";
 import { FakeClock } from "../../../utilities/clock/index.ts";
+import type { Clock } from "../../../utilities/clock/index.ts";
 import { Logger } from "../../../utilities/logging/index.ts";
 import type { Ingest } from "../../managers/ingest/index.ts";
 import {
@@ -88,5 +89,41 @@ describe("HomeScheduler", () => {
     await advance(clock, 60_000);
     expect(calls.sendDue).toEqual([10_000]);
     expect(calls.heartbeat).toEqual([]);
+  });
+
+  it("keeps only the current timer of each tick, however long it runs (round 4)", async () => {
+    const fake = new FakeClock(START);
+    let cancelled = 0;
+    const clock: Clock = {
+      now: () => fake.now(),
+      sleep: (ms, signal) => fake.sleep(ms, signal),
+      schedule: (ms, callback) => {
+        const cancel = fake.schedule(ms, callback);
+        return () => {
+          cancelled += 1;
+          cancel();
+        };
+      },
+      every: (ms, callback) => fake.every(ms, callback),
+    };
+    const ingest = {
+      sendDue: () => Promise.resolve(),
+      sendHeartbeat: () => Promise.resolve(),
+    } as unknown as Ingest;
+    const scheduler = new HomeScheduler({
+      ingest,
+      clock,
+      logger: new Logger({
+        sink: () => undefined,
+        now: () => 0,
+        minLevel: "debug",
+      }),
+    });
+    scheduler.start();
+
+    await advance(fake, 10 * 60_000);
+    await scheduler.stop();
+
+    expect(cancelled).toBe(2);
   });
 });

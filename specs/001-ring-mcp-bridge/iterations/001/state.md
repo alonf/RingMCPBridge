@@ -3,11 +3,20 @@
 **Schema**: v2
 **Last Completed Task**: T017
 **Tasks Remaining**: T018-T021 and T023-T036 (18 tasks, 21 story_points)
-**In Progress**: CP-09 (the link): its three tasks are done; co-review round 3 found four defects, fixed test-first (DRIFT-001-27); next round 4 of 4, which needs the owner's `approved for review round`
+**In Progress**: CP-09 (the link): its three tasks are done; co-review rounds 3 and 4 found six defects, all fixed test-first (DRIFT-001-27, DRIFT-001-28); the owner reset the round allowance; next the round that reviews the round 4 fixes
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T14:57:11Z
+**Updated**: 2026-11-07T16:00:44Z
 
 ## Execution Summary
+
+- CP-09's co-review round 4 (11 minutes, $0) passed the round 3 fixes and found two more real defects, now fixed test-first (DRIFT-001-28):
+  - two enrollment requests at the same instant could both stay waiting on SQL Server; migration 3 allows one, and the losing request tries once more;
+  - the Home Scheduler kept a timer handle for every tick it ever ran.
+
+  The owner reset the round allowance for another round. A deliberate break of three parts was caught. Checks:
+  - 808 tests: 725 pass and 83 skip without SQL Server; with it, 797 pass and 11 skip;
+  - coverage without SQL Server: 95.8% of lines and 93.6% of branches;
+  - lint, tsc, prettier and depcruise (203 modules) are clean.
 
 - CP-09's co-review round 3 (13 minutes, $0) found four real defects, now fixed test-first (DRIFT-001-27):
   - a stranger's `enroll` could end an enrolled home's session;

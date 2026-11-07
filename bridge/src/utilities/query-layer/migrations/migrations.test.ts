@@ -61,9 +61,13 @@ function shapeOf(statements: readonly string[]): string[] {
       const [, name = "", body = ""] = table;
       return [`table ${name}`, ...columnsOf(name, body)];
     }
-    const index = /^CREATE (UNIQUE )?INDEX (\w+) ON (\w+ \(.*\))$/.exec(sql);
+    // A partial (filtered) index keeps its WHERE, which both dialects write alike.
+    const index =
+      /^CREATE (UNIQUE )?INDEX (\w+) ON (\w+ \([^)]*\))( WHERE .*)?$/.exec(sql);
     if (index !== null) {
-      return [`${index[1] ?? ""}index ${index[2] ?? ""} on ${index[3] ?? ""}`];
+      return [
+        `${index[1] ?? ""}index ${index[2] ?? ""} on ${index[3] ?? ""}${index[4] ?? ""}`,
+      ];
     }
     // SQLite says `ADD COLUMN`; T-SQL says `ADD`.
     const added = /^ALTER TABLE (\w+) ADD (?:COLUMN )?(\w+ .*)$/.exec(sql);

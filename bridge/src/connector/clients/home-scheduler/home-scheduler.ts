@@ -23,7 +23,9 @@ export interface HomeSchedulerOptions {
 export class HomeScheduler {
   readonly #options: HomeSchedulerOptions;
   readonly #logger: Logger;
-  readonly #cancels: Cancel[] = [];
+  // The current timer of each tick, by kind: a tick replaces its own when it schedules the next, so
+  // only two are ever held, however long the connector runs (round 4).
+  readonly #cancels = new Map<string, Cancel>();
   readonly #running = new Set<Promise<void>>();
   #controller: AbortController | undefined;
 
@@ -55,9 +57,10 @@ export class HomeScheduler {
   async stop(): Promise<void> {
     this.#controller?.abort();
     this.#controller = undefined;
-    for (const cancel of this.#cancels.splice(0)) {
+    for (const cancel of this.#cancels.values()) {
       cancel();
     }
+    this.#cancels.clear();
     await Promise.all(this.#running);
   }
 
@@ -71,12 +74,15 @@ export class HomeScheduler {
       const running = this.#run(kind, signal, work).finally(() => {
         this.#running.delete(running);
         if (!signal.aborted) {
-          this.#cancels.push(this.#options.clock.schedule(intervalMs, tick));
+          this.#cancels.set(
+            kind,
+            this.#options.clock.schedule(intervalMs, tick),
+          );
         }
       });
       this.#running.add(running);
     };
-    this.#cancels.push(this.#options.clock.schedule(intervalMs, tick));
+    this.#cancels.set(kind, this.#options.clock.schedule(intervalMs, tick));
   }
 
   // The scheduler is the edge for its ticks: a failure Ingest did not handle is logged once here,

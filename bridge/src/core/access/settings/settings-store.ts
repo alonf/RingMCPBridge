@@ -270,39 +270,65 @@ export class SettingsStore {
       signal,
       "The enrollment request could not be saved.",
       () =>
-        this.#store.transaction(
-          async (session): Promise<EnrollmentRequestOutcome> => {
-            const row = await session.get(
-              statement(SELECT_KEY, { key_id: keyId }),
-              signal,
-            );
-            const status =
-              row === undefined
-                ? undefined
-                : parseRow(KEY_ROW, row, "connector").status;
-            if (status === "active") {
-              return { kind: "already_active", key_id: keyId };
-            }
-            if (status === "revoked") {
-              return { kind: "revoked", key_id: keyId };
-            }
-            const requestedAt = this.#clock.now();
-            const expiresAt = requestedAt + ENROLLMENT_REQUEST_TTL_MS;
-            await session.run(statement(DELETE_PENDING), signal);
-            await session.run(
-              statement(INSERT_PENDING, {
-                key_id: keyId,
-                public_key: request.public_key,
-                requested_at: requestedAt,
-                expires_at: expiresAt,
-                enrollment_code: request.code,
-              }),
-              signal,
-            );
-            return { kind: "pending", key_id: keyId, expires_at: expiresAt };
-          },
-          signal,
+        // Another request recorded at the same instant wins the race to the one waiting row
+        // (migration 3). The loser tries once more, and, being the newer, replaces it (round 4).
+        this.#onceMoreAfterARace(() =>
+          this.#recordRequest(request, keyId, signal),
         ),
+    );
+  }
+
+  async #onceMoreAfterARace<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      if (
+        error instanceof QueryLayerError &&
+        error.kind === "constraint_violated"
+      ) {
+        return work();
+      }
+      throw error;
+    }
+  }
+
+  #recordRequest(
+    request: EnrollmentRequest,
+    keyId: string,
+    signal: AbortSignal,
+  ): Promise<EnrollmentRequestOutcome> {
+    return this.#store.transaction(
+      async (session): Promise<EnrollmentRequestOutcome> => {
+        const row = await session.get(
+          statement(SELECT_KEY, { key_id: keyId }),
+          signal,
+        );
+        const status =
+          row === undefined
+            ? undefined
+            : parseRow(KEY_ROW, row, "connector").status;
+        if (status === "active") {
+          return { kind: "already_active", key_id: keyId };
+        }
+        if (status === "revoked") {
+          return { kind: "revoked", key_id: keyId };
+        }
+        const requestedAt = this.#clock.now();
+        const expiresAt = requestedAt + ENROLLMENT_REQUEST_TTL_MS;
+        await session.run(statement(DELETE_PENDING), signal);
+        await session.run(
+          statement(INSERT_PENDING, {
+            key_id: keyId,
+            public_key: request.public_key,
+            requested_at: requestedAt,
+            expires_at: expiresAt,
+            enrollment_code: request.code,
+          }),
+          signal,
+        );
+        return { kind: "pending", key_id: keyId, expires_at: expiresAt };
+      },
+      signal,
     );
   }
 

@@ -13,6 +13,7 @@ import type {
 import { FakeClock } from "../../src/utilities/clock/index.ts";
 import {
   CORE_MIGRATIONS,
+  QueryLayerError,
   runMigrations,
 } from "../../src/utilities/query-layer/index.ts";
 import type {
@@ -211,6 +212,91 @@ describeStoreMatrix("Settings", (store) => {
     await expect(settings.approveEnrollment(keyId, never())).resolves.toEqual({
       kind: "not_pending",
     });
+  });
+
+  it("refuses a second waiting request in the database itself (round 4)", async () => {
+    const { layer } = await setUp();
+    const insert = (keyId: string): Promise<number> =>
+      layer.run(
+        {
+          sql: "INSERT INTO connector (key_id, public_key, status, requested_at, expires_at) VALUES (@key_id, 'p', 'pending', 0, 1)",
+          params: { key_id: keyId },
+        },
+        never(),
+      );
+    await insert("first");
+
+    await expect(insert("second")).rejects.toMatchObject({
+      kind: "constraint_violated",
+    });
+  });
+
+  it("tries once more when another request won the race, and replaces it (round 4)", async () => {
+    const { layer, clock } = await setUp();
+    let refusals = 1;
+    const racing = new Proxy(layer, {
+      get(target, property) {
+        if (property === "transaction" && refusals > 0) {
+          refusals -= 1;
+          return () =>
+            Promise.reject(
+              new QueryLayerError(
+                "constraint_violated",
+                "Another request was recorded at the same instant.",
+              ),
+            );
+        }
+        const value: unknown = Reflect.get(target, property, target);
+        if (typeof value !== "function") {
+          return value;
+        }
+        const method = value as (...args: unknown[]) => unknown;
+        return method.bind(target);
+      },
+    });
+    const settings = new SettingsStore({
+      store: racing,
+      clock,
+      defaultBatteryThresholdPct: DEFAULT_THRESHOLD,
+    });
+    const publicKey = await newKey();
+
+    await expect(
+      settings.requestEnrollment(
+        { public_key: publicKey, code: "AAAA" },
+        never(),
+      ),
+    ).resolves.toMatchObject({ kind: "pending" });
+    await expect(settings.pendingEnrollment(never())).resolves.toMatchObject({
+      key_id: signingKeyId(publicKey),
+    });
+  });
+
+  it("leaves one waiting request when several arrive at once (round 4)", async () => {
+    const { settings, layer } = await setUp();
+    const keys = await Promise.all(Array.from({ length: 5 }, () => newKey()));
+
+    const outcomes = await Promise.all(
+      keys.map((publicKey, index) =>
+        settings.requestEnrollment(
+          { public_key: publicKey, code: `CODE-${String(index)}` },
+          never(),
+        ),
+      ),
+    );
+
+    expect(outcomes.map((outcome) => outcome.kind)).toEqual(
+      Array.from({ length: 5 }, () => "pending"),
+    );
+    await expect(
+      layer.all(
+        {
+          sql: "SELECT key_id FROM connector WHERE status = 'pending'",
+          params: {},
+        },
+        never(),
+      ),
+    ).resolves.toHaveLength(1);
   });
 
   it("keeps one request at a time: a new one replaces the one waiting", async () => {

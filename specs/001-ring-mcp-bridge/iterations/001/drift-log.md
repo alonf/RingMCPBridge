@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 27
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 8 in implement on 2026-11-07)
+**Total drift events**: 28
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 9 in implement on 2026-11-07)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -783,6 +783,30 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - the resend counted from when a message was taken;
   - `markWritten` restarting nothing;
   - `markWritten` making a message never taken look sent.
+
+### DRIFT-001-28: CP-09's co-review round 4 found two more real defects: concurrent enrollment requests on SQL Server, and timer handles the Home Scheduler never released
+
+- **Detected**: 2026-11-07, implement, by Codex co-review round 4 (run `run-20261107-153636996-5e841879`, checkpoint `cp-09-link-and-cp-16-accessors-review`, 11 minutes, $0). The round 3 fixes passed.
+- **Kind**: defects in code written at T022 and T016, found by review. No spec change
+- **Observed**: Specrew marked both as notes, not blockers. Checked against the code, both were real. The round budget was spent (4 of 4). The owner typed `approved for allowance reset`, which Specrew also counts as the approval for the next round, and asked for all issues to be fixed and another round run.
+  1. **Two enrollment requests at the same instant could both stay waiting, on SQL Server only** (T022).
+     - Settings replaces the waiting request in one transaction. On SQL Server two transactions run side by side and are not serialized, so two `enroll` requests from different keys within the same few milliseconds could each find none waiting, and both insert.
+     - The admin page would show only one, while the other could still be approved, although Connector Link had closed its link as replaced. SQLite was not affected: its Query layer runs one unit of work at a time.
+     - **A miss of mine:** I saw this race when writing T022 and let it go without recording it.
+     - A new test sends five requests at once. It failed on SQL Server before the fix, leaving more than one waiting row, which confirmed the race.
+     - **Fixed:**
+       - Migration 3 adds a unique index over the waiting rows (`connector_one_pending`, `WHERE status = 'pending'`) on both dialects. The database refuses a second waiting request.
+       - Settings tries once more after losing that race. Being the newer request, it then replaces the winner, so "the newest request wins" (PT-32) still holds.
+       - The migrations' dialect-parity test now reads a partial index's `WHERE`.
+  2. **The Home Scheduler kept a timer handle for every tick it ever ran** (T016).
+     - Each 10 s and 15 s tick added a cancellation handle that was released only when the connector stopped: about 14,400 a day (derived).
+     - **Fixed:** the scheduler keeps only the current handle of each tick, so it holds two at any time.
+- **Requirement citation**: tasks.md T016 and T022; research.md PT-32; data-model.md "Home part enrollment"; spec FR-032; implementation-rules.yml `code-rule.concurrency-over-locks` and `code-rule.robustness-state-boundaries`.
+- **Resolution**: fixed on 2026-11-07, test-first, for review in the round after the allowance reset. Cost: 0 SP and $0.
+- **Class closure**: 4 new tests, each failing on the old code: the database refusal and the second try on both dialects, the five requests at once on SQL Server, and the scheduler's handles. A deliberate break of three parts was caught:
+  - no index for one waiting request;
+  - no second try after losing the race;
+  - the scheduler keeping every timer it made.
 
 ### Resolution Strategies (Unused)
 
