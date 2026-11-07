@@ -3,11 +3,13 @@
 **Schema**: v2
 **Last Completed Task**: T017
 **Tasks Remaining**: T018-T021 and T023-T036 (18 tasks, 21 story_points)
-**In Progress**: CP-09 (the link): its three tasks are done; co-review rounds 3 to 5 found seven defects, all fixed test-first (DRIFT-001-27 to DRIFT-001-29); next another round, which needs the owner's `approved for review round`
+**In Progress**: CP-09 (the link) is done and its review is signed off (2026-11-07, DRIFT-001-30); next T019 (the core's State accessor), then T018 (Event's intake), which needs it
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T16:32:05Z
+**Updated**: 2026-11-07T17:47:22Z
 
 ## Execution Summary
+
+- **CP-09's review is signed off** (2026-11-07). The owner typed `stop the review here` after round 6. Its one finding, that migration 3 cannot install over two waiting enrollment requests, was accepted without a code change: no such database exists, and migrations may only add (DRIFT-001-30). Over rounds 3 to 6 (46 minutes, $0), seven real defects were found and fixed test-first. The signed-off tree is 000fd89.
 
 - CP-09's co-review round 5 (10 minutes, $0) passed the round 4 fixes and found one more real defect, in the Ring Adapter, now fixed test-first (DRIFT-001-29): reads the Ring library answers from memory reset the outage circuit and marked the session as fine. The test fake now models that memory. A deliberate break of four parts was caught. Checks:
   - 811 tests: 728 pass and 83 skip without SQL Server; with it, 800 pass and 11 skip;

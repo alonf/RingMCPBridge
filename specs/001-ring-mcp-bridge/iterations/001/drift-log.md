@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 29
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 10 in implement on 2026-11-07)
+**Total drift events**: 30
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 11 in implement on 2026-11-07)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -833,6 +833,22 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - the gate closing the circuit on any success.
 
   The first two tests missed the second and fourth breaks. The request to Ring that comes first while unavailable made memory reads irrelevant in the inventory path, so a third test reads one location's devices on its own during an outage, and catches both.
+
+### DRIFT-001-30: CP-09's co-review round 6 found that migration 3 cannot install over two waiting requests; the owner accepted it without a code change, and review sign-off completed
+
+- **Detected**: 2026-11-07, implement, by Codex co-review round 6 (run `run-20261107-164316936-6403505c`, checkpoint `cp-09-link-and-cp-16-accessors-review`, 12 minutes, $0). The round 5 fix passed.
+- **Kind**: a review finding the reviewer rated minor itself, accepted by the owner. No spec change
+- **Observed**:
+  - **The finding:** migration 3 creates a unique index that allows one waiting enrollment request. A database left at schema 2 with two waiting rows, from the race DRIFT-001-28 fixed, would fail to create it, and the migration would roll back.
+  - **Why no code change:**
+    - **No such database exists.** No release exists (`PREVIOUS_RELEASE_SCHEMA_VERSION` is 0), every test database starts empty, and the first deployment (T032) starts from an empty database. The reviewer noted the same.
+    - **The suggested fix would delete rows inside a migration.** The project's migrations may only add (DS5), so that code N-1 still runs on schema N, and a test refuses any other statement.
+    - Should a database ever hold two waiting rows before migration 3, the repair is to delete the older waiting row by hand. A waiting request lives 10 minutes anyway (PT-32).
+  - **Sign-off.** The owner typed `stop the review here`. Specrew checked the tree as it was (000fd89), saved the finding as a follow-up, and completed review sign-off for the link (CP-09) and the core's accessors (T022, first of CP-16).
+  - **The campaign over this span**, rounds 3 to 6 (46 minutes, $0): seven real defects found and fixed test-first (DRIFT-001-27 to DRIFT-001-29), and this one accepted. The owner reset the round allowance once, after round 4.
+- **Requirement citation**: research.md PT-32; data-model.md "Home part enrollment" and "Schema lifecycle"; DS5; implementation-rules.yml `project.built-in-first` (B6, forward-only additive migrations).
+- **Resolution**: accepted by the owner on 2026-11-07, with no code change. Review sign-off is complete. Cost: 0 SP and $0.
+- **Class closure**: NONE - no affected database can exist before the first release, and the additive-only rule already keeps migrations from changing data.
 
 ### Resolution Strategies (Unused)
 
