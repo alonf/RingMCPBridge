@@ -17,6 +17,7 @@ import type { RingChange } from "./ring-port.ts";
 
 const START = Date.UTC(2026, 10, 6, 9, 0, 0);
 const TOKEN = "rotated-token-for-the-test";
+const SIGN_IN_REFUSED = "Refresh token is not valid.";
 const STEP_MS = 1_000;
 
 interface Setup {
@@ -225,6 +226,106 @@ describe("RingApiAdapter failures", () => {
     const refused = await failureOf(clock, adapter.locations(never()));
     expect(refused.message).toContain("paused");
     expect(client.getLocationsCalls).toBe(calls);
+  });
+});
+
+// ring-client-api retries a call that gets no answer on its own, without end, and cannot be
+// cancelled; a call the adapter gave up on can still be reaching Ring (CP-07 review round 1).
+describe("RingApiAdapter calls Ring one at a time, counting the calls it gave up on", () => {
+  function hangUntilAnswered(client: FakeRingClient): () => void {
+    let answer: () => void = () => undefined;
+    client.nextFailure = () =>
+      new Promise<never>((_resolve, reject) => {
+        answer = () => {
+          reject(ringHttpError(503));
+        };
+      });
+    return () => {
+      answer();
+    };
+  }
+
+  it("makes no new Ring call during an outage while the call it gave up on still runs", async () => {
+    const { clock, client, adapter } = setup();
+    client.nextFailure = () => new Promise<never>(() => undefined);
+    for (let call = 0; call < 8; call += 1) {
+      const error = await failureOf(clock, adapter.locations(never()));
+      expect(error.kind).toBe("ring_unavailable");
+      await clock.advance(RING_CALL_LIMITS.circuit.probeIntervalMs);
+    }
+    expect(client.getLocationsCalls).toBe(1);
+  });
+
+  it("waits for a call it gave up on at the deadline, then calls Ring once it has ended", async () => {
+    const { clock, client, adapter } = setup();
+    const answerLate = hangUntilAnswered(client);
+    const first = await failureOf(clock, adapter.locations(never()));
+    expect(first.message).toContain("did not answer in time");
+
+    client.nextFailure = undefined;
+    const second = await failureOf(clock, adapter.locations(never()));
+    expect(second.kind).toBe("ring_unavailable");
+    expect(second.message).toContain("earlier call");
+    expect(client.getLocationsCalls).toBe(1);
+
+    answerLate();
+    await driveFakeClock(clock, adapter.locations(never()));
+    expect(client.getLocationsCalls).toBe(2);
+    expect(adapter.sessionStatus()).toBe("ok");
+  });
+
+  it("waits for a call the caller aborted before calling Ring again", async () => {
+    const { clock, client, adapter } = setup();
+    const answerLate = hangUntilAnswered(client);
+    const controller = new AbortController();
+    const reading = adapter.locations(controller.signal);
+    reading.catch(() => undefined);
+    await clock.advance(STEP_MS);
+    controller.abort(new Error("caller stopped"));
+    await expect(reading).rejects.toThrow("caller stopped");
+
+    client.nextFailure = undefined;
+    const next = adapter.locations(never());
+    next.catch(() => undefined);
+    await clock.advance(5 * STEP_MS);
+    expect(client.getLocationsCalls).toBe(1);
+    answerLate();
+    await driveFakeClock(clock, next);
+    expect(client.getLocationsCalls).toBe(2);
+  });
+
+  it("does not call Ring when the caller aborted before its turn came", async () => {
+    const { clock, client, adapter } = setup();
+    const controller = new AbortController();
+    controller.abort(new Error("caller stopped"));
+    await expect(
+      driveFakeClock(clock, adapter.locations(controller.signal)),
+    ).rejects.toThrow("caller stopped");
+    expect(client.getLocationsCalls).toBe(0);
+  });
+
+  it("keeps a lost session lost for a call already waiting its turn, without calling Ring", async () => {
+    const { clock, client, adapter, changes } = setup();
+    let refuse: () => void = () => undefined;
+    client.nextFailure = () =>
+      new Promise<never>((_resolve, reject) => {
+        refuse = () => {
+          reject(new Error(SIGN_IN_REFUSED));
+        };
+      });
+    const first = adapter.locations(never());
+    first.catch(() => undefined);
+    await clock.advance(STEP_MS);
+    client.nextFailure = undefined;
+    const second = adapter.locations(never());
+    second.catch(() => undefined);
+
+    refuse();
+    expect((await failureOf(clock, first)).kind).toBe("session_lost");
+    expect((await failureOf(clock, second)).kind).toBe("session_lost");
+    expect(client.getLocationsCalls).toBe(1);
+    expect(adapter.sessionStatus()).toBe("lost");
+    expect(changes).toEqual([{ kind: "session", status: "lost" }]);
   });
 });
 

@@ -3,11 +3,26 @@
 **Schema**: v2
 **Last Completed Task**: T014
 **Tasks Remaining**: T015-T036 (22 tasks, 25 story_points)
-**In Progress**: none; CP-08a (T014) is complete; next T015 (CP-09). CP-07 is reviewed with CP-06 after T028 (owner, 2026-11-06), which needs an allowance reset first
+**In Progress**: the CP-08a co-review. Round 1 found two Ring Adapter faults, both now fixed; round 2 waits for the owner's typed `approved for review round`. Next: `@types/ws` (owner's choice a), then T015 (CP-09)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-06T21:55:00Z
+**Updated**: 2026-11-07T00:30:00Z
 
 ## Execution Summary
+
+- CP-08a co-review (codex; checkpoint `cp-08a-outbox-ingest-review`). The owner typed `approved for allowance reset` to review T014 and the migration-runner change now, rather than fold them into the round after T028. The reset cost $0, and Specrew counted it as the round approval.
+  - **Round 1 of 4** (`run-20261106-234102754-7edcd9ba`, 9 minutes) reviewed everything since the last sign-off (T011): T012, T013, T014 and the runner change. CP-07 has therefore had its co-review. It found nothing in T012, T014 or the runner. It found two faults in the Ring Adapter, both confirmed by reading the code and both demoted to minor by Specrew:
+    - a call given up on at the deadline or on abort kept reaching Ring through ring-client-api's own endless retries, and each later timeout added another loop;
+    - a call queued before the session was lost still reached Ring, and could change `lost` back.
+  - **The owner chose to fix now and run one more round.** Both fixes are made, each after a test that failed on the old code:
+    - at most one library call runs at a time, counting one given up on;
+    - the lost check runs again when a queued call's turn comes, and `lost` is final.
+
+    A deliberate break of three parts was caught. Details are in DRIFT-001-20. Checks:
+    - 612 tests: 563 pass and 49 skip without SQL Server;
+    - coverage without SQL Server: 94.7% of statements and 94.1% of branches;
+    - lint, tsc, prettier and depcruise (142 modules) are clean.
+  - **Round 2** waits for the owner's typed `approved for review round`. The owner asked for its findings, if any, to be fixed after it.
+  - **Owner's choice for T015's types:** (a) `@types/ws` 8.18.2, dev-only, MIT, $0. It is installed after the review, so the reviewed tree does not change.
 
 - T014 (the Outbox Store and Ingest's state path; completes CP-08a) is done:
   - **the Outbox Store** (`bridge/src/connector/access/outbox-store/`), in the connector's own SQLite file. A message is written before it is sent. It is resent 10 s after a send without an ack, sent again oldest first after a reconnect, and cleared only on its ack. The `state_version` counter is saved in the same transaction as its message, so versions keep rising across a restart;

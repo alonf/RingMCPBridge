@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 19
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06)
+**Total drift events**: 20
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 1 in implement on 2026-11-07)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -312,7 +312,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Observed**:
   - **ring-client-api retries on its own, without end.** It retries a request that gets no answer every 5 s, a 504 every 5 s, and a 404 with a known Ring error code every 20 s. On a 401 it refreshes the token and tries again. None of its calls take a cancel signal.
     - So the adapter gives each call a 30 s deadline (`RING_CALL_TIMEOUT_MS`), after which the call counts as `ring_unavailable`. It also passes on the caller's abort.
-    - The library keeps retrying in the background after a deadline. Its late failure is observed and dropped, so it can never become an unhandled rejection. The circuit opens after 5 failures, so only a few such calls can retry at once.
+    - The library keeps retrying in the background after a deadline. Its late failure is observed and dropped, so it can never become an unhandled rejection. The circuit opens after 5 failures, so only a few such calls can retry at once. (Wrong: each minute's probe added another loop. Since 2026-11-07, a new call waits for the abandoned one, so only one runs; see DRIFT-001-20.)
     - The library's own polling options stay unset, so it polls nothing itself (FR-026).
   - **ring-client-api logs Ring's content.** Its log lines quote URLs and Ring's response bodies. `ring-client.live.ts` installs a silent logger through its `useLogger` hook, and failures reach the bridge's log only as `RingAdapterError` (FR-034, OR6).
   - **Errors.** Only the HTTP status and two known sign-in refusals are read ("Refresh token is not valid", and the 2FA message). A 401 that reaches the adapter (after the library's own refresh) or a refusal is `session_lost`. Anything else is `ring_unavailable`, named by its status: 406 counts as blocking, then 429, 5xx, another status, or no answer. The library's message, body and URL are never copied or attached as a cause.
@@ -328,7 +328,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **Changes.** After a read, the adapter watches each alarm device's data stream and reports what follows, not the data the read already returned. A change of the alarm panel's mode is reported as a location change. Cameras report no changes until push arrives (iteration 002), because polling stays off.
   - **No rooms yet.** Ring's room names come from a websocket room list whose payload shape no recorded data confirms, so `room` is absent in iteration 001 and `list_devices`'s room filter finds nothing on a real home. **Carry-forward to the pilot:** read the room list once a scrubbed recorded payload has been reviewed.
   - **Offline detection rests on `commStatus`**, which Ring's device documents carry but the library does not type. If Ring does not send it, every alarm device counts as online, and `get_overview` lists no offline device. **Carry-forward to the pilot:** confirm the field on the owner's home.
-  - **The owner's decisions (2026-11-06):** T013 stays complete, with both carry-forwards checked in the pilot. CP-07's co-review is folded into one round with CP-06 after T028, covering T012, T013 and T028 (about 10 to 12 minutes of Codex time). That round needs a typed `approved for allowance reset` first, because all 4 rounds are used.
+  - **The owner's decisions (2026-11-06):** T013 stays complete, with both carry-forwards checked in the pilot. CP-07's co-review is folded into one round with CP-06 after T028, covering T012, T013 and T028 (about 10 to 12 minutes of Codex time). That round needs a typed `approved for allowance reset` first, because all 4 rounds are used. (Overtaken on 2026-11-07: the CP-08a round reviewed T012 and T013 too; see DRIFT-001-20.)
   - **Where the parts are:**
     - The narrow client types are in `ring-client.ts`. The compiler checks that the real `RingApi` fits them, in `ring-client.live.ts`.
     - The fake client both test suites use is in `bridge/test/support/fake-ring-client.ts`.
@@ -373,6 +373,29 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Class closure**: 28 tests run in the suite: the store's on the fake clock and over a real file across a restart, and Ingest's over the simulated home and a real outbox. A deliberate break of eight parts was caught:
   - the store: a resend one moment late, newest first, a counter that is not saved, a reconnect that sends nothing again, and an ack that does not clear;
   - Ingest: a `device_state` that carries only the change, a read that drops the changes made during it, and an alarm-mode change that is ignored.
+
+### DRIFT-001-20: the CP-08a co-review also reviewed T012 and T013, and found two Ring Adapter faults in how calls end
+
+- **Detected**: 2026-11-07, implement, in the codex co-review round for checkpoint `cp-08a-outbox-ingest-review` (`run-20261106-234102754-7edcd9ba`, 9 minutes, round 1 of 4 after the reset)
+- **Kind**: review scope versus the owner's plan, and two code faults found by the review. No spec change
+- **Observed**:
+  - **Scope.** The owner typed `approved for allowance reset` to review T014 and the migration-runner change now. Specrew measures a round from the last signed-off tree (T011), so the round reviewed T012, T013, T014 and the runner change together. CP-07 (T013) has therefore had its co-review, and the round after T028 no longer needs to carry it (this replaces the owner's 2026-11-06 fold in DRIFT-001-18). The reset cost $0, and Specrew counted the reset approval as the round approval.
+  - **Findings.** Codex found nothing in T012, T014 or the runner change. Its two findings are both in `ring-api-adapter.ts`, and both were confirmed by reading the code. Specrew demoted both from major to minor, because neither stated a concrete failure scenario, so neither blocks sign-off.
+    1. **Calls given up on kept reaching Ring.** At the 30 s deadline, or on the caller's abort, the adapter rejected the call and the gate let the next call start. ring-client-api, which cannot be cancelled, kept retrying the abandoned call every 5 s (DRIFT-001-18). Each call that timed out therefore left one more retry loop, and once the circuit was open, each minute's probe added another. DRIFT-001-18's "only a few such calls can retry at once" was wrong. For example, an hour of Ring answering 504 would end with about 65 loops, roughly 13 requests a second (derived). That goes against FR-026's single limiter and FR-042's backoff.
+    2. **A lost session could be undone.** The lost-session check ran before a call queued at the gate. A call that had queued before another call lost the session still reached Ring when its turn came. Its success set the status to `ok`, and a timeout set it to `unavailable`. Either way, calls went on reaching Ring with a refused sign-in. This was a check-then-act across an await, which `code-rule.concurrency-over-locks` rules out.
+  - **The fixes** (owner's choice, 2026-11-07: fix now, then one more round):
+    1. At most one ring-client-api call runs at a time, counting one the adapter gave up on. A new call waits for the last library call to end. Its own deadline and the caller's signal cover that wait. While it waits, it never starts a second library call. A call given up on while it waits never reaches Ring, and it reports "Ring has not yet answered an earlier call", which is `ring_unavailable`. During an outage, only the one abandoned call's retries reach Ring.
+    2. The lost check runs again in the same turn as the library call starts, so a queued call is refused as `session_lost` without reaching Ring. A second guard makes `lost` final where the status is set. No current path can reach that guard, because of fix 2 and one call at a time, so no test can catch its removal.
+- **Requirement citation**: spec FR-026 and FR-042; research.md R25; implementation-rules.yml `code-rule.concurrency-over-locks`; DRIFT-001-18.
+- **Resolution**: fixed on 2026-11-07, each fix after a test that failed on the old code. The next co-review round (2 of 4, about 9 minutes of Codex time, estimated from round 1) reviews the fixes. Cost: 0 SP and $0.
+- **Class closure**: 5 new adapter tests run in the suite:
+  - an outage of 8 calls, with probes, makes 1 Ring call (it made 8 before the fix);
+  - a call waits for an earlier call given up on at the deadline;
+  - a call waits for an earlier call the caller aborted;
+  - a call aborted before its turn makes no Ring call;
+  - a lost session stays lost for a queued call.
+
+  A deliberate break of three parts was caught: not waiting for the earlier call, no lost check at the call's start, and a call given up on while waiting still calling Ring.
 
 ### Resolution Strategies (Unused)
 
