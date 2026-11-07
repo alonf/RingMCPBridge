@@ -34,8 +34,13 @@ export interface RingClientDevice {
   readonly onData: RingClientStream<RingClientDeviceData>;
 }
 
-/** A camera or doorbell. */
-export interface RingClientCamera {
+/** A camera's data as Ring sends it. The adapter only hands it back to its camera. */
+export interface RingClientCameraData {
+  readonly id: number;
+}
+
+/** What a camera or doorbell reports: the fields the mapping reads. */
+export interface RingClientCameraFields {
   readonly id: number;
   readonly name: string;
   readonly isDoorbot: boolean;
@@ -43,6 +48,14 @@ export interface RingClientCamera {
   readonly batteryLevel: number | null;
   readonly hasLowBattery: boolean;
   readonly isOffline: boolean;
+}
+
+/**
+ * A camera or doorbell. ring-client-api builds it once, with the data of the first read, and
+ * changes it only when its data is replaced: the adapter does that on each read (`updateData`).
+ */
+export interface RingClientCamera extends RingClientCameraFields {
+  updateData(data: RingClientCameraData): void;
 }
 
 /** A location's details as Ring sends them. */
@@ -67,7 +80,12 @@ export interface RingClientLocation {
 
 /** The client: the owner's Ring account. */
 export interface RingClient {
+  /** The locations, built once on the first call: later calls return the same objects. */
   getLocations(): Promise<readonly RingClientLocation[]>;
+  /** Every device on the account, fresh from Ring: one call. */
+  fetchRingDevices(): Promise<{
+    readonly allCameras: readonly RingClientCameraData[];
+  }>;
   getProfile(): Promise<{ readonly profile: { readonly id: number } }>;
   /** Ring rotated the refresh token; the new one must be saved. */
   readonly onRefreshTokenUpdated: RingClientStream<{

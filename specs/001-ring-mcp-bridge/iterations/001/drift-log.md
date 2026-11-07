@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 20
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 1 in implement on 2026-11-07)
+**Total drift events**: 21
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 2 in implement on 2026-11-07)
 **Specification drift**: None detected (two tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -325,7 +325,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - State uses the scenario engine's words (`open`, `motion`, `flood`, `on`, `level`, `tampered`). A camera's state is empty in iteration 001.
     - A location's time zone falls back to UTC when Ring's address time zone is not an IANA name.
     - Owned versus shared comes from comparing the location's owner with the account's profile id.
-  - **Changes.** After a read, the adapter watches each alarm device's data stream and reports what follows, not the data the read already returned. A change of the alarm panel's mode is reported as a location change. Cameras report no changes until push arrives (iteration 002), because polling stays off.
+  - **Changes.** After a read, the adapter watches each alarm device's data stream and reports what follows, not the data the read already returned. A change of the alarm panel's mode is reported as a location change. Cameras report no changes until push arrives (iteration 002), because polling stays off. (Since 2026-11-07, each device read refreshes the cameras from Ring; see DRIFT-001-21.)
   - **No rooms yet.** Ring's room names come from a websocket room list whose payload shape no recorded data confirms, so `room` is absent in iteration 001 and `list_devices`'s room filter finds nothing on a real home. **Carry-forward to the pilot:** read the room list once a scrubbed recorded payload has been reviewed.
   - **Offline detection rests on `commStatus`**, which Ring's device documents carry but the library does not type. If Ring does not send it, every alarm device counts as online, and `get_overview` lists no offline device. **Carry-forward to the pilot:** confirm the field on the owner's home.
   - **The owner's decisions (2026-11-06):** T013 stays complete, with both carry-forwards checked in the pilot. CP-07's co-review is folded into one round with CP-06 after T028, covering T012, T013 and T028 (about 10 to 12 minutes of Codex time). That round needs a typed `approved for allowance reset` first, because all 4 rounds are used. (Overtaken on 2026-11-07: the CP-08a round reviewed T012 and T013 too; see DRIFT-001-20.)
@@ -387,7 +387,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     1. At most one ring-client-api call runs at a time, counting one the adapter gave up on. A new call waits for the last library call to end. Its own deadline and the caller's signal cover that wait. While it waits, it never starts a second library call. A call given up on while it waits never reaches Ring, and it reports "Ring has not yet answered an earlier call", which is `ring_unavailable`. During an outage, only the one abandoned call's retries reach Ring.
     2. The lost check runs again in the same turn as the library call starts, so a queued call is refused as `session_lost` without reaching Ring. A second guard makes `lost` final where the status is set. No current path can reach that guard, because of fix 2 and one call at a time, so no test can catch its removal.
 - **Requirement citation**: spec FR-026 and FR-042; research.md R25; implementation-rules.yml `code-rule.concurrency-over-locks`; DRIFT-001-18.
-- **Resolution**: fixed on 2026-11-07, each fix after a test that failed on the old code. The next co-review round (2 of 4, about 9 minutes of Codex time, estimated from round 1) reviews the fixes. Cost: 0 SP and $0.
+- **Resolution**: fixed on 2026-11-07, each fix after a test that failed on the old code. Round 2 reviewed the fixes and found no fault in them, and review sign-off completed (below). Its one new finding was fixed as a follow-up. Cost: 0 SP and $0. Codex time: 17 minutes over 2 rounds.
 - **Class closure**: 5 new adapter tests run in the suite:
   - an outage of 8 calls, with probes, makes 1 Ring call (it made 8 before the fix);
   - a call waits for an earlier call given up on at the deadline;
@@ -396,6 +396,29 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a lost session stays lost for a queued call.
 
   A deliberate break of three parts was caught: not waiting for the earlier call, no lost check at the call's start, and a call given up on while waiting still calling Ring.
+- **Round 2** (`run-20261107-001546242-41b0ecfa`, 8 minutes, round 2 of 4; Specrew's total is 17 minutes over 2 rounds) found nothing wrong with the two fixes. It found 1 new finding, which fix 1 introduced, and it was confirmed by reading the code. Specrew demoted it to minor.
+  - **The finding.** The gate books the 1 s spacing when a call's turn begins. Fix 1 then makes the call wait for an abandoned call before it reaches Ring, so the booked second can pass during the wait. In Codex's example, a call reaches Ring at t=35 while its spacing ended at t=33. If it answers quickly, the next call goes at once: a burst during recovery.
+  - The owner typed `stop the review here`. Review sign-off completed on 2026-11-07, on exactly the tree round 2 reviewed (1d172a2). The finding was then fixed as a follow-up, as the owner had agreed before round 2.
+  - **The fix.** The gate gains `markCallStarted`, which books the spacing again from now. The adapter calls it at the moment a library call really starts. Two tests failed on the old code and pass now: one on the gate, and one on the adapter that follows Codex's example. A deliberate break, with the call removed, was caught. It is reviewed in the next co-review round.
+
+### DRIFT-001-21: an external review found that a read reported cached camera data as fresh
+
+- **Detected**: 2026-11-07, implement. An external reviewer the owner engaged reviewed commit 1d172a2 and ran the checks independently: 563 tests passed, 49 skipped, and coverage was 95.04% of lines and 94.10% of branches. The owner pasted the report into the session.
+- **Kind**: a code fault at the Ring boundary, which the tests and both co-review rounds missed, plus two points carried forward. No spec change
+- **Observed**:
+  - **Cached cameras.** ring-client-api builds its locations once (`getLocations` caches them for the life of the process), and builds their cameras from one call to Ring at that first read. A camera's data changes only through the library's camera polling, and the adapter keeps that off (FR-026, DRIFT-001-18). So every later device read mapped the first read's battery and online state, and Ingest stamped it with a new `as_of` and `state_version`. The reviewer reproduced it offline with the library's own caching: a camera that went to 5% and offline still read 60% and online, marked as fresh. This was confirmed in the library's code (`api.js`: `getLocations`, `listenForDeviceUpdates`). The fake Ring client did not cache that way, so the tests could not see it.
+  - **The fix.** On each device read for a location that has cameras, the adapter fetches the account's devices through the gate (one call, `fetchRingDevices`). It then refreshes each camera from that data with the library's own `updateData`, exactly as the library's polling would, before mapping it. A camera Ring no longer lists is left out, not reported from the old copy. A location without cameras makes no extra call. The narrow client types gained `fetchRingDevices` and `updateData`, and the compiler checks that the real `RingApi` still fits them. The mapping reads a camera's fields only (`RingClientCameraFields`).
+  - **The fake Ring client now caches as the library does.** It returns the same location objects every time. Its cameras keep their first data until `updateData` replaces it, and `upstreamCameras` models Ring's current answer.
+  - **Cost:** $0, and one extra Ring call per location with cameras on each inventory read. Inventory reads happen at session start and on `inventory_request` (derived).
+  - **Limits that stay:**
+    - Between reads, camera changes arrive only with push (iteration 002).
+    - The library keeps its location list from the first read, so a camera or location added or renamed in Ring after the connector starts appears only after a restart. **Carry-forward to the pilot:** check this on the owner's home.
+  - **Carry-forwards:**
+    - **The `ip` advisory** (GHSA-2p57-rm9w-gvfp, high). It reaches the bridge through werift and ring-client-api: npm lists 3 high entries for 1 advisory. It is already an accepted exception in `scripts/audit-exceptions.json`, until ring-client-api ships werift 0.25. Before live media is enabled, recheck whether the bridge can reach it.
+    - **CI's build step builds nothing yet.** The workflow runs `npm run build --if-present`, and there is no build script. It must become a real build check with T027, which adds the Host and `bridge/Dockerfile`.
+- **Requirement citation**: spec FR-002 and FR-026; tasks.md T013 and T027; research.md R25; implementation-rules.yml `code-rule.anti-corruption-layers`; DRIFT-001-18.
+- **Resolution**: fixed on 2026-11-07, after two tests that failed on the old code. It is reviewed in the next co-review round. Cost: 0 SP and $0.
+- **Class closure**: the fake now models the library's caching, so a read that trusts the cached copy fails a test. A deliberate break of three parts was caught: a camera that is not refreshed, a camera Ring no longer lists that is kept, and a refresh call for a location without cameras.
 
 ### Resolution Strategies (Unused)
 

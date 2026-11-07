@@ -5,7 +5,7 @@
 // ring-client-api's own objects crosses the port.
 import { isValidTimeZone } from "../../../utilities/clock/index.ts";
 import type {
-  RingClientCamera,
+  RingClientCameraFields,
   RingClientDeviceData,
   RingClientLocationDetails,
 } from "./ring-client.ts";
@@ -176,7 +176,7 @@ export function deviceEntry(
 
 /** A camera's or doorbell's entry. */
 export function cameraEntry(
-  camera: RingClientCamera,
+  camera: RingClientCameraFields,
   locationId: string,
 ): RingDevice {
   const level = camera.hasBattery ? percentOf(camera.batteryLevel) : undefined;

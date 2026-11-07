@@ -1,6 +1,7 @@
 // The limits on every outgoing Ring call (FR-026, FR-042, R25; spec Edge Cases "Ring blocks or
 // rate-limits the bridge"). One gate is shared by every call the Ring Adapter makes:
-//   - one call at a time, each starting at least `spacingMs` after the last, so there is no burst;
+//   - one call at a time, each starting at least `spacingMs` after the last, so there is no burst.
+//     A call that reaches Ring later than its turn began books the spacing again from then;
 //   - after a `ring_unavailable` failure, the next call waits a growing, randomised backoff;
 //   - after 5 such failures in a row the circuit opens: calls are refused without reaching Ring,
 //     and one probe goes through each minute. A success closes it.
@@ -164,6 +165,18 @@ export class RingCallGate {
   /** True while the circuit is open and calls are refused between probes. */
   get isPaused(): boolean {
     return this.#circuit.isOpen;
+  }
+
+  /**
+   * Books the spacing again from now. For work whose Ring call starts later than its turn did,
+   * such as one that first waits for an earlier call to end: the next call then starts at least
+   * `spacingMs` after this one really reached Ring.
+   */
+  markCallStarted(): void {
+    this.#nextStartAt = Math.max(
+      this.#nextStartAt,
+      this.#clock.now() + this.#limits.spacingMs,
+    );
   }
 
   /**

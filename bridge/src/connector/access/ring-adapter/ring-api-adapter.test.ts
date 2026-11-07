@@ -8,12 +8,13 @@ import { RING_CALL_LIMITS, RingCallGate } from "./call-limits.ts";
 import { RingApiAdapter } from "./ring-api-adapter.ts";
 import {
   driveFakeClock,
+  FAKE_DOORBELL,
   FAKE_RING_BODY,
   FakeRingClient,
   ringHttpError,
 } from "../../../../test/support/fake-ring-client.ts";
 import { RingAdapterError } from "./ring-adapter-error.ts";
-import type { RingChange } from "./ring-port.ts";
+import type { RingChange, RingDevice } from "./ring-port.ts";
 
 const START = Date.UTC(2026, 10, 6, 9, 0, 0);
 const TOKEN = "rotated-token-for-the-test";
@@ -110,6 +111,50 @@ describe("RingApiAdapter reads", () => {
       expect(Object.getPrototypeOf(device)).toBe(Object.prototype);
     }
     expect(JSON.parse(JSON.stringify(devices))).toEqual(devices);
+  });
+
+  // ring-client-api builds its cameras once and, with its polling off, never refreshes them; a
+  // later read must not return the first read's copy as current (external review, 2026-11-07).
+  it("reads each camera's battery and online state fresh from Ring on every read", async () => {
+    const { clock, client, adapter } = setup();
+    const doorbellOf = async (): Promise<RingDevice | undefined> =>
+      (await driveFakeClock(clock, adapter.devices("loc-1", never()))).find(
+        (device) => device.device_id === String(FAKE_DOORBELL.id),
+      );
+    expect(await doorbellOf()).toMatchObject({ battery_pct: 60, online: true });
+
+    client.upstreamCameras = [
+      {
+        ...FAKE_DOORBELL,
+        batteryLevel: 5,
+        hasLowBattery: true,
+        isOffline: true,
+      },
+    ];
+    expect(await doorbellOf()).toMatchObject({
+      battery_pct: 5,
+      battery_low: true,
+      online: false,
+    });
+    expect(client.getLocationsCalls).toBe(1);
+    expect(client.fetchRingDevicesCalls).toBe(2);
+  });
+
+  it("leaves out a camera Ring no longer lists, and asks for no cameras where there are none", async () => {
+    const { clock, client, adapter } = setup();
+    client.upstreamCameras = [];
+    const devices = await driveFakeClock(
+      clock,
+      adapter.devices("loc-1", never()),
+    );
+    expect(devices.map((device) => device.device_id)).toEqual(["z-contact"]);
+
+    const calls = client.fetchRingDevicesCalls;
+    for (const location of client.locationsList) {
+      location.cameras = [];
+    }
+    await driveFakeClock(clock, adapter.devices("loc-2", never()));
+    expect(client.fetchRingDevicesCalls).toBe(calls);
   });
 
   it("returns no devices for a location Ring does not know", async () => {
@@ -272,6 +317,35 @@ describe("RingApiAdapter calls Ring one at a time, counting the calls it gave up
     await driveFakeClock(clock, adapter.locations(never()));
     expect(client.getLocationsCalls).toBe(2);
     expect(adapter.sessionStatus()).toBe("ok");
+  });
+
+  it("keeps the spacing after a call that reached Ring late, once the call it gave up on ended", async () => {
+    const { clock, client, adapter } = setup();
+    const answerLate = hangUntilAnswered(client);
+    await failureOf(clock, adapter.locations(never()));
+
+    client.nextFailure = undefined;
+    const starts: number[] = [];
+    const getLocations = client.getLocations.bind(client);
+    const getProfile = client.getProfile.bind(client);
+    client.getLocations = () => {
+      starts.push(clock.now());
+      return getLocations();
+    };
+    client.getProfile = () => {
+      starts.push(clock.now());
+      return getProfile();
+    };
+    const reading = adapter.locations(never());
+    reading.catch(() => undefined);
+    await clock.advance(5 * STEP_MS);
+    answerLate();
+    await driveFakeClock(clock, reading);
+    expect(starts).toHaveLength(2);
+    const [locationsAt = 0, profileAt = 0] = starts;
+    expect(profileAt - locationsAt).toBeGreaterThanOrEqual(
+      RING_CALL_LIMITS.spacingMs,
+    );
   });
 
   it("waits for a call the caller aborted before calling Ring again", async () => {

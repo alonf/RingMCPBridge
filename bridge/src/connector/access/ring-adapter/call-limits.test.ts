@@ -121,6 +121,25 @@ describe("RingCallGate", () => {
     expect(starts).toEqual([START, START + 1_000, START + 2_000]);
   });
 
+  it("spaces the next call from when a late call really reached Ring", async () => {
+    const clock = new FakeClock(START);
+    const gate = new RingCallGate(clock, LIMITS, NO_JITTER);
+    const starts: number[] = [];
+    const late = gate.call(never(), async () => {
+      await clock.sleep(5_000);
+      gate.markCallStarted();
+      starts.push(clock.now());
+      return "late";
+    });
+    const next = gate.call(never(), () => {
+      starts.push(clock.now());
+      return Promise.resolve("next");
+    });
+    await clock.advance(10_000);
+    await expect(Promise.all([late, next])).resolves.toEqual(["late", "next"]);
+    expect(starts).toEqual([START + 5_000, START + 6_000]);
+  });
+
   it("holds the next call for the backoff after a failure, and resets it on success", async () => {
     const clock = new FakeClock(START);
     const gate = new RingCallGate(clock, LIMITS, NO_JITTER);

@@ -3,9 +3,9 @@
 **Schema**: v2
 **Last Completed Task**: T014
 **Tasks Remaining**: T015-T036 (22 tasks, 25 story_points)
-**In Progress**: the CP-08a co-review. Round 1 found two Ring Adapter faults, both now fixed; round 2 waits for the owner's typed `approved for review round`. Next: `@types/ws` (owner's choice a), then T015 (CP-09)
+**In Progress**: none; the CP-08a co-review is signed off (2026-11-07), and its follow-up and the external review's camera fix are done. Next: `@types/ws` (owner's choice a), then T015 (CP-09)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T00:30:00Z
+**Updated**: 2026-11-07T01:10:00Z
 
 ## Execution Summary
 
@@ -21,8 +21,14 @@
     - 612 tests: 563 pass and 49 skip without SQL Server;
     - coverage without SQL Server: 94.7% of statements and 94.1% of branches;
     - lint, tsc, prettier and depcruise (142 modules) are clean.
-  - **Round 2** waits for the owner's typed `approved for review round`. The owner asked for its findings, if any, to be fixed after it.
+  - **Round 2 of 4** (`run-20261107-001546242-41b0ecfa`, 8 minutes; Specrew's total is 17 minutes over 2 rounds) found nothing wrong with the fixes. It found 1 new minor finding, confirmed by reading the code: fix 1 let the 1 s spacing pass while a call waited for an abandoned one. The owner typed `stop the review here`, and review sign-off completed on 2026-11-07 on exactly the tree round 2 reviewed (1d172a2).
+  - **The follow-up is fixed:** the gate books the spacing again when a call really reaches Ring (`markCallStarted`). This came after two tests that failed on the old code.
   - **Owner's choice for T015's types:** (a) `@types/ws` 8.18.2, dev-only, MIT, $0. It is installed after the review, so the reviewed tree does not change.
+
+- An external review of 1d172a2, pasted by the owner, found that a device read reported ring-client-api's cached camera data as fresh. With its polling off, the library never refreshes a camera after the first read.
+  - **The fix:** each device read refreshes the location's cameras from one `fetchRingDevices` call through the gate, and leaves out a camera Ring no longer lists. The fake Ring client now caches as the library does.
+  - **Carried forward:** recheck the `ip` advisory's reach before live media, and make CI's build step real with T027. Details are in DRIFT-001-21.
+  - **Checks for both fixes:** 616 tests, of which 567 pass and 49 skip without SQL Server; coverage 95.1% of lines and 94.1% of branches; lint, tsc, prettier and depcruise (142 modules) are clean. A deliberate break of four parts was caught.
 
 - T014 (the Outbox Store and Ingest's state path; completes CP-08a) is done:
   - **the Outbox Store** (`bridge/src/connector/access/outbox-store/`), in the connector's own SQLite file. A message is written before it is sent. It is resent 10 s after a send without an ack, sent again oldest first after a reconnect, and cleared only on its ack. The `state_version` counter is saved in the same transaction as its message, so versions keep rising across a restart;

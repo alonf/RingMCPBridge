@@ -4,6 +4,7 @@ import type { FakeClock } from "../../src/utilities/clock/index.ts";
 import type {
   RingClient,
   RingClientCamera,
+  RingClientCameraData,
   RingClientDevice,
   RingClientDeviceData,
   RingClientLocation,
@@ -78,7 +79,17 @@ function panelDevice(): ReturnType<typeof fakeDevice> {
   });
 }
 
-const DOORBELL: RingClientCamera = {
+/** A camera's data as the fake's Ring holds it. */
+export interface FakeCameraData extends RingClientCameraData {
+  readonly name: string;
+  readonly isDoorbot: boolean;
+  readonly hasBattery: boolean;
+  readonly batteryLevel: number | null;
+  readonly hasLowBattery: boolean;
+  readonly isOffline: boolean;
+}
+
+export const FAKE_DOORBELL: FakeCameraData = {
   id: 42,
   name: "Doorbell",
   isDoorbot: true,
@@ -88,7 +99,53 @@ const DOORBELL: RingClientCamera = {
   isOffline: false,
 };
 
+/**
+ * A camera as ring-client-api keeps it: built once, with the data of the first read, and changed
+ * only when its data is replaced (`updateData`), which the library's own polling would do.
+ */
+export class FakeCamera implements RingClientCamera {
+  #data: FakeCameraData;
+
+  constructor(data: FakeCameraData) {
+    this.#data = data;
+  }
+
+  get id(): number {
+    return this.#data.id;
+  }
+
+  get name(): string {
+    return this.#data.name;
+  }
+
+  get isDoorbot(): boolean {
+    return this.#data.isDoorbot;
+  }
+
+  get hasBattery(): boolean {
+    return this.#data.hasBattery;
+  }
+
+  get batteryLevel(): number | null {
+    return this.#data.batteryLevel;
+  }
+
+  get hasLowBattery(): boolean {
+    return this.#data.hasLowBattery;
+  }
+
+  get isOffline(): boolean {
+    return this.#data.isOffline;
+  }
+
+  updateData(data: FakeCameraData): void {
+    this.#data = data;
+  }
+}
+
 export interface FakeLocation extends RingClientLocation {
+  /** Replaceable, so a test can model a location without cameras. */
+  cameras: readonly RingClientCamera[];
   readonly devicesStream: FakeRingStream<readonly RingClientDevice[]>;
 }
 
@@ -109,7 +166,7 @@ function fakeLocation(
       address: { timezone: "Europe/Athens" },
     },
     hasAlarmBaseStation: options.alarm,
-    cameras: [DOORBELL],
+    cameras: [new FakeCamera(FAKE_DOORBELL)],
     getDevices: () => Promise.resolve(options.devices),
     getAlarmMode: () => Promise.resolve("some"),
     onDevices: devicesStream,
@@ -133,13 +190,24 @@ export class FakeRingClient implements RingClient {
       devices: [],
     }),
   ];
+  /** The cameras' data as Ring would answer now; tests change it to model a change at Ring. */
+  upstreamCameras: readonly FakeCameraData[] = [FAKE_DOORBELL];
   getLocationsCalls = 0;
+  fetchRingDevicesCalls = 0;
   disconnected = false;
   nextFailure: (() => Promise<never>) | undefined;
 
+  // As ring-client-api does: the same location objects every time, built once.
   getLocations(): Promise<readonly RingClientLocation[]> {
     this.getLocationsCalls += 1;
     return this.nextFailure?.() ?? Promise.resolve(this.locationsList);
+  }
+
+  fetchRingDevices(): Promise<{
+    readonly allCameras: readonly FakeCameraData[];
+  }> {
+    this.fetchRingDevicesCalls += 1;
+    return Promise.resolve({ allCameras: this.upstreamCameras });
   }
 
   getProfile(): Promise<{ readonly profile: { readonly id: number } }> {

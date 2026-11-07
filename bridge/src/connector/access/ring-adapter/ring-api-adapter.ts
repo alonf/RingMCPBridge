@@ -6,6 +6,8 @@
 //   at most one library call runs at a time, however long Ring is down (FR-026, FR-042).
 // - Its failures become `RingAdapterError` with the bridge's own words; its data becomes the
 //   port's plain entries (ring-mapping.ts). Nothing of ring-client-api crosses the port.
+// - ring-client-api keeps the locations and their cameras from its first read. Alarm devices stay
+//   current through its websocket; cameras are refreshed from Ring on each device read.
 // - A lost session stays lost: calls are refused until the owner signs in again and the connector
 //   restarts. A call already queued when it is lost is refused when its turn comes, and no later
 //   outcome changes the status back.
@@ -18,6 +20,7 @@ import type { RingCallGate } from "./call-limits.ts";
 import { RingAdapterError } from "./ring-adapter-error.ts";
 import type {
   RingClient,
+  RingClientCamera,
   RingClientDevice,
   RingClientDeviceData,
   RingClientLocation,
@@ -132,11 +135,12 @@ export class RingApiAdapter implements RingPort {
       return [];
     }
     const alarmDevices = await this.#call(signal, () => location.getDevices());
+    const cameras = await this.#currentCameras(location, signal);
     return [
       ...alarmDevices
         .map((device: RingClientDevice) => deviceEntry(device.data, locationId))
         .filter(isDevice),
-      ...location.cameras.map((camera) => cameraEntry(camera, locationId)),
+      ...cameras.map((camera) => cameraEntry(camera, locationId)),
     ];
   }
 
@@ -154,6 +158,32 @@ export class RingApiAdapter implements RingPort {
     }
     this.#listeners.clear();
     this.#client.disconnect();
+  }
+
+  // ring-client-api builds a location's cameras once and refreshes them only through its own
+  // polling, which stays off (FR-026). So each read fetches the account's devices, one call, and
+  // refreshes the cameras from them as that polling would. A camera Ring no longer lists is left
+  // out rather than reported from the old copy.
+  async #currentCameras(
+    location: RingClientLocation,
+    signal: AbortSignal,
+  ): Promise<readonly RingClientCamera[]> {
+    if (location.cameras.length === 0) {
+      return [];
+    }
+    const { allCameras } = await this.#call(signal, () =>
+      this.#client.fetchRingDevices(),
+    );
+    const current = new Map(allCameras.map((data) => [data.id, data]));
+    const listed: RingClientCamera[] = [];
+    for (const camera of location.cameras) {
+      const data = current.get(camera.id);
+      if (data !== undefined) {
+        camera.updateData(data);
+        listed.push(camera);
+      }
+    }
+    return listed;
   }
 
   async #profile(signal: AbortSignal): Promise<number> {
@@ -263,7 +293,10 @@ export class RingApiAdapter implements RingPort {
     };
   }
 
+  // The call may reach Ring later than its turn began, after waiting for an earlier call; the gate
+  // spaces the next call from now.
   #startLibraryCall<T>(work: () => Promise<T>): Promise<T> {
+    this.#gate.markCallStarted();
     const pending = Promise.resolve().then(work);
     this.#libraryIdle = pending.then(
       () => undefined,
