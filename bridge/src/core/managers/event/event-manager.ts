@@ -95,7 +95,7 @@ export class EventManager implements EventIntake {
     signal: AbortSignal,
   ): Promise<InventoryOutcome> {
     return this.#serially(signal, async (): Promise<InventoryOutcome> => {
-      if (session.key_id !== this.#currentKey) {
+      if (!this.#isCurrent(session)) {
         return NOT_CURRENT;
       }
       const applied = await this.#guard(
@@ -117,7 +117,7 @@ export class EventManager implements EventIntake {
     signal: AbortSignal,
   ): Promise<DeviceChangeOutcome> {
     return this.#serially(signal, async (): Promise<DeviceChangeOutcome> => {
-      if (session.key_id !== this.#currentKey) {
+      if (!this.#isCurrent(session)) {
         return "not_current";
       }
       const applied = await this.#guard(
@@ -136,7 +136,7 @@ export class EventManager implements EventIntake {
   ): Promise<void> {
     const receivedAt = this.#options.clock.now();
     await this.#serially(signal, async () => {
-      if (session.key_id !== this.#currentKey) {
+      if (!this.#isCurrent(session)) {
         return;
       }
       await this.#updateHealth(
@@ -225,6 +225,19 @@ export class EventManager implements EventIntake {
         await this.#saveHealth(stored, now, signal);
       }
     });
+  }
+
+  // Whether a session's messages may change State. No key claimed yet in this process means the
+  // session's start was never recorded: the message is refused as unavailable, so it stays unacked
+  // and the home sends it again on a session whose start is recorded (T018 follow-up).
+  #isCurrent(session: HomeLinkSession): boolean {
+    if (this.#currentKey === undefined) {
+      throw new EventError(
+        "unavailable",
+        "No session has claimed State's versions yet.",
+      );
+    }
+    return session.key_id === this.#currentKey;
   }
 
   get #policy(): { readonly homeOfflineAfterMs: number } {

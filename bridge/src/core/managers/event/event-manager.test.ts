@@ -470,6 +470,39 @@ describe("Event: the home's health", () => {
 });
 
 describe("Event: failures", () => {
+  it("refuses a message as unavailable before any session's start is recorded, so it stays unacked (T018 follow-up)", async () => {
+    const test = await harness();
+
+    for (const work of [
+      () =>
+        test.event.inventory(inventory("m-1", [HOME], []), SESSION_A, never),
+      () =>
+        test.event.deviceState(
+          { message_id: "m-2", device: DOOR },
+          SESSION_A,
+          never,
+        ),
+      () =>
+        test.event.heartbeat(
+          {
+            ring_session: "ok",
+            push: "off",
+            outbox_depth: 0,
+            last_ring_event_at: null,
+            error_counts: {},
+            as_of: START,
+          },
+          SESSION_A,
+          never,
+        ),
+    ]) {
+      const error = await failureOf(work());
+      expect(error).toBeInstanceOf(EventError);
+      expect(error).toMatchObject({ kind: "unavailable" });
+    }
+    await expect(test.state.locations(never)).resolves.toEqual([]);
+  });
+
   it("passes on State's store-down error as its own, with the cause", async () => {
     const test = await harness();
     await test.event.homeSessionOpened(SESSION_A, never);

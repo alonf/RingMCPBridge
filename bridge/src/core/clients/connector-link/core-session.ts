@@ -280,8 +280,7 @@ export class CoreSession {
       return;
     }
     if (state.phase === "challenged" && message.type === "challenge_response") {
-      this.#verify(message.body, state);
-      await this.#sessionOpened();
+      await this.#verify(message.body, state);
       return;
     }
     this.#refuse(message.type);
@@ -334,10 +333,37 @@ export class CoreSession {
   }
 
   // The nonce is used once: the state leaves `challenged` whatever the outcome.
-  #verify(response: ChallengeResponseMessage, challenged: Challenged): void {
+  // The session opens only once the key is checked again and Event has recorded the session's
+  // start, both before `hello_ok`, so the home sends nothing on a session the core cannot carry:
+  // - the owner may have approved a newer key while this link proved itself (T018 follow-up);
+  // - Event claims State's versions for this key; without that claim it could keep no message of
+  //   the session, so a failure closes the link and the home dials again (T018 follow-up).
+  // The nonce is used once: a second message before the answer closes the link (`#arrived`).
+  async #verify(
+    response: ChallengeResponseMessage,
+    challenged: Challenged,
+  ): Promise<void> {
     const { keyId, publicKey, nonce, session } = challenged;
     if (!verifyChallenge(publicKey, nonce, response.signature)) {
       this.#close(LINK_CLOSE_REASONS.challengeFailed);
+      return;
+    }
+    const key = await this.#checkKey(keyId);
+    this.#signal.throwIfAborted();
+    if (key === undefined) {
+      this.#close(CORE_CLOSE_REASONS.coreUnavailable);
+      return;
+    }
+    if (key.kind !== "active") {
+      this.#close(closeReasonFor(key));
+      return;
+    }
+    const recorded = await this.#toEvent("hello", (signal) =>
+      this.#context.intake.homeSessionOpened(session, signal),
+    );
+    this.#signal.throwIfAborted();
+    if (recorded === NOT_COMMITTED) {
+      this.#close(CORE_CLOSE_REASONS.coreUnavailable);
       return;
     }
     this.#state = { phase: "open", keyId, session };
@@ -349,16 +375,6 @@ export class CoreSession {
     this.#timer(KEY_RECHECK_MS, () => {
       this.#enqueue(() => this.#recheckKey());
     });
-  }
-
-  async #sessionOpened(): Promise<void> {
-    const state = this.#state;
-    if (state.phase !== "open") {
-      return;
-    }
-    await this.#toEvent("hello", (signal) =>
-      this.#context.intake.homeSessionOpened(state.session, signal),
-    );
   }
 
   async #enroll(enroll: EnrollMessage): Promise<void> {

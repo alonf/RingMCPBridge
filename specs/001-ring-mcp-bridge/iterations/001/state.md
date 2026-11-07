@@ -5,7 +5,7 @@
 **Tasks Remaining**: T020, T021 and T023-T036 (16 tasks, 19 story_points)
 **In Progress**: CP-14 (the read path): T019 is done, and T018 (Event's intake, CP-11a) is done; next T020 (the Summary engine), then T021 (Inquiry)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T18:47:42Z
+**Updated**: 2026-11-07T19:08:47Z
 
 ## Execution Summary
 
@@ -14,10 +14,11 @@
   - **the Event manager** applies inventories and device changes to State latest-wins, one step at a time, and keeps the health, publishing each change on Pub/Sub;
   - **versions belong to one connector key** (migration 4): a new key's session resets them, so a newly enrolled connector wins, while a key no longer current changes nothing. This replaces resetting them at approval, which a queued message could not order;
   - **Connector Link** acks every outcome and asks the home for one inventory when a change names a device the core does not hold.
+  - **A follow-up after a second look:** the key is checked once more after the signature, and Event records the session's start before `hello_ok`; if either fails the link closes and the home dials again. Before this, a failed start left every later message acked but never stored.
 
-  The choices and the carry-forwards to T021, T027 and T029 are in DRIFT-001-32. A deliberate break of twelve parts was caught. Checks:
-  - 858 tests: 761 pass and 97 skip without SQL Server; with it, 846 pass and 12 skip;
-  - coverage without SQL Server: 96.1% of lines and 93.9% of branches;
+  The choices and the carry-forwards to T021, T027 and T029 are in DRIFT-001-32. A deliberate break of fifteen parts was caught, three of them for the follow-up. Checks:
+  - 862 tests: 765 pass and 97 skip without SQL Server; with it, 850 pass and 12 skip;
+  - coverage without SQL Server: 96.0% of lines and 93.9% of branches;
   - lint, tsc, prettier and depcruise (214 modules) are clean.
 
 - T019 (State, first of CP-14) is done, in `bridge/src/core/access/state/`:

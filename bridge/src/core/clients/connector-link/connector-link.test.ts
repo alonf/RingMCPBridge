@@ -265,6 +265,41 @@ describe("ConnectorLink: the signed hello", () => {
     );
   });
 
+  it("closes as core_unavailable, before hello_ok, when Event cannot record the session's start (T018 follow-up)", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    test.intake.failNext(1);
+
+    send(home, "hello", hello(key));
+    const challenge = await frameOf(home, "challenge");
+    send(home, "challenge_response", {
+      signature: signChallenge(key.privateKey, String(challenge.nonce)),
+    });
+
+    expect(await closedWith(home)).toMatchObject({
+      reason: CORE_CLOSE_REASONS.coreUnavailable,
+    });
+    expect(messagesOf(home, "hello_ok")).toEqual([]);
+  });
+
+  it("closes as key_revoked a key the owner replaced between its hello and its signature (T018 follow-up)", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    send(home, "hello", hello(key));
+    const challenge = await frameOf(home, "challenge");
+
+    await enrolledKey(test);
+    send(home, "challenge_response", {
+      signature: signChallenge(key.privateKey, String(challenge.nonce)),
+    });
+
+    expect(await closedWith(home)).toMatchObject({ reason: "key_revoked" });
+    expect(messagesOf(home, "hello_ok")).toEqual([]);
+    expect(test.intake.calls).toEqual([]);
+  });
+
   it("closes a key it does not know, or that is still pending, as key_not_enrolled", async () => {
     const test = await harness();
     const stranger = await generateSigningKeyPair();

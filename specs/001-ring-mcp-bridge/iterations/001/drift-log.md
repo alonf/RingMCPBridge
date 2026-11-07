@@ -925,6 +925,11 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - an inventory is `applied`, with how many entries were left out or removed (both logged), or `not_current`;
     - a device change is `applied`, `older`, `needs_inventory`, `refused` (logged by `message_id`) or `not_current`. Every outcome ends the message and is acked;
     - `needs_inventory` sends the home one `inventory_request` per session until an inventory arrives, so a burst of such changes asks once.
+  - **After a second look (a follow-up commit the same day).** A session's start that Event could not record, for example because the store failed for a moment during the claim, left Event with no current key. Every later message was then acked as `not_current`, so the home cleared data the core never stored, and its heartbeats were ignored.
+    - Connector Link now checks the key once more after the signature verifies. It then has Event record the session's start, both before `hello_ok`, so the home sends nothing on a session the core cannot carry.
+    - If either fails, the link closes, as `core_unavailable` or, when the owner approved a newer key mid-handshake, as `key_revoked`. The home dials again.
+    - As a backstop, Event refuses a message as `unavailable` while no key has been claimed in this process, so the message stays unacked.
+    - The both-ends contract test gains one scenario over the real Event manager and State: the first session's start fails to record, the next session opens, and the home's inventory lands in State.
   - **Push** is not mapped from the heartbeat in iteration 001. The heartbeat says `off` until 002, and the stored push status stays absent.
   - **Carry-forwards:**
     - **T021:** read the health through `asOf(now)` with the same threshold.
@@ -953,6 +958,11 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an inventory request for every unplaced change;
   - no new request after an inventory arrives;
   - an unplaced change left unacked.
+
+  The follow-up adds four tests, and a deliberate break of three more parts was caught:
+  - a session whose start was not recorded staying open;
+  - no second key check after the signature;
+  - no claimed key read as `not_current`.
 
 ### Resolution Strategies (Unused)
 

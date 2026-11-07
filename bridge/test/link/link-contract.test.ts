@@ -14,9 +14,16 @@ import { CoreLink } from "../../src/connector/clients/core-link/index.ts";
 import { HomeScheduler } from "../../src/connector/clients/home-scheduler/index.ts";
 import { Ingest } from "../../src/connector/managers/ingest/index.ts";
 import { SettingsStore } from "../../src/core/access/settings/index.ts";
+import { StateStore } from "../../src/core/access/state/index.ts";
 import { ConnectorLink } from "../../src/core/clients/connector-link/index.ts";
 import { AdminManager } from "../../src/core/managers/admin/index.ts";
+import { EventManager } from "../../src/core/managers/event/index.ts";
+import type {
+  EventIntake,
+  EventTopics,
+} from "../../src/core/managers/event/index.ts";
 import { FakeClock } from "../../src/utilities/clock/index.ts";
+import { PubSub } from "../../src/utilities/pub-sub/index.ts";
 import {
   createLinkPair,
   dialLink,
@@ -33,6 +40,7 @@ import { Logger } from "../../src/utilities/logging/index.ts";
 import {
   CORE_MIGRATIONS,
   openSqliteQueryLayer,
+  QueryLayerError,
   runMigrations,
 } from "../../src/utilities/query-layer/index.ts";
 import {
@@ -81,6 +89,8 @@ interface Both {
   readonly slot: LinkSlot;
   readonly settings: SettingsStore;
   readonly intake: RecordingIntake;
+  /** The real Event manager and State, when the test asked for them. */
+  readonly real: RealEvent | undefined;
   readonly connectorLink: ConnectorLink;
   /** Starts the home with the given dial. */
   start(dial: Dial): void;
@@ -102,7 +112,58 @@ function loggerOn(clock: FakeClock, lines: string[]): Logger {
   });
 }
 
-async function both(): Promise<Both> {
+/** The real Event manager and State, on a database whose next transaction can be made to fail. */
+interface RealEvent {
+  readonly state: StateStore;
+  readonly failNextTransaction: () => void;
+}
+
+async function realEvent(clock: FakeClock): Promise<{
+  readonly intake: EventIntake;
+  readonly real: RealEvent;
+}> {
+  const layer = openSqliteQueryLayer(":memory:", { clock });
+  await runMigrations(layer, CORE_MIGRATIONS, { clock }, signal);
+  let failing = false;
+  const store = new Proxy(layer, {
+    get(target, property) {
+      if (property === "transaction" && failing) {
+        failing = false;
+        return () =>
+          Promise.reject(new QueryLayerError("store_down", "The test cut it."));
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      if (typeof value !== "function") {
+        return value;
+      }
+      const method = value as (...args: unknown[]) => unknown;
+      return method.bind(target);
+    },
+  });
+  const state = new StateStore({ store });
+  const event = new EventManager({
+    state,
+    events: new PubSub<EventTopics>(() => undefined),
+    clock,
+    homeOfflineAfterMs: 120_000,
+    reportFailure: () => undefined,
+  });
+  stops.push(
+    () => layer.close(),
+    () => event.stop(),
+  );
+  return {
+    intake: event,
+    real: {
+      state,
+      failNextTransaction: () => {
+        failing = true;
+      },
+    },
+  };
+}
+
+async function both(useRealEvent = false): Promise<Both> {
   const clock = new FakeClock(START);
   const homeLines: string[] = [];
   const homeLogger = loggerOn(clock, homeLines);
@@ -129,9 +190,10 @@ async function both(): Promise<Both> {
     defaultBatteryThresholdPct: 20,
   });
   const intake = new RecordingIntake();
+  const made = useRealEvent ? await realEvent(clock) : undefined;
   const connectorLink = new ConnectorLink({
     admin: new AdminManager({ settings }),
-    intake,
+    intake: made?.intake ?? intake,
     clock,
     logger,
   });
@@ -155,6 +217,7 @@ async function both(): Promise<Both> {
     slot,
     settings,
     intake,
+    real: made?.real,
     connectorLink,
     start: (dial) => {
       coreLink = new CoreLink({
@@ -381,6 +444,35 @@ describe("the link, version 1, both ends", () => {
       device: { device_id: HEBREW_DEVICE_ID, battery_pct: 7 },
     });
     expect(test.homeLines.join("\n")).not.toContain("core_link_work_failed");
+  });
+
+  it("with the real Event manager and State: a session whose start cannot be recorded closes, the next opens, and the inventory lands in State (T018)", async () => {
+    const test = await both(true);
+    await enrolled(test);
+    const core = inMemoryCore(test);
+    const real = test.real;
+    if (real === undefined) {
+      throw new Error("The real Event manager was not built.");
+    }
+    real.failNextTransaction();
+    test.start(core.dial);
+
+    await driveUntil(
+      test.clock,
+      async () =>
+        (await real.state.devices({}, signal)).length > 0 &&
+        (await outboxEmpty(test)),
+    );
+
+    expect(core.pairs.length).toBeGreaterThanOrEqual(2);
+    await expect(real.state.devices({}, signal)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          device_id: HEBREW_DEVICE_ID,
+          name: HEBREW_DEVICE_NAME,
+        }),
+      ]),
+    );
   });
 
   it("acks a duplicated message each time it arrives, and the home clears it once", async () => {
