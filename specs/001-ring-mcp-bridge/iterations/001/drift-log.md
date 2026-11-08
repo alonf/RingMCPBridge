@@ -1219,8 +1219,8 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **(b) Move it to the iteration that first lists an Azure-hosted agent**, with the contract's row saying so. 0 SP now and $0. No agent planned for iteration 001's pilot is Azure-hosted: ChatGPT, Claude and the dot link through the Issuer (research.md SC1).
 - **Recommendation**: (b).
 - **Requirement citation**: `contracts/web-endpoints.md` "MCP endpoint"; research.md SC1 "Machine identities"; SC2.
-- **Resolution**: waiting for the owner's choice.
-- **Class closure**: NONE - a planning gap with no code yet. The owner's choice decides whether a test (a) or a contract edit (b) closes it.
+- **Resolution**: the owner chose (b) on 2026-11-09. The MCP endpoint's row in `contracts/web-endpoints.md` now says that Entra tokens from Azure-hosted agents come with the iteration that first lists such an agent. That iteration's plan carries the work: about 1.5 SP (estimate) and $0 as priced here. Cost now: 0 SP and $0.
+- **Class closure**: NONE - a planning gap closed by the contract edit, with no code. In iteration 001 the endpoint accepts only the Issuer's tokens, which T024's tests check.
 
 ### DRIFT-001-42: T024's MCP Endpoint: both eras on one endpoint, the Issuer's token check, and the contract's own input errors
 

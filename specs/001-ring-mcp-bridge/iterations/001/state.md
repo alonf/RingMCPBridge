@@ -3,7 +3,7 @@
 **Schema**: v2
 **Last Completed Task**: T025
 **Tasks Remaining**: T026-T036 (11 tasks, 13 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: T025 (the read rate limit) is done, which completes CP-15's tasks; its review round waits for the owner's approval, and DRIFT-001-43 for the owner's choice; then T026 (the Lease accessor)
+**In Progress**: T025 (the read rate limit) is done, which completes CP-15's tasks; its review round waits for the owner's approval; then T026 (the Lease accessor)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
 **Updated**: 2026-11-08T23:41:54Z
 
@@ -34,7 +34,7 @@
     - stdio in both eras;
     - a completeness check that reads `errors.md` (`RATE_LIMITED` waits for T025).
   - 25 deliberate breaks, 23 caught. One miss is an expiry check that two others stand behind. The other showed a branch that could never run, which was removed.
-  - **One question for the owner** (DRIFT-001-43): the endpoint contract promises Entra tokens from Azure-hosted agents in iteration 001, but no task builds them. Either (a) build it now, about 1.5 SP (estimate) and $0, or (b) move it to the iteration that lists such an agent. (b) is recommended.
+  - **The owner's choice (b)** (DRIFT-001-43): the endpoint contract promised Entra tokens from Azure-hosted agents in iteration 001, but no task built them. They now come with the iteration that first lists such an agent; 0 SP now.
   - **Cost**: about 3 SP against an estimate of 1 (estimates), and $0. CP-15 is now expected to take about 4 SP against its estimate of 2 (estimate).
   - **Checks**:
     - 1,041 tests, 939 passing and 102 skipped without SQL Server;
