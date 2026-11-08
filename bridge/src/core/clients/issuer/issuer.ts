@@ -4,16 +4,23 @@
 //
 // An agent's authorization reaches the Issuer's interaction route, which starts the owner's Entra
 // sign-in and keeps it in flight under its `state`. Entra returns the owner's browser to the core's
-// one sign-in return route, which Web serves (T029): Web hands the return to `finishSignIn`, which
-// checks the sign-in (only the owner, DRIFT-001-39), records the owner's consent, and answers where
-// the browser goes next, back into the provider to finish the agent's authorization. The provider's
-// resume cookie ties that last step to the browser that began it.
+// one sign-in return route, which Web serves (T029): Web hands the return and the browser's cookies
+// to `finishSignIn`, which checks the sign-in (only the owner, DRIFT-001-39), records the owner's
+// consent, and answers where the browser goes next, back into the provider to finish the agent's
+// authorization.
+//
+// The sign-in is bound to the browser that started the link (DRIFT-001-40): sending it to Entra sets
+// a random cookie, of which only the hash is kept. A return in a browser without that cookie is
+// refused before its code is redeemed, and ends the link, so nobody can start a link from their own
+// agent account and have the owner sign in to it from a link they were sent. The provider's resume
+// cookie then binds the last step to the same browser.
 //
 // The Issuer needs its signing keys before it serves anything: `start` reads them from Secrets,
 // and reports a missing secret instead of failing (PT-03), for `/readyz` to name.
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Provider } from "oidc-provider";
-import type { InteractionResults } from "oidc-provider";
+import type { Interaction, InteractionResults } from "oidc-provider";
 import type { GrantsStore } from "../../access/grants/index.ts";
 import type { ListedAgent } from "../../access/settings/index.ts";
 import type { CoreSecrets } from "../../access/secrets/index.ts";
@@ -38,6 +45,10 @@ const HTTP_SERVER_ERROR = 500;
 const HTTP_UNAVAILABLE = 503;
 const MS_PER_SECOND = 1000;
 const SIGN_IN_TIMEOUT_MS = 15_000;
+/** The cookie that binds a sign-in to its browser, and how long it lasts: the sign-in's own limit. */
+const LINK_COOKIE = "issuer_link";
+const LINK_COOKIE_MAX_AGE_S = 600;
+const BINDING_BYTES = 32;
 /** How long one of the provider hooks' reads may take. */
 const HOOK_TIMEOUT_MS = 10_000;
 const INTERACTION_PATH = /^\/interaction\/([A-Za-z0-9_-]{1,64})$/;
@@ -62,6 +73,10 @@ export interface IssuerDependencies {
   readonly agents: AgentListing;
   readonly secrets: CoreSecrets;
   readonly ownerSignIn: OwnerSignIn;
+  /**
+   * Times the sign-ins in flight. It must read the same time as `Date`, which oidc-provider and the
+   * token lifetimes read: `SystemClock` in the bridge, and a faked `Date` in tests.
+   */
   readonly clock: Clock;
   readonly logger: Logger;
   /** Fetches a client ID metadata document: the global `fetch` in the bridge. */
@@ -70,6 +85,18 @@ export interface IssuerDependencies {
 
 /** What `start` found: the Issuer serves, or waits for its signing keys. */
 export type IssuerStart = "ready" | "signing_keys_missing";
+
+/** What became of a return from Entra. */
+export type LinkReturn =
+  /** Not one of the Issuer's sign-ins: Web treats it as its own. */
+  | { readonly kind: "not_issuer" }
+  /** Send the browser here, into the provider, which answers the agent with a code or a refusal. */
+  | { readonly kind: "continue"; readonly url: string }
+  /**
+   * The sign-in came back to a browser that did not start the link. Nothing was redeemed and the
+   * link has ended; Web asks the owner to start it again from the agent.
+   */
+  | { readonly kind: "other_browser" };
 
 /** The Issuer. One per core process, in mode H only: mode A has no owner sign-in. */
 export class Issuer {
@@ -168,20 +195,21 @@ export class Issuer {
   }
 
   /**
-   * Finishes a link from the owner's return from Entra (the query of the core's sign-in return
-   * URL). Answers where the owner's browser goes next, or `undefined` when the return is not one
-   * of the Issuer's sign-ins, for Web to treat as its own. A sign-in that fails its checks, or by
-   * someone other than the owner, ends the agent's authorization with `access_denied`. Throws
-   * `IssuerError` (`link_expired`) when the authorization has ended.
+   * Finishes a link from the owner's return from Entra: the query of the core's sign-in return URL
+   * and the returning browser's `Cookie` header. A sign-in that fails its checks, or by someone other
+   * than the owner, ends the agent's authorization with `access_denied`; so does a return in a
+   * browser that did not start the link, before anything is redeemed. Each sign-in is finished
+   * once. Throws `IssuerError` (`link_expired`) when the authorization has ended.
    */
   async finishSignIn(
     callback: URLSearchParams,
+    cookies: string | undefined,
     signal: AbortSignal,
-  ): Promise<string | undefined> {
+  ): Promise<LinkReturn> {
     const state = callback.get("state");
     const link = state === null ? undefined : this.#pending.take(state);
     if (link === undefined) {
-      return undefined;
+      return { kind: "not_issuer" };
     }
     const provider = this.#started();
     const interaction = await provider.Interaction.find(link.uid);
@@ -190,6 +218,14 @@ export class Issuer {
         "link_expired",
         "The agent's authorization ended before the owner signed in.",
       );
+    }
+    if (!sameBrowser(link.binding, cookies)) {
+      interaction.result = {
+        error: "access_denied",
+        error_description: "The sign-in finished in another browser.",
+      };
+      await saveInteraction(interaction);
+      return { kind: "other_browser" };
     }
     let result: InteractionResults;
     try {
@@ -212,10 +248,8 @@ export class Issuer {
       };
     }
     interaction.result = result;
-    // The provider's own time, which set the interaction's end.
-    const nowS = Math.floor(Date.now() / MS_PER_SECOND);
-    await interaction.save(Math.max(1, interaction.exp - nowS));
-    return interaction.returnTo;
+    await saveInteraction(interaction);
+    return { kind: "continue", url: interaction.returnTo };
   }
 
   /** Stops the Issuer's storage calls in flight. */
@@ -242,8 +276,18 @@ export class Issuer {
         AbortSignal.timeout(SIGN_IN_TIMEOUT_MS),
       ]),
     );
-    this.#pending.add({ uid, pending: redirect.pending });
+    const binding = randomBytes(BINDING_BYTES).toString("base64url");
+    this.#pending.add({
+      uid,
+      pending: redirect.pending,
+      binding: sha256(binding),
+    });
     response.statusCode = HTTP_SEE_OTHER;
+    // Lax is sent on Entra's top-level redirect back, which uses the query response mode.
+    response.setHeader(
+      "set-cookie",
+      `${LINK_COOKIE}=${binding}; Path=/; Max-Age=${String(LINK_COOKIE_MAX_AGE_S)}; HttpOnly; Secure; SameSite=Lax`,
+    );
     response.setHeader("location", redirect.url);
     response.setHeader("cache-control", "no-store");
     response.end();
@@ -332,6 +376,34 @@ export class Issuer {
     this.#dependencies.logger.error("issuer_sign_in_failed", undefined, error);
     answer(response, HTTP_SERVER_ERROR, "The sign-in could not be started.");
   }
+}
+
+// Records an interaction's result for the rest of its life, by the provider's own time.
+async function saveInteraction(interaction: Interaction): Promise<void> {
+  const nowS = Math.floor(Date.now() / MS_PER_SECOND);
+  await interaction.save(Math.max(1, interaction.exp - nowS));
+}
+
+// Whether the returning browser holds the cookie set when its sign-in was sent to Entra.
+function sameBrowser(binding: string, cookies: string | undefined): boolean {
+  const presented = (cookies ?? "")
+    .split(";")
+    .map((pair) => pair.trim())
+    .find((pair) => pair.startsWith(`${LINK_COOKIE}=`))
+    ?.slice(LINK_COOKIE.length + 1);
+  if (presented === undefined || presented === "") {
+    return false;
+  }
+  const expected = Buffer.from(binding, "utf8");
+  const actual = Buffer.from(sha256(presented), "utf8");
+  return (
+    expected.byteLength === actual.byteLength &&
+    timingSafeEqual(expected, actual)
+  );
+}
+
+function sha256(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("base64url");
 }
 
 // oidc-provider's own errors carry an OAuth error code and a 4xx status, such as a missing or

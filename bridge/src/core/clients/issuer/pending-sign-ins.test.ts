@@ -10,6 +10,7 @@ const MINUTE_MS = 60_000;
 function linkFor(state: string): PendingLink {
   return {
     uid: `uid-${state}`,
+    binding: `binding-${state}`,
     pending: {
       state,
       nonce: `nonce-${state}`,

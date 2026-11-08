@@ -53,7 +53,7 @@ These are recorded client needs. The discovery paths themselves come from the pr
 | Tokens are for one resource, the MCP endpoint (RFC 8707), with `read` only in iteration 001. Access tokens are opaque: the MCP endpoint checks each against its stored grant | FR-030, DRIFT-001-39 |
 | `issuer-signing-keys` is `{"keys": [current, previous]}`: one or two private RSA JWKs for RS256 with distinct `kid`s, newest first. The Issuer signs with the first and publishes both; its cookie keys are derived from them | PT-03, PT-04, DRIFT-001-39 |
 
-An agent's authorization reaches the Issuer's interaction route (under `/oauth`), which starts the owner's Entra sign-in. Entra returns to the core's one sign-in return route, served by Web, which hands an Issuer sign-in back to the Issuer to finish the link (T029).
+An agent's authorization reaches the Issuer's interaction route (under `/oauth`), which starts the owner's Entra sign-in. Entra returns to the core's one sign-in return route, served by Web, which hands an Issuer sign-in back to the Issuer, with the browser's cookies, to finish the link (T029). The sign-in is bound to the browser that started the link by a cookie set when it was sent to Entra. A return in any other browser is refused before Entra's code is redeemed, and ends the link (DRIFT-001-40).
 
 ## Admin page sections
 

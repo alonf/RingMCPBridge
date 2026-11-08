@@ -217,12 +217,14 @@ async function startRig(
       response.writeHead(404).end();
       return;
     }
-    issuer.finishSignIn(url.searchParams, never()).then(
-      (next) => {
-        if (next === undefined) {
+    issuer.finishSignIn(url.searchParams, request.headers.cookie, never()).then(
+      (outcome) => {
+        if (outcome.kind === "not_issuer") {
           response.writeHead(404).end();
+        } else if (outcome.kind === "continue") {
+          response.writeHead(303, { location: outcome.url }).end();
         } else {
-          response.writeHead(303, { location: next }).end();
+          response.writeHead(400).end("Start the link again from your agent.");
         }
       },
       (error: unknown) => {
@@ -274,19 +276,22 @@ function publishDocument(rig: Rig, changes: object = {}): void {
   });
 }
 
+/** A browser's cookies, kept apart for each server. */
+type Jars = Map<string, Map<string, string>>;
+
 /**
- * Plays the owner's browser from the agent's authorization URL to the agent's redirect URI, keeping
- * each server's cookies apart, and returns that URI's query.
+ * Plays a browser from `start`, following redirects and keeping each server's cookies apart, until
+ * a URL that begins with `stopAt`, which it returns without opening.
  */
-async function browse(
+async function walk(
   start: URL | string,
-  redirectUri: string,
-  jars = new Map<string, Map<string, string>>(),
-): Promise<URLSearchParams> {
+  stopAt: string,
+  jars: Jars = new Map(),
+): Promise<URL> {
   let next = new URL(start);
   for (let hop = 0; hop < MAX_HOPS; hop += 1) {
-    if (next.href.startsWith(redirectUri)) {
-      return next.searchParams;
+    if (next.href.startsWith(stopAt)) {
+      return next;
     }
     const jar = jars.get(next.origin) ?? new Map<string, string>();
     jars.set(next.origin, jar);
@@ -310,7 +315,23 @@ async function browse(
     await response.body?.cancel();
     next = new URL(location, next);
   }
-  throw new Error("The browser never reached the agent's redirect URI.");
+  throw new Error("The browser never reached where it was going.");
+}
+
+/** The `Cookie` header a browser sends to one server. */
+function cookiesOf(jars: Jars, origin: string): string {
+  return [...(jars.get(origin) ?? new Map<string, string>())]
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
+}
+
+/** Plays the owner's browser to the agent's redirect URI, and returns that URI's query. */
+async function browse(
+  start: URL | string,
+  redirectUri: string,
+  jars?: Jars,
+): Promise<URLSearchParams> {
+  return (await walk(start, redirectUri, jars)).searchParams;
 }
 
 interface Tokens {
@@ -480,6 +501,36 @@ describe("the Issuer", () => {
     await link(rig, DOCUMENT_AGENT.client_id, redirectUri, "read", jars);
 
     expect(rig.signInsStarted()).toBe(2);
+  });
+
+  it("finishes a sign-in only in the browser that started the link", async () => {
+    const redirectUri = textOf(DOCUMENT_AGENT.redirect_uris[0]);
+    const metadata = await metadataOf(rig);
+    const { authorizationUrl } = await startAuthorization(rig.issuerUrl, {
+      metadata,
+      clientInformation: { client_id: DOCUMENT_AGENT.client_id },
+      redirectUrl: redirectUri,
+      scope: "read",
+      resource: new URL(rig.resource),
+    });
+    // Someone starts a link from their own agent account, stops at Entra, and sends that link on.
+    const starter: Jars = new Map();
+    const entraLink = await walk(authorizationUrl, rig.standIn.issuer, starter);
+
+    // The owner opens it in their own browser and signs in.
+    await expect(browse(entraLink, redirectUri, new Map())).rejects.toThrow(
+      /400/,
+    );
+
+    // The starter's browser resumes the authorization: it must not get a code.
+    const uid = starter.get(rig.origin)?.get("issuer_resume");
+    const reply = await browse(
+      `${rig.issuerUrl}/auth/${textOf(uid)}`,
+      redirectUri,
+      starter,
+    );
+    expect(reply.has("code")).toBe(false);
+    expect(reply.get("error")).toBe("access_denied");
   });
 
   it("refuses someone else from the owner's tenant: the agent is told access_denied", async () => {
@@ -670,7 +721,7 @@ describe("the Issuer", () => {
 
     /** Starts a link and stops the owner's browser at Web's sign-in return. */
     async function untilReturn(): Promise<{
-      jars: Map<string, Map<string, string>>;
+      jars: Jars;
       callback: URLSearchParams;
     }> {
       const metadata = await metadataOf(rig);
@@ -700,16 +751,22 @@ describe("the Issuer", () => {
         never(),
       );
 
-      const next = await rig.issuer.finishSignIn(callback, never());
+      const next = await rig.issuer.finishSignIn(
+        callback,
+        cookiesOf(jars, rig.origin),
+        never(),
+      );
 
       // The provider will not send a revoked agent's browser back to it: it shows the refusal.
-      await expect(browse(textOf(next), redirectUri, jars)).rejects.toThrow(
+      expect(next.kind).toBe("continue");
+      const url = next.kind === "continue" ? next.url : "";
+      await expect(browse(url, redirectUri, jars)).rejects.toThrow(
         /400: .*access_denied/,
       );
     });
 
     it("says the link has expired when its authorization ended first", async () => {
-      const { callback } = await untilReturn();
+      const { jars, callback } = await untilReturn();
       await rig.layer.run(
         {
           sql: "DELETE FROM oidc_item WHERE model = 'Interaction'",
@@ -719,26 +776,52 @@ describe("the Issuer", () => {
       );
 
       await expect(
-        rig.issuer.finishSignIn(callback, never()),
+        rig.issuer.finishSignIn(callback, cookiesOf(jars, rig.origin), never()),
       ).rejects.toMatchObject({ kind: "link_expired" });
     });
 
     it("leaves a return that is not one of its sign-ins to Web, and takes each only once", async () => {
-      const { callback } = await untilReturn();
+      const { jars, callback } = await untilReturn();
+      const cookies = cookiesOf(jars, rig.origin);
       const stranger = new URLSearchParams({ state: "not-one-of-ours" });
 
       await expect(
-        rig.issuer.finishSignIn(stranger, never()),
-      ).resolves.toBeUndefined();
+        rig.issuer.finishSignIn(stranger, cookies, never()),
+      ).resolves.toEqual({ kind: "not_issuer" });
       await expect(
-        rig.issuer.finishSignIn(new URLSearchParams(), never()),
-      ).resolves.toBeUndefined();
-      await expect(rig.issuer.finishSignIn(callback, never())).resolves.toEqual(
-        expect.any(String),
+        rig.issuer.finishSignIn(new URLSearchParams(), cookies, never()),
+      ).resolves.toEqual({ kind: "not_issuer" });
+      await expect(
+        rig.issuer.finishSignIn(callback, cookies, never()),
+      ).resolves.toMatchObject({ kind: "continue" });
+      await expect(
+        rig.issuer.finishSignIn(callback, cookies, never()),
+      ).resolves.toEqual({ kind: "not_issuer" });
+    });
+
+    it("refuses a return whose binding cookie is wrong, before Entra's code is redeemed, and ends the link", async () => {
+      const { jars, callback } = await untilReturn();
+      const cookies = cookiesOf(jars, rig.origin);
+      expect(cookies).toMatch(/issuer_link=[^;]+/);
+      const forged = cookies.replace(
+        /issuer_link=[^;]+/,
+        "issuer_link=forged-value",
       );
+
       await expect(
-        rig.issuer.finishSignIn(callback, never()),
-      ).resolves.toBeUndefined();
+        rig.issuer.finishSignIn(callback, forged, never()),
+      ).resolves.toEqual({ kind: "other_browser" });
+      await expect(
+        rig.issuer.finishSignIn(callback, cookies, never()),
+      ).resolves.toEqual({ kind: "not_issuer" });
+      const uid = jars.get(rig.origin)?.get("issuer_resume");
+      const reply = await browse(
+        `${rig.issuerUrl}/auth/${textOf(uid)}`,
+        redirectUri,
+        jars,
+      );
+      expect(reply.get("error")).toBe("access_denied");
+      expect(reply.has("code")).toBe(false);
     });
 
     it("answers 400 to an interaction link the browser holds no cookie for", async () => {

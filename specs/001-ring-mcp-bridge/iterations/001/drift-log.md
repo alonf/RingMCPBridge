@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 39
+**Total drift events**: 40
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1174,6 +1174,33 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
+### DRIFT-001-40: T023's sign-in was not bound to the browser that started the link; fixed before review
+
+- **Detected**: 2026-11-08, implement, after T023 was committed (88aa173) and before CP-16's review, in a check before asking for the review round. Confirmed with a test, which failed on 88aa173.
+- **Kind**: a defect against FR-029 and SC1 in T023 [P]. No spec change
+- **Observed**: the Issuer found a sign-in in flight by its `state` alone and recorded the owner's consent before anything checked which browser had come back.
+  - Someone could start a link from their own account on a listed agent, stop at the Entra sign-in, and send that link to the owner.
+  - Had the owner opened it and signed in, possibly with no prompt at all, the owner check would have passed, since it really was the owner, and the consent would have been recorded on the other person's link.
+  - That person's browser then holds the provider's resume cookie and would have received the code, so their agent account would have held tokens to the owner's home.
+  - Neither "assignment required" nor the object-id check stops this.
+- **Fix** [P]:
+  - When the Issuer sends a browser to Entra, it sets a random cookie (`HttpOnly`, `Secure`, `SameSite=Lax`, 10 minutes) and keeps only its SHA-256 with the sign-in in flight.
+  - Web hands the return to the Issuer with the browser's cookies.
+  - A return without the matching cookie is refused before Entra's code is redeemed. The sign-in is used up, and the link ends with `access_denied`, so the browser that started it gets no code either. Web is told, so it can ask the owner to start the link again from the agent.
+  - A second link started in the same browser replaces the cookie, so the first one must be started again.
+- **Requirement citation**: FR-029, SC1; `contracts/web-endpoints.md` "OAuth content rules"; DRIFT-001-39.
+- **Resolution**: fixed before CP-16's review round. Cost: about 0.5 SP (estimate), in CP-16's actual, and $0.
+- **Carried forward**: T029's return route passes the browser's `Cookie` header to the Issuer, and the admin page's own sign-in keeps its sign-in in flight per browser in the same way.
+- **Class closure**: new tests:
+  - the attack itself: a link started in one browser and signed in from another gives neither browser a code;
+  - a forged binding cookie is refused, the sign-in is used up, and the link ends with `access_denied`.
+
+  Deliberate breaks: 4, all caught:
+  - finishing a return in any browser;
+  - accepting any binding cookie;
+  - leaving the link open after a refused return;
+  - setting no binding cookie.
+
 ### DRIFT-001-39: the Issuer (T023): only the owner signs in, how listed agents link, and what is carried forward
 
 - **Detected**: 2026-11-08, implement, T023. The records said the owner consents through Entra and tokens are bound to the owner, but not how the bridge tells the owner apart from anyone else in the tenant, nor how an agent that registers itself (DCR) can be listed when its client id is new each time.
@@ -1193,7 +1220,9 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **Opaque access tokens**: the MCP endpoint checks each one against its stored grant, so a revocation takes effect at once. The signing keys then sign only ID tokens, when an agent asks for `openid`. PT-04's retirement timing (10 minutes plus the 1-hour access-token life) assumed signed access tokens; keeping it is harmless.
   - **Lifetimes**: access tokens 1 hour. Refresh tokens rotate on every use and live 30 days from the last use, never past 90 days from the sign-in that began the chain. The grant itself lives 90 days, and a reused refresh token ends the whole grant. Tokens never end with the provider's browser session.
   - **The key document**: `issuer-signing-keys` is `{"keys": [current, previous]}`, one or two private RSA JWKs for RS256 with distinct `kid`s, newest first. The provider signs with the first and publishes both. The cookie keys are derived from them (HKDF), so there is no second secret. The Issuer exports the key generator for the bootstrap (T031). A missing secret is reported, not thrown, for `/readyz` to name.
-  - **Sign-ins in flight** are kept in memory under their `state`, once, for 10 minutes, at most 100. A restart means the owner starts the link again.
+  - **Sign-ins in flight** are kept in memory under their `state`, once, for 10 minutes, at most 100, each bound to the browser that started it (DRIFT-001-40). A restart means the owner starts the link again.
+  - **One clock**: oidc-provider reads `Date.now()`, so the clock the Issuer is given must read the same time: `SystemClock` in the bridge, and a faked `Date` in tests.
+  - **ID tokens**: an agent that asks for `openid` receives an ID token carrying the owner's Entra `sub` for the bridge's app registration. That identifier is opaque and means nothing outside this app, so this is accepted.
   - **Typings**: oidc-provider's declarations are widened in `bridge/src/types/`, not taken from DefinitelyTyped (a new dependency).
 - **Carried forward**:
   - **T024**: checking an access token: its resource, its client still listed, its scope. Also the protected-resource metadata.
@@ -1203,7 +1232,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - PT-04's 10-minute key reload;
     - `/readyz` naming a missing key or a missing owner object id;
     - the owner object id's environment variable.
-  - **T029**: the one Entra return route hands a return to `Issuer.finishSignIn` first, and treats it as the admin page's own when the Issuer answers that it is not its.
+  - **T029**: the one Entra return route hands a return, with the browser's cookies, to `Issuer.finishSignIn` first. It treats the return as the admin page's own when the Issuer answers that it is not its, and keeps the admin page's own sign-ins in flight per browser in the same way (DRIFT-001-40).
   - **T030 and T031**: the owner object id in the deployment configuration. The bootstrap sets "assignment required" if it creates the app registration, and writes the first key with the Issuer's generator.
 - **Known gaps, noted**:
   - Anyone can start up to 100 sign-ins in flight with a listed agent's public details, pushing out the owner's; the owner then starts the link again.

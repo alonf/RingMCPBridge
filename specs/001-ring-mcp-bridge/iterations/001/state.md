@@ -5,7 +5,7 @@
 **Tasks Remaining**: T023-T036 (14 tasks, 17 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
 **In Progress**: T023 (the Issuer) is done, which completes CP-16's tasks; its review round waits for the owner's approval; then T024 (the MCP Endpoint)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-08T18:38:27Z
+**Updated**: 2026-11-08T19:08:10Z
 
 ## Execution Summary
 
@@ -13,7 +13,8 @@
   - oidc-provider under `/oauth`, over Grants. Listed agents link by client document or by registering themselves, and the owner consents with an Entra sign-in.
   - Only the owner signs in: the owner's object id is checked (the owner's choice (c)), and the app registration requires assignment.
   - Lifetimes: access tokens 1 hour, rotating refresh tokens 30 days unused and 90 days at most, `read` only.
-  - About 2.5 SP against an estimate of 2 (estimates), and $0. CP-16 has now taken about 3.5 SP against its estimate of 3.
+  - A check before the review found that the sign-in was not bound to the browser that started the link, so someone else's link could have taken the owner's consent. It is fixed and tested (DRIFT-001-40).
+  - About 3 SP against an estimate of 2 (estimates), the fix included, and $0. CP-16 has now taken about 4 SP against its estimate of 3.
 
 - **CP-14's review is signed off** (2026-11-08):
   - Round 6 (run-20261108-162106827-bed7a0bd, 12 minutes, $0) found nothing, on exactly the committed tree (1d7ac4b).

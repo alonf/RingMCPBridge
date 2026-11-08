@@ -13,6 +13,8 @@ export interface PendingLink {
   /** The provider's interaction, which the owner's sign-in finishes. */
   readonly uid: string;
   readonly pending: PendingSignIn;
+  /** The SHA-256 of the cookie that binds the sign-in to the browser that started it. */
+  readonly binding: string;
 }
 
 interface Entry {

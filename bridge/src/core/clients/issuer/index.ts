@@ -8,6 +8,7 @@ export type {
   IssuerDependencies,
   IssuerSettings,
   IssuerStart,
+  LinkReturn,
 } from "./issuer.ts";
 export type { AgentListing } from "./listed-agents.ts";
 
