@@ -21,11 +21,12 @@
     - an agent linked at the real Issuer reading with its token, until the token ends or the agent is revoked;
     - stdio in both eras;
     - a completeness check that reads `errors.md` (`RATE_LIMITED` waits for T025).
-  - 23 deliberate breaks, 22 caught. The miss is an expiry check that two others stand behind.
+  - 25 deliberate breaks, 23 caught. One miss is an expiry check that two others stand behind. The other showed a branch that could never run, which was removed.
+  - **One question for the owner** (DRIFT-001-43): the endpoint contract promises Entra tokens from Azure-hosted agents in iteration 001, but no task builds them. Either (a) build it now, about 1.5 SP (estimate) and $0, or (b) move it to the iteration that lists such an agent. (b) is recommended.
   - **Cost**: about 3 SP against an estimate of 1 (estimates), and $0. CP-15 is now expected to take about 4 SP against its estimate of 2 (estimate).
   - **Checks**:
-    - 1,040 tests, 938 passing and 102 skipped without SQL Server;
-    - with SQL Server on 2 workers, 1,028 pass and 12 skip. On 4 workers, one SQL Server suite's database setup ran past its limit under load; it passes alone, and nothing in T024 touches it;
+    - 1,041 tests, 939 passing and 102 skipped without SQL Server;
+    - with SQL Server on 2 workers, 1,029 pass and 12 skip. On 4 workers, one SQL Server suite's database setup ran past its limit under load; it passes alone, and nothing in T024 touches it;
     - coverage with SQL Server: 97.6% of lines and 93.2% of branches;
     - lint, tsc, prettier and depcruise (240 modules) clean.
 

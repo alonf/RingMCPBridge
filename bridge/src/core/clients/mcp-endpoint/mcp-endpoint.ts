@@ -41,6 +41,11 @@ import type { InquiryReads } from "./read-tools.ts";
 export const READ_SCOPE = "read";
 /** When an agent may try again while tokens cannot be checked [P]. */
 export const TOKEN_CHECK_RETRY_AFTER_S = 30;
+/**
+ * How long the Issuer may take to check a token before the answer is 503 [P]: shorter than the
+ * Issuer's own 10 s limit on a store call, so a slow store is "cannot check now", never a failure.
+ */
+export const TOKEN_CHECK_TIMEOUT_MS = 5_000;
 const HTTP_UNAVAILABLE = 503;
 const SERVER_INFO = { name: "ring-mcp-bridge", version: "0.1.0" } as const;
 const RESOURCE_NAME = "Ring MCP Bridge";
@@ -76,6 +81,8 @@ export interface McpEndpointSettings {
   readonly allowedHosts: readonly string[];
   /** How long a tool call may take; 60 s unless a test says otherwise. */
   readonly deadlineMs?: number;
+  /** How long a token check may take; 5 s unless a test says otherwise. */
+  readonly tokenCheckTimeoutMs?: number;
 }
 
 /** What the endpoint is wired with. */
@@ -93,6 +100,18 @@ class TokensUnavailable extends Error {
     super("The access token could not be checked now.");
     this.name = "TokensUnavailable";
   }
+}
+
+function rejectedOnAbort(signal: AbortSignal): Promise<never> {
+  return new Promise<never>((_resolve, reject) => {
+    signal.addEventListener(
+      "abort",
+      () => {
+        reject(signal.reason as Error);
+      },
+      { once: true },
+    );
+  });
 }
 
 /** The MCP Endpoint. One per core process. */
@@ -189,10 +208,7 @@ export class McpEndpoint {
   }
 
   async #verify(token: string): Promise<AuthInfo> {
-    const check = await this.#dependencies.tokens.checkAccessToken(
-      token,
-      AbortSignal.timeout(TOKEN_CHECK_RETRY_AFTER_S * 1000),
-    );
+    const check = await this.#checked(token);
     switch (check.kind) {
       case "valid":
         return {
@@ -209,6 +225,28 @@ export class McpEndpoint {
         );
       case "unavailable":
         throw new TokensUnavailable();
+    }
+  }
+
+  // The Issuer's answer within its time on the Clock. A check that runs past it means the Issuer
+  // cannot check now: the deadline's own reason, `TokensUnavailable`, answers 503.
+  async #checked(token: string): Promise<TokenCheck> {
+    const deadline = new AbortController();
+    const cancel = this.#dependencies.clock.schedule(
+      this.#settings.tokenCheckTimeoutMs ?? TOKEN_CHECK_TIMEOUT_MS,
+      () => {
+        deadline.abort(new TokensUnavailable());
+      },
+    );
+    const check = this.#dependencies.tokens.checkAccessToken(
+      token,
+      deadline.signal,
+    );
+    check.catch(() => undefined);
+    try {
+      return await Promise.race([check, rejectedOnAbort(deadline.signal)]);
+    } finally {
+      cancel();
     }
   }
 

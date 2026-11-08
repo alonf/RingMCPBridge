@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 42
+**Total drift events**: 43
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1174,6 +1174,23 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
+### DRIFT-001-43: Entra tokens from Azure-hosted agents are promised for iteration 001, but no task builds them
+
+- **Detected**: 2026-11-09, implement, in the check after T024
+- **Kind**: a planning gap between `contracts/web-endpoints.md` and tasks.md. No code yet
+- **Observed**: the MCP endpoint's row says Azure-hosted agents may present an Entra token for the bridge's app from a listed managed identity, in iteration 001 (SC2; research.md "Machine identities"). No task builds it, and T024 accepts only the Issuer's tokens, so such an agent is answered 401.
+- **Options** (the owner's choice):
+  - **(a) Build it in iteration 001.**
+    - The endpoint would also accept an Entra access token for the bridge's app registration, checked against Entra's published keys with jose (already a dependency).
+    - The token must come from a managed identity listed in Settings, with an app role for `read`.
+    - The quickstart would gain the app-role steps.
+    - About 1.5 SP (estimate) and $0. It is a second way in, so a second thing to review.
+  - **(b) Move it to the iteration that first lists an Azure-hosted agent**, with the contract's row saying so. 0 SP now and $0. No agent planned for iteration 001's pilot is Azure-hosted: ChatGPT, Claude and the dot link through the Issuer (research.md SC1).
+- **Recommendation**: (b).
+- **Requirement citation**: `contracts/web-endpoints.md` "MCP endpoint"; research.md SC1 "Machine identities"; SC2.
+- **Resolution**: waiting for the owner's choice.
+- **Class closure**: NONE - a planning gap with no code yet. The owner's choice decides whether a test (a) or a contract edit (b) closes it.
+
 ### DRIFT-001-42: T024's MCP Endpoint: both eras on one endpoint, the Issuer's token check, and the contract's own input errors
 
 - **Detected**: 2026-11-09, implement, while doing T024
@@ -1193,9 +1210,11 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - a token without `read`: 403;
     - each of those carries `WWW-Authenticate` naming the protected-resource metadata;
     - while the Issuer cannot check (no keys yet, or its store down): 503 with `Retry-After: 30` [P], so an agent keeps a token that may be fine instead of asking the owner to link again;
+    - a check the Issuer has not answered within 5 s [P], on the Clock: also 503, never 500. The Issuer's own store calls may take up to 10 s;
     - a check that fails unexpectedly: 500, logged.
   - **The protected-resource metadata** (RFC 9728) is at `/.well-known/oauth-protected-resource/mcp`. It names the endpoint, the Issuer and the `read` scope, and may be read from any origin [P]. One configured value is the Issuer's `resource`, the endpoint's URL and the metadata's `resource`. The end-to-end test links an agent at the real Issuer and reads with its token in both eras.
-  - **Hosts.** The `Host` header must be one of the core's names (DNS rebinding). A request that carries `Origin` is refused, since agents call from servers, not web pages [P].
+  - **Hosts.** The `Host` header must be one of the core's names (DNS rebinding). A request that carries `Origin` is refused, since agents call from servers, not web pages [P]. **Carry-forward to the pilot:** confirm that the listed agents send no `Origin` header.
+  - **The budget as agents receive it** (the carry-forward from T020). The whole tool result of the 100-device home's overview and of its device list stays within 8,000 tokens in both eras: the structured reply, its line of text, and the era's own metadata.
   - **Inputs** are listed exactly as `schemas/` publishes them, but checked by the endpoint, which answers the contract's `INVALID_ARGUMENT` envelope. The message names the fields and never repeats a value.
     - The SDK checks a tool's input itself and answers with its own text ("Input validation error: …"), and the method that builds that answer is private (T011 recorded this).
     - It accepts any Standard Schema for an input, though. Each tool's input is a Standard Schema that lists the contract's JSON Schema as zod writes it and accepts every value.
@@ -1218,7 +1237,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - in mode A, stdio with the log on stderr.
 - **Requirement citation**: tasks.md T024; FR-030, FR-033, FR-034, FR-046, FR-048; `contracts/mcp-tools.md`, `contracts/errors.md`, `contracts/web-endpoints.md`; DRIFT-001-39 (opaque tokens).
 - **Resolution**: implementation choices, recorded for CP-15's co-review. T024 was estimated at 1 SP and took about 3 SP (estimate), with the Issuer's token check, the end-to-end test, stdio and the completeness check. Cost $0.
-- **Class closure**: tests in both eras through the SDK client, an end-to-end test with the real Issuer, stdio in both eras, and the completeness check. 23 deliberate breaks, 22 caught:
+- **Class closure**: tests in both eras through the SDK client, an end-to-end test with the real Issuer, stdio in both eras, and the completeness check. 25 deliberate breaks, 23 caught:
   - **the Issuer's check**: another resource, an ended grant, a revoked agent, a store that is down, an Issuer without keys;
   - **the door**:
     - a bad token let in;
@@ -1228,6 +1247,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - a foreign `Host`;
     - a web page;
     - the metadata naming no Issuer;
+    - a token check not raced against its deadline;
   - **the tools**:
     - the SDK's own input text;
     - a reply not parsed;
@@ -1240,7 +1260,9 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - Ring's text in a summary;
   - **the completeness check**: an error test removed.
 
-  The miss: an expired token treated as good by the Issuer's own check. That check stands behind two others, as accepted for T023 (DRIFT-001-39): the store hides an expired token and the provider's lookup refuses one, and the SDK refuses a token past its `expiresAt` in any case.
+  Two misses:
+  - **An expired token treated as good by the Issuer's own check.** That check stands behind two others, as accepted for T023 (DRIFT-001-39): the store hides an expired token, and the provider's lookup refuses one. The SDK also refuses a token past its `expiresAt` in any case.
+  - **A token check past its deadline answering 500.** The break showed that the branch could never run: the deadline's own reason already answers 503. The branch was removed.
 
 ### DRIFT-001-41: CP-16's review found two gaps in the read path; fixed as follow-ups before T024
 

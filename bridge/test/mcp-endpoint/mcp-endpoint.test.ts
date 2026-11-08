@@ -20,6 +20,7 @@ import { errorEnvelope, TOOL_CATALOG } from "../../src/contract/index.ts";
 import type { ErrorCode } from "../../src/contract/index.ts";
 import {
   McpEndpoint,
+  TOKEN_CHECK_TIMEOUT_MS,
   TOOL_DEADLINE_MS,
   UNAVAILABLE_RETRY_AFTER_S,
 } from "../../src/core/clients/mcp-endpoint/index.ts";
@@ -59,9 +60,15 @@ function hourFromNow(): number {
   return Math.floor(Date.now() / 1000) + 3600;
 }
 
+/** The clock the token checker moves for a check that never answers. */
+let tokenClock: FakeClock | undefined;
+
 /** The token checker standing in for the Issuer: what each token value means. */
 function tokenCheck(token: string): Promise<TokenCheck> {
   switch (token) {
+    case "issuer-slow":
+      void tokenClock?.advance(TOKEN_CHECK_TIMEOUT_MS);
+      return new Promise<never>(() => undefined);
     case "good":
       return Promise.resolve({
         kind: "valid",
@@ -102,6 +109,7 @@ interface Harness {
 
 async function startEndpoint(): Promise<Harness> {
   const clock = new FakeClock(HOME_AS_OF + 30_000);
+  tokenClock = clock;
   const lines: string[] = [];
   const core: CoreReads = await startCoreReads(clock);
   let instead: (() => Promise<never>) | undefined;
@@ -269,12 +277,9 @@ describe.each(ERAS)("the MCP endpoint in the %s era", (era) => {
     const overview = await call("get_overview", {});
     const list = await call("list_devices", {});
 
-    expect(estimateTokens(overview.structuredContent)).toBeLessThanOrEqual(
-      TOKEN_BUDGET,
-    );
-    expect(estimateTokens(list.structuredContent)).toBeLessThanOrEqual(
-      TOKEN_BUDGET,
-    );
+    // The whole result: the structured reply, its line of text, and the era's own metadata.
+    expect(estimateTokens(overview)).toBeLessThanOrEqual(TOKEN_BUDGET);
+    expect(estimateTokens(list)).toBeLessThanOrEqual(TOKEN_BUDGET);
     expect(list.structuredContent).toMatchObject({ data: { count: 100 } });
   });
 
@@ -465,6 +470,13 @@ describe("the MCP endpoint's door: tokens, metadata and hosts", () => {
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("30");
     expect(response.headers.get("www-authenticate")).toBeNull();
+  });
+
+  it("answers 503 when the Issuer takes longer than 5 s to check a token, never 500", async () => {
+    const response = await post("issuer-slow");
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("30");
   });
 
   it("answers 500 when a token check fails unexpectedly, logging it without the detail reaching the agent", async () => {

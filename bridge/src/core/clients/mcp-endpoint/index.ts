@@ -7,6 +7,7 @@ export {
   McpEndpoint,
   READ_SCOPE,
   TOKEN_CHECK_RETRY_AFTER_S,
+  TOKEN_CHECK_TIMEOUT_MS,
 } from "./mcp-endpoint.ts";
 export type {
   AccessTokens,
