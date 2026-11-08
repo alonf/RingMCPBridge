@@ -3,11 +3,17 @@
 **Schema**: v2
 **Last Completed Task**: T021
 **Tasks Remaining**: T023-T036 (14 tasks, 17 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: CP-14 (the read path): T019, T020 and T021 are done, and T018 (CP-11a); review round 5's two findings are fixed (DRIFT-001-38), on the owner's choice; next round 6
+**In Progress**: CP-14 (the read path) is done, and its review passed clean in round 6 (2026-11-08); next T023 (the Issuer)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-08T15:21:36Z
+**Updated**: 2026-11-08T16:34:55Z
 
 ## Execution Summary
+
+- **CP-14's review is signed off** (2026-11-08):
+  - Round 6 (run-20261108-162106827-bed7a0bd, 12 minutes, $0) found nothing, on exactly the committed tree (1d7ac4b).
+  - Specrew completed the review on its own, with no decision needed from the owner.
+  - Rounds 3 to 5 found seven real defects, all fixed test-first (DRIFT-001-36 to DRIFT-001-38).
+  - CP-14 took 8 SP against its estimate of 3 (estimates), with the extra in those fixes.
 
 - CP-14 review round 5 found two more problems, and both are fixed (DRIFT-001-38), on the owner's choice to fix both and run one more round:
   - a change the home cannot write to its outbox (a full disk) no longer leaves old data shown as current: the heartbeat names the version the home owes an inventory beyond, and the core keeps the data stale until it stores the session's inventory above it;
