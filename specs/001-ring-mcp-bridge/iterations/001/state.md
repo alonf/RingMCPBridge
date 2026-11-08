@@ -3,11 +3,18 @@
 **Schema**: v2
 **Last Completed Task**: T021
 **Tasks Remaining**: T023-T036 (14 tasks, 17 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: T023 (the Issuer) is done, which completes CP-16's tasks; its review round waits for the owner's approval; then T024 (the MCP Endpoint)
+**In Progress**: CP-16 (the Issuer) is done, and its review is signed off (2026-11-08); next the review's two read-path follow-ups, then T024 (the MCP Endpoint)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-08T19:08:10Z
+**Updated**: 2026-11-08T21:10:18Z
 
 ## Execution Summary
+
+- **CP-16's review is signed off** (2026-11-08):
+  - One round (run-20261108-192725666-de16690a, about 12 minutes, $0) found nothing in the Issuer.
+  - It found two minor problems in the read path, outside CP-16. The owner chose to stop the review there and to have both fixed as follow-ups before T024:
+    - a camera's battery and online status are read from Ring only with an inventory, while a reply's time moves on with each heartbeat, so old camera data can look current;
+    - an alarm sensor added after the connector starts is not reported until something else changes, and one removed stays listed.
+  - CP-16 took about 4 SP against its estimate of 3 (estimates).
 
 - **T023, the Issuer, is built** (2026-11-08; DRIFT-001-39):
   - oidc-provider under `/oauth`, over Grants. Listed agents link by client document or by registering themselves, and the owner consents with an Entra sign-in.
