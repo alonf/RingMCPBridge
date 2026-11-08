@@ -56,7 +56,8 @@ export class HomeView {
 
   /**
    * Takes in a change Ring reported. A device of a location the view does not hold waits for the
-   * next read; a session change says nothing about the home's contents.
+   * next read, as does a device list change; a session change says nothing about the home's
+   * contents.
    */
   apply({ change, at }: TimedChange): void {
     switch (change.kind) {
@@ -74,6 +75,7 @@ export class HomeView {
           at,
         });
         return;
+      case "device_list":
       case "session":
         return;
     }

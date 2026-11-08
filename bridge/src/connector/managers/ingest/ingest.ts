@@ -3,7 +3,8 @@
 //
 // - `inventory`, a full snapshot of every location and device, at every session start and on the
 //   core's `inventory_request`, and again when a location's alarm mode changes, because no other
-//   iteration 001 message carries a location;
+//   iteration 001 message carries a location. When Ring reports a device added or removed, the home
+//   is read again for it, because only a fresh read lists the devices as they are now (DRIFT-001-41);
 // - `device_state`, a device's full current entry, never only the changed fields, when it changes
 //   (DRIFT-001-06);
 // - `heartbeat`, the home's health summary, every 15 s on the Home Scheduler's tick.
@@ -108,6 +109,9 @@ export class Ingest {
   #readsBegun = 0;
   #steps: Promise<void> = Promise.resolve();
   #stopWatching: StopWatching | undefined;
+  // The read a device list change started, and whether another change came during it.
+  #readingAgain: Promise<void> | undefined;
+  #readAgainOwed = false;
   #inventoryOwed = false;
   // The newest `state_version` the outbox has kept, and, while a change could not be written, the
   // newest one kept before it: the version the inventory that pays the debt must be above.
@@ -222,9 +226,13 @@ export class Ingest {
         : undefined;
   }
 
-  /** Resolves once every step accepted so far is done, or has failed and been logged. */
-  flush(): Promise<void> {
-    return this.#steps;
+  /**
+   * Resolves once every step accepted so far is done, or has failed and been logged, including the
+   * read a device list change started.
+   */
+  async flush(): Promise<void> {
+    await this.#readingAgain;
+    await this.#steps;
   }
 
   // The inventory owed is the open session's own: one read before it opened does not pay it.
@@ -291,6 +299,10 @@ export class Ingest {
     if (change.kind === "session") {
       return;
     }
+    if (change.kind === "device_list") {
+      this.#readAgain();
+      return;
+    }
     const timed: TimedChange = { change, at: this.#clock.now() };
     for (const seen of this.#readsRunning) {
       seen.push(timed);
@@ -314,6 +326,45 @@ export class Ingest {
         location_id: change.location.location_id,
       });
     }
+  }
+
+  // A device added or removed at Ring: a fresh read, as on the core's `inventory_request`. Changes
+  // that arrive during it ask for one read more, not one each, since a read lists every device. A
+  // read that fails leaves an inventory owed, which the 10 s tick reads again while a session is open.
+  #readAgain(): void {
+    this.#readAgainOwed = true;
+    if (this.#readingAgain !== undefined) {
+      return;
+    }
+    this.#readingAgain = this.#readUntilCurrent().finally(() => {
+      this.#readingAgain = undefined;
+      // A change between the last read's end and this point still gets its read.
+      if (this.#readAgainOwed) {
+        this.#readAgain();
+      }
+    });
+  }
+
+  async #readUntilCurrent(): Promise<void> {
+    while (this.#takeReadAgain()) {
+      try {
+        await this.inventoryRequested(UNCANCELLED);
+      } catch (error) {
+        this.#count("internal");
+        this.#logger.error(
+          "ingest_inventory_not_read",
+          { message_type: "inventory", error_code: "internal" },
+          error,
+        );
+      }
+    }
+  }
+
+  // Whether a read is owed; from now none is, until the next change.
+  #takeReadAgain(): boolean {
+    const owed = this.#readAgainOwed;
+    this.#readAgainOwed = false;
+    return owed;
   }
 
   // Ingest handles a change's failure itself: no caller waits for it. A fresh inventory is then owed,

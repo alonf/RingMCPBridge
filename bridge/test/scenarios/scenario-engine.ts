@@ -51,6 +51,8 @@ export type ScenarioAction =
       readonly locationId: string;
       readonly mode: RingAlarmMode;
     }
+  | { readonly kind: "device_added"; readonly device: RingDevice }
+  | { readonly kind: "device_removed"; readonly deviceId: string }
   | { readonly kind: "fault"; readonly fault: RingFault }
   | { readonly kind: "recover" };
 
@@ -152,6 +154,12 @@ export class ScenarioEngine implements RingPort {
       case "alarm_mode":
         this.#changeAlarmMode(action.locationId, action.mode);
         return;
+      case "device_added":
+        this.#addDevice(action.device);
+        return;
+      case "device_removed":
+        this.#removeDevice(action.deviceId);
+        return;
       case "fault":
         this.#inject(action.fault);
         return;
@@ -183,6 +191,24 @@ export class ScenarioEngine implements RingPort {
     });
     this.#locations.set(locationId, location);
     this.#report({ kind: "location", location });
+  }
+
+  // As the Ring Adapter reports it: the location's device list changed, so read it again.
+  #addDevice(device: RingDevice): void {
+    if (!this.#locations.has(device.location_id)) {
+      throw new Error(`The scenario names no location ${device.location_id}.`);
+    }
+    this.#devices.set(device.device_id, Object.freeze({ ...device }));
+    this.#report({ kind: "device_list", location_id: device.location_id });
+  }
+
+  #removeDevice(deviceId: string): void {
+    const current = this.#devices.get(deviceId);
+    if (current === undefined) {
+      throw new Error(`The scenario names no device ${deviceId}.`);
+    }
+    this.#devices.delete(deviceId);
+    this.#report({ kind: "device_list", location_id: current.location_id });
   }
 
   #inject(fault: RingFault): void {

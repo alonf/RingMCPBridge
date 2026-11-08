@@ -81,7 +81,7 @@ These two messages fill the core's State (PT-30).
 
 | Message | When it is sent | Fields [P names] |
 |---|---|---|
-| `inventory` | on every session start, after the catch-up (from 002), on `inventory_request`, and when a location's alarm mode changes, because no other message carries a location (DRIFT-001-19) | `message_id`; `snapshot_version` [P]; `session_id` [P], present when the Ring read the inventory carries began in a session still open as it is written; `locations` (each: `location_id`, `name`, `time_zone`, `alarm_mode`, `ownership`, `as_of`, `state_version`); `devices` (each: `device_id`, `location_id`, `name`, `type`, `room`, `battery_pct`, `battery_low`, `power_mode`, `online`, `state`, `as_of`, `state_version`) |
+| `inventory` | on every session start, after the catch-up (from 002), on `inventory_request`, when a location's alarm mode changes, because no other message carries a location (DRIFT-001-19), and from a fresh read after Ring reports an alarm device added or removed (DRIFT-001-41) | `message_id`; `snapshot_version` [P]; `session_id` [P], present when the Ring read the inventory carries began in a session still open as it is written; `locations` (each: `location_id`, `name`, `time_zone`, `alarm_mode`, `ownership`, `as_of`, `state_version`); `devices` (each: `device_id`, `location_id`, `name`, `type`, `room`, `battery_pct`, `battery_low`, `power_mode`, `online`, `state`, `as_of`, `state_version`) |
 | `device_state` | when one device's state changes without an event | `message_id`, and the device's full current entry: the same fields as a device in `inventory` (`device_id`, `location_id`, `name`, `type`, `room`, `battery_pct`, `battery_low`, `power_mode`, `online`, `state`, `as_of`, `state_version`) |
 
 Rules:

@@ -8,6 +8,9 @@
 //   port's plain entries (ring-mapping.ts). Nothing of ring-client-api crosses the port.
 // - ring-client-api keeps the locations and their cameras from its first read. Alarm devices stay
 //   current through its websocket; cameras are refreshed from Ring on each device read.
+// - An alarm device added or removed in Ring shows when Ring next sends its hub's device list, on a
+//   (re)connect of the live connection: it is reported as a change of the location's device list,
+//   and a removed device is no longer read or watched (alarm-devices.ts, DRIFT-001-41).
 // - A lost session stays lost: calls are refused until the owner signs in again and the connector
 //   restarts. A call already queued when it is lost is refused when its turn comes, and no later
 //   outcome changes the status back.
@@ -21,6 +24,7 @@
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
 import { Secret } from "../../../utilities/security/index.ts";
+import { AlarmDevices } from "./alarm-devices.ts";
 import { RING_CALL_LIMITS } from "./call-limits.ts";
 import type { RingCallGate } from "./call-limits.ts";
 import { RingAdapterError } from "./ring-adapter-error.ts";
@@ -103,6 +107,7 @@ export class RingApiAdapter implements RingPort {
   readonly #graceMs: number;
   readonly #probeMs: number;
   readonly #locations = new Map<string, RingClientLocation>();
+  readonly #alarmDevices = new Map<string, AlarmDevices>();
   readonly #listeners = new Set<(change: RingChange) => void>();
   readonly #subscriptions: Unsubscribe[] = [];
   // The status's inputs: calls failing, the hubs whose connection stayed closed past the grace, and
@@ -165,11 +170,13 @@ export class RingApiAdapter implements RingPort {
     if (location === undefined) {
       return [];
     }
-    const alarmDevices = await this.#call(
+    const listed = await this.#call(
       signal,
       () => location.getDevices(),
       FROM_MEMORY,
     );
+    const alarmDevices =
+      this.#alarmDevices.get(locationId)?.current(listed) ?? listed;
     const cameras = await this.#currentCameras(location, signal);
     return [
       ...alarmDevices
@@ -494,43 +501,20 @@ export class RingApiAdapter implements RingPort {
     if (location.hasHubs) {
       this.#subscriptions.push(this.#watchConnection(location));
     }
-    const watched = new Map<string, Unsubscribe>();
-    this.#subscriptions.push(
-      location.onDevices.subscribe((devices) => {
-        for (const device of devices) {
-          this.#watchDevice(location, device, watched);
-        }
-      }),
-      {
-        unsubscribe: () => {
-          for (const subscription of watched.values()) {
-            subscription.unsubscribe();
-          }
-        },
+    const alarmDevices = new AlarmDevices(location, {
+      changed: (data) => {
+        this.#deviceChanged(location, data);
       },
-    );
-  }
-
-  #watchDevice(
-    location: RingClientLocation,
-    device: RingClientDevice,
-    watched: Map<string, Unsubscribe>,
-  ): void {
-    const id = device.data.zid;
-    if (watched.has(id)) {
-      return;
-    }
-    // The stream starts with the data a read already returned; only what follows is a change.
-    let seenCurrent = false;
-    watched.set(
-      id,
-      device.onData.subscribe((data) => {
-        if (seenCurrent) {
-          this.#deviceChanged(location, data);
-        }
-        seenCurrent = true;
-      }),
-    );
+      listChanged: () => {
+        this.#emit({ kind: "device_list", location_id: location.id });
+      },
+    });
+    this.#alarmDevices.set(location.id, alarmDevices);
+    this.#subscriptions.push({
+      unsubscribe: () => {
+        alarmDevices.stop();
+      },
+    });
   }
 
   #deviceChanged(

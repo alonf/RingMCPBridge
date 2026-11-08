@@ -3,11 +3,21 @@
 **Schema**: v2
 **Last Completed Task**: T021
 **Tasks Remaining**: T023-T036 (14 tasks, 17 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: CP-16 (the Issuer) is done, and its review is signed off (2026-11-08); next the review's two read-path follow-ups, then T024 (the MCP Endpoint)
+**In Progress**: CP-16 (the Issuer) is done and its review signed off; the review's two read-path follow-ups are fixed (DRIFT-001-41); next T024 (the MCP Endpoint)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-08T21:10:18Z
+**Updated**: 2026-11-08T22:01:19Z
 
 ## Execution Summary
+
+- **The two follow-ups from CP-16's review are fixed** (2026-11-09; DRIFT-001-41):
+  - **Camera status.** A camera's or doorbell's battery and online status now carry the time Ring last reported them, in `list_devices` and the overview. Old camera data no longer looks current. No new calls to Ring.
+  - **Sensors added or removed.** An alarm sensor added or removed in Ring now shows when Ring next sends its hub's device list, on a reconnect or a restart. The connector reads the home again and sends a full inventory, and it stops watching a removed sensor. How soon that happens on the owner's home is a pilot check.
+  - About 1.5 SP (estimate) and $0. A deliberate break of sixteen parts was caught.
+  - Checks:
+    - 991 tests: 889 pass and 102 skip without SQL Server. With it, 979 pass and 12 skip on 4 workers.
+    - On the default worker count, two existing SQL Server tests run past their 5 s limit under load. They take 2.5 s and 3.1 s alone, and nothing in this change touches them.
+    - Coverage with SQL Server: 97.7% of lines and 93.7% of branches.
+    - lint, tsc, prettier and depcruise (233 modules) are clean.
 
 - **CP-16's review is signed off** (2026-11-08):
   - One round (run-20261108-192725666-de16690a, about 12 minutes, $0) found nothing in the Issuer.

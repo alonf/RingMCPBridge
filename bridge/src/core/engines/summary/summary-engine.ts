@@ -9,6 +9,10 @@
 //   Inquiry wraps around it.
 // - **A home too large for the budget** gets its lists cut, in device-id order, never its
 //   location or health; the device list's `count` still says how many devices match [P].
+// - **A camera's or doorbell's status carries its own time** wherever its battery or online status
+//   is given: the home reads them from Ring only at an inventory, while other devices are kept
+//   current through Ring's live connection and are true as of the reply's `as_of` (CP-16 review
+//   follow-up, DRIFT-001-41).
 import { formatUtc } from "../../../utilities/clock/index.ts";
 
 /** A reply's budget in tokens (SC-006). */
@@ -20,6 +24,9 @@ export const DATA_BUDGET_TOKENS = TOKEN_BUDGET - ENVELOPE_RESERVE_TOKENS;
 
 /** Characters per token in the estimate (PT-22): conservative for JSON mixing Hebrew and English. */
 const CHARACTERS_PER_TOKEN = 3;
+
+/** The types whose battery and online status the home reads from Ring only at an inventory. */
+const READ_AT_INVENTORY: ReadonlySet<string> = new Set(["camera", "doorbell"]);
 
 /** A device's type, as the contract names it. */
 export type SummaryDeviceType =
@@ -94,6 +101,14 @@ export interface DeviceReference {
   readonly room?: string;
 }
 
+/**
+ * When a camera's or doorbell's battery and online status were read from Ring, UTC; absent for a
+ * device kept current, which is true as of the reply's `as_of`.
+ */
+export interface StatusReadAt {
+  readonly as_of?: string;
+}
+
 /** `get_health`'s data. */
 export interface HealthData {
   readonly home_link: {
@@ -124,16 +139,16 @@ export interface OverviewData {
     readonly device: DeviceReference;
     readonly last_motion_at: string;
   }[];
-  readonly offline_devices: readonly DeviceReference[];
-  readonly low_batteries: readonly {
+  readonly offline_devices: readonly (DeviceReference & StatusReadAt)[];
+  readonly low_batteries: readonly ({
     readonly device: DeviceReference;
     readonly battery_pct?: number;
-  }[];
+  } & StatusReadAt)[];
   readonly health: HealthData;
 }
 
 /** One device in `list_devices`' data. */
-export interface ListedDevice {
+export interface ListedDevice extends StatusReadAt {
   readonly id: string;
   readonly name: string;
   readonly type: SummaryDeviceType;
@@ -237,7 +252,9 @@ export function overview(
         device: reference(device),
         last_motion_at: formatUtc(device.as_of),
       })),
-    offline_devices: devices.filter((device) => !device.online).map(reference),
+    offline_devices: devices
+      .filter((device) => !device.online)
+      .map((device) => ({ ...reference(device), ...statusReadAt(device) })),
     low_batteries: devices
       .filter((device) => isLow(device, policy.batteryThresholdPct))
       .map((device) => ({
@@ -245,6 +262,7 @@ export function overview(
         ...(device.battery_pct === undefined
           ? {}
           : { battery_pct: device.battery_pct }),
+        ...statusReadAt(device),
       })),
     health: healthData(input.health, input.now),
   };
@@ -354,5 +372,14 @@ function listedDevice(device: SummaryDevice): ListedDevice {
       : { battery_pct: device.battery_pct }),
     power_mode: device.power_mode,
     online: device.online,
+    ...statusReadAt(device),
   };
+}
+
+// A camera's or doorbell's status is as old as the inventory that read it; other devices are kept
+// current, so they carry no time of their own.
+function statusReadAt(device: SummaryDevice): StatusReadAt {
+  return READ_AT_INVENTORY.has(device.type)
+    ? { as_of: formatUtc(device.as_of) }
+    : {};
 }

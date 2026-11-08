@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 40
+**Total drift events**: 41
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,70 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-41: CP-16's review found two gaps in the read path; fixed as follow-ups before T024
+
+- **Detected**: 2026-11-08, implement, by CP-16's review round (run-20261108-192725666-de16690a). Both were reported as minor and outside CP-16. The owner chose to stop the review there and to have both fixed before T024.
+- **Kind**: two defects in the read path, against FR-006 and FR-002 (CP-14, CP-07, CP-08a). The public contract gains an optional field, an additive change (FR-046). No spec change
+- **Observed**:
+  - **A camera's status could look current when it was old.**
+    - The home reads a camera's or doorbell's battery and online status from Ring only with an inventory (DRIFT-001-21). Inventories come at a session's start and on the core's request.
+    - A reply's `as_of` is the home's last heartbeat. So `list_devices` and `get_overview` could show a camera's old status as true at the latest heartbeat, for as long as the session lasted.
+  - **An alarm device added or removed after the connector started went unseen.**
+    - ring-client-api's device list only grows. It changes when a hub's list names a new device, and a device removed in Ring stays in it, so `getDevices` still returns it. Ring sends a hub's full list on each (re)connect of the live connection.
+    - The adapter dropped a new device's first data, so nothing was sent until that device changed again.
+    - A removed device was never left out of reads, and its subscription was never released.
+- **Fix**:
+  - **A camera's status carries its own time** [P].
+    - Wherever a camera's or doorbell's battery or online status is given, an optional `as_of` says when Ring last reported it. That covers `list_devices` entries, and the overview's `offline_devices` and `low_batteries`.
+    - The time is the one the home already stamps on each entry: when the inventory read it.
+    - Other devices are kept current through Ring's live connection, so they carry none, and the reply's `as_of` covers them. `get_device` already gave every device its own `as_of`.
+    - It makes no new call to Ring.
+    - A periodic camera read was considered and not taken. FR-026 and DRIFT-001-18 keep polling off, and the spec names the risk of the account being blocked. The review asked for truthful observation times, which this gives. If wanted later: one call per location with cameras per read, for example every 15 minutes, 4 calls an hour and 96 a day (derived), $0 but more block risk. That is the owner's decision.
+  - **The adapter follows each hub's device list** (`alarm-devices.ts`):
+    - the first list it sees is the baseline, which the read that started watching returns;
+    - a device in a later list is new. It is watched and reported as a change of the location's device list, a new `RingChange` kind, `device_list`;
+    - a device its hub's latest list leaves out is removed. It is no longer read or watched, and it is reported the same way. One its hub lists again is back;
+    - a list that names no device is taken as no list, never as every device gone. A device of another hub is left alone;
+    - the narrow client types gained a device's hub (`assetId`) and the hubs' own lists (`onDeviceList`), and the compiler checks that the real `RingApi` still fits them.
+  - **Ingest reads the home again on a device list change**, as on `inventory_request`, and queues the inventory.
+    - The core applies it as a full snapshot, so a new device is added and a removed one dropped (T019's removal rule).
+    - Changes that come during that read ask for one read more, not one each.
+    - A read that fails leaves an inventory owed, which the 10 s tick reads again while a session is open.
+  - **Contracts**: `mcp-tools.md` (the optional `as_of`), `connector-link.md` (when `inventory` is sent), and the published `schemas/tool-replies.schema.json`, which only adds.
+- **Known limits**:
+  - **Carry-forward to the pilot.** An added or removed sensor shows when Ring next sends its hub's list: on a reconnect of the live connection, or after a restart. Check on the owner's home how often that happens, and whether Ring sends a list unasked when a device is added. Asking for the list on a schedule would be polling: the owner's decision.
+  - On each reconnect, the library refreshes every listed device from the list, so each device is reported once more then. That was already so before this fix.
+  - A camera or location added in Ring still shows only after a restart (DRIFT-001-21).
+- **Requirement citation**: FR-002, FR-006, FR-026, FR-046; `contracts/mcp-tools.md`, `contracts/connector-link.md`; DRIFT-001-18, DRIFT-001-19, DRIFT-001-21.
+- **Resolution**: fixed before T024. Cost: about 1.5 SP (estimate) and $0, in the actuals of CP-07 (0.5), CP-08a (0.5) and CP-14 (0.5).
+- **Class closure**: a fake Ring client that keeps its device list as the library does, new tests, and 16 deliberate breaks:
+  - The fake Ring client keeps its device list as the library does: the list only grows, it is emitted when it grows, the hubs' lists arrive with no replay, and each list refreshes the devices it names. A fake friendlier than the library hid DRIFT-001-21 the same way.
+  - The scenario engine can add and remove a device.
+  - New tests:
+    - the adapter's six: the baseline not reported, an added device, a removed device, one listed again, another hub's list, a list naming no device;
+    - Ingest's four: a fresh inventory with an added device, one without a removed device, one read more for changes during a read, an unexpected failure logged;
+    - the Summary engine's and Inquiry's camera times.
+  - Deliberate breaks: 16, all caught:
+    - **the adapter**:
+      - an added device not reported;
+      - the first list reported at startup;
+      - a removed device still read;
+      - a removed device still watched;
+      - another hub's list removing a device;
+      - an empty list removing every device;
+      - a device listed again not watched;
+      - the adapter reading every device the library keeps;
+    - **Ingest**:
+      - a list change ignored;
+      - one read for each change;
+      - a change during a read dropped;
+      - flush not waiting for the read;
+    - **the camera times**:
+      - a camera's status with no time;
+      - every device with a time;
+      - a camera's time not its own;
+      - the contract leaving the time out.
 
 ### DRIFT-001-40: T023's sign-in was not bound to the browser that started the link; fixed before review
 

@@ -14,7 +14,7 @@ import {
 } from "../../engines/health/index.ts";
 import type { HealthView } from "../../engines/health/index.ts";
 import { estimateTokens, TOKEN_BUDGET } from "../../engines/summary/index.ts";
-import { FakeClock } from "../../../utilities/clock/index.ts";
+import { FakeClock, formatUtc } from "../../../utilities/clock/index.ts";
 import {
   CORE_MIGRATIONS,
   openSqliteQueryLayer,
@@ -280,6 +280,54 @@ describe("the Inquiry manager: the read tools", () => {
       home_link: { status: "up", since: "2026-11-07T09:00:00.000Z" },
       ring_session: { status: "ok", since: "2026-11-07T09:00:00.000Z" },
       database: { status: "ok" },
+    });
+  });
+});
+
+// The home reads a camera's status from Ring only at an inventory, while the reply's own time is
+// the home's last heartbeat (DRIFT-001-41).
+describe("the Inquiry manager: a camera's status has its own time (CP-16 review follow-up)", () => {
+  it("gives a camera's status the time it was read, while the reply's time moves on with the heartbeats", async () => {
+    const camera = device("d-camera", {
+      type: "camera",
+      name: "Front",
+      battery_pct: 5,
+      online: false,
+      state: {},
+    });
+    const test = await harness([HOME], [DOOR, camera]);
+    const later = START + 3 * 3_600_000;
+    await test.state.saveHealth(
+      afterHeartbeat(
+        UP,
+        { ring_session: "ok", outbox_depth: 0, inventory_owed: false },
+        later,
+      ),
+      never,
+    );
+    await test.clock.advance(later + 30_000 - START);
+
+    const listed = await test.inquiry.listDevices({}, never);
+    const home = await test.inquiry.getOverview({}, never);
+
+    expect(listed).toMatchObject({
+      as_of: formatUtc(later),
+      freshness: "cached",
+    });
+    expect(
+      listed.data.devices.find((entry) => entry.id === "d-camera"),
+    ).toMatchObject({ online: false, battery_pct: 5, as_of: formatUtc(START) });
+    expect(
+      listed.data.devices.find((entry) => entry.id === "d-door"),
+    ).not.toHaveProperty("as_of");
+    expect(home.as_of).toBe(formatUtc(later));
+    expect(home.data.offline_devices).toEqual([
+      { id: "d-camera", name: "Front", as_of: formatUtc(START) },
+    ]);
+    expect(home.data.low_batteries).toContainEqual({
+      device: { id: "d-camera", name: "Front" },
+      battery_pct: 5,
+      as_of: formatUtc(START),
     });
   });
 });

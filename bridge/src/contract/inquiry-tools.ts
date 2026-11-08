@@ -29,6 +29,11 @@ const online = z.boolean().meta({
   description: "Whether Ring sees the device now.",
 });
 
+// A camera's or doorbell's status is read from Ring at each inventory only (DRIFT-001-41).
+const statusReadAt = utcTime(
+  "When Ring last reported this camera's or doorbell's battery and online status, in UTC. Present for cameras and doorbells only: the bridge reads their status from Ring from time to time, so it can be older than the reply's as_of. Other devices are kept current and are true as of the reply's as_of.",
+);
+
 // get_health
 
 export const getHealthInput = z.strictObject({}).meta({
@@ -94,12 +99,18 @@ export const overviewData = z.object({
       }),
     )
     .meta({ description: "Motion sensors that saw motion recently." }),
-  offline_devices: z.array(deviceReference).meta({
-    description: "Devices Ring does not see now.",
-  }),
+  offline_devices: z
+    .array(deviceReference.extend({ as_of: statusReadAt.optional() }))
+    .meta({
+      description: "Devices Ring does not see now.",
+    }),
   low_batteries: z
     .array(
-      z.object({ device: deviceReference, battery_pct: batteryPct.optional() }),
+      z.object({
+        device: deviceReference,
+        battery_pct: batteryPct.optional(),
+        as_of: statusReadAt.optional(),
+      }),
     )
     .meta({ description: "Devices whose battery is low." }),
   health: healthData,
@@ -138,6 +149,7 @@ export const deviceListData = z.object({
       battery_pct: batteryPct.optional(),
       power_mode: powerMode,
       online,
+      as_of: statusReadAt.optional(),
     }),
   ),
   count: z.int().min(0).meta({ description: "How many devices are listed." }),

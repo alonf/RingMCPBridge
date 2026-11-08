@@ -20,6 +20,7 @@ export type {
   ListedDevice,
   OverviewData,
   OverviewInput,
+  StatusReadAt,
   SummaryDevice,
   SummaryDeviceType,
   SummaryHealth,

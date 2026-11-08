@@ -176,6 +176,41 @@ describe("scripted changes", () => {
     expect(() => {
       engine.apply({ kind: "alarm_mode", locationId: "missing", mode: "away" });
     }).toThrow("missing");
+    expect(() => {
+      engine.apply({ kind: "device_removed", deviceId: "missing" });
+    }).toThrow("missing");
+  });
+
+  it("adds and removes a device, and reports the location's device list as changed", async () => {
+    const { engine, changes } = setUp();
+    const [first] = await engine.devices(STANDARD_LOCATION_ID, never());
+    if (first === undefined) {
+      throw new Error("The standard home has no device.");
+    }
+    const before = (await engine.devices(STANDARD_LOCATION_ID, never())).length;
+
+    engine.apply({
+      kind: "device_added",
+      device: { ...first, device_id: "added" },
+    });
+    engine.apply({ kind: "device_removed", deviceId: HEBREW_DEVICE_ID });
+
+    const ids = (await engine.devices(STANDARD_LOCATION_ID, never())).map(
+      (device) => device.device_id,
+    );
+    expect(ids).toHaveLength(before);
+    expect(ids).toContain("added");
+    expect(ids).not.toContain(HEBREW_DEVICE_ID);
+    expect(changes).toEqual([
+      { kind: "device_list", location_id: STANDARD_LOCATION_ID },
+      { kind: "device_list", location_id: STANDARD_LOCATION_ID },
+    ]);
+    expect(() => {
+      engine.apply({
+        kind: "device_added",
+        device: { ...first, device_id: "lost", location_id: "missing" },
+      });
+    }).toThrow("missing");
   });
 });
 

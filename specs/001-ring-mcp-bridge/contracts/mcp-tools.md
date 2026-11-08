@@ -14,6 +14,7 @@ The tool list is the public contract. It changes only additively, and a tool is 
   - inputs reject unknown fields [P].
 - **`location_id` when omitted [P]:** the owned location when there is exactly one; otherwise `INVALID_ARGUMENT`, with the location ids in `details`.
 - **Device references:** outputs use the event's device object `{id, name, room}` (IA D7). Inputs name a device `device_id` [P].
+- **A camera's status time [P] (DRIFT-001-41):** the bridge reads a camera's or doorbell's battery and online status from Ring only from time to time, at an inventory, while other devices are kept current through Ring's live connection. So wherever a camera's or doorbell's battery or online status is given, an optional `as_of` says when Ring last reported it, and it can be older than the reply's own `as_of`. Other devices carry none: the reply's `as_of` covers them.
 - **Untrusted content (FR-033, IA §Rules 5, AC B13):**
   - every Ring-sourced string (location and device names, rooms, event summaries, Ring history text, Ring's own kind names) and every image is untrusted data;
   - each such schema field says so in its description and carries `x-untrusted: true` [P];
@@ -63,8 +64,8 @@ The home in one reply: alarm mode, open contacts, active motion, offline devices
 | `alarm_mode` | enum `disarmed`, `home`, `away` [P values] | |
 | `open_contacts` | list of device references | |
 | `active_motion` | list of `{device, last_motion_at}` | [P] |
-| `offline_devices` | list of device references | |
-| `low_batteries` | list of `{device, battery_pct}` | [P] |
+| `offline_devices` | list of device references, each with `as_of` for a camera or doorbell | `as_of` [P], see Conventions |
+| `low_batteries` | list of `{device, battery_pct, as_of}` | [P]; `as_of` for a camera or doorbell only, see Conventions |
 | `health` | object, the `get_health` fields | FR-001 |
 
 The Summary engine keeps the reply within the token budget (CD map v3 Summary). Errors: `INVALID_ARGUMENT`, `NOT_FOUND`, `RATE_LIMITED`, `TIMEOUT`, `BRIDGE_UNAVAILABLE`, `INTERNAL`.
@@ -81,7 +82,7 @@ Devices with id, name (any language, as written), type, room, battery, power mod
 
 | Output `data` field | Type | Notes |
 |---|---|---|
-| `devices` | list of `{id, name, type, room, battery_pct, power_mode, online}` | `name`, `room` untrusted; `battery_pct` absent for wired devices |
+| `devices` | list of `{id, name, type, room, battery_pct, power_mode, online, as_of}` | `name`, `room` untrusted; `battery_pct` absent for wired devices; `as_of` [P] for a camera or doorbell only, see Conventions |
 | `count` | integer | [P] |
 
 Errors: as `get_overview`.

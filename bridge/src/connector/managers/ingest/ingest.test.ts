@@ -977,3 +977,106 @@ describe("Ingest after CP-14 review round 5", () => {
     ).toEqual({ open: true });
   });
 });
+
+// A device added or removed at Ring is reported as a change of the location's device list, and only
+// a fresh read lists the devices as they are now (DRIFT-001-41).
+describe("Ingest after a device is added or removed at Ring (CP-16 review follow-up)", () => {
+  const addedId = "added-sensor";
+
+  function addedDevice(): RingDevice {
+    return {
+      ...standardDevice(HEBREW_DEVICE_ID),
+      device_id: addedId,
+      name: "חיישן חדש",
+    };
+  }
+
+  function idsOf(inventory: InventoryBody): string[] {
+    return inventory.devices.map((device) => device.device_id);
+  }
+
+  it("reads the home again when Ring adds a device, and queues an inventory that lists it", async () => {
+    const { engine, store, ingest } = await setup();
+    await ingest.inventoryRequested(signal);
+    await takeAll(store);
+    await clock.advance(1_000);
+
+    engine.apply({ kind: "device_added", device: addedDevice() });
+    await ingest.flush();
+
+    const items = await takeAll(store);
+    expect(items).toHaveLength(1);
+    const inventory = inventoryOf(items[0]);
+    expect(inventory.devices).toHaveLength(DEVICE_COUNT + 1);
+    expect(
+      inventory.devices.find((device) => device.device_id === addedId),
+    ).toMatchObject({ name: "חיישן חדש", as_of: formatUtc(START + 1_000) });
+  });
+
+  it("reads the home again when Ring removes a device, and the inventory leaves it out", async () => {
+    const { engine, store, ingest } = await setup();
+    await ingest.inventoryRequested(signal);
+    await takeAll(store);
+
+    engine.apply({ kind: "device_removed", deviceId: HEBREW_DEVICE_ID });
+    await ingest.flush();
+
+    const items = await takeAll(store);
+    expect(items).toHaveLength(1);
+    const inventory = inventoryOf(items[0]);
+    expect(inventory.devices).toHaveLength(DEVICE_COUNT - 1);
+    expect(idsOf(inventory)).not.toContain(HEBREW_DEVICE_ID);
+  });
+
+  it("logs and counts a read that fails unexpectedly, and reads again on the next change", async () => {
+    const store = await openStore();
+    const engine = new ScenarioEngine(clock);
+    let broken = true;
+    const ring: RingPort = {
+      sessionStatus: () => engine.sessionStatus(),
+      locations: (readSignal) =>
+        broken
+          ? Promise.reject(new Error("not a Ring Adapter error"))
+          : engine.locations(readSignal),
+      devices: (locationId, readSignal) =>
+        engine.devices(locationId, readSignal),
+      watch: (listener) => engine.watch(listener),
+    };
+    const ingest = startIngest(ring, store);
+
+    engine.apply({ kind: "device_removed", deviceId: HEBREW_DEVICE_ID });
+    await ingest.flush();
+    expect(await store.depth(signal)).toBe(0);
+    expect(lines.join("\n")).toContain("ingest_inventory_not_read");
+
+    broken = false;
+    engine.apply({ kind: "device_added", device: addedDevice() });
+    await ingest.flush();
+    const items = await takeAll(store);
+    expect(items).toHaveLength(1);
+    expect(idsOf(inventoryOf(items[0]))).toContain(addedId);
+  });
+
+  it("reads once more for the changes that came during a read, not once for each", async () => {
+    const engine = new ScenarioEngine(clock);
+    const store = await openStore();
+    const ingest = startIngest(new StaleReads(engine, SLOW_MS), store);
+    await driveFakeClock(clock, ingest.inventoryRequested(signal));
+    await takeAll(store);
+    const readsPerInventory = engine.reads;
+
+    engine.apply({ kind: "device_removed", deviceId: HEBREW_DEVICE_ID });
+    engine.apply({ kind: "device_added", device: addedDevice() });
+    engine.apply({ kind: "device_removed", deviceId: addedId });
+    await driveFakeClock(clock, ingest.flush());
+
+    expect(engine.reads).toBe(3 * readsPerInventory);
+    const inventories = (await takeAll(store)).map(inventoryOf);
+    expect(inventories).toHaveLength(2);
+    const latest = inventories.at(-1);
+    expect(latest === undefined ? [] : idsOf(latest)).not.toContain(
+      HEBREW_DEVICE_ID,
+    );
+    expect(latest?.devices).toHaveLength(DEVICE_COUNT - 1);
+  });
+});

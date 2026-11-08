@@ -7,6 +7,7 @@ import type {
   RingClientCameraData,
   RingClientDevice,
   RingClientDeviceData,
+  RingClientDeviceList,
   RingClientLocation,
   RingClientStream,
 } from "../../src/connector/access/ring-adapter/ring-client.ts";
@@ -15,6 +16,8 @@ import type {
 export const FAKE_RING_PROFILE_ID = 7;
 /** Text in every fake Ring failure, which must never reach an error or a log. */
 export const FAKE_RING_BODY = "Ring-body-SECRET-content";
+/** The hub (Ring's asset) whose device list names a fake device unless a test says otherwise. */
+export const FAKE_HUB = "hub-1";
 const STEP_MS = 1_000;
 const MAX_DRIVE_MS = 600_000;
 
@@ -50,16 +53,34 @@ export class FakeRingStream<T> implements RingClientStream<T> {
   get listeners(): number {
     return this.#listeners.size;
   }
+
+  /** The value a new subscriber receives at once; none for a stream with no replay. */
+  get value(): T | undefined {
+    return this.#current?.value;
+  }
 }
 
-export function fakeDevice(data: RingClientDeviceData): RingClientDevice & {
+/** An alarm device as ring-client-api keeps it: `data` is its data now. */
+export interface FakeDevice extends RingClientDevice {
   readonly stream: FakeRingStream<RingClientDeviceData>;
-} {
-  const stream = new FakeRingStream<RingClientDeviceData>({ value: data });
-  return { data, onData: stream, stream };
 }
 
-function contactDevice(): ReturnType<typeof fakeDevice> {
+export function fakeDevice(
+  data: RingClientDeviceData,
+  assetId: string = FAKE_HUB,
+): FakeDevice {
+  const stream = new FakeRingStream<RingClientDeviceData>({ value: data });
+  return {
+    get data(): RingClientDeviceData {
+      return stream.value ?? data;
+    },
+    onData: stream,
+    stream,
+    assetId,
+  };
+}
+
+function contactDevice(): FakeDevice {
   return fakeDevice({
     zid: "z-contact",
     name: "דלת כניסה",
@@ -70,7 +91,7 @@ function contactDevice(): ReturnType<typeof fakeDevice> {
   });
 }
 
-function panelDevice(): ReturnType<typeof fakeDevice> {
+function panelDevice(): FakeDevice {
   return fakeDevice({
     zid: "z-panel",
     name: "Alarm",
@@ -146,9 +167,18 @@ export class FakeCamera implements RingClientCamera {
 export interface FakeLocation extends RingClientLocation {
   /** Replaceable, so a test can model a location without cameras. */
   cameras: readonly RingClientCamera[];
+  /** The library's device list: the latest at once, then each time it grows. */
   readonly devicesStream: FakeRingStream<readonly RingClientDevice[]>;
+  /** Each hub's list as Ring sends it, with no replay. */
+  readonly deviceListStream: FakeRingStream<RingClientDeviceList>;
   /** The live connection, as the library's `BehaviorSubject`: `false` until a test opens it. */
   readonly connectedStream: FakeRingStream<boolean>;
+  /**
+   * Ring sends a hub's full device list, as on a (re)connect, and the library takes it in as
+   * ring-client-api does: a device it did not have is added, and the list emitted when it grew; a
+   * listed device it had gets the listed data again; a device the list leaves out stays.
+   */
+  sendDeviceList(devices: readonly FakeDevice[], hub?: string): void;
 }
 
 function fakeLocation(
@@ -156,11 +186,38 @@ function fakeLocation(
   ownerId: number,
   options: {
     readonly alarm: boolean;
-    readonly devices: readonly RingClientDevice[];
+    readonly devices: readonly FakeDevice[];
   },
 ): FakeLocation {
-  const devicesStream = new FakeRingStream<readonly RingClientDevice[]>();
+  let devices: readonly RingClientDevice[] = options.devices;
+  const devicesStream = new FakeRingStream<readonly RingClientDevice[]>({
+    value: devices,
+  });
+  const deviceListStream = new FakeRingStream<RingClientDeviceList>();
   const connectedStream = new FakeRingStream<boolean>({ value: false });
+  const sendDeviceList = (
+    listed: readonly FakeDevice[],
+    hub: string = FAKE_HUB,
+  ): void => {
+    const added = listed.filter(
+      (device) => !devices.some((known) => known.data.zid === device.data.zid),
+    );
+    for (const device of listed) {
+      if (!added.includes(device)) {
+        device.stream.emit({ ...device.data });
+      }
+    }
+    if (added.length > 0) {
+      devices = [...devices, ...added];
+      devicesStream.emit(devices);
+    }
+    deviceListStream.emit({
+      src: hub,
+      body: listed.map((device) => ({
+        general: { v2: { zid: device.data.zid } },
+      })),
+    });
+  };
   return {
     id,
     locationDetails: {
@@ -174,10 +231,13 @@ function fakeLocation(
     onConnected: connectedStream,
     connectedStream,
     cameras: [new FakeCamera(FAKE_DOORBELL)],
-    getDevices: () => Promise.resolve(options.devices),
+    getDevices: () => Promise.resolve(devices),
     getAlarmMode: () => Promise.resolve("some"),
     onDevices: devicesStream,
     devicesStream,
+    onDeviceList: deviceListStream,
+    deviceListStream,
+    sendDeviceList,
   };
 }
 

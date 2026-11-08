@@ -3,6 +3,7 @@
 // (SC-006, PT-22: tokens estimated as characters ÷ 3, rounded up).
 import { describe, expect, it } from "vitest";
 import { standardHome } from "../../../../test/scenarios/index.ts";
+import { formatUtc } from "../../../utilities/clock/index.ts";
 import {
   DATA_BUDGET_TOKENS,
   deviceDetail,
@@ -188,6 +189,64 @@ describe("the Summary engine: the device list", () => {
       ],
       count: 2,
     });
+  });
+});
+
+// The home reads a camera's or doorbell's status from Ring only at an inventory (DRIFT-001-41).
+describe("the Summary engine: a camera's status has its own time (CP-16 review follow-up)", () => {
+  const readAt = NOW - 3 * 3_600_000;
+  const devices = [
+    device("d-cam", "camera", { online: false, battery_pct: 5, as_of: readAt }),
+    device("d-bell", "doorbell", { battery_pct: 10, as_of: readAt }),
+    device("d-light", "light", { online: false, power_mode: "wired" }),
+    device("d-flood", "flood", { battery_pct: 5 }),
+  ];
+
+  it("gives an offline or low camera or doorbell the time its status was read, and a device kept current none", () => {
+    const data = overview(
+      { location: HOME, devices, health: UP, now: NOW },
+      { batteryThresholdPct: THRESHOLD, budgetTokens: DATA_BUDGET_TOKENS },
+    );
+
+    expect(data.offline_devices).toEqual(
+      expect.arrayContaining([
+        { id: "d-cam", name: "Device d-cam", as_of: formatUtc(readAt) },
+        { id: "d-light", name: "Device d-light" },
+      ]),
+    );
+    expect(data.offline_devices).toHaveLength(2);
+    expect(data.low_batteries).toEqual(
+      expect.arrayContaining([
+        {
+          device: { id: "d-cam", name: "Device d-cam" },
+          battery_pct: 5,
+          as_of: formatUtc(readAt),
+        },
+        {
+          device: { id: "d-bell", name: "Device d-bell" },
+          battery_pct: 10,
+          as_of: formatUtc(readAt),
+        },
+        { device: { id: "d-flood", name: "Device d-flood" }, battery_pct: 5 },
+      ]),
+    );
+    expect(data.low_batteries).toHaveLength(3);
+  });
+
+  it("gives each listed camera and doorbell the time its status was read, and other devices none", () => {
+    const listed = deviceList(devices, DATA_BUDGET_TOKENS).devices;
+
+    expect(
+      Object.fromEntries(listed.map((entry) => [entry.id, entry.as_of])),
+    ).toEqual({
+      "d-cam": formatUtc(readAt),
+      "d-bell": formatUtc(readAt),
+      "d-light": undefined,
+      "d-flood": undefined,
+    });
+    expect(listed.find((entry) => entry.id === "d-flood")).not.toHaveProperty(
+      "as_of",
+    );
   });
 });
 

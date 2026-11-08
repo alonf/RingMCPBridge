@@ -1,6 +1,7 @@
 // The Ring Adapter over a fake ring-client-api (T013): mapping through the gate, failures in the
 // bridge's own words, the deadline, the lost session, token rotation, and watching for changes.
-// Since DRIFT-001-35, also how it notices Ring going away and coming back with no read running.
+// Since DRIFT-001-35, also how it notices Ring going away and coming back with no read running, and
+// since DRIFT-001-41, how it follows alarm devices added and removed in Ring.
 import { describe, expect, it } from "vitest";
 import { FakeClock } from "../../../utilities/clock/index.ts";
 import { Logger } from "../../../utilities/logging/index.ts";
@@ -16,9 +17,13 @@ import {
   FAKE_DOORBELL,
   FAKE_RING_BODY,
   FakeRingClient,
+  fakeDevice,
   ringHttpError,
 } from "../../../../test/support/fake-ring-client.ts";
-import type { FakeLocation } from "../../../../test/support/fake-ring-client.ts";
+import type {
+  FakeDevice,
+  FakeLocation,
+} from "../../../../test/support/fake-ring-client.ts";
 import { RingAdapterError } from "./ring-adapter-error.ts";
 import type { RingChange, RingDevice } from "./ring-port.ts";
 
@@ -492,8 +497,6 @@ describe("RingApiAdapter token and changes", () => {
   it("reports device and alarm-mode changes after a read, but not the data the read returned", async () => {
     const { clock, client, adapter, changes } = setup();
     await driveFakeClock(clock, adapter.locations(never()));
-    const location = client.locationsList[0];
-    location?.devicesStream.emit([client.contact, client.panel]);
     expect(changes).toEqual([]);
 
     client.contact.stream.emit({ ...client.contact.data, faulted: true });
@@ -522,7 +525,6 @@ describe("RingApiAdapter token and changes", () => {
       throw new Error("listener broke");
     });
     await driveFakeClock(clock, adapter.locations(never()));
-    client.locationsList[0]?.devicesStream.emit([client.contact]);
     client.contact.stream.emit({ ...client.contact.data, faulted: true });
     expect(changes).toHaveLength(1);
     expect(lines.join("\n")).toContain("ring_change_listener_failed");
@@ -533,7 +535,150 @@ describe("RingApiAdapter token and changes", () => {
     expect(changes).toHaveLength(1);
     expect(client.contact.stream.listeners).toBe(0);
     expect(client.onRefreshTokenUpdated.listeners).toBe(0);
+    expect(client.locationsList[0]?.devicesStream.listeners).toBe(0);
+    expect(client.locationsList[0]?.deviceListStream.listeners).toBe(0);
     expect(client.disconnected).toBe(true);
+  });
+});
+
+function motionSensor(hub?: string): FakeDevice {
+  return fakeDevice(
+    {
+      zid: "z-motion",
+      name: "מסדרון",
+      deviceType: "sensor.motion",
+      motionStatus: "clear",
+    },
+    hub,
+  );
+}
+
+function listChanges(changes: readonly RingChange[]): RingChange[] {
+  return changes.filter((change) => change.kind === "device_list");
+}
+
+function deviceChangesOf(
+  changes: readonly RingChange[],
+  deviceId: string,
+): RingChange[] {
+  return changes.filter(
+    (change) =>
+      change.kind === "device" && change.device.device_id === deviceId,
+  );
+}
+
+async function alarmDeviceIds(
+  clock: FakeClock,
+  adapter: RingApiAdapter,
+): Promise<string[]> {
+  const devices = await driveFakeClock(
+    clock,
+    adapter.devices("loc-1", never()),
+  );
+  return devices
+    .filter((device) => device.type !== "doorbell")
+    .map((device) => device.device_id);
+}
+
+// ring-client-api's device list only grows, and Ring sends a hub's full list on each (re)connect
+// (DRIFT-001-41): the fake takes a list in the same way.
+describe("RingApiAdapter follows Ring's alarm device list (CP-16 review follow-up)", () => {
+  async function watching(): Promise<Setup & { readonly home: FakeLocation }> {
+    const setUp = setup();
+    expect(await alarmDeviceIds(setUp.clock, setUp.adapter)).toEqual([
+      "z-contact",
+    ]);
+    const home = setUp.client.locationsList[0];
+    if (home === undefined) {
+      throw new Error("The fake has no first location.");
+    }
+    return { ...setUp, home };
+  }
+
+  it("does not report the devices of the first list, which the read returns", async () => {
+    const { client, home, changes } = await watching();
+    home.sendDeviceList([client.contact, client.panel]);
+    expect(listChanges(changes)).toEqual([]);
+  });
+
+  it("reports a device added after the first read as a change of the list, reads it, and reports its changes", async () => {
+    const { clock, client, adapter, home, changes } = await watching();
+    const motion = motionSensor();
+
+    home.sendDeviceList([client.contact, client.panel, motion]);
+    expect(listChanges(changes)).toEqual([
+      { kind: "device_list", location_id: "loc-1" },
+    ]);
+    expect(deviceChangesOf(changes, "z-motion")).toEqual([]);
+    expect(await alarmDeviceIds(clock, adapter)).toEqual([
+      "z-contact",
+      "z-motion",
+    ]);
+
+    motion.stream.emit({ ...motion.data, motionStatus: "faulted" });
+    expect(deviceChangesOf(changes, "z-motion")).toEqual([
+      {
+        kind: "device",
+        device: expect.objectContaining({
+          device_id: "z-motion",
+          state: { motion: true },
+        }) as unknown,
+      },
+    ]);
+  });
+
+  it("leaves out a device its hub's list no longer names, stops watching it, and reports the change", async () => {
+    const { clock, client, adapter, home, changes } = await watching();
+
+    home.sendDeviceList([client.panel]);
+    expect(listChanges(changes)).toEqual([
+      { kind: "device_list", location_id: "loc-1" },
+    ]);
+    expect(client.contact.stream.listeners).toBe(0);
+    expect(await alarmDeviceIds(clock, adapter)).toEqual([]);
+
+    client.contact.stream.emit({ ...client.contact.data, faulted: true });
+    expect(deviceChangesOf(changes, "z-contact")).toEqual([]);
+    home.sendDeviceList([client.panel]);
+    expect(listChanges(changes)).toHaveLength(1);
+  });
+
+  it("watches a removed device again once its hub lists it again", async () => {
+    const { clock, client, adapter, home, changes } = await watching();
+    home.sendDeviceList([client.panel]);
+
+    home.sendDeviceList([client.contact, client.panel]);
+    expect(listChanges(changes)).toHaveLength(2);
+    expect(client.contact.stream.listeners).toBe(1);
+    expect(await alarmDeviceIds(clock, adapter)).toEqual(["z-contact"]);
+
+    const before = deviceChangesOf(changes, "z-contact").length;
+    client.contact.stream.emit({ ...client.contact.data, faulted: true });
+    expect(deviceChangesOf(changes, "z-contact")).toHaveLength(before + 1);
+  });
+
+  it("keeps a device that another hub's list leaves out", async () => {
+    const { clock, client, adapter, home, changes } = await watching();
+    const motion = motionSensor("hub-2");
+    home.sendDeviceList([motion], "hub-2");
+    expect(listChanges(changes)).toHaveLength(1);
+
+    home.sendDeviceList([client.contact, client.panel]);
+    expect(listChanges(changes)).toHaveLength(1);
+    expect(await alarmDeviceIds(clock, adapter)).toEqual([
+      "z-contact",
+      "z-motion",
+    ]);
+  });
+
+  it("takes a list that names no device as no list, never as every device gone", async () => {
+    const { clock, adapter, home, changes } = await watching();
+
+    home.sendDeviceList([]);
+    home.deviceListStream.emit({ src: "hub-1", body: [{ general: {} }] });
+    home.deviceListStream.emit({ src: "hub-1" });
+    expect(listChanges(changes)).toEqual([]);
+    expect(await alarmDeviceIds(clock, adapter)).toEqual(["z-contact"]);
   });
 });
 

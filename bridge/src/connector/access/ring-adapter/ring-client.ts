@@ -32,6 +32,24 @@ export interface RingClientDevice {
   readonly data: RingClientDeviceData;
   /** The device's full data now and after each change. */
   readonly onData: RingClientStream<RingClientDeviceData>;
+  /** The hub (Ring's asset) whose device list names the device. */
+  readonly assetId: string;
+}
+
+/** One device's document in a hub's device list: only its id is read. */
+export interface RingClientDeviceDocument {
+  readonly general?: { readonly v2?: { readonly zid?: unknown } };
+}
+
+/**
+ * A hub's full list of its alarm devices, as Ring sends it on each (re)connect of the live
+ * connection: every device the hub has now.
+ */
+export interface RingClientDeviceList {
+  /** The hub (Ring's asset) the list is for. */
+  readonly src: string;
+  /** Absent or empty when Ring sent no list. */
+  readonly body?: readonly RingClientDeviceDocument[];
 }
 
 /** A camera's data as Ring sends it. The adapter only hands it back to its camera. */
@@ -84,8 +102,13 @@ export interface RingClientLocation {
   getDevices(): Promise<readonly RingClientDevice[]>;
   /** `none`, `some` or `all`. */
   getAlarmMode(): Promise<string>;
-  /** The alarm devices, each time the list changes. */
+  /**
+   * The alarm devices: the latest list at once, then each time it grows. The library only ever adds
+   * to it: a device removed in Ring stays, and `getDevices` still returns it.
+   */
   readonly onDevices: RingClientStream<readonly RingClientDevice[]>;
+  /** Each hub's device list as Ring sends it, which tells a removed device (no replay). */
+  readonly onDeviceList: RingClientStream<RingClientDeviceList>;
 }
 
 /** The client: the owner's Ring account. */

@@ -70,12 +70,14 @@ export interface RingDevice {
 }
 
 /**
- * Something Ring reported: a device's full current entry, a location's (an alarm mode change), or
- * the session status.
+ * Something Ring reported: a device's full current entry, a location's (an alarm mode change), a
+ * location's device list (a device added or removed: read the location again), or the session
+ * status.
  */
 export type RingChange =
   | { readonly kind: "device"; readonly device: RingDevice }
   | { readonly kind: "location"; readonly location: RingLocation }
+  | { readonly kind: "device_list"; readonly location_id: string }
   | { readonly kind: "session"; readonly status: RingSessionStatus };
 
 /** Stops a watch. */
