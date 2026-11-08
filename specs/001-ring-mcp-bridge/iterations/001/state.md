@@ -1,13 +1,25 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T024
-**Tasks Remaining**: T025-T036 (12 tasks, 14 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: T024 (the MCP Endpoint) is done; next T025 (the read rate limit), which completes CP-15
+**Last Completed Task**: T025
+**Tasks Remaining**: T026-T036 (11 tasks, 13 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
+**In Progress**: T025 (the read rate limit) is done, which completes CP-15's tasks; its review round waits for the owner's approval, and DRIFT-001-43 for the owner's choice; then T026 (the Lease accessor)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-08T23:05:38Z
+**Updated**: 2026-11-08T23:41:54Z
 
 ## Execution Summary
+
+- **T025, the read rate limit, is built** (2026-11-09; DRIFT-001-44):
+  - Each agent may make 600 reads in any hour (Config's `readsPerHour`), counted in memory. A read over the limit answers `RATE_LIMITED` with the seconds until a read is free, and a refused read does not count.
+  - The read latency check runs in CI: the four tools on the 100-device home, in both eras, within 0.5 s at the 95th percentile. Calls took about 5 ms each on the developer's machine (derived).
+  - The completeness check now sees every iteration 001 error code in both eras.
+  - About 1 SP against an estimate of 1 (estimates), and $0. CP-15 took about 4 SP against its estimate of 2 (estimates).
+  - 9 deliberate breaks, all caught.
+  - **Checks**:
+    - 1,051 tests: 949 pass and 102 skip without SQL Server;
+    - with SQL Server on 2 workers, 1,039 pass and 12 skip;
+    - coverage with SQL Server: 97.6% of lines and 93.2% of branches;
+    - lint, tsc, prettier and depcruise (242 modules) clean.
 
 - **T024, the MCP Endpoint, is built** (2026-11-09; DRIFT-001-42):
   - One endpoint, `/mcp`, serves both protocol eras. It serves the four read tools, with inputs and replies exactly as the Public Contract publishes them.

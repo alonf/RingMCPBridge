@@ -1,4 +1,4 @@
-// The MCP Endpoint (T024) as agents reach it: the SDK client in both protocol eras over HTTP, a real
+// The MCP Endpoint (T024, T025) as agents reach it: the SDK client in both protocol eras over HTTP, a real
 // Inquiry over the 100-device home in SQLite State, and a token checker standing in for the Issuer.
 // The real Issuer's tokens reach the endpoint in bridge/test/issuer/. Also mode A's stdio, and the
 // completeness check: every iteration 001 tool answers in both eras, and every iteration 001 error
@@ -44,6 +44,12 @@ import type { CoreReads } from "./core-fixture.ts";
 const ERAS: readonly ProtocolEra[] = ["legacy", "modern"];
 const ISSUER = "https://core.example.test/oauth";
 const AGENT = "agent-1";
+const OTHER_AGENT = "agent-2";
+const READS_PER_HOUR = 600;
+/** The read latency budget inside the bridge, at the 95th percentile (plan "Performance Goals"). */
+const LATENCY_BUDGET_MS = 500;
+const LATENCY_SAMPLES_PER_TOOL = 25;
+const HOUR_MS = 3_600_000;
 const ERRORS_CONTRACT = fileURLToPath(
   new URL(
     "../../../specs/001-ring-mcp-bridge/contracts/errors.md",
@@ -69,6 +75,14 @@ function tokenCheck(token: string): Promise<TokenCheck> {
     case "issuer-slow":
       void tokenClock?.advance(TOKEN_CHECK_TIMEOUT_MS);
       return new Promise<never>(() => undefined);
+    case "good-other":
+      return Promise.resolve({
+        kind: "valid",
+        clientId: OTHER_AGENT,
+        subject: "owner-sub",
+        scopes: ["read"],
+        expiresAt: hourFromNow(),
+      });
     case "good":
       return Promise.resolve({
         kind: "valid",
@@ -107,7 +121,7 @@ interface Harness {
   close(): Promise<void>;
 }
 
-async function startEndpoint(): Promise<Harness> {
+async function startEndpoint(readsPerHour = READS_PER_HOUR): Promise<Harness> {
   const clock = new FakeClock(HOME_AS_OF + 30_000);
   tokenClock = clock;
   const lines: string[] = [];
@@ -145,7 +159,12 @@ async function startEndpoint(): Promise<Harness> {
     `http://127.0.0.1:${String((server.address() as AddressInfo).port)}/mcp`,
   );
   const endpoint = new McpEndpoint(
-    { resource: url.href, issuer: ISSUER, allowedHosts: ["127.0.0.1"] },
+    {
+      resource: url.href,
+      issuer: ISSUER,
+      allowedHosts: ["127.0.0.1"],
+      readsPerHour,
+    },
     {
       inquiry,
       tokens: { checkAccessToken: tokenCheck },
@@ -553,6 +572,105 @@ describe("the MCP endpoint's door: tokens, metadata and hosts", () => {
   });
 });
 
+// T025: the read rate limit, per agent, in memory.
+describe.each(ERAS)("the read rate limit in the %s era", (era) => {
+  const perHour = 3;
+  let harness: Harness;
+
+  beforeAll(async () => {
+    harness = await startEndpoint(perHour);
+  });
+
+  afterAll(async () => {
+    await harness.close();
+  });
+
+  it("refuses an agent's reads past its hourly limit with RATE_LIMITED and the seconds until one is free, counting each agent apart", async () => {
+    const agent = await connectOverHttp(harness.url, {
+      accessToken: "good",
+      era,
+    });
+    const other = await connectOverHttp(harness.url, {
+      accessToken: "good-other",
+      era,
+    });
+    try {
+      const health = () =>
+        agent.client.callTool({ name: "get_health", arguments: {} });
+      for (let read = 0; read < perHour; read += 1) {
+        expect((await health()).isError).toBeFalsy();
+        await harness.clock.advance(60_000);
+      }
+
+      const refused = failureOf(await health(), "RATE_LIMITED");
+      expect(refused).toMatchObject({
+        retryable: true,
+        retry_after_s: (HOUR_MS - perHour * 60_000) / 1000,
+      });
+      expect(refused.message).toContain(String(perHour));
+      const again = failureOf(await health(), "RATE_LIMITED");
+      expect(again.retry_after_s).toBe(refused.retry_after_s);
+
+      expect(
+        (await other.client.callTool({ name: "get_health", arguments: {} }))
+          .isError,
+      ).toBeFalsy();
+
+      await harness.clock.advance(HOUR_MS - perHour * 60_000);
+      expect((await health()).isError).toBeFalsy();
+    } finally {
+      await agent.close();
+      await other.close();
+    }
+  });
+});
+
+// The bridge-latency-budget gate (plan "Performance Goals", T025): tool reads take at most 0.5 s at
+// the 95th percentile inside the bridge, measured around each call over loopback HTTP, so the
+// SDK client's own work counts against the bridge.
+describe("the read latency budget (bridge-latency-budget)", () => {
+  let harness: Harness;
+
+  beforeAll(async () => {
+    harness = await startEndpoint(100_000);
+  });
+
+  afterAll(async () => {
+    await harness.close();
+  });
+
+  it.each(ERAS)(
+    "answers the four read tools within 0.5 s at the 95th percentile on the 100-device home, in the %s era",
+    async (era) => {
+      const agent = await connectOverHttp(harness.url, {
+        accessToken: "good",
+        era,
+      });
+      const durations: number[] = [];
+      try {
+        for (const tool of TOOL_CATALOG) {
+          for (let read = 0; read < LATENCY_SAMPLES_PER_TOOL; read += 1) {
+            const started = performance.now();
+            const result = await agent.client.callTool({
+              name: tool.name,
+              arguments: argumentsFor(tool.name),
+            });
+            durations.push(performance.now() - started);
+            expect(result.isError).toBeFalsy();
+          }
+        }
+      } finally {
+        await agent.close();
+      }
+      durations.sort((left, right) => left - right);
+      const p95 = durations[Math.ceil(durations.length * 0.95) - 1] ?? 0;
+
+      expect(p95).toBeLessThanOrEqual(LATENCY_BUDGET_MS);
+    },
+    60_000,
+  );
+});
+
 describe("the MCP endpoint over stdio, in mode A", () => {
   const fixture = fileURLToPath(new URL("./stdio-fixture.ts", import.meta.url));
 
@@ -620,9 +738,7 @@ function iteration001Codes(): {
 }
 
 /** Codes whose test comes with a later task: none may be seen yet, and each must be listed. */
-const PENDING_CODES: ReadonlyMap<string, string> = new Map([
-  ["RATE_LIMITED", "T025"],
-]);
+const PENDING_CODES: ReadonlyMap<string, string> = new Map();
 
 describe("the MCP endpoint's completeness check (T024)", () => {
   it("sees every iteration 001 tool answer in both eras, and every iteration 001 error code errors.md lists", () => {

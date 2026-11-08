@@ -10,6 +10,8 @@
 //   allow.
 // - **The deadline** is 60 s on the Clock. It wins even over a read that never looks at its signal,
 //   and answers `TIMEOUT`, which a read may retry (errors.md).
+// - **The read limit** comes first: an agent over its hourly reads is answered `RATE_LIMITED`, with
+//   the seconds until a read is free, before anything is read (T025).
 // - **Failures** become the error envelope with `isError`. The text and the envelope carry the
 //   bridge's own words, never Ring's text, and an unexpected failure is logged, not shown.
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
@@ -31,11 +33,15 @@ import type {
   InquiryReply,
 } from "../../managers/inquiry/index.ts";
 import { listedOnly } from "./listed-input.ts";
+import type { ReadLimit } from "./read-limit.ts";
 
 /** How long a tool call may take before it answers `TIMEOUT` (IA D3). */
 export const TOOL_DEADLINE_MS = 60_000;
 /** When an agent may try again after `BRIDGE_UNAVAILABLE` [P]. */
 export const UNAVAILABLE_RETRY_AFTER_S = 30;
+
+/** Whose reads a local client's are counted as, in mode A, which has no token. */
+export const LOCAL_CLIENT = "local";
 
 /** The Inquiry reads the tools make. */
 export type InquiryReads = Pick<
@@ -54,6 +60,8 @@ export interface ToolCallContext {
 /** What the read tools are wired with. */
 export interface ReadToolsOptions {
   readonly inquiry: InquiryReads;
+  /** Each agent's reads in the last hour, kept for the life of the endpoint. */
+  readonly limit: ReadLimit;
   readonly clock: Clock;
   readonly logger: Logger;
   readonly deadlineMs?: number;
@@ -185,7 +193,10 @@ async function callTool(
   options: ReadToolsOptions,
 ): Promise<CallToolResult> {
   const started = options.clock.now();
-  const result = await outcomeOf(tool, input, call, options);
+  const allowance = options.limit.take(call.clientId ?? LOCAL_CLIENT);
+  const result: Outcome = allowance.allowed
+    ? await outcomeOf(tool, input, call, options)
+    : { failure: rateLimited(options.limit.perHour, allowance.retryAfterS) };
   const failure = "failure" in result ? result.failure : undefined;
   options.logger.info("mcp_tool_called", {
     tool: tool.name,
@@ -309,6 +320,15 @@ function invalidInput(tool: string, error: z.ZodError): Failure {
     code: "INVALID_ARGUMENT",
     message: `The input for ${tool} is not valid. ${problems}`,
     retryable: false,
+  };
+}
+
+function rateLimited(perHour: number, retryAfterS: number): Failure {
+  return {
+    code: "RATE_LIMITED",
+    message: `This agent has made its ${String(perHour)} reads for the hour. Try again in ${String(retryAfterS)} s.`,
+    retryable: true,
+    retry_after_s: retryAfterS,
   };
 }
 

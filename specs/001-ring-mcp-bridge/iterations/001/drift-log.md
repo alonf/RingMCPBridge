@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 43
+**Total drift events**: 44
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,37 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-44: T025's read rate limit and the read latency check
+
+- **Detected**: 2026-11-09, implement, while doing T025
+- **Kind**: details the records leave open, versus the code. No spec change
+- **Observed and decided**:
+  - **The limit** is an hour that slides, for each agent: Config's `readsPerHour`, 600 by default, counted by the token's client id.
+    - The counts live in memory and start again on a restart.
+    - A read over the limit answers `RATE_LIMITED`, retryable, with `retry_after_s`: the seconds until the agent's oldest read in the hour leaves it.
+    - A refused read is not counted, so an agent that keeps asking is not locked out for longer.
+    - The limit is checked before anything is read.
+    - In mode A, the local client's reads count as one client, `local` [P].
+  - **The latency check** (the `bridge-latency-budget` gate, plan "Performance Goals") runs in CI with the rest of the suite.
+    - It makes 25 calls to each of the four read tools on the 100-device home, in each era, and requires the 95th percentile within 0.5 s.
+    - Each call is timed around the SDK client over loopback HTTP, so the client's own work counts against the bridge.
+    - On the developer's machine, 100 calls took under 0.5 s in all, about 5 ms a call (derived).
+    - It runs on SQLite. The pilot measures it on Azure SQL.
+  - The completeness check's waiting list is now empty: `RATE_LIMITED` is seen in both eras.
+- **Carried forward**: **T027** passes Config's `readsPerHour` to the endpoint.
+- **Requirement citation**: tasks.md T025; FR-026, SC6; plan "Performance Goals"; `contracts/errors.md` "Notes".
+- **Resolution**: implementation choices, recorded for CP-15's co-review. About 1 SP against an estimate of 1 (estimates), and $0.
+- **Class closure**: the limit's own tests, the limit through MCP in both eras, the latency check, and the completeness check. Deliberate breaks: 9, all caught:
+  - the limit never refusing;
+  - a refused read counted;
+  - every agent sharing one count;
+  - an hour-long retry time;
+  - a read never leaving the hour;
+  - the tools not asking the limit;
+  - no retry time;
+  - a slow bridge (600 ms a call);
+  - `RATE_LIMITED`'s test removed.
 
 ### DRIFT-001-43: Entra tokens from Azure-hosted agents are promised for iteration 001, but no task builds them
 

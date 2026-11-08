@@ -18,6 +18,7 @@ const endpoint = new McpEndpoint(
     resource: "http://localhost/mcp",
     issuer: "http://localhost/oauth",
     allowedHosts: ["localhost"],
+    readsPerHour: 600,
   },
   {
     inquiry: core.inquiry,

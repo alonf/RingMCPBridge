@@ -221,7 +221,12 @@ async function startRig(
     core === undefined
       ? undefined
       : new McpEndpoint(
-          { resource, issuer: issuerUrl, allowedHosts: ["127.0.0.1"] },
+          {
+            resource,
+            issuer: issuerUrl,
+            allowedHosts: ["127.0.0.1"],
+            readsPerHour: 600,
+          },
           {
             inquiry: core.inquiry,
             tokens: issuer,

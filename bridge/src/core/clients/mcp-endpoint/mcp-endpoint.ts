@@ -34,6 +34,7 @@ import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 import type { Hono } from "hono";
 import type { Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
+import { ReadLimit } from "./read-limit.ts";
 import { registerReadTools } from "./read-tools.ts";
 import type { InquiryReads } from "./read-tools.ts";
 
@@ -79,6 +80,8 @@ export interface McpEndpointSettings {
   readonly issuer: string;
   /** The `Host` names the endpoint answers to. */
   readonly allowedHosts: readonly string[];
+  /** How many reads an agent may make in an hour: Config's `readsPerHour` (T025). */
+  readonly readsPerHour: number;
   /** How long a tool call may take; 60 s unless a test says otherwise. */
   readonly deadlineMs?: number;
   /** How long a token check may take; 5 s unless a test says otherwise. */
@@ -123,6 +126,7 @@ export class McpEndpoint {
   readonly #verifier: OAuthTokenVerifier;
   readonly #handler: McpHttpHandler;
   readonly #app: Hono;
+  readonly #limit: ReadLimit;
 
   constructor(
     settings: McpEndpointSettings,
@@ -133,6 +137,7 @@ export class McpEndpoint {
     this.#logger = dependencies.logger.with({ component: "mcp_endpoint" });
     const resource = new URL(settings.resource);
     this.#metadataUrl = getOAuthProtectedResourceMetadataUrl(resource);
+    this.#limit = new ReadLimit(settings.readsPerHour, dependencies.clock);
     this.#verifier = { verifyAccessToken: (token) => this.#verify(token) };
     this.#handler = createMcpHandler((context) => this.#server(context), {
       legacy: "stateless",
@@ -258,6 +263,7 @@ export class McpEndpoint {
       server,
       {
         inquiry: this.#dependencies.inquiry,
+        limit: this.#limit,
         clock: this.#dependencies.clock,
         logger: this.#logger,
         ...(this.#settings.deadlineMs === undefined

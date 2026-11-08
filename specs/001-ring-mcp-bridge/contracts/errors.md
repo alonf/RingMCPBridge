@@ -122,7 +122,7 @@ Notes:
 
 - `get_history` reads Ring history live through the home (DS §Inventory). Its `HOME_OFFLINE` behaviour is not recorded. Under IA §Rules 1 it may degrade to stale instead.
 - Which code refuses a disarm while the PIN lock runs, control on a shared location, media on a camera whose switch is off, or control without the lease while the database is up is not recorded. These are carried to the iteration 003 and 004 plans (G1, G2 in `../data-model.md`).
-- The per-client read limit (600 an hour, SC6) applies to the iteration-001 tools. FR-026 is traced to US3 and US4, so plan decides whether the limiter lands in 001 or 003.
+- The per-client read limit (600 an hour, SC6) applies to the iteration-001 tools. FR-026 is traced to US3 and US4, so plan decides whether the limiter lands in 001 or 003. It landed in 001 (T025, DRIFT-001-44): an hour that slides for each agent, with `retry_after_s` the seconds until a read is free.
 
 ## Protocol-level outcomes (not tool errors)
 

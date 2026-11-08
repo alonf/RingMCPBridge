@@ -368,7 +368,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - the completeness check: every iteration 001 tool and error code has a test.
 
   (Trace: FR-029, FR-030, FR-047; CP-15)
-- [ ] T025 [US1] [assigned_to: Implementer] [effort: 1] Read rate limit in `bridge/src/core/clients/mcp-endpoint/`:
+- [x] T025 [US1] [assigned_to: Implementer] [effort: 1] Read rate limit in `bridge/src/core/clients/mcp-endpoint/`:
   - 600 reads an hour per client by default (from Config);
   - counters live in memory and reset on restart;
   - `RATE_LIMITED` comes with `retry_after_s`.

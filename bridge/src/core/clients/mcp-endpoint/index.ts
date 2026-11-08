@@ -16,6 +16,10 @@ export type {
   TokenCheck,
 } from "./mcp-endpoint.ts";
 
+/** The read rate limit (T025). */
+export { ReadLimit } from "./read-limit.ts";
+export type { ReadAllowance } from "./read-limit.ts";
+
 /** The read tools' deadline and retry time, and the Inquiry reads they make. */
 export { TOOL_DEADLINE_MS, UNAVAILABLE_RETRY_AFTER_S } from "./read-tools.ts";
 export type { InquiryReads } from "./read-tools.ts";
