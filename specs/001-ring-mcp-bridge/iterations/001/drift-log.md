@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 41
+**Total drift events**: 42
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,74 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-42: T024's MCP Endpoint: both eras on one endpoint, the Issuer's token check, and the contract's own input errors
+
+- **Detected**: 2026-11-09, implement, while doing T024
+- **Kind**: implementation choices and details the records leave open, versus the code. No spec change
+- **Observed and decided**:
+  - **The endpoint** is `/mcp` [P], one Streamable HTTP endpoint for both protocol eras.
+    - The SDK's `createMcpHandler` serves the 2026-07-28 era, and the earlier era without sessions (`legacy: "stateless"`). In the earlier era a GET or DELETE answers 405: iteration 001 sends nothing unasked. Listening comes with iteration 002, in the 2026-07-28 era.
+    - The SDK serves one request per server, so a new one answers each request.
+  - **Tokens.** Access tokens are opaque, so the endpoint asks the Issuer about each one (`Issuer.checkAccessToken`). The token must be:
+    - stored and unexpired;
+    - for the one resource;
+    - under a grant still in force for the same owner and client;
+    - from an agent still listed, for `read`.
+
+    A revocation takes effect on the next call. The answers:
+    - a missing or bad token: 401;
+    - a token without `read`: 403;
+    - each of those carries `WWW-Authenticate` naming the protected-resource metadata;
+    - while the Issuer cannot check (no keys yet, or its store down): 503 with `Retry-After: 30` [P], so an agent keeps a token that may be fine instead of asking the owner to link again;
+    - a check that fails unexpectedly: 500, logged.
+  - **The protected-resource metadata** (RFC 9728) is at `/.well-known/oauth-protected-resource/mcp`. It names the endpoint, the Issuer and the `read` scope, and may be read from any origin [P]. One configured value is the Issuer's `resource`, the endpoint's URL and the metadata's `resource`. The end-to-end test links an agent at the real Issuer and reads with its token in both eras.
+  - **Hosts.** The `Host` header must be one of the core's names (DNS rebinding). A request that carries `Origin` is refused, since agents call from servers, not web pages [P].
+  - **Inputs** are listed exactly as `schemas/` publishes them, but checked by the endpoint, which answers the contract's `INVALID_ARGUMENT` envelope. The message names the fields and never repeats a value.
+    - The SDK checks a tool's input itself and answers with its own text ("Input validation error: …"), and the method that builds that answer is private (T011 recorded this).
+    - It accepts any Standard Schema for an input, though. Each tool's input is a Standard Schema that lists the contract's JSON Schema as zod writes it and accepts every value.
+  - **Replies** are parsed through the tool's reply schema before they leave. That keeps out any field the contract does not declare, which the agent's client would refuse: zod writes `additionalProperties: false`.
+  - **Error answers**:
+    - the 60 s deadline runs on the Clock and wins even over a read that never looks at its signal. It answers `TIMEOUT`, which a read may retry;
+    - `BRIDGE_UNAVAILABLE` says to retry after 30 s [P];
+    - `INTERNAL` is the bridge's own words, with the failure logged and never shown.
+  - **Text content**: one line per reply, with when and how fresh, and never Ring's text.
+  - **Tools are marked read-only** (`readOnlyHint`) [P]: some agents ask the user before calling a tool not so marked.
+  - **Mode A** serves the same tools over stdio, with no token, to the process that started the bridge. The log must go to stderr then (`createStdoutSink(process.stderr)`), since stdout carries the protocol. No unauthenticated localhost HTTP endpoint is served: how local clients would authorize one is G14, carried to iteration 004.
+  - **The completeness check** reads `contracts/errors.md`. Every iteration 001 tool must answer in both eras, and every code the table lists for them must be seen by a test, plus `INTERNAL` and `BRIDGE_UNAVAILABLE`. `RATE_LIMITED` is listed as waiting for T025, and the check fails if a test sees it before it is taken off that list.
+  - **The SDK's own behaviour, probed** (2.4.0): the client checks a reply against the listed output schema but not an error result, so the error envelope reaches the agent in both eras. Its stdio client in `auto` mode would start the server twice to probe the era; the bridge's tests pin the era.
+- **Carried forward**:
+  - **T025**: the read rate limit, and then `RATE_LIMITED` comes off the completeness check's waiting list.
+  - **T027**:
+    - mounting `/mcp` and the metadata path;
+    - the one `resource` value for the Issuer and the endpoint;
+    - the allowed `Host` names from the core's public host;
+    - in mode A, stdio with the log on stderr.
+- **Requirement citation**: tasks.md T024; FR-030, FR-033, FR-034, FR-046, FR-048; `contracts/mcp-tools.md`, `contracts/errors.md`, `contracts/web-endpoints.md`; DRIFT-001-39 (opaque tokens).
+- **Resolution**: implementation choices, recorded for CP-15's co-review. T024 was estimated at 1 SP and took about 3 SP (estimate), with the Issuer's token check, the end-to-end test, stdio and the completeness check. Cost $0.
+- **Class closure**: tests in both eras through the SDK client, an end-to-end test with the real Issuer, stdio in both eras, and the completeness check. 23 deliberate breaks, 22 caught:
+  - **the Issuer's check**: another resource, an ended grant, a revoked agent, a store that is down, an Issuer without keys;
+  - **the door**:
+    - a bad token let in;
+    - a token without `read` let in;
+    - 500 instead of 503;
+    - the metadata not named;
+    - a foreign `Host`;
+    - a web page;
+    - the metadata naming no Issuer;
+  - **the tools**:
+    - the SDK's own input text;
+    - a reply not parsed;
+    - a deadline that only signals;
+    - `TIMEOUT` as `INTERNAL`;
+    - no retry time;
+    - the location ids dropped;
+    - a failure shown;
+    - not read-only;
+    - Ring's text in a summary;
+  - **the completeness check**: an error test removed.
+
+  The miss: an expired token treated as good by the Issuer's own check. That check stands behind two others, as accepted for T023 (DRIFT-001-39): the store hides an expired token and the provider's lookup refuses one, and the SDK refuses a token past its `expiresAt` in any case.
 
 ### DRIFT-001-41: CP-16's review found two gaps in the read path; fixed as follow-ups before T024
 

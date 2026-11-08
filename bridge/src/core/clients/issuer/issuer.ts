@@ -17,11 +17,17 @@
 //
 // The Issuer needs its signing keys before it serves anything: `start` reads them from Secrets,
 // and reports a missing secret instead of failing (PT-03), for `/readyz` to name.
+//
+// Access tokens are opaque, so the MCP Endpoint asks the Issuer about each one (T024): it must be
+// stored and unexpired, for the one resource, under a grant still in force for the same owner and
+// client, and its agent must still be listed. A revocation takes effect on the next call.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Provider } from "oidc-provider";
 import type { Interaction, InteractionResults } from "oidc-provider";
+import { GrantsStoreError } from "../../access/grants/index.ts";
 import type { GrantsStore } from "../../access/grants/index.ts";
+import { SettingsStoreError } from "../../access/settings/index.ts";
 import type { ListedAgent } from "../../access/settings/index.ts";
 import type { CoreSecrets } from "../../access/secrets/index.ts";
 import type { Clock } from "../../../utilities/clock/index.ts";
@@ -97,6 +103,29 @@ export type LinkReturn =
    * link has ended; Web asks the owner to start it again from the agent.
    */
   | { readonly kind: "other_browser" };
+
+/** What an access token is good for, if anything. */
+export type AccessCheck =
+  /** It may be used now: whose it is, for which agent, its scopes, and when it ends. */
+  | {
+      readonly kind: "valid";
+      readonly clientId: string;
+      /** The owner's Entra `sub` for the bridge's app registration. */
+      readonly subject: string;
+      readonly scopes: readonly string[];
+      /** When it ends, in seconds since 1970. */
+      readonly expiresAt: number;
+    }
+  /** Unknown, expired, for another resource, revoked, or its agent is no longer listed. */
+  | { readonly kind: "invalid" }
+  /**
+   * The Issuer cannot tell now: it has no signing keys yet, or its store is down. The agent's token
+   * may be fine, so it is not told otherwise.
+   */
+  | { readonly kind: "unavailable" };
+
+const INVALID: AccessCheck = { kind: "invalid" };
+const UNAVAILABLE: AccessCheck = { kind: "unavailable" };
 
 /** The Issuer. One per core process, in mode H only: mode A has no owner sign-in. */
 export class Issuer {
@@ -252,6 +281,28 @@ export class Issuer {
     return { kind: "continue", url: interaction.returnTo };
   }
 
+  /**
+   * Checks an access token an agent presented to the MCP endpoint. Throws only what the Issuer did
+   * not expect; a store that is down is `unavailable`.
+   */
+  async checkAccessToken(
+    token: string,
+    signal: AbortSignal,
+  ): Promise<AccessCheck> {
+    const provider = this.#provider;
+    if (provider === undefined) {
+      return UNAVAILABLE;
+    }
+    try {
+      return await this.#check(provider, token, signal);
+    } catch (error) {
+      if (isStoreDown(error)) {
+        return UNAVAILABLE;
+      }
+      throw error;
+    }
+  }
+
   /** Stops the Issuer's storage calls in flight. */
   close(): void {
     this.#lifetime.abort(new Error("The Issuer has closed."));
@@ -326,6 +377,58 @@ export class Issuer {
     };
   }
 
+  // The token as the provider holds it, its grant as its own introspection checks it, and its agent
+  // as a link checks it.
+  async #check(
+    provider: Provider,
+    token: string,
+    signal: AbortSignal,
+  ): Promise<AccessCheck> {
+    const found = await provider.AccessToken.find(token);
+    if (
+      found?.isValid !== true ||
+      !isOnlyFor(found.aud, this.#settings.resource)
+    ) {
+      return INVALID;
+    }
+    const { accountId, clientId, grantId, exp } = found;
+    if (
+      accountId === undefined ||
+      clientId === undefined ||
+      grantId === undefined ||
+      exp === undefined
+    ) {
+      return INVALID;
+    }
+    const grant = await provider.Grant.find(grantId, {
+      ignoreExpiration: true,
+    });
+    if (
+      grant === undefined ||
+      grant.isExpired ||
+      grant.clientId !== clientId ||
+      grant.accountId !== accountId
+    ) {
+      return INVALID;
+    }
+    const agent =
+      (await this.#agents.byDocument(clientId, signal)) ??
+      (await this.#registeredAgent(clientId, signal));
+    if (
+      agent === undefined ||
+      !grantableScopes(agent).includes(RESOURCE_SCOPE)
+    ) {
+      return INVALID;
+    }
+    return {
+      kind: "valid",
+      clientId,
+      subject: accountId,
+      scopes: (found.scope ?? "").split(" ").filter((scope) => scope !== ""),
+      expiresAt: exp,
+    };
+  }
+
   // A self-registered client is found only while it matches a listed agent (grants-adapter.ts).
   async #registeredAgent(
     clientId: string,
@@ -376,6 +479,24 @@ export class Issuer {
     this.#dependencies.logger.error("issuer_sign_in_failed", undefined, error);
     answer(response, HTTP_SERVER_ERROR, "The sign-in could not be started.");
   }
+}
+
+// A token is for the one resource it names: the MCP endpoint (RFC 8707).
+function isOnlyFor(
+  audience: string | readonly string[] | undefined,
+  resource: string,
+): boolean {
+  return typeof audience === "string"
+    ? audience === resource
+    : audience?.length === 1 && audience[0] === resource;
+}
+
+function isStoreDown(error: unknown): boolean {
+  return (
+    (error instanceof GrantsStoreError ||
+      error instanceof SettingsStoreError) &&
+    error.kind === "unavailable"
+  );
 }
 
 // Records an interaction's result for the rest of its life, by the provider's own time.

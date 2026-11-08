@@ -25,6 +25,7 @@ The tool list is the public contract. It changes only additively, and a tool is 
   - **tier a**: two steps or elicitation, with a one-time token bound to the client and the plan;
   - **tier b**: confirmed outside the model with a PIN, on MRTR clients only.
 - **Deadline:** every tool is synchronous with a 60 s deadline (IA D3).
+- **Read-only marking [P] (DRIFT-001-42):** every read tool is listed with `readOnlyHint: true`, since some agents ask the user before calling a tool not so marked. A reply's text content is one line saying when and how fresh, never Ring's text.
 
 ## Catalog
 

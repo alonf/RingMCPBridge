@@ -354,7 +354,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - a reused refresh token is refused.
 
   (Trace: FR-029, FR-030; CP-16)
-- [ ] T024 [US1] [assigned_to: Implementer] [effort: 1] MCP Endpoint in `bridge/src/core/clients/mcp-endpoint/`, with `@modelcontextprotocol/server` 2.4.0, `@modelcontextprotocol/hono` 2.0.2 and hono 4.13.14:
+- [x] T024 [US1] [assigned_to: Implementer] [effort: 1] MCP Endpoint in `bridge/src/core/clients/mcp-endpoint/`, with `@modelcontextprotocol/server` 2.4.0, `@modelcontextprotocol/hono` 2.0.2 and hono 4.13.14:
   - **Transport:** Streamable HTTP serving both protocol eras (2026-07-28 and the earlier one) on one endpoint in mode H. In mode A, stdio or an endpoint bound to localhost.
   - **Tools:** the four read tools from the Public Contract.
   - **Tokens:** bearer tokens are checked against the Issuer before the manager is called:

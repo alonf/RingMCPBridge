@@ -5,6 +5,7 @@
 /** The Issuer, its settings and seams, and what `start` reports. */
 export { Issuer } from "./issuer.ts";
 export type {
+  AccessCheck,
   IssuerDependencies,
   IssuerSettings,
   IssuerStart,

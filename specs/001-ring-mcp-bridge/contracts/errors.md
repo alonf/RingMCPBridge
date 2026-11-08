@@ -131,4 +131,5 @@ Notes:
 | Malformed request, unknown tool | JSON-RPC error | IA §Error codes |
 | Missing or invalid token | HTTP 401 with `WWW-Authenticate` (MCP authorization) | IA §Error codes, AC B14 |
 | Token lacks the tool's scope (`read`, `media`, `control`) | HTTP 403 with `WWW-Authenticate` | IA §Error codes, FR-030 |
+| The Issuer cannot check tokens now (no signing keys yet, or its store down) | HTTP 503 with `Retry-After` [P], so the agent keeps its token | DRIFT-001-42 |
 | Disarm on a 2026-07-28 client that declares `elicitation.url`, disarm switched on | an MRTR `InputRequiredResult` (`resultType: "input_required"`) carrying a URL-mode elicitation and a sealed `requestState`. Not an error. The legacy `-32042` path is not used | IA §Error codes, IA D8 |

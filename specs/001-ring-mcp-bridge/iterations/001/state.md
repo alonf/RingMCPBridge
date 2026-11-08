@@ -1,13 +1,33 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T021
-**Tasks Remaining**: T023-T036 (14 tasks, 17 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: CP-16 (the Issuer) is done and its review signed off; the review's two read-path follow-ups are fixed (DRIFT-001-41); next T024 (the MCP Endpoint)
+**Last Completed Task**: T024
+**Tasks Remaining**: T025-T036 (12 tasks, 14 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
+**In Progress**: T024 (the MCP Endpoint) is done; next T025 (the read rate limit), which completes CP-15
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-08T22:01:19Z
+**Updated**: 2026-11-08T23:05:38Z
 
 ## Execution Summary
+
+- **T024, the MCP Endpoint, is built** (2026-11-09; DRIFT-001-42):
+  - One endpoint, `/mcp`, serves both protocol eras. It serves the four read tools, with inputs and replies exactly as the Public Contract publishes them.
+  - **Tokens**: every request's token is checked by the Issuer (`checkAccessToken`), so a revocation takes effect on the next call.
+    - A missing or bad token is a 401, and a token without `read` a 403, each naming the protected-resource metadata.
+    - While the Issuer cannot check, the answer is 503, so agents keep their tokens.
+  - **Errors**: a bad input gets the contract's `INVALID_ARGUMENT` envelope, not the SDK's own text. A read that runs past 60 s answers `TIMEOUT`.
+  - **Mode A** serves the same tools over stdio, with the log on stderr.
+  - **Tests**:
+    - both eras through the SDK client;
+    - an agent linked at the real Issuer reading with its token, until the token ends or the agent is revoked;
+    - stdio in both eras;
+    - a completeness check that reads `errors.md` (`RATE_LIMITED` waits for T025).
+  - 23 deliberate breaks, 22 caught. The miss is an expiry check that two others stand behind.
+  - **Cost**: about 3 SP against an estimate of 1 (estimates), and $0. CP-15 is now expected to take about 4 SP against its estimate of 2 (estimate).
+  - **Checks**:
+    - 1,040 tests, 938 passing and 102 skipped without SQL Server;
+    - with SQL Server on 2 workers, 1,028 pass and 12 skip. On 4 workers, one SQL Server suite's database setup ran past its limit under load; it passes alone, and nothing in T024 touches it;
+    - coverage with SQL Server: 97.6% of lines and 93.2% of branches;
+    - lint, tsc, prettier and depcruise (240 modules) clean.
 
 - **The two follow-ups from CP-16's review are fixed** (2026-11-09; DRIFT-001-41):
   - **Camera status.** A camera's or doorbell's battery and online status now carry the time Ring last reported them, in `list_devices` and the overview. Old camera data no longer looks current. No new calls to Ring.

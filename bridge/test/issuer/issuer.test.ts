@@ -1,7 +1,8 @@
 // The Issuer (T023) end to end: an agent links through the MCP SDK's own OAuth helpers, the owner
 // signs in at the Entra stand-in, and Web's part (the sign-in return route) is played here. Tokens
 // live in Grants on SQLite. Time is one clock: `Date` alone is faked, and everything reads it
-// (oidc-provider, the stand-in, jose, and the stores through SystemClock).
+// (oidc-provider, the stand-in, jose, and the stores through SystemClock). Since T024, the agent
+// also uses its token at the MCP Endpoint, served at the resource the Issuer issues tokens for.
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -12,6 +13,8 @@ import {
   startAuthorization,
 } from "@modelcontextprotocol/client";
 import type { AuthorizationServerMetadata } from "@modelcontextprotocol/client";
+import { getRequestListener } from "@hono/node-server";
+import { SdkHttpError } from "@modelcontextprotocol/client";
 import { decodeProtectedHeader } from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GrantsStore } from "../../src/core/access/grants/index.ts";
@@ -29,6 +32,7 @@ import {
   signingKeyDocument,
 } from "../../src/core/clients/issuer/index.ts";
 import type { SigningKey } from "../../src/core/clients/issuer/index.ts";
+import { McpEndpoint } from "../../src/core/clients/mcp-endpoint/index.ts";
 import { SystemClock } from "../../src/utilities/clock/index.ts";
 import { Logger } from "../../src/utilities/logging/index.ts";
 import {
@@ -43,8 +47,9 @@ import {
   SecurityError,
 } from "../../src/utilities/security/index.ts";
 import type { OwnerSignIn } from "../../src/utilities/security/index.ts";
-import { startEntraStandIn } from "../support/index.ts";
-import type { EntraStandIn } from "../support/index.ts";
+import { startCoreReads } from "../mcp-endpoint/core-fixture.ts";
+import { connectOverHttp, startEntraStandIn } from "../support/index.ts";
+import type { EntraStandIn, ProtocolEra } from "../support/index.ts";
 
 const START = Date.UTC(2026, 10, 8, 9, 0, 0);
 const SECOND_MS = 1000;
@@ -119,7 +124,11 @@ async function listen(server: Server): Promise<string> {
 }
 
 async function startRig(
-  options: { readonly keys?: string | undefined } = {},
+  options: {
+    readonly keys?: string | undefined;
+    /** Also serve the MCP Endpoint at the resource, checking tokens with this Issuer (T024). */
+    readonly mcp?: boolean;
+  } = {},
 ): Promise<Rig> {
   const clock = new SystemClock();
   const layer = openSqliteQueryLayer(":memory:", { clock });
@@ -175,6 +184,11 @@ async function startRig(
   const logLines: string[] = [];
   const issuerUrl = `${origin}/oauth`;
   const resource = `${origin}/mcp`;
+  const issuerLogger = new Logger({
+    sink: (line) => logLines.push(line),
+    now: () => clock.now(),
+    minLevel: "debug",
+  });
   const issuer = new Issuer(
     { issuer: issuerUrl, resource },
     {
@@ -187,11 +201,7 @@ async function startRig(
       ),
       ownerSignIn,
       clock,
-      logger: new Logger({
-        sink: (line) => logLines.push(line),
-        now: () => clock.now(),
-        minLevel: "debug",
-      }),
+      logger: issuerLogger,
       fetch: (url) => {
         fetched.push(url);
         const document = documents.get(url);
@@ -206,13 +216,39 @@ async function startRig(
 
   const started = await issuer.start(never());
 
-  // The core's routes: the Issuer under /oauth, and Web's sign-in return.
+  const core = options.mcp === true ? await startCoreReads(clock) : undefined;
+  const mcp =
+    core === undefined
+      ? undefined
+      : new McpEndpoint(
+          { resource, issuer: issuerUrl, allowedHosts: ["127.0.0.1"] },
+          {
+            inquiry: core.inquiry,
+            tokens: issuer,
+            clock,
+            logger: issuerLogger,
+          },
+        );
+  const mcpListener =
+    mcp === undefined
+      ? undefined
+      : getRequestListener((request) => mcp.fetch(request));
+
+  // The core's routes: the Issuer under /oauth, Web's sign-in return, and the MCP Endpoint.
   route = (request, response) => {
     if (issuer.owns(request)) {
       issuer.handle(request, response);
       return;
     }
     const url = new URL(request.url ?? "/", origin);
+    if (
+      mcpListener !== undefined &&
+      (url.pathname === "/mcp" ||
+        url.pathname.startsWith("/.well-known/oauth-protected-resource"))
+    ) {
+      void mcpListener(request, response);
+      return;
+    }
     if (url.pathname !== "/sign-in/return") {
       response.writeHead(404).end();
       return;
@@ -259,6 +295,7 @@ async function startRig(
         });
       });
       await standIn.close();
+      await core?.close();
       await layer.close();
     },
   };
@@ -951,6 +988,210 @@ describe("the Issuer", () => {
       ).toBeUndefined();
     });
   });
+
+  // T024: access tokens are opaque, so the MCP Endpoint asks the Issuer about each one.
+  describe("checking an access token for the MCP endpoint", () => {
+    async function linked(): Promise<Tokens> {
+      return link(
+        rig,
+        DOCUMENT_AGENT.client_id,
+        textOf(DOCUMENT_AGENT.redirect_uris[0]),
+      );
+    }
+
+    it("finds a linked agent's token good for read, for the owner, until it ends an hour later", async () => {
+      const tokens = await linked();
+
+      expect(
+        await rig.issuer.checkAccessToken(tokens.access_token, never()),
+      ).toEqual({
+        kind: "valid",
+        clientId: DOCUMENT_AGENT.client_id,
+        subject: rig.standIn.owner.subject,
+        scopes: ["read"],
+        expiresAt: Math.floor(Date.now() / SECOND_MS) + 3600,
+      });
+
+      advance(HOUR_MS + SECOND_MS);
+      expect(
+        await rig.issuer.checkAccessToken(tokens.access_token, never()),
+      ).toEqual({ kind: "invalid" });
+    });
+
+    it("refuses a token once its agent is revoked", async () => {
+      const tokens = await linked();
+      await rig.layer.run(
+        {
+          sql: "UPDATE agent SET revoked_at = @at WHERE client_id = @id",
+          params: { at: Date.now(), id: DOCUMENT_AGENT.client_id },
+        },
+        never(),
+      );
+
+      expect(
+        await rig.issuer.checkAccessToken(tokens.access_token, never()),
+      ).toEqual({ kind: "invalid" });
+    });
+
+    it("refuses a token whose grant ended when a refresh token was reused", async () => {
+      const tokens = await linked();
+      const first = textOf(tokens.refresh_token);
+      const rotated = await refresh(rig, DOCUMENT_AGENT.client_id, first);
+      expect(rotated.status).toBe(200);
+      await refresh(rig, DOCUMENT_AGENT.client_id, first);
+
+      expect(
+        await rig.issuer.checkAccessToken(
+          textOf(rotated.body.access_token),
+          never(),
+        ),
+      ).toEqual({ kind: "invalid" });
+    });
+
+    it("refuses an unknown value, a token for another resource, and one under a grant that is gone", async () => {
+      const tokens = await linked();
+      const stored = await rig.grants.find(
+        "AccessToken",
+        tokens.access_token,
+        never(),
+      );
+      if (stored === undefined) {
+        throw new Error("The access token was not stored.");
+      }
+      expect(await rig.issuer.checkAccessToken("unknown", never())).toEqual({
+        kind: "invalid",
+      });
+
+      await rig.grants.upsert(
+        "AccessToken",
+        tokens.access_token,
+        { ...stored, aud: "https://elsewhere.example.test/mcp" },
+        3000,
+        never(),
+      );
+      expect(
+        await rig.issuer.checkAccessToken(tokens.access_token, never()),
+      ).toEqual({ kind: "invalid" });
+
+      await rig.grants.upsert(
+        "AccessToken",
+        tokens.access_token,
+        stored,
+        3000,
+        never(),
+      );
+      expect(
+        (await rig.issuer.checkAccessToken(tokens.access_token, never())).kind,
+      ).toBe("valid");
+      await rig.grants.destroy("Grant", textOf(stored.grantId), never());
+      expect(
+        await rig.issuer.checkAccessToken(tokens.access_token, never()),
+      ).toEqual({ kind: "invalid" });
+    });
+
+    it("says it cannot tell while its store is down, rather than calling the token bad", async () => {
+      const tokens = await linked();
+      await rig.layer.close();
+
+      expect(
+        await rig.issuer.checkAccessToken(tokens.access_token, never()),
+      ).toEqual({ kind: "unavailable" });
+    });
+  });
+});
+
+// T024: the agent's real token at the MCP Endpoint, which asks this Issuer about it. One value is
+// the Issuer's resource, the endpoint's URL and the metadata's resource.
+describe("the Issuer's tokens at the MCP endpoint", () => {
+  let rig: Rig;
+
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(START);
+    if (signingKeys.length === 0) {
+      signingKeys = [generateSigningKey(), generateSigningKey()];
+    }
+    rig = await startRig({ mcp: true });
+    publishDocument(rig);
+  });
+
+  afterEach(async () => {
+    await rig.close();
+    vi.useRealTimers();
+  });
+
+  async function linkedToken(): Promise<string> {
+    const tokens = await link(
+      rig,
+      DOCUMENT_AGENT.client_id,
+      textOf(DOCUMENT_AGENT.redirect_uris[0]),
+    );
+    return tokens.access_token;
+  }
+
+  it.each<ProtocolEra>(["legacy", "modern"])(
+    "lets a linked agent read with its token in the %s era, until the token ends or the agent is revoked",
+    async (era) => {
+      const accessToken = await linkedToken();
+      const agent = await connectOverHttp(new URL(rig.resource), {
+        accessToken,
+        era,
+      });
+      try {
+        expect(agent.client.getProtocolEra()).toBe(era);
+        const health = await agent.client.callTool({
+          name: "get_health",
+          arguments: {},
+        });
+        expect(health.isError).toBeFalsy();
+      } finally {
+        await agent.close();
+      }
+
+      advance(HOUR_MS + SECOND_MS);
+      const expired = connectOverHttp(new URL(rig.resource), {
+        accessToken,
+        era,
+      });
+      await expect(expired).rejects.toBeInstanceOf(SdkHttpError);
+      await expect(expired).rejects.toMatchObject({ status: 401 });
+
+      const fresh = await linkedToken();
+      await rig.layer.run(
+        {
+          sql: "UPDATE agent SET revoked_at = @at WHERE client_id = @id",
+          params: { at: Date.now(), id: DOCUMENT_AGENT.client_id },
+        },
+        never(),
+      );
+      await expect(
+        connectOverHttp(new URL(rig.resource), { accessToken: fresh, era }),
+      ).rejects.toMatchObject({ status: 401 });
+    },
+  );
+
+  it("points an agent without a token to this Issuer, through the protected-resource metadata", async () => {
+    const refused = await fetch(rig.resource, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    const metadataUrl = /resource_metadata="([^"]+)"/.exec(
+      refused.headers.get("www-authenticate") ?? "",
+    )?.[1];
+
+    expect(refused.status).toBe(401);
+    const metadata = (await (await fetch(textOf(metadataUrl))).json()) as {
+      readonly resource: string;
+      readonly authorization_servers: readonly string[];
+    };
+    expect(metadata.resource).toBe(rig.resource);
+    expect(metadata.authorization_servers).toEqual([rig.issuerUrl]);
+    expect((await metadataOf(rig)).issuer).toBe(rig.issuerUrl);
+  });
 });
 
 describe("the Issuer's signing keys", () => {
@@ -1005,6 +1246,9 @@ describe("the Issuer's signing keys", () => {
         `${rig.issuerUrl}/.well-known/openid-configuration`,
       );
       expect(response.status).toBe(503);
+      expect(await rig.issuer.checkAccessToken("any", never())).toEqual({
+        kind: "unavailable",
+      });
     } finally {
       await rig.close();
     }

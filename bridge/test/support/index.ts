@@ -16,8 +16,12 @@ export { startEntraStandIn } from "./entra-stand-in.ts";
 export type { EntraStandIn, StandInOwner } from "./entra-stand-in.ts";
 
 /** The agent's side of MCP, through the MCP SDK client. */
-export { connectInMemory, connectOverHttp } from "./mcp-client.ts";
-export type { ConnectedClient, InMemoryServer } from "./mcp-client.ts";
+export { connectInMemory, connectOverHttp, eraOptions } from "./mcp-client.ts";
+export type {
+  ConnectedClient,
+  InMemoryServer,
+  ProtocolEra,
+} from "./mcp-client.ts";
 
 /** A throwaway TLS certificate for localhost, made with openssl at test time (T017). */
 export {

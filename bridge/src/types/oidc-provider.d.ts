@@ -209,10 +209,28 @@ declare module "oidc-provider" {
 
   /** What the user consented to. */
   export interface Grant {
+    /** Set on a stored grant: whose it is, for which client, and whether it has ended. */
+    readonly accountId?: string;
+    readonly clientId?: string;
+    readonly isExpired: boolean;
     addOIDCScope(scope: string): void;
     addOIDCClaims(claims: readonly string[]): void;
     addResourceScope(resource: string, scope: string): void;
     save(): Promise<string>;
+  }
+
+  /** A stored access token, found by its value (MCP Endpoint, T024). */
+  export interface AccessToken {
+    readonly accountId?: string;
+    readonly clientId?: string;
+    readonly grantId?: string;
+    /** Space-separated. */
+    readonly scope?: string;
+    /** The resource it is for (RFC 8707). */
+    readonly aud?: string | readonly string[];
+    /** When it ends, in seconds since 1970. */
+    readonly exp?: number;
+    readonly isValid: boolean;
   }
 
   /** The result of an interaction. */
@@ -229,7 +247,15 @@ declare module "oidc-provider" {
     // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name
     readonly Grant: {
       new (properties: { accountId: string; clientId: string }): Grant;
-      find(id: string): Promise<Grant | undefined>;
+      find(
+        id: string,
+        options?: { readonly ignoreExpiration?: boolean },
+      ): Promise<Grant | undefined>;
+    };
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name
+    readonly AccessToken: {
+      /** Undefined for a value that is unknown, malformed or expired. */
+      find(value: string): Promise<AccessToken | undefined>;
     };
     // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name
     readonly Interaction: {

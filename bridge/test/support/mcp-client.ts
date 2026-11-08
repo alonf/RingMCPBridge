@@ -6,6 +6,21 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 /** The client the tests act as. */
 const CLIENT_INFO = { name: "bridge-tests", version: "0.0.0" } as const;
 
+/**
+ * The protocol era a client speaks: `legacy`, the SDK client's default (2025-11-25 and earlier), or
+ * `modern`, pinned to 2026-07-28 (T024).
+ */
+export type ProtocolEra = "legacy" | "modern";
+
+/** The client options that make a client speak `era`. */
+export function eraOptions(
+  era: ProtocolEra,
+): ConstructorParameters<typeof Client>[1] {
+  return era === "modern"
+    ? { versionNegotiation: { mode: { pin: "2026-07-28" } } }
+    : {};
+}
+
 /** A connected MCP client. */
 export interface ConnectedClient {
   readonly client: Client;
@@ -30,11 +45,11 @@ export async function connectInMemory(
 
 /**
  * Connects a client to an MCP endpoint over Streamable HTTP, sending `accessToken` as a bearer
- * token when given, as a signed-in agent does.
+ * token when given, as a signed-in agent does, in the legacy era unless `era` says otherwise.
  */
 export async function connectOverHttp(
   endpoint: URL,
-  options: { readonly accessToken?: string } = {},
+  options: { readonly accessToken?: string; readonly era?: ProtocolEra } = {},
 ): Promise<ConnectedClient> {
   const headers: Record<string, string> =
     options.accessToken === undefined
@@ -43,7 +58,7 @@ export async function connectOverHttp(
   const transport = new StreamableHTTPClientTransport(endpoint, {
     requestInit: { headers },
   });
-  const client = new Client(CLIENT_INFO);
+  const client = new Client(CLIENT_INFO, eraOptions(options.era ?? "legacy"));
   await client.connect(transport);
   return { client, close: () => client.close() };
 }
