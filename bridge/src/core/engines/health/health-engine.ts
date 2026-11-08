@@ -15,6 +15,11 @@
 // - A session opening owes the core a fresh inventory: the data stays stale until that session's
 //   own inventory is stored, since the last time it was known true (FR-006, CP-14 review round
 //   3). A heartbeat says the link is up, not that the data has caught up.
+// - A heartbeat that says the home owes an inventory, because a change it saw could not be written
+//   to its outbox, owes the same refresh, since the last sign of life before it (CP-14 review
+//   round 5). The Event manager decides which inventory pays it.
+// - A sign of life counts at the time the core received it. One older than the last does not move
+//   `as_of` back, and one received the threshold ago or longer leaves the home down: `settled`.
 
 /** The engine's thresholds, from the Config utility (`staleAfterMs`, 2 minutes by default). */
 export interface HealthPolicy {
@@ -47,6 +52,8 @@ export interface HeartbeatReading {
   readonly ring_session: "ok" | "unavailable" | "lost";
   /** `null` when the home could not read its outbox. */
   readonly outbox_depth: number | null;
+  /** The home owes an inventory the core has not yet stored. */
+  readonly inventory_owed: boolean;
 }
 
 /** A part of the health whose status changed. */
@@ -79,7 +86,10 @@ export function afterRefresh(view: HealthView): HealthView {
   return next;
 }
 
-/** The view after a heartbeat received at `now` on the core's clock. */
+/**
+ * The view after a heartbeat received at `now` on the core's clock. A heartbeat that says an
+ * inventory is owed owes a refresh, since the data was last known true.
+ */
 export function afterHeartbeat(
   view: HealthView | undefined,
   heartbeat: HeartbeatReading,
@@ -95,6 +105,9 @@ export function afterHeartbeat(
         ? up.ring_session_since
         : now,
   };
+  if (heartbeat.inventory_owed) {
+    next.refresh_owed_since = knownTrueUntil(view, now);
+  }
   if (heartbeat.outbox_depth === null) {
     delete next.outbox_depth;
   } else {
@@ -113,16 +126,26 @@ export function asOf(
   now: number,
   policy: HealthPolicy,
 ): HealthView {
-  const silent =
-    view.home_link_status === "up" &&
-    now - view.as_of >= policy.homeOfflineAfterMs;
-  const linked: HealthView = silent
+  const linked: HealthView = isSilent(view, now, policy)
     ? { ...view, home_link_status: "down", home_link_since: view.as_of }
     : view;
   const since = staleSince(linked);
   return since === undefined || since === linked.stale_since
     ? linked
     : { ...linked, stale_since: since };
+}
+
+/**
+ * The view to store at `now` after a sign of life: one received `homeOfflineAfterMs` ago or longer
+ * leaves the home down, as the silence check would store it, so a heartbeat that waited its turn
+ * is never published as the home coming up.
+ */
+export function settled(
+  view: HealthView,
+  now: number,
+  policy: HealthPolicy,
+): HealthView {
+  return isSilent(view, now, policy) ? asOf(view, now, policy) : view;
 }
 
 /** The parts whose status changed from `before` to `after`, in a fixed order. */
@@ -138,6 +161,17 @@ export function healthChanges(
     changed.push("ring_session");
   }
   return changed;
+}
+
+function isSilent(
+  view: HealthView,
+  now: number,
+  policy: HealthPolicy,
+): boolean {
+  return (
+    view.home_link_status === "up" &&
+    now - view.as_of >= policy.homeOfflineAfterMs
+  );
 }
 
 // The earliest of: when the data was already stale, when the home link went down, when the Ring
@@ -176,7 +210,7 @@ function knownTrueUntil(view: HealthView | undefined, now: number): number {
 }
 
 // The home is up from `now`, or since it came up if it already was. The link's own staleness ends;
-// a refresh still owed stays.
+// a refresh still owed stays. A sign of life older than the last one does not move `as_of` back.
 function homeUp(view: HealthView | undefined, now: number): HealthView {
   const next: Mutable<HealthView> = {
     ...(view ?? { as_of: now }),
@@ -185,7 +219,7 @@ function homeUp(view: HealthView | undefined, now: number): HealthView {
       view?.home_link_status === "up" && view.home_link_since !== undefined
         ? view.home_link_since
         : now,
-    as_of: now,
+    as_of: Math.max(view?.as_of ?? now, now),
   };
   delete next.stale_since;
   return next;

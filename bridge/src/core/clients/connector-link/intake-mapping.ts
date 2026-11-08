@@ -38,20 +38,23 @@ export function incomingDeviceState(
   return { message_id: message.message_id, device: incomingDevice(message) };
 }
 
-/** A `heartbeat` as Event takes it. */
+/** A `heartbeat` as Event takes it, received at `receivedAt` on the core's clock. */
 export function incomingHeartbeat(
   message: HeartbeatMessage,
+  receivedAt: number,
 ): IncomingHeartbeat {
   return {
     ring_session: message.ring_session,
     push: message.push,
     outbox_depth: message.outbox_depth,
+    inventory_owed_after: message.inventory_owed_after,
     last_ring_event_at:
       message.last_ring_event_at === null
         ? null
         : Date.parse(message.last_ring_event_at),
     error_counts: { ...message.error_counts },
     as_of: Date.parse(message.as_of),
+    received_at: receivedAt,
   };
 }
 

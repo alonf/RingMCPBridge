@@ -117,6 +117,12 @@ export const heartbeatSchema = z.strictObject({
   push: z.enum(["off", "ok", "failing"]),
   /** Messages waiting for their ack; `null` when the outbox could not be read. */
   outbox_depth: z.number().int().min(0).nullable(),
+  /**
+   * Set while the home owes an inventory because a change it saw could not be written to its
+   * outbox: the newest `state_version` it had written before that change. The inventory that pays
+   * it has a higher `snapshot_version`. `null` when no such inventory is owed (CP-14 review round 5).
+   */
+  inventory_owed_after: z.number().int().min(0).nullable(),
   /** When the home last received a Ring event; `null` until events arrive (002). */
   last_ring_event_at: utcTime.nullable(),
   /** Failures since the connector started, by error code. */

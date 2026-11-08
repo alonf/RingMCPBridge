@@ -317,6 +317,7 @@ describe("CoreLink: the outbox over the link", () => {
       ring_session: "ok",
       push: "off",
       outbox_depth: 1,
+      inventory_owed_after: null,
       last_ring_event_at: null,
       error_counts: {},
       as_of: "2026-11-07T09:00:15.000Z",

@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 37
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 2 in implement on 2026-11-08)
+**Total drift events**: 38
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -1173,6 +1173,64 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-38: CP-14 review round 5 found that a change the home could not write left old data shown as current, and that a heartbeat that waited its turn counted as new; both fixed
+
+- **Detected**: 2026-11-08, implement, CP-14 review round 5 (Codex). The reviewer reported two findings without a failure scenario, so Specrew kept them as minor. Each was checked against the code and is real.
+- **Kind**: two defects against FR-005, FR-006 and SC-005, and a field added to the link contract's heartbeat [P]. No spec change
+- **Observed**:
+  - **A change the home could not write left old data shown as current.**
+    - When a change Ring reported could not be written to the outbox (a full disk), Ingest noted only for itself that it owed an inventory.
+    - Its heartbeats still said the Ring session was ok, and the core does not use the error counts they carry, so the old state showed `cached`, its `as_of` moving every 15 s, for as long as the disk stayed full.
+    - A plain "owed" flag would not have been enough. An older inventory of the same session, sent again, could end the stale time early, and a heartbeat saying nothing was owed could reach the core before the inventory that paid it.
+  - **A heartbeat that waited its turn counted as new.**
+    - Connector Link takes a link's messages one at a time, and Event stamped a heartbeat with the time it took it, not the time it arrived.
+    - If the core's store stalled for over 2 minutes while the home fell silent with its connection still open, a heartbeat taken late counted as a fresh sign of life, and the home showed up for up to 2 more minutes.
+- **Fix**:
+  - **The heartbeat names the debt** [P]:
+    - `inventory_owed_after` is the newest `state_version` the home wrote before a change it could not write, or the latest such if changes keep failing;
+    - it is set until an inventory read in the session is queued;
+    - Ingest notes the last version each write the outbox kept drew.
+  - **The core keeps the data stale until the debt is paid** [P]:
+    - stale from the last sign of life before that heartbeat, until the core stores an inventory for that session with a higher `snapshot_version`;
+    - an older copy sent again does not pay it, a heartbeat that owes nothing does not end it, and a debt that an inventory already stored for the session paid is ignored;
+    - Event keeps both in memory and forgets them when a session opens, since a newly enrolled connector's versions start again; a core restart drops the link, and the next session owes its own refresh.
+  - **A heartbeat counts when it arrived** [P]:
+    - Connector Link stamps each frame with the core's time as it arrives;
+    - Event counts the heartbeat at that time, checks for silence from then, never moves `as_of` back, and stores a home whose heartbeat arrived 2 minutes ago or more as offline, with no return published.
+  - **A session's opening still counts when the core records it**: from its signed answer until `hello_ok` the home sends nothing, so that wait is the core's, and the data stays stale until the session's own inventory is stored anyway.
+  - The link contract's heartbeat row, a new "A change the home could not write" rule and the "Heartbeat and home offline" section say so. The round-4 sentence on overlapping reads is corrected: a read that finishes after one begun later is dropped.
+- **Requirement citation**: spec FR-005, FR-006 and SC-005; `contracts/connector-link.md` "Device inventory and state" and "Heartbeat and home offline"; PT-07; DRIFT-001-36 and DRIFT-001-37.
+- **Resolution**: fixed after the owner chose to fix both and run one more round ("1"). Cost: about 2 SP (estimate: 1.5 for the first, 0.5 for the second), recorded in CP-14's actual, and $0.
+- **Known gap, noted**: a `device_state` too large for one frame is logged and cleared without making an inventory owed (DRIFT-001-22), the same lost-state class. One device's entry cannot come near the 1 MiB frame limit, and owing an inventory there would read Ring every 10 s when the inventory itself is too large, so it is noted, not changed.
+- **Class closure**: new tests:
+  - Ingest: the heartbeat names the newest version written before a change it could not write, the later one after a second failure, and nothing once the session's own inventory is queued, which has a higher snapshot version and the change;
+  - Event:
+    - a debt keeps the data stale through an older copy and a heartbeat that owes nothing, until a higher inventory;
+    - a debt already paid is ignored;
+    - a session's opening forgets the debt and what paid it;
+    - a heartbeat counts at its arrival, and the silence check runs from then;
+    - one that arrived too long ago leaves the home offline, with no return published;
+  - Connector Link: a heartbeat is stamped as it arrives, though Event takes it 3 minutes later;
+  - Health engine: the debt's refresh, `as_of` never moving back, and `settled`;
+  - both ends, with the real Event, State and Inquiry: a door change the home cannot write shows as stale within one heartbeat and stays so; once the disk recovers, the data is fresh and the door shows open.
+
+  A deliberate break of fifteen parts was caught:
+  - the heartbeat leaves out the debt;
+  - the home names the first failure's version, not the latest;
+  - the home keeps the debt after the session's own inventory is queued;
+  - the home does not note the versions it wrote;
+  - the core ignores the debt;
+  - an older copy sent again pays it;
+  - a debt already paid is owed again;
+  - a heartbeat that owes nothing ends it;
+  - a session's opening keeps the old debt;
+  - a session's opening keeps what paid it;
+  - Connector Link stamps a heartbeat when Event takes it;
+  - Event counts a heartbeat when it takes it;
+  - the silence check counts from then;
+  - a late sign of life moves `as_of` back;
+  - a heartbeat that arrived too long ago brings the home up.
 
 ### Resolution Strategies (Unused)
 

@@ -7,7 +7,9 @@
 //   open       --inventory, device_state--> Event, then ack; --heartbeat--> Event
 //
 // Every step of a link runs one at a time, in the order its frames and timers come, so no step sees
-// another's half-done state (L2), and an `ack` always follows its commit. The close reasons the home
+// another's half-done state (L2), and an `ack` always follows its commit. A frame is stamped with
+// the core's time as it arrives, so a heartbeat that waited its turn counts when it came, not when
+// Event took it (CP-14 review round 5). The close reasons the home
 // acts on are Core Link's (`LINK_CLOSE_REASONS`); a key is reported revoked only when Settings
 // says so, because a revoked key stops the home for good. The core's other reasons are its own,
 // and the home dials again after them (SC2).
@@ -229,6 +231,7 @@ export class CoreSession {
     if (this.#state.phase === "closed") {
       return;
     }
+    const receivedAt = this.#context.clock.now();
     if (this.#state.phase !== "open" && this.#pendingFrames > 0) {
       this.#refuse(frame.type);
       return;
@@ -251,7 +254,7 @@ export class CoreSession {
     this.#enqueue(async () => {
       this.#releaseFrame = release;
       try {
-        await this.#received(frame);
+        await this.#received(frame, receivedAt);
       } finally {
         release();
         this.#releaseFrame = undefined;
@@ -265,7 +268,7 @@ export class CoreSession {
     this.#releaseFrame?.();
   }
 
-  async #received(frame: LinkFrame): Promise<void> {
+  async #received(frame: LinkFrame, receivedAt: number): Promise<void> {
     const message = readHomeMessage(frame);
     const state = this.#state;
     if (message === undefined) {
@@ -273,7 +276,7 @@ export class CoreSession {
       return;
     }
     if (state.phase === "open") {
-      await this.#openMessage(message, state);
+      await this.#openMessage(message, state, receivedAt);
       return;
     }
     if (state.phase === "first" && message.type === "hello") {
@@ -506,7 +509,11 @@ export class CoreSession {
     }
   }
 
-  async #openMessage(message: HomeMessage, open: Open): Promise<void> {
+  async #openMessage(
+    message: HomeMessage,
+    open: Open,
+    receivedAt: number,
+  ): Promise<void> {
     const { session } = open;
     switch (message.type) {
       case "inventory": {
@@ -541,7 +548,7 @@ export class CoreSession {
         return;
       }
       case "heartbeat": {
-        const heartbeat = incomingHeartbeat(message.body);
+        const heartbeat = incomingHeartbeat(message.body, receivedAt);
         await this.#toEvent("heartbeat", (signal) =>
           this.#context.intake.heartbeat(heartbeat, session, signal),
         );

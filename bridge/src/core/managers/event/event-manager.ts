@@ -9,13 +9,24 @@
 //   them, so a newly enrolled connector, whose counter starts again, wins; a message from a key that
 //   is no longer current changes nothing, and is still acked (PT-30, T018).
 // - **The core's clock.** A sign of life counts at the time the core received it, never at the
-//   home's own time. Two minutes without one (Config `staleAfterMs`) and the home shows offline:
-//   a check runs that long after each sign of life, and Inquiry also reads through `asOf`, so a core
-//   restart never shows a silent home as up.
+//   home's own time: a heartbeat at the time its frame arrived, even when it waited behind earlier
+//   steps (CP-14 review round 5). Two minutes without one (Config `staleAfterMs`) and the home
+//   shows offline: a check runs that long after the last sign of life, and Inquiry also reads
+//   through `asOf`, so a core restart never shows a silent home as up. A session's opening counts
+//   when the core records it: from its signed answer until the core's `hello_ok`, the home sends
+//   nothing, so any wait there is the core's, and the data stays stale until the session's own
+//   inventory is stored anyway.
 // - **Fresh only once the session's own inventory is stored** (CP-14 review round 3). A session's
 //   opening owes a refresh; an inventory the home composed for that session ends it, even when
 //   State skips it as already applied, as after a health save that failed. An inventory from an
 //   earlier session, or a heartbeat, does not.
+// - **A debt the home reports** (CP-14 review round 5). A heartbeat whose `inventory_owed_after` is
+//   set says a change the home saw never reached its outbox: the data is stale from the last sign
+//   of life before it, until this session stores its own inventory with a higher
+//   `snapshot_version`. An older copy sent again does not pay it, and a heartbeat that says nothing
+//   is owed does not end it, since the inventory that pays it may still be on its way. A debt that
+//   an inventory this session already stored has paid is ignored. Both are kept in memory: a core
+//   restart drops the link, and the next session owes its own refresh.
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { PubSub } from "../../../utilities/pub-sub/index.ts";
 import { StateStoreError } from "../../access/state/index.ts";
@@ -26,6 +37,7 @@ import {
   afterSessionOpened,
   asOf,
   healthChanges,
+  settled,
 } from "../../engines/health/index.ts";
 import type { HealthView } from "../../engines/health/index.ts";
 import { EventError } from "./event-error.ts";
@@ -67,6 +79,10 @@ export class EventManager implements EventIntake {
   readonly #stopping = new AbortController();
   #steps: Promise<unknown> = Promise.resolve();
   #currentKey: string | undefined;
+  // The debt the home reported, as the version the paying inventory must be above, and the newest
+  // `snapshot_version` stored this session among the inventories composed for their session.
+  #owedAfter: number | undefined;
+  #storedSnapshot: number | undefined;
   #cancelSilenceCheck: Cancel = () => undefined;
 
   constructor(options: EventManagerOptions) {
@@ -86,6 +102,8 @@ export class EventManager implements EventIntake {
         this.#options.state.claimVersions(session.key_id, receivedAt, signal),
       );
       this.#currentKey = session.key_id;
+      this.#owedAfter = undefined;
+      this.#storedSnapshot = undefined;
       await this.#updateHealth(
         (health) =>
           afterSessionOpened(health, session.connector_version, receivedAt),
@@ -117,7 +135,7 @@ export class EventManager implements EventIntake {
           ),
       );
       if (inventory.session_id === session.session_id) {
-        await this.#refreshed(signal);
+        await this.#ownInventoryStored(inventory.snapshot_version, signal);
       }
       return applied;
     });
@@ -146,15 +164,23 @@ export class EventManager implements EventIntake {
     session: HomeLinkSession,
     signal: AbortSignal,
   ): Promise<void> {
-    const receivedAt = this.#options.clock.now();
     await this.#serially(signal, async () => {
       if (!this.#isCurrent(session)) {
         return;
       }
+      const owedAfter = this.#unpaid(heartbeat.inventory_owed_after);
+      const reading = {
+        ring_session: heartbeat.ring_session,
+        outbox_depth: heartbeat.outbox_depth,
+        inventory_owed: owedAfter !== undefined,
+      };
       await this.#updateHealth(
-        (health) => afterHeartbeat(health, heartbeat, receivedAt),
+        (health) => afterHeartbeat(health, reading, heartbeat.received_at),
         signal,
       );
+      if (owedAfter !== undefined) {
+        this.#owedAfter = Math.max(this.#owedAfter ?? owedAfter, owedAfter);
+      }
     });
   }
 
@@ -166,19 +192,51 @@ export class EventManager implements EventIntake {
   }
 
   // Reads the health as of now, applies one change, saves it, and publishes a change of status.
-  // Runs only on the queue. Every sign of life schedules the next silence check.
+  // Runs only on the queue. Every sign of life schedules the next silence check, from its own time.
   async #updateHealth(
     change: (health: HealthView | undefined) => HealthView,
     signal: AbortSignal,
   ): Promise<void> {
     const before = await this.#health(signal);
-    const after = change(before);
+    const after = settled(
+      change(before),
+      this.#options.clock.now(),
+      this.#policy,
+    );
     await this.#saveHealth(before, after, signal);
-    this.#scheduleSilenceCheck();
+    this.#scheduleSilenceCheck(after.as_of);
   }
 
-  // The current session's own inventory is stored: the refresh it owed ends. The stored view is
-  // changed as it is, so nothing `asOf` works out for now is saved with it. Runs only on the queue.
+  // The debt a heartbeat reports, unless an inventory this session already stored paid it.
+  #unpaid(owedAfter: number | null): number | undefined {
+    if (owedAfter === null) {
+      return undefined;
+    }
+    return this.#storedSnapshot !== undefined &&
+      this.#storedSnapshot > owedAfter
+      ? undefined
+      : owedAfter;
+  }
+
+  // The session's own inventory is stored. It ends the refresh owed unless the home reported a debt
+  // it does not pay: an inventory composed before the change the home could not write.
+  async #ownInventoryStored(
+    snapshotVersion: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    this.#storedSnapshot = Math.max(
+      this.#storedSnapshot ?? snapshotVersion,
+      snapshotVersion,
+    );
+    if (this.#owedAfter !== undefined && snapshotVersion <= this.#owedAfter) {
+      return;
+    }
+    await this.#refreshed(signal);
+    this.#owedAfter = undefined;
+  }
+
+  // The refresh owed ends. The stored view is changed as it is, so nothing `asOf` works out for now
+  // is saved with it. Runs only on the queue.
   async #refreshed(signal: AbortSignal): Promise<void> {
     const stored = await this.#guard(
       signal,
@@ -221,10 +279,11 @@ export class EventManager implements EventIntake {
     }
   }
 
-  #scheduleSilenceCheck(): void {
+  #scheduleSilenceCheck(lastSignOfLife: number): void {
     this.#cancelSilenceCheck();
+    const due = lastSignOfLife + this.#options.homeOfflineAfterMs;
     this.#cancelSilenceCheck = this.#options.clock.schedule(
-      this.#options.homeOfflineAfterMs,
+      Math.max(0, due - this.#options.clock.now()),
       () => {
         this.#checkSilence().catch((error: unknown) => {
           if (!this.#stopping.signal.aborted) {

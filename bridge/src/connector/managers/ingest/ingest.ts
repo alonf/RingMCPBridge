@@ -20,6 +20,12 @@
 // alarm mode change while the session's own read runs, does not end that. Of two reads that overlap,
 // the one begun later holds the newer picture: an earlier read that finishes after it is dropped.
 //
+// A change Ring reports that cannot be written to the outbox (a full disk) leaves the core's data
+// behind with no message to show it, so the heartbeat says so (CP-14 review round 5): it carries the
+// newest `state_version` written before that change, until an inventory read in the session is
+// queued. Any inventory written after the change has a higher `snapshot_version`, and only such an
+// inventory, named with the session, ends the core's refresh.
+//
 // Messages go out on the link in the `LinkSlot`, which Core Link fills once a session is open. A
 // message is sent when it is written, and the 10 s tick sends again what has waited 10 s without
 // its ack (T016). Events, catch-up and the late marker come with CP-08b (iteration 002).
@@ -103,6 +109,10 @@ export class Ingest {
   #steps: Promise<void> = Promise.resolve();
   #stopWatching: StopWatching | undefined;
   #inventoryOwed = false;
+  // The newest `state_version` the outbox has kept, and, while a change could not be written, the
+  // newest one kept before it: the version the inventory that pays the debt must be above.
+  #lastVersion: number | undefined;
+  #owedAfter: number | undefined;
   // The session last opened. An inventory read since it opened names it while its link is in the
   // slot.
   #sessionId: string | undefined;
@@ -190,6 +200,7 @@ export class Ingest {
       ring_session: this.#ring.sessionStatus(),
       push: "off",
       outbox_depth: await this.#depth(signal),
+      inventory_owed_after: this.#owedAfter ?? null,
       last_ring_event_at: null,
       error_counts: Object.fromEntries(this.#errorCounts),
       as_of: formatUtc(this.#clock.now()),
@@ -223,6 +234,7 @@ export class Ingest {
     if (outcome === "queued") {
       if (readFor !== undefined && readFor === this.#composingFor()) {
         this.#inventoryOwed = false;
+        this.#owedAfter = undefined;
       }
     } else if (outcome !== "superseded") {
       this.#inventoryOwed = true;
@@ -326,8 +338,11 @@ export class Ingest {
     );
   }
 
+  // The debt names the newest version kept before this change, the latest one if changes keep
+  // failing, so an inventory written between two failures does not pay the second.
   #stateNotQueued(fields: LogFields, error: unknown): void {
     this.#inventoryOwed = true;
+    this.#owedAfter = this.#lastVersion ?? 0;
     if (error instanceof OutboxStoreError) {
       this.#count("outbox_unavailable");
       this.#logger.warn(
@@ -439,11 +454,26 @@ export class Ingest {
     this.#errorCounts.set(code, (this.#errorCounts.get(code) ?? 0) + 1);
   }
 
+  // Notes the last version a message drew once the outbox kept it; a failed write keeps none.
   #write(
     compose: (versions: StateVersions) => OutboxDraft,
     signal: AbortSignal,
   ): Promise<string> {
-    return this.#step(() => this.#outbox.append(compose, signal));
+    return this.#step(async () => {
+      let drawn: number | undefined;
+      const messageId = await this.#outbox.append(
+        (versions) =>
+          compose({
+            next: () => {
+              drawn = versions.next();
+              return drawn;
+            },
+          }),
+        signal,
+      );
+      this.#lastVersion = drawn ?? this.#lastVersion;
+      return messageId;
+    });
   }
 
   // The outbox's work runs one step at a time, in the order it was asked for.

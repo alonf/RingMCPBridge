@@ -7,12 +7,17 @@
 // Both ends run on one fake clock. The N-1 contract test comes with the first version bump (PT-07).
 // Two scenarios read through the Inquiry manager: Ring down at home, by fault injection, shows as
 // stale within 2 minutes (T021, SC-005); and a home back from away stays stale until its session's
-// own inventory is stored, even when the first try fails (CP-14 review round 3, FR-006).
+// own inventory is stored, even when the first try fails (CP-14 review round 3, FR-006); and a
+// change the home cannot write to its outbox shows as stale until the inventory after it is stored
+// (CP-14 review round 5).
 import { createServer as createTlsServer } from "node:https";
 import type { Server as TlsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { OutboxStore } from "../../src/connector/access/outbox-store/index.ts";
+import {
+  OutboxStore,
+  OutboxStoreError,
+} from "../../src/connector/access/outbox-store/index.ts";
 import { CoreLink } from "../../src/connector/clients/core-link/index.ts";
 import { HomeScheduler } from "../../src/connector/clients/home-scheduler/index.ts";
 import { Ingest } from "../../src/connector/managers/ingest/index.ts";
@@ -80,6 +85,8 @@ const OFFLINE_AFTER_MS = 120_000;
 /** SC-005: a lost Ring connection is shown as stale within 2 minutes. */
 const STALE_GOAL_MS = 2 * 60_000;
 const CORE_AWAY_MS = 3 * 60_000;
+/** The home's heartbeat tick. */
+const HEARTBEAT_EVERY_MS = 15_000;
 // Longer than the 10 s resend time plus one 10 s scheduler tick, so a resend always goes out
 // before the delayed message arrives.
 const DELAY_PAST_RESEND_MS = 25_000;
@@ -96,6 +103,8 @@ interface Both {
   readonly key: SigningKeyPair;
   readonly engine: ScenarioEngine;
   readonly outbox: OutboxStore;
+  /** While `full` is set, the home's outbox cannot be written. */
+  readonly disk: { full: boolean };
   readonly slot: LinkSlot;
   readonly settings: SettingsStore;
   readonly intake: RecordingIntake;
@@ -113,6 +122,27 @@ afterEach(async () => {
     await stop();
   }
 });
+
+/** The outbox, whose writes fail while the disk is full. */
+function fullWhen(
+  outbox: OutboxStore,
+  disk: { readonly full: boolean },
+): OutboxStore {
+  return new Proxy(outbox, {
+    get(target, property) {
+      if (property === "append" && disk.full) {
+        return () =>
+          Promise.reject(new OutboxStoreError("unavailable", "Disk full."));
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      if (typeof value !== "function") {
+        return value;
+      }
+      const method = value as (...args: unknown[]) => unknown;
+      return method.bind(target);
+    },
+  });
+}
 
 function loggerOn(clock: FakeClock, lines: string[]): Logger {
   return new Logger({
@@ -211,10 +241,11 @@ async function both(useRealEvent = false): Promise<Both> {
 
   const engine = new ScenarioEngine(clock);
   const outbox = await OutboxStore.open({ path: ":memory:", clock }, signal);
+  const disk = { full: false };
   const slot = new LinkSlot();
   const ingest = new Ingest({
     ring: engine,
-    outbox,
+    outbox: fullWhen(outbox, disk),
     link: slot,
     clock,
     logger: homeLogger,
@@ -253,6 +284,7 @@ async function both(useRealEvent = false): Promise<Both> {
     key,
     engine,
     outbox,
+    disk,
     slot,
     settings,
     intake,
@@ -599,6 +631,56 @@ describe("the link, version 1, both ends", () => {
 
     await driveUntil(test.clock, async () => (await freshness()) === "cached");
     expect(real.inventoriesRefused()).toBe(1);
+  });
+
+  it("with the real Event manager, State and Inquiry: a change the home cannot write to its outbox shows as stale until the inventory after it is stored (CP-14 review round 5)", async () => {
+    const test = await both(true);
+    await enrolled(test);
+    const core = inMemoryCore(test);
+    const real = test.real;
+    if (real === undefined) {
+      throw new Error("The real Event manager was not built.");
+    }
+    const inquiry = new InquiryManager({
+      state: real.state,
+      settings: test.settings,
+      clock: test.clock,
+      homeOfflineAfterMs: OFFLINE_AFTER_MS,
+    });
+    const freshness = async (): Promise<string> =>
+      (await inquiry.getOverview({}, signal)).freshness;
+    const doorOpen = async (): Promise<unknown> =>
+      (await real.state.device(HEBREW_DEVICE_ID, signal))?.state;
+    test.start(core.dial);
+    await driveUntil(
+      test.clock,
+      async () =>
+        (await real.state.devices({}, signal)).length > 0 &&
+        (await outboxEmpty(test)),
+    );
+    await driveUntil(test.clock, async () => (await freshness()) === "cached");
+    const before = await doorOpen();
+
+    test.disk.full = true;
+    test.engine.apply({
+      kind: "device",
+      deviceId: HEBREW_DEVICE_ID,
+      changes: { state: { open: true } },
+    });
+    const tookMs = await driveUntil(
+      test.clock,
+      async () => (await freshness()) === "stale",
+    );
+
+    expect(tookMs).toBeLessThanOrEqual(HEARTBEAT_EVERY_MS);
+    await driveFor(test.clock, 60_000);
+    expect(await freshness()).toBe("stale");
+    expect(await doorOpen()).toEqual(before);
+
+    test.disk.full = false;
+    await driveUntil(test.clock, async () => (await freshness()) === "cached");
+    expect(await doorOpen()).toEqual({ open: true });
+    expect(test.homeLines.join("\n")).toContain("ingest_state_not_queued");
   });
 
   it("acks a duplicated message each time it arrives, and the home clears it once", async () => {

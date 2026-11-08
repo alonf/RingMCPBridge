@@ -3,14 +3,23 @@
 **Schema**: v2
 **Last Completed Task**: T021
 **Tasks Remaining**: T023-T036 (14 tasks, 17 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: CP-14 (the read path): T019, T020 and T021 are done, and T018 (CP-11a); review round 4's two findings are fixed (DRIFT-001-37) after the owner's allowance reset; next round 5
+**In Progress**: CP-14 (the read path): T019, T020 and T021 are done, and T018 (CP-11a); review round 5's two findings are fixed (DRIFT-001-38), on the owner's choice; next round 6
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-08T02:34:40Z
+**Updated**: 2026-11-08T15:21:36Z
 
 ## Execution Summary
 
+- CP-14 review round 5 found two more problems, and both are fixed (DRIFT-001-38), on the owner's choice to fix both and run one more round:
+  - a change the home cannot write to its outbox (a full disk) no longer leaves old data shown as current: the heartbeat names the version the home owes an inventory beyond, and the core keeps the data stale until it stores the session's inventory above it;
+  - a heartbeat that waited its turn no longer counts as new: Connector Link stamps each frame as it arrives, and Event counts the heartbeat, and checks for silence, from then.
+
+  The round-4 wording on overlapping reads is corrected in the link contract and above. About 2 SP (estimate), in CP-14's actual. A deliberate break of fifteen parts was caught. Checks:
+  - 935 tests: 834 pass and 101 skip without SQL Server; with it, 923 pass and 12 skip;
+  - coverage with SQL Server: 97.9% of lines and 94.6% of branches;
+  - lint, tsc, prettier and depcruise (222 modules) clean.
+
 - CP-14 review round 4 found two more problems, and both are fixed (DRIFT-001-37), after the owner reset the review allowance and chose to fix both:
-  - an inventory read before a reconnect, or sent on an alarm mode change during the new session's read, no longer ends that session's refresh: an inventory names a session only when its Ring read began in it, and of two overlapping reads only the later one is sent;
+  - an inventory read before a reconnect, or sent on an alarm mode change during the new session's read, no longer ends that session's refresh: an inventory names a session only when its Ring read began in it, and a read that finishes after one begun later is dropped;
   - a key check that answers late can no longer take State from a newer key's session: Connector Link runs each link's last key check and its claim of State one link at a time.
 
   About 1 SP (estimate), in CP-14's actual. A deliberate break of six parts was caught. Checks:

@@ -234,6 +234,7 @@ function heartbeat(): Record<string, unknown> {
     ring_session: "ok",
     push: "off",
     outbox_depth: 3,
+    inventory_owed_after: null,
     last_ring_event_at: null,
     error_counts: { RING_TIMEOUT: 1 },
     as_of: AS_OF,
@@ -580,9 +581,31 @@ describe("ConnectorLink: the home's messages", () => {
     expect(test.intake.calls[1]?.body).toEqual({
       ...heartbeat(),
       as_of: Date.parse(AS_OF),
+      received_at: test.clock.now(),
     });
     await settle();
     expect(messagesOf(home, "ack")).toEqual([]);
+  });
+
+  it("stamps a heartbeat with the core's time as it arrives, though Event takes it minutes later (CP-14 review round 5)", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    test.intake.holding = true;
+    send(home, "inventory", inventory("m-1"));
+    await until(() => test.intake.calls.length === 2);
+
+    const arrivedAt = test.clock.now();
+    send(home, "heartbeat", heartbeat());
+    await settle();
+    await test.clock.advance(3 * 60_000);
+    test.intake.release();
+
+    await until(() => test.intake.calls.length === 3);
+    expect(test.intake.calls[2]?.body).toMatchObject({
+      received_at: arrivedAt,
+    });
   });
 
   it("in an open session, logs a message it does not accept and leaves it unacked, keeping the link", async () => {

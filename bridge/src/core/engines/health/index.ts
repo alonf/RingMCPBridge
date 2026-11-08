@@ -8,6 +8,7 @@ export {
   afterSessionOpened,
   asOf,
   healthChanges,
+  settled,
 } from "./health-engine.ts";
 export type {
   HealthPart,

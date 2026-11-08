@@ -1,7 +1,8 @@
 // The Event manager's intake (T018) over a real State on SQLite, a real Pub/Sub and the fake clock:
 // latest-wins with the two scenarios the plan names (DRIFT-001-06, DRIFT-001-08), versions that
 // belong to one connector key, the home's health from heartbeats and silence, and the store-down
-// error.
+// error. Since CP-14 review round 5: a heartbeat counts when it arrived, and a debt the home reports
+// keeps the data stale until an inventory above it is stored.
 import { afterEach, describe, expect, it } from "vitest";
 import { StateStore } from "../../access/state/index.ts";
 import { FakeClock } from "../../../utilities/clock/index.ts";
@@ -19,6 +20,7 @@ import type {
   HealthChanged,
   HomeLinkSession,
   IncomingDevice,
+  IncomingHeartbeat,
   IncomingInventory,
   IncomingLocation,
 } from "./index.ts";
@@ -78,6 +80,24 @@ function inventory(
     ...(sessionId === undefined ? {} : { session_id: sessionId }),
     locations,
     devices,
+  };
+}
+
+/** A heartbeat the core received at `receivedAt`, with nothing owed unless the test says so. */
+function beat(
+  receivedAt: number,
+  reading: Partial<IncomingHeartbeat> = {},
+): IncomingHeartbeat {
+  return {
+    ring_session: "ok",
+    push: "off",
+    outbox_depth: 0,
+    inventory_owed_after: null,
+    last_ring_event_at: null,
+    error_counts: {},
+    as_of: START,
+    received_at: receivedAt,
+    ...reading,
   };
 }
 
@@ -366,14 +386,7 @@ describe("Event: the home's health", () => {
     await test.event.homeSessionOpened(SESSION_A, never);
     await test.clock.advance(15_000);
     await test.event.heartbeat(
-      {
-        ring_session: "ok",
-        push: "off",
-        outbox_depth: 4,
-        last_ring_event_at: null,
-        error_counts: {},
-        as_of: START - 3_600_000,
-      },
+      beat(test.clock.now(), { outbox_depth: 4, as_of: START - 3_600_000 }),
       SESSION_A,
       never,
     );
@@ -415,18 +428,7 @@ describe("Event: the home's health", () => {
     });
     expect(test.published.at(-1)?.changed).toEqual(["home_link"]);
 
-    await test.event.heartbeat(
-      {
-        ring_session: "ok",
-        push: "off",
-        outbox_depth: 0,
-        last_ring_event_at: null,
-        error_counts: {},
-        as_of: START,
-      },
-      SESSION_A,
-      never,
-    );
+    await test.event.heartbeat(beat(test.clock.now()), SESSION_A, never);
     await test.events.drain();
     const back = await test.state.health(never);
     expect(back).toMatchObject({
@@ -449,14 +451,7 @@ describe("Event: the home's health", () => {
     );
 
     await test.event.heartbeat(
-      {
-        ring_session: "lost",
-        push: "off",
-        outbox_depth: 99,
-        last_ring_event_at: null,
-        error_counts: {},
-        as_of: START,
-      },
+      beat(test.clock.now(), { ring_session: "lost", outbox_depth: 99 }),
       SESSION_A,
       never,
     );
@@ -494,18 +489,7 @@ describe("Event: fresh only once the session's own inventory is stored (CP-14 re
       SESSION_A,
       never,
     );
-    await test.event.heartbeat(
-      {
-        ring_session: "ok",
-        push: "off",
-        outbox_depth: 0,
-        last_ring_event_at: null,
-        error_counts: {},
-        as_of: START,
-      },
-      SESSION_A,
-      never,
-    );
+    await test.event.heartbeat(beat(test.clock.now()), SESSION_A, never);
     await expect(test.state.health(never)).resolves.toMatchObject({
       refresh_owed_since: START,
     });
@@ -546,6 +530,163 @@ describe("Event: fresh only once the session's own inventory is stored (CP-14 re
   });
 });
 
+describe("Event after CP-14 review round 5", () => {
+  // The session's own inventory: its snapshot version is 9, its entries 10 and 11.
+  const ownInventory = inventory(
+    "m-own",
+    [{ ...HOME, state_version: 10 }],
+    [{ ...DOOR, state_version: 11 }],
+    SESSION_A.session_id,
+  );
+  // One composed after the change the home could not write: snapshot 12, entries 13 and 14.
+  const payingInventory = inventory(
+    "m-next",
+    [{ ...HOME, state_version: 13 }],
+    [{ ...DOOR, state_version: 14, state: { open: true } }],
+    SESSION_A.session_id,
+  );
+
+  it("keeps the data stale from a heartbeat that reports a debt until the session stores its own inventory above it, not an older copy sent again", async () => {
+    const test = await harness();
+    await test.event.homeSessionOpened(SESSION_A, never);
+    await test.event.inventory(ownInventory, SESSION_A, never);
+    await expect(test.state.health(never)).resolves.not.toHaveProperty(
+      "refresh_owed_since",
+    );
+
+    await test.clock.advance(15_000);
+    await test.event.heartbeat(
+      beat(test.clock.now(), { inventory_owed_after: 11 }),
+      SESSION_A,
+      never,
+    );
+    await expect(test.state.health(never)).resolves.toMatchObject({
+      home_link_status: "up",
+      refresh_owed_since: START,
+    });
+
+    await expect(
+      test.event.inventory(ownInventory, SESSION_A, never),
+    ).resolves.toEqual({
+      kind: "older",
+    });
+    await test.clock.advance(15_000);
+    await test.event.heartbeat(beat(test.clock.now()), SESSION_A, never);
+    await expect(test.state.health(never)).resolves.toMatchObject({
+      refresh_owed_since: START,
+    });
+
+    await test.event.inventory(payingInventory, SESSION_A, never);
+    await expect(test.state.health(never)).resolves.not.toHaveProperty(
+      "refresh_owed_since",
+    );
+    await expect(test.state.device("d-door", never)).resolves.toMatchObject({
+      state: { open: true },
+    });
+  });
+
+  it("ignores a debt that an inventory this session already stored has paid, as when the heartbeat comes after it", async () => {
+    const test = await harness();
+    await test.event.homeSessionOpened(SESSION_A, never);
+    await test.event.inventory(payingInventory, SESSION_A, never);
+
+    await test.event.heartbeat(
+      beat(test.clock.now(), { inventory_owed_after: 11 }),
+      SESSION_A,
+      never,
+    );
+
+    await expect(test.state.health(never)).resolves.not.toHaveProperty(
+      "refresh_owed_since",
+    );
+  });
+
+  it("forgets a debt and what paid it when a session opens, since a newly enrolled connector's versions start again", async () => {
+    const test = await harness();
+    await test.event.homeSessionOpened(SESSION_A, never);
+    await test.event.inventory(payingInventory, SESSION_A, never);
+    await test.event.heartbeat(
+      beat(test.clock.now(), { inventory_owed_after: 13 }),
+      SESSION_A,
+      never,
+    );
+
+    await test.event.homeSessionOpened(SESSION_B, never);
+    await test.event.inventory(
+      inventory(
+        "m-b",
+        [{ ...HOME, state_version: 2 }],
+        [{ ...DOOR, state_version: 3 }],
+        SESSION_B.session_id,
+      ),
+      SESSION_B,
+      never,
+    );
+    await expect(test.state.health(never)).resolves.not.toHaveProperty(
+      "refresh_owed_since",
+    );
+
+    await test.clock.advance(15_000);
+    await test.event.heartbeat(
+      beat(test.clock.now(), { inventory_owed_after: 3 }),
+      SESSION_B,
+      never,
+    );
+    await expect(test.state.health(never)).resolves.toMatchObject({
+      refresh_owed_since: START,
+    });
+  });
+
+  it("counts a heartbeat at the time it arrived, and checks for silence from then", async () => {
+    const test = await harness();
+    await test.event.homeSessionOpened(SESSION_A, never);
+    await test.clock.advance(100_000);
+
+    await test.event.heartbeat(beat(START + 30_000), SESSION_A, never);
+    await expect(test.state.health(never)).resolves.toMatchObject({
+      home_link_status: "up",
+      as_of: START + 30_000,
+    });
+
+    await test.clock.advance(49_999);
+    await test.events.drain();
+    await expect(test.state.health(never)).resolves.toMatchObject({
+      home_link_status: "up",
+    });
+    await test.clock.advance(1);
+    await test.event.inventory(inventory("m-x", [], []), SESSION_A, never);
+    await test.events.drain();
+    await expect(test.state.health(never)).resolves.toMatchObject({
+      home_link_status: "down",
+      home_link_since: START + 30_000,
+    });
+    expect(test.published.at(-1)?.changed).toEqual(["home_link"]);
+  });
+
+  it("leaves the home down for a heartbeat that arrived the threshold ago or longer, and publishes no return", async () => {
+    const test = await harness();
+    await test.event.homeSessionOpened(SESSION_A, never);
+    await test.clock.advance(130_000);
+    await test.event.inventory(inventory("m-x", [], []), SESSION_A, never);
+    await test.events.drain();
+    const published = test.published.length;
+
+    await test.event.heartbeat(beat(START + 10_000), SESSION_A, never);
+    await test.events.drain();
+
+    await expect(test.state.health(never)).resolves.toMatchObject({
+      home_link_status: "down",
+      home_link_since: START + 10_000,
+      as_of: START + 10_000,
+    });
+    expect(
+      test.published
+        .slice(published)
+        .some((change) => change.changed.includes("home_link")),
+    ).toBe(false);
+  });
+});
+
 describe("Event: failures", () => {
   it("refuses a message as unavailable before any session's start is recorded, so it stays unacked (T018 follow-up)", async () => {
     const test = await harness();
@@ -559,19 +700,7 @@ describe("Event: failures", () => {
           SESSION_A,
           never,
         ),
-      () =>
-        test.event.heartbeat(
-          {
-            ring_session: "ok",
-            push: "off",
-            outbox_depth: 0,
-            last_ring_event_at: null,
-            error_counts: {},
-            as_of: START,
-          },
-          SESSION_A,
-          never,
-        ),
+      () => test.event.heartbeat(beat(test.clock.now()), SESSION_A, never),
     ]) {
       const error = await failureOf(work());
       expect(error).toBeInstanceOf(EventError);

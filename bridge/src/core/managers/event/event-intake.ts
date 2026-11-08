@@ -74,10 +74,18 @@ export interface IncomingHeartbeat {
   readonly push: "off" | "ok" | "failing";
   /** `null` when the home could not read its outbox. */
   readonly outbox_depth: number | null;
+  /**
+   * The home owes an inventory with a `snapshot_version` above this, for a change it could not
+   * write to its outbox; `null` when it owes none for that reason.
+   */
+  readonly inventory_owed_after: number | null;
   /** `null` until events arrive (iteration 002). */
   readonly last_ring_event_at: number | null;
   readonly error_counts: Readonly<Record<string, number>>;
+  /** The home's own time, which may be off: shown, never used for health. */
   readonly as_of: number;
+  /** When the core received it, on the core's clock: the time the sign of life counts at. */
+  readonly received_at: number;
 }
 
 /** The home's session the messages came on: the connector proved its key for it. */

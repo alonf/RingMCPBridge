@@ -461,6 +461,7 @@ describe("Ingest's heartbeat", () => {
           ring_session: "ok",
           push: "off",
           outbox_depth: null,
+          inventory_owed_after: null,
           last_ring_event_at: null,
           error_counts: { outbox_unavailable: 1 },
           as_of: formatUtc(START),
@@ -904,5 +905,75 @@ describe("Ingest after CP-14 review round 4", () => {
     const items = await takeAll(store);
     expect(items.filter((item) => item.kind === "inventory")).toHaveLength(1);
     expect(lines.join("\n")).not.toContain("superseded");
+  });
+});
+
+describe("Ingest after CP-14 review round 5", () => {
+  it("says in its heartbeat that it owes an inventory above the newest version written before a change it could not write, the latest such, until the session's own inventory is queued", async () => {
+    const engine = new ScenarioEngine(clock);
+    const store = await openStore();
+    const { outbox, failing } = failingWrites(store);
+    const slot = new LinkSlot();
+    const pair = createLinkPair(
+      new Logger({ sink: () => undefined, now: () => 0, minLevel: "debug" }),
+    );
+    const frames: LinkFrame[] = [];
+    pair.acceptor.onFrame((frame) => frames.push(frame));
+    const ingest = new Ingest({
+      ring: engine,
+      outbox,
+      link: slot,
+      clock,
+      logger: new Logger({
+        sink: (line) => lines.push(line),
+        now: () => clock.now(),
+        minLevel: "debug",
+      }),
+    });
+    ingest.start();
+    ingests.push(ingest);
+    slot.put(pair.dialer);
+    await ingest.sessionOpened("session-one", signal);
+    const owed = async (): Promise<unknown> => {
+      await ingest.sendHeartbeat(signal);
+      await new Promise((resolve) => setImmediate(resolve));
+      const last = frames.filter((frame) => frame.type === "heartbeat").at(-1);
+      return last?.kind === "message"
+        ? (last.body as { inventory_owed_after: unknown }).inventory_owed_after
+        : "no heartbeat";
+    };
+    const inventories = (): InventoryBody[] =>
+      frames.flatMap((frame) =>
+        frame.kind === "message" && frame.type === "inventory"
+          ? [frame.body as InventoryBody]
+          : [],
+      );
+    expect(await owed()).toBeNull();
+    const written = Math.max(...versionsOf(inventories()[0] ?? fail()));
+
+    failing.value = true;
+    openDoor(engine);
+    await ingest.flush();
+    expect(await owed()).toBe(written);
+
+    failing.value = false;
+    openDoor(engine, false);
+    await ingest.flush();
+    failing.value = true;
+    openDoor(engine);
+    await ingest.flush();
+    expect(await owed()).toBe(written + 1);
+
+    failing.value = false;
+    await ingest.sendDue(signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(await owed()).toBeNull();
+    const paying = inventories().at(-1) ?? fail();
+    expect(paying.session_id).toBe("session-one");
+    expect(paying.snapshot_version).toBeGreaterThan(written + 1);
+    expect(
+      paying.devices.find((device) => device.device_id === HEBREW_DEVICE_ID)
+        ?.state,
+    ).toEqual({ open: true });
   });
 });

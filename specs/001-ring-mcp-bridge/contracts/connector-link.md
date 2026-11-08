@@ -53,7 +53,7 @@ In all-in-one mode (A) there is no link: Ring Access calls Execute in process, a
 | `inventory_request` [P] | core to home | asks the home for a fresh `inventory` | `request_id` [P] | - | Core Link | 001 | PT-30 |
 | `catchup_done` [P] | home to core | the outbox is drained and the catch-up is finished | `message_id` [P] | yes | Connector Link | 002 | CD-A4, PT-07 |
 | `ack` [P] | core to home | the message is committed; the outbox may clear it | `message_id` [P] (an event's `message_id` is its `event_id`) | - | Core Link | 001 | AC B10, DS4, OR §journey |
-| `heartbeat` [P] | home to core | every 15 s; the home's health summary | Ring session, push, outbox depth, last Ring event, error counts [P names] | no | Connector Link | 001 | OR §journey, OR1, OR5 |
+| `heartbeat` [P] | home to core | every 15 s; the home's health summary | Ring session, push, outbox depth, the inventory owed after a version (`inventory_owed_after`, DRIFT-001-38), last Ring event, error counts [P names] | no | Connector Link | 001 | OR §journey, OR1, OR5 |
 | `cmd` (`CommandMessage`) | core to home | one command, sent once | see "CommandMessage" | - | Core Link | 003 | IA D8 step 7, CD4 |
 | `result` | home to core | the command's outcome | `command_id`, `outcome`, `alarm_mode` (D8: "mode"), `as_of`, `error_code` [P] | not recorded | not named; the CD4 receiver rule points to Ring Access | 003 | IA D8 step 10 |
 | `media_chunk` [P] | home to core | capture bytes, in small chunks | `command_id`, `index`, `final`, the bytes [P] | no | not named | 003 | CD X2 |
@@ -91,7 +91,8 @@ Rules:
 - **Locations too:** each location entry carries its own `state_version`, from the same home counter as devices. The core applies a location's fields only if that version is higher than the one it holds for that location, so a resent older inventory cannot roll back an alarm mode (DRIFT-001-08).
 - **The counter:** the home keeps `state_version` in the Outbox Store, so it survives a connector restart [P].
 - **Snapshots in order** [P] (CP-14 review round 3): an inventory's `snapshot_version` comes from the same counter, drawn before its entries' versions. It is required: version 1 is not released before iteration 004 (PT-07), so no deployed home sends an inventory without it. The core keeps the newest one it applied. It acks, but skips, an inventory at or below that one, so a resent older inventory cannot bring back what a newer one removed. A newer inventory removes each stored entry it leaves out whose version is below its `snapshot_version`, so an empty one clears the home.
-- **A session's own inventory** [P] (CP-14 review rounds 3 and 4): `session_id` names the session the inventory's Ring read began in, and only while that session is still open as the inventory is written. An inventory read before a session opened, or sent on an alarm mode change from such a read, names no session, so it does not end the new session's refresh. Of two reads that overlap, the home sends only the one begun later. After a session opens, the core keeps the home's data stale until an inventory composed for that session is stored (FR-006). A heartbeat says the link is up, not that the data has caught up.
+- **A session's own inventory** [P] (CP-14 review rounds 3 and 4): `session_id` names the session the inventory's Ring read began in, and only while that session is still open as the inventory is written. An inventory read before a session opened, or sent on an alarm mode change from such a read, names no session, so it does not end the new session's refresh. A read that finishes after one begun later is dropped, because the later read's picture is newer. After a session opens, the core keeps the home's data stale until an inventory composed for that session is stored (FR-006). A heartbeat says the link is up, not that the data has caught up.
+- **A change the home could not write** [P] (CP-14 review round 5, DRIFT-001-38): when a change Ring reports cannot be written to the outbox (a full disk), the heartbeat carries `inventory_owed_after`, the newest `state_version` the home wrote before that change (the latest such, if changes keep failing), until an inventory read in the session is queued. The core keeps the data stale from the last sign of life before that heartbeat until it stores an inventory for that session with a higher `snapshot_version`. An older inventory sent again does not end it, nor does a heartbeat whose `inventory_owed_after` is null, since the inventory that pays it may still be on its way; a debt that an inventory already stored for the session paid is ignored. The field is required: version 1 is not released before iteration 004 (PT-07).
 - **A new enrollment:** when a session of a newly enrolled key opens, the core resets its stored versions and forgets the newest snapshot, because the new connector's counter starts again [P] (DRIFT-001-32). The core checks a link's key a last time and claims State in one turn, one link at a time, so a check that read an older key as active before the owner approved a newer one cannot claim State after the newer key's session did [P] (DRIFT-001-37).
 - **Field names:** they are the contract names. A device's type is `type` on the link and in the tools; State maps it to its storage column `kind` (PT-26, CD4).
 - **Untrusted text:** names and rooms are untrusted text (FR-033).
@@ -161,8 +162,8 @@ Sources: OR5, CD-A4, FR-013, FR-042, PT-07, PT-25, PT-30. `catchup_done` goes th
 ### Heartbeat and home offline (001; alerts and health events 002)
 
 ```text
- HOME --- heartbeat every 15 s {Ring session, push, outbox depth, last Ring event,
-          error counts} ---> CORE (Health engine via Event)
+ HOME --- heartbeat every 15 s {Ring session, push, outbox depth, inventory owed,
+          last Ring event, error counts} ---> CORE (Health engine via Event)
  CORE: 2 min without a heartbeat  -> home offline: reads stale (stale_since),
                                      control and media HOME_OFFLINE,
                                      HIGH health.home_offline to every agent (002)
@@ -175,6 +176,8 @@ Sources: OR5, CD-A4, FR-013, FR-042, PT-07, PT-25, PT-30. `catchup_done` goes th
 ```
 
 Sources: OR5, OR §Failure modes rows 1-3, AC B12, FR-015, FR-043, DA Option B, CRP 4, PT-29. Connector logs stay at home; only the health summary rides the heartbeat (OR1, SC7).
+
+The core counts a heartbeat at the time its frame arrived, on its own clock, even when it waited behind a slow store, and the 2 minutes run from then. A heartbeat that arrived 2 minutes ago or more leaves the home offline. A session's opening counts when the core records it: the home sends nothing between its signed answer and `hello_ok`, so that wait is the core's [P] (CP-14 review round 5, DRIFT-001-38).
 
 ### Command and result (003)
 

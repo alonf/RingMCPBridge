@@ -76,7 +76,7 @@ const LIGHT = device("d-light", {
 // A session whose own inventory is stored, then a heartbeat: the data is fresh.
 const UP: HealthView = afterHeartbeat(
   afterRefresh(afterSessionOpened(undefined, "0.1.0", START)),
-  { ring_session: "ok", outbox_depth: 0 },
+  { ring_session: "ok", outbox_depth: 0, inventory_owed: false },
   START,
 );
 
@@ -369,7 +369,7 @@ describe("the Inquiry manager: freshness (FR-006, SC-005)", () => {
   it("marks the data stale since Ring stopped being ok, while the home is still up", async () => {
     const ringDown = afterHeartbeat(
       UP,
-      { ring_session: "unavailable", outbox_depth: 0 },
+      { ring_session: "unavailable", outbox_depth: 0, inventory_owed: false },
       START + 15_000,
     );
     const test = await harness([HOME], [DOOR, MOTION, LIGHT], ringDown);
