@@ -1206,6 +1206,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **Contracts**: `mcp-tools.md` (the optional `as_of`), `connector-link.md` (when `inventory` is sent), and the published `schemas/tool-replies.schema.json`, which only adds.
 - **Known limits**:
   - **Carry-forward to the pilot.** An added or removed sensor shows when Ring next sends its hub's list: on a reconnect of the live connection, or after a restart. Check on the owner's home how often that happens, and whether Ring sends a list unasked when a device is added. Asking for the list on a schedule would be polling: the owner's decision.
+  - **A hub's list is taken as whole.** The removal rule reads one list message as everything the hub has, as the library does: its `getList` takes the next single message of that type from the hub, and it counts a hub's devices as known once one list from it has arrived. If Ring ever split a hub's list across messages, live sensors would be left out of replies until the next list. **Carry-forward to the pilot:** check that a hub's list arrives in one message.
   - On each reconnect, the library refreshes every listed device from the list, so each device is reported once more then. That was already so before this fix.
   - A camera or location added in Ring still shows only after a restart (DRIFT-001-21).
 - **Requirement citation**: FR-002, FR-006, FR-026, FR-046; `contracts/mcp-tools.md`, `contracts/connector-link.md`; DRIFT-001-18, DRIFT-001-19, DRIFT-001-21.
