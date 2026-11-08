@@ -119,6 +119,22 @@ describeStoreMatrix("Settings", (store) => {
     ).resolves.toBeUndefined();
   });
 
+  it("lists every agent in client-id order, revoked ones included, for the Issuer's match (T023)", async () => {
+    const { settings, layer } = await setUp();
+    await expect(settings.agents(never())).resolves.toEqual([]);
+    await settings.seedAgents([CHAT_AGENT, RELAY], never());
+    await exec(
+      layer,
+      "UPDATE agent SET revoked_at = @revoked_at WHERE client_id = @client_id",
+      { revoked_at: START + 1, client_id: RELAY.client_id },
+    );
+
+    await expect(settings.agents(never())).resolves.toEqual([
+      { ...RELAY, revoked_at: START + 1 },
+      CHAT_AGENT,
+    ]);
+  });
+
   it("replaces the listing on the next seed, keeping a listed agent's revocation and last-seen time", async () => {
     const { settings, layer } = await setUp();
     await settings.seedAgents([CHAT_AGENT, RELAY], never());

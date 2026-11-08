@@ -2,6 +2,12 @@
 // and nonce. The bridge proves who it is with a client assertion (the core's managed identity as a
 // federated credential, R12), never a client secret. The ID token is checked with jose against the
 // issuer's published keys (OIDC Core §3.1.3.7). Nothing that Entra sends is copied into an error.
+//
+// Only the owner signs in (DRIFT-001-39, the owner's choice (c)): the token's object id (`oid`) must
+// be the configured owner's, and while none is configured every sign-in is refused. The app
+// registration's "assignment required" is the first guard; this check is the second. Entra sends
+// `oid` only when the `profile` scope is asked for, and then also the person's name and username,
+// which the bridge neither keeps nor logs.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { errors, jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
@@ -17,7 +23,8 @@ import type { HttpFetch, IssuerEndpoints } from "./entra-discovery.ts";
 import { SecurityError } from "./security-error.ts";
 
 const RANDOM_BYTES = 32;
-const SCOPE = "openid";
+// `profile` makes Entra put the object id (`oid`) in the ID token.
+const SCOPE = "openid profile";
 const MS_PER_SECOND = 1000;
 const PENDING_MAX_AGE_MS = 10 * 60 * MS_PER_SECOND;
 const TOKEN_TIMEOUT_MS = 10_000;
@@ -62,6 +69,11 @@ export interface EntraSignInSettings {
   readonly clientId: string;
   /** The bridge's sign-in return URL, registered on the app registration. */
   readonly redirectUri: string;
+  /**
+   * The owner's Entra object id (`oid`), as the Azure portal shows it. Only that person signs in.
+   * While it is unset or blank, every sign-in is refused (fail closed).
+   */
+  readonly ownerObjectId?: string;
 }
 
 /** The seams the Entra sign-in uses. */
@@ -99,6 +111,8 @@ export interface SignInRedirect {
 export interface OwnerIdentity {
   /** Entra's `sub` for this app registration: tokens and confirmations are bound to it (R16). */
   readonly subject: string;
+  /** Entra's object id (`oid`): always the configured owner's, as `complete` checks. */
+  readonly objectId: string;
   /** When the owner last entered their credentials, in epoch milliseconds. */
   readonly authenticatedAt: number;
   /**
@@ -115,7 +129,10 @@ export interface OwnerSignIn {
     options: SignInStartOptions,
     signal: AbortSignal,
   ): Promise<SignInRedirect>;
-  /** Finishes it from the return URL's query. Throws `SecurityError` with a `sign_in_*` kind. */
+  /**
+   * Finishes it from the return URL's query. Throws `SecurityError` with a `sign_in_*` kind, and
+   * `sign_in_not_owner` for anyone but the owner.
+   */
   complete(
     pending: PendingSignIn,
     callback: URLSearchParams,
@@ -440,6 +457,25 @@ export class EntraOwnerSignIn implements OwnerSignIn {
     if (payload.sub === undefined || payload.sub === "") {
       throw invalid("The ID token names no subject.");
     }
-    return { subject: payload.sub, ...authenticationTime(payload, pending) };
+    const objectId = typeof payload.oid === "string" ? payload.oid : "";
+    if (!this.#isOwner(objectId)) {
+      // The message never repeats the object id that was presented.
+      throw new SecurityError(
+        "sign_in_not_owner",
+        "The person who signed in is not the bridge's owner.",
+      );
+    }
+    return {
+      subject: payload.sub,
+      objectId,
+      ...authenticationTime(payload, pending),
+    };
+  }
+
+  // Object ids are compared without regard to case: the portal and the token both write them in
+  // lower case, but a pasted setting may not be.
+  #isOwner(objectId: string): boolean {
+    const owner = this.#settings.ownerObjectId?.trim().toLowerCase() ?? "";
+    return owner !== "" && objectId.toLowerCase() === owner;
   }
 }

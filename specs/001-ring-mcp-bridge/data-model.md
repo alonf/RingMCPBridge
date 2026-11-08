@@ -545,6 +545,7 @@ Field names are [P]. The content is CD-A2's.
 | Rate limits per agent | control 20/h (counted on confirm); reads 600/h; fresh frames and bursts 60/h; clips 20/h | Config | FR-026, SC6, CD5 | see `contracts/errors.md` |
 | Retention | events 30 d; media 7 d; audit 90 d / 1 y | Config | FR-008, FR-021, FR-035, CD5 | 001 |
 | Listed agents and their scopes | control off for unlisted clients | Settings `agent` | SC3, SC7 C7 | 001 |
+| The owner's Entra object id: the only person who signs in | none: every sign-in is refused | deployment configuration | SC1, DRIFT-001-39 | 001 |
 | Enrolled connector key | none | Settings `connector` | SC2, CD map v3 Settings | 001 |
 | Per-camera "media to agents" | not recorded for owned cameras; off for shared locations | Settings | FR-020, FR-036, SC7 C2 | 003 |
 | Per-camera "keep sound" | keep | Settings | FR-020, SC7 C3 | 003 |

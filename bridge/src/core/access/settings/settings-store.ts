@@ -125,6 +125,8 @@ export interface SettingsStoreOptions {
 const SELECT_AGENT_IDS = "SELECT client_id FROM agent ORDER BY client_id";
 const SELECT_AGENT =
   "SELECT client_id, platform, scopes, redirect_uris, revoked_at, last_seen_at FROM agent WHERE client_id = @client_id";
+const SELECT_AGENTS =
+  "SELECT client_id, platform, scopes, redirect_uris, revoked_at, last_seen_at FROM agent ORDER BY client_id";
 const DELETE_AGENT = "DELETE FROM agent WHERE client_id = @client_id";
 const SELECT_KEY =
   "SELECT status, public_key FROM connector WHERE key_id = @key_id";
@@ -253,6 +255,19 @@ export class SettingsStore {
       this.#store.get(statement(SELECT_AGENT, { client_id: clientId }), signal),
     );
     return row === undefined ? undefined : agentOf(row);
+  }
+
+  /**
+   * Every listed agent, in client-id order. The Issuer matches an agent that registers itself
+   * against them by redirect URI.
+   */
+  async agents(signal: AbortSignal): Promise<readonly ListedAgent[]> {
+    const rows = await this.#guard(
+      signal,
+      "The agent listing could not be read.",
+      () => this.#store.all(statement(SELECT_AGENTS), signal),
+    );
+    return rows.map(agentOf);
   }
 
   /**

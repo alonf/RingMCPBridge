@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 38
+**Total drift events**: 39
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,78 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-39: the Issuer (T023): only the owner signs in, how listed agents link, and what is carried forward
+
+- **Detected**: 2026-11-08, implement, T023. The records said the owner consents through Entra and tokens are bound to the owner, but not how the bridge tells the owner apart from anyone else in the tenant, nor how an agent that registers itself (DCR) can be listed when its client id is new each time.
+- **Kind**: decisions made at implement, two by the owner; one change to the reviewed sign-in client (T006); additions to the web-endpoints contract, the quickstart and the configuration [P]. No spec change
+- **Decisions**:
+  - **Only the owner signs in** (the owner's choice (c), 2026-11-08):
+    - The sign-in client checks that the ID token's object id (`oid`) is the configured owner's, and refuses every sign-in while none is configured.
+    - The quickstart adds the runbook step: "assignment required" on the app registration, with only the owner assigned. So Entra refuses others first, and the bridge checks again.
+    - `oid` is used because Entra's `sub` differs per app and cannot be looked up in advance. Entra sends `oid` only with the `profile` scope, so the sign-in now asks for `openid profile`. Entra then also sends the person's name and username, which the bridge neither keeps nor logs.
+    - The same check guards the admin page (T029), which uses the same client.
+    - The owner also wants a second person they name to have access later, once that person has their own agent. That is a later feature; the check is one comparison, easy to widen to a list.
+  - **Self-registering agents** (announced to the owner, no objection): a DCR registration is accepted only when every redirect URI it names is listed for one agent. That agent's listed client id is then only a name. The match is made again each time the client is used, so revoking or unlisting the agent ends the client.
+  - **Client documents (CIMD)**: an agent is listed under its document's URL. The URL is checked before anything is fetched, so an unlisted one is never fetched, and every redirect URI the document names must be listed for it. oidc-provider implements CIMD draft-02. Whether that matches what ChatGPT and Claude publish is for spike S7, which has not run.
+  - **Every link asks the owner**: no grant is reused from the provider's browser session, so each link is a fresh Entra sign-in.
+  - **No client secrets**: the token endpoint takes `none` or `private_key_jwt` only, so no secret is issued or stored (SC4). If S7 shows an agent needs a secret, this is revisited.
+  - **One resource, read only**: tokens are issued for the MCP endpoint alone (RFC 8707), with `read` only in iteration 001, even when an agent asks for more or is listed for more.
+  - **Opaque access tokens**: the MCP endpoint checks each one against its stored grant, so a revocation takes effect at once. The signing keys then sign only ID tokens, when an agent asks for `openid`. PT-04's retirement timing (10 minutes plus the 1-hour access-token life) assumed signed access tokens; keeping it is harmless.
+  - **Lifetimes**: access tokens 1 hour. Refresh tokens rotate on every use and live 30 days from the last use, never past 90 days from the sign-in that began the chain. The grant itself lives 90 days, and a reused refresh token ends the whole grant. Tokens never end with the provider's browser session.
+  - **The key document**: `issuer-signing-keys` is `{"keys": [current, previous]}`, one or two private RSA JWKs for RS256 with distinct `kid`s, newest first. The provider signs with the first and publishes both. The cookie keys are derived from them (HKDF), so there is no second secret. The Issuer exports the key generator for the bootstrap (T031). A missing secret is reported, not thrown, for `/readyz` to name.
+  - **Sign-ins in flight** are kept in memory under their `state`, once, for 10 minutes, at most 100. A restart means the owner starts the link again.
+  - **Typings**: oidc-provider's declarations are widened in `bridge/src/types/`, not taken from DefinitelyTyped (a new dependency).
+- **Carried forward**:
+  - **T024**: checking an access token: its resource, its client still listed, its scope. Also the protected-resource metadata.
+  - **T027**:
+    - mounting the Issuer, and trusting App Service's proxy for `https`;
+    - serving the RFC 8414 metadata URL `/.well-known/oauth-authorization-server/oauth` (clients find it today at `/oauth/.well-known/openid-configuration`);
+    - PT-04's 10-minute key reload;
+    - `/readyz` naming a missing key or a missing owner object id;
+    - the owner object id's environment variable.
+  - **T029**: the one Entra return route hands a return to `Issuer.finishSignIn` first, and treats it as the admin page's own when the Issuer answers that it is not its.
+  - **T030 and T031**: the owner object id in the deployment configuration. The bootstrap sets "assignment required" if it creates the app registration, and writes the first key with the Issuer's generator.
+- **Known gaps, noted**:
+  - Anyone can start up to 100 sign-ins in flight with a listed agent's public details, pushing out the owner's; the owner then starts the link again.
+  - The interaction route's check that its path names the interaction of the browser's cookie is not covered by a test.
+  - Two rules are each guarded twice, so removing one guard alone is not caught: the 90-day limit (the refresh token's cap and the grant's life) and `read` only (the owner's consent and the resource's scope). Removing both guards of either is caught.
+- **Requirement citation**: FR-029, FR-030, SC1, SC3, SC4; `contracts/web-endpoints.md` "OAuth content rules"; research.md PT-03, PT-04, PT-11, PT-18; spike S7.
+- **Resolution**: built in T023. Cost: about 2.5 SP (estimate) against the task's 2, and $0.
+- **Class closure**: new tests:
+  - the sign-in client: someone else refused without naming their object id, no object id refused, an unset or blank owner refuses everyone, the comparison ignores case and spaces;
+  - the Entra stand-in: it sends `oid` only with `profile`, as Entra does, and it can sign in a stranger from the same tenant;
+  - the Issuer, end to end through the MCP SDK's own OAuth helpers:
+    - the metadata;
+    - a link by client document, bound to the owner's `sub`, the client and the MCP endpoint;
+    - `read` only;
+    - a stranger refused with `access_denied`;
+    - every link asking the owner;
+    - PKCE required;
+    - an unlisted document never fetched;
+    - an unlisted redirect URI refused;
+    - a revoked agent refused with its document cached;
+    - DCR only for a listed agent;
+    - a registered client ended by its agent's revocation;
+    - 1-hour access tokens;
+    - rotation and the 30-day idle limit;
+    - the 90-day limit with refreshes every 29 days;
+    - a reused refresh token ending its grant;
+    - an agent revoked while the owner signs in: refused, and its browser not sent back to it;
+    - a link whose authorization ended first: `link_expired`;
+    - a return that is not the Issuer's left to Web, and each return taken once;
+    - an interaction link with no cookie: 400; Entra unreachable: 503; anything else: 500, logged;
+    - both keys published and the current one signing;
+    - a missing key secret answering 503;
+    - bad key documents refused without quoting them;
+    - cookie keys per key;
+  - the sign-ins in flight: once, 10 minutes, at most 100;
+  - Settings lists every agent in client-id order.
+
+  Deliberate breaks: 36 mutations of the new code and the changed sign-in, restored from memory each time. 33 were caught. The three misses:
+  - removing the refresh token's own 90-day cap, which the grant's 90-day life still enforces (caught when both are removed);
+  - adding `media` to the owner's consent, which the resource's `read`-only scope still filters (caught when both are changed);
+  - changing the resource server's own access-token lifetime, which `ttl.AccessToken` overrode. That dead value is removed, and changing `ttl.AccessToken` is caught.
 
 ### DRIFT-001-38: CP-14 review round 5 found that a change the home could not write left old data shown as current, and that a heartbeat that waited its turn counted as new; both fixed
 

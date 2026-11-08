@@ -22,8 +22,10 @@ const SETTINGS: EntraSignInSettings = {
   issuer: ISSUER,
   clientId: "bridge-app",
   redirectUri: "https://bridge.example.test/sign-in/return",
+  ownerObjectId: "owner-object-7hq2",
 };
 const SUBJECT = "owner-subject-AbC123";
+const OWNER_OID = "owner-object-7hq2";
 const START = Date.UTC(2026, 10, 3, 9, 0, 0);
 const START_S = START / 1000;
 const HOUR_S = 3600;
@@ -82,6 +84,8 @@ class FakeEntra {
   beforeKeys: () => void = () => undefined;
   tokenReply: (() => Response) | undefined;
   claims: Claims = {};
+  /** The object id Entra puts in the ID token when `profile` was asked for. */
+  objectId = OWNER_OID;
   sign: (payload: JWTPayload) => Promise<string> = (payload) =>
     new SignJWT(payload)
       .setProtectedHeader({ alg: "RS256", kid: KEY_ID, typ: "JWT" })
@@ -90,6 +94,7 @@ class FakeEntra {
   readonly #clock: FakeClock;
   #challenge = "";
   #nonce = "";
+  #scopes: readonly string[] = [];
 
   constructor(clock: FakeClock) {
     this.#clock = clock;
@@ -100,6 +105,7 @@ class FakeEntra {
     const query = new URL(url).searchParams;
     this.#challenge = query.get("code_challenge") ?? "";
     this.#nonce = query.get("nonce") ?? "";
+    this.#scopes = (query.get("scope") ?? "").split(" ");
     return new URLSearchParams({
       code: AUTH_CODE,
       state: query.get("state") ?? "",
@@ -141,6 +147,7 @@ class FakeEntra {
       iss: ISSUER,
       aud: SETTINGS.clientId,
       sub: SUBJECT,
+      ...(this.#scopes.includes("profile") ? { oid: this.objectId } : {}),
       nonce: this.#nonce,
       iat: nowS,
       exp: nowS + HOUR_S,
@@ -224,7 +231,7 @@ describe("starting a sign-in", () => {
       response_type: "code",
       response_mode: "query",
       redirect_uri: SETTINGS.redirectUri,
-      scope: "openid",
+      scope: "openid profile",
       state: pending.state,
       nonce: pending.nonce,
       code_challenge: createHash("sha256")
@@ -277,6 +284,7 @@ describe("finishing a sign-in", () => {
 
     expect(identity).toEqual({
       subject: SUBJECT,
+      objectId: OWNER_OID,
       authenticatedAt: START,
       authenticatedAtSource: "issued_at",
     });
@@ -574,6 +582,7 @@ describe("checking the ID token", () => {
 
     expect(await signIn(setup, true)).toEqual({
       subject: SUBJECT,
+      objectId: OWNER_OID,
       authenticatedAt: START + 20_000,
       authenticatedAtSource: "auth_time",
     });
@@ -649,6 +658,59 @@ describe("the discovery document", () => {
     expect(await kindOf(htmlClient.begin({ fresh: false }, NEVER))).toBe(
       "sign_in_unavailable",
     );
+  });
+});
+
+describe("only the owner signs in (DRIFT-001-39)", () => {
+  function rigFor(ownerObjectId: string | undefined): Rig {
+    const setup = rig();
+    const settings: EntraSignInSettings = {
+      issuer: SETTINGS.issuer,
+      clientId: SETTINGS.clientId,
+      redirectUri: SETTINGS.redirectUri,
+      ...(ownerObjectId === undefined ? {} : { ownerObjectId }),
+    };
+    return {
+      ...setup,
+      client: new EntraOwnerSignIn(settings, {
+        clock: setup.clock,
+        fetch: setup.entra.fetch,
+        clientAssertion: () => Promise.resolve(ASSERTION),
+      }),
+    };
+  }
+
+  it("refuses someone else in the tenant, without naming their object id", async () => {
+    const setup = rig();
+    setup.entra.objectId = "someone-else-4Kp9";
+    const error = await failureOf(signIn(setup));
+
+    expect(error.kind).toBe("sign_in_not_owner");
+    expect(error.message).not.toContain("someone-else-4Kp9");
+    expect(error.message).not.toContain(OWNER_OID);
+  });
+
+  it("refuses an ID token that names no object id", async () => {
+    const setup = rig();
+    setup.entra.claims = { oid: undefined };
+
+    expect(await kindOf(signIn(setup))).toBe("sign_in_not_owner");
+  });
+
+  it.each<[string, string | undefined]>([
+    ["unset", undefined],
+    ["blank", "  "],
+  ])(
+    "refuses everyone while the owner's object id is %s",
+    async (_label, value) => {
+      expect(await kindOf(signIn(rigFor(value)))).toBe("sign_in_not_owner");
+    },
+  );
+
+  it("compares object ids without regard to case or surrounding spaces", async () => {
+    const identity = await signIn(rigFor(" OWNER-Object-7HQ2 "));
+
+    expect(identity.objectId).toBe(OWNER_OID);
   });
 });
 

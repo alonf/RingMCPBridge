@@ -337,7 +337,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - `bridge/src/core/access/secrets/`: Key Vault in mode H, through `@azure/identity` 4.14.1 and `@azure/keyvault-secrets` 4.12.0, and the encrypted local file in mode A. It holds `issuer-signing-keys`.
 
   (Trace: FR-029, FR-030, FR-032; CP-16)
-- [ ] T023 [US1] [assigned_to: Implementer] [effort: 2] Issuer in `bridge/src/core/clients/issuer/`, with oidc-provider 9.13.3 under `/oauth`:
+- [x] T023 [US1] [assigned_to: Implementer] [effort: 2] Issuer in `bridge/src/core/clients/issuer/`, with oidc-provider 9.13.3 under `/oauth`:
   - **Metadata:** the authorization-server metadata advertises PKCE `S256`, `client_id_metadata_document_supported: true`, and `none` among the token auth methods.
   - **Clients:** CIMD first, DCR as the fallback, and listed agents only. The owner consents through the Entra sign-in.
   - **Tokens:**

@@ -1,9 +1,10 @@
 // A stand-in for Entra ID in tests (T010, I4): a second oidc-provider 9.13.3 on 127.0.0.1 with
 // Entra's shape: the issuer `http://127.0.0.1:<port>/<tenant-id>/v2.0`, ID tokens carrying `tid`
-// and `oid`, a client that authenticates with a signed assertion (as the core's managed identity
-// does), and `auth_time` in every ID token. It signs in one owner, with no login page: an
-// interaction completes at once, and `signInAsOwner` plays the owner's browser. Every id is made at
-// start, so no fixed id appears in the repository.
+// and, when the `profile` scope is asked for, `oid` (as Entra sends it); a client that authenticates
+// with a signed assertion (as the core's managed identity does), and `auth_time` in every ID token.
+// It signs in the owner, or a stranger from the same tenant, with no login page: an interaction
+// completes at once, and `signInAsOwner` plays the owner's browser. Every id is made at start, so no
+// fixed id appears in the repository.
 import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -39,6 +40,10 @@ export interface EntraStandIn {
   readonly tenantId: string;
   readonly clientId: string;
   readonly owner: StandInOwner;
+  /** Someone else in the owner's tenant: not the owner. */
+  readonly stranger: StandInOwner;
+  /** Who the stand-in signs in from now on: the owner (the default) or the stranger. */
+  signInNext(person: StandInOwner): void;
   /** A signed client assertion for the token endpoint, in place of the managed identity's. */
   clientAssertion(signal: AbortSignal): Promise<string>;
   /**
@@ -55,10 +60,9 @@ export async function startEntraStandIn(options: {
 }): Promise<EntraStandIn> {
   const tenantId = randomUUID();
   const clientId = randomUUID();
-  const owner: StandInOwner = {
-    subject: randomBytes(SUBJECT_BYTES).toString("base64url"),
-    objectId: randomUUID(),
-  };
+  const owner = person();
+  const stranger = person();
+  let signingIn = owner;
   const clientKeys = await generateKeyPair(ALGORITHM, { extractable: true });
   const server = createServer();
   await new Promise<void>((resolve) => {
@@ -82,7 +86,7 @@ export async function startEntraStandIn(options: {
     ],
     jwks: { keys: [await privateJwk(PROVIDER_KEY_ID)] },
     cookies: { keys: [randomBytes(COOKIE_KEY_BYTES).toString("hex")] },
-    claims: { openid: ["sub", "oid", "tid"] },
+    claims: { openid: ["sub", "tid"], profile: ["oid"] },
     conformIdTokenClaims: false,
     features: { devInteractions: { enabled: false } },
     interactions: {
@@ -90,7 +94,10 @@ export async function startEntraStandIn(options: {
         `${prefix}/interaction/${interaction.uid}`,
     },
     findAccount: (_context, subject) =>
-      subject === owner.subject ? ownerAccount(owner, tenantId) : undefined,
+      [owner, stranger]
+        .filter((known) => known.subject === subject)
+        .map((known) => accountOf(known, tenantId))
+        .at(0),
   });
   const handle = provider.callback();
 
@@ -102,7 +109,7 @@ export async function startEntraStandIn(options: {
   ): Promise<void> {
     const url = request.url ?? "/";
     if (url.startsWith(`${prefix}/interaction/`)) {
-      await completeInteraction(provider, owner, request, response);
+      await completeInteraction(provider, signingIn, request, response);
       return;
     }
     if (!url.startsWith(prefix)) {
@@ -129,6 +136,10 @@ export async function startEntraStandIn(options: {
     tenantId,
     clientId,
     owner,
+    stranger,
+    signInNext: (next) => {
+      signingIn = next;
+    },
     clientAssertion: async (signal) => {
       signal.throwIfAborted();
       return await new SignJWT({})
@@ -157,10 +168,17 @@ export async function startEntraStandIn(options: {
   };
 }
 
-function ownerAccount(owner: StandInOwner, tenantId: string): Account {
+function person(): StandInOwner {
   return {
-    accountId: owner.subject,
-    claims: () => ({ sub: owner.subject, oid: owner.objectId, tid: tenantId }),
+    subject: randomBytes(SUBJECT_BYTES).toString("base64url"),
+    objectId: randomUUID(),
+  };
+}
+
+function accountOf(known: StandInOwner, tenantId: string): Account {
+  return {
+    accountId: known.subject,
+    claims: () => ({ sub: known.subject, oid: known.objectId, tid: tenantId }),
   };
 }
 
@@ -175,10 +193,10 @@ async function privateJwk(kid: string): Promise<object> {
   return { ...(await exportJWK(privateKey)), kid, alg: ALGORITHM, use: "sig" };
 }
 
-// The owner signs in at once and consents to what the client asked for.
+// The person signs in at once and consents to what the client asked for.
 async function completeInteraction(
   provider: Provider,
-  owner: StandInOwner,
+  person: StandInOwner,
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
@@ -190,13 +208,13 @@ async function completeInteraction(
     await provider.interactionFinished(
       request,
       response,
-      { login: { accountId: owner.subject } },
+      { login: { accountId: person.subject } },
       { mergeWithLastSubmission: false },
     );
     return;
   }
   const grant = new provider.Grant({
-    accountId: details.session?.accountId ?? owner.subject,
+    accountId: details.session?.accountId ?? person.subject,
     clientId: String(details.params.client_id),
   });
   grant.addOIDCScope(String(details.params.scope));

@@ -35,6 +35,7 @@ describe("the Entra stand-in", () => {
         issuer: standIn.issuer,
         clientId: standIn.clientId,
         redirectUri: REDIRECT_URI,
+        ownerObjectId: standIn.owner.objectId,
       },
       {
         clock: new SystemClock(),
@@ -71,7 +72,10 @@ describe("the Entra stand-in", () => {
     const callback = await standIn.signInAsOwner(url);
     const identity = await client.complete(pending, callback, never());
 
-    expect(identity.subject).toBe(standIn.owner.subject);
+    expect(identity).toMatchObject({
+      subject: standIn.owner.subject,
+      objectId: standIn.owner.objectId,
+    });
     expect(decodeJwt(idTokens.at(-1) ?? "")).toMatchObject({
       sub: standIn.owner.subject,
       oid: standIn.owner.objectId,
@@ -91,6 +95,49 @@ describe("the Entra stand-in", () => {
       subject: standIn.owner.subject,
       authenticatedAtSource: "auth_time",
     });
+  });
+
+  it("signs in a stranger from the same tenant, whom the sign-in client refuses", async () => {
+    const client = signIn();
+    const { url, pending } = await client.begin({ fresh: true }, never());
+    standIn.signInNext(standIn.stranger);
+    try {
+      const callback = await standIn.signInAsOwner(url);
+
+      await expect(
+        client.complete(pending, callback, never()),
+      ).rejects.toMatchObject({ kind: "sign_in_not_owner" });
+      expect(decodeJwt(idTokens.at(-1) ?? "")).toMatchObject({
+        sub: standIn.stranger.subject,
+        oid: standIn.stranger.objectId,
+      });
+    } finally {
+      standIn.signInNext(standIn.owner);
+    }
+  });
+
+  it("sends the object id only when the profile scope is asked for, as Entra does", async () => {
+    const response = await fetch(
+      `${standIn.issuer}/.well-known/openid-configuration`,
+    );
+    const metadata = (await response.json()) as {
+      scopes_supported?: string[];
+      claims_supported?: string[];
+    };
+
+    expect(metadata.scopes_supported).toEqual(
+      expect.arrayContaining(["openid", "profile"]),
+    );
+    const client = signIn();
+    const { url, pending } = await client.begin({ fresh: false }, never());
+    const openidOnly = new URL(url);
+    openidOnly.searchParams.set("scope", "openid");
+    const callback = await standIn.signInAsOwner(openidOnly.href);
+
+    await expect(
+      client.complete(pending, callback, never()),
+    ).rejects.toMatchObject({ kind: "sign_in_not_owner" });
+    expect(decodeJwt(idTokens.at(-1) ?? "")).not.toHaveProperty("oid");
   });
 
   it("answers 404 outside the tenant's path", async () => {

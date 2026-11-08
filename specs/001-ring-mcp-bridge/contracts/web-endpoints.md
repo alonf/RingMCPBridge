@@ -45,6 +45,15 @@ These are recorded client needs. The discovery paths themselves come from the pr
 | Access tokens last 1 hour. Refresh tokens rotate and end after 30 days unused or 90 days at most; a dead refresh token answers `invalid_grant` | FR-029, SC1, SC §Evidence |
 | Signing keys live in Key Vault, are rotated every 90 days by the Scheduler and Admin, and the old key is kept for checking | SC4, CD-A1 |
 | Tokens and confirmations are bound to the owner's `sub` and the client | SC3 |
+| Only the owner signs in: the ID token's object id (`oid`) must be the configured owner's, and every sign-in is refused while none is configured. The app registration also requires assignment, with only the owner assigned. The sign-in asks for `openid profile`, since Entra sends `oid` only with `profile` | the owner's choice (c), 2026-11-08 (DRIFT-001-39) |
+| Every link is a fresh Entra sign-in by the owner: no grant is reused from an earlier browser session | FR-029, DRIFT-001-39 |
+| A CIMD agent is listed under its document's URL. The URL is checked before anything is fetched, and every redirect URI the document names must be listed for it. The library implements CIMD draft-02 | PT-18, DRIFT-001-39 |
+| A DCR registration is accepted only when every redirect URI it names is listed for one agent, whose listed client id is then only a name. The match is made again on every use, so revoking or unlisting the agent ends the client | DRIFT-001-39 |
+| The token endpoint takes `none` or `private_key_jwt`: no client secret is issued or stored | SC4, DRIFT-001-39 |
+| Tokens are for one resource, the MCP endpoint (RFC 8707), with `read` only in iteration 001. Access tokens are opaque: the MCP endpoint checks each against its stored grant | FR-030, DRIFT-001-39 |
+| `issuer-signing-keys` is `{"keys": [current, previous]}`: one or two private RSA JWKs for RS256 with distinct `kid`s, newest first. The Issuer signs with the first and publishes both; its cookie keys are derived from them | PT-03, PT-04, DRIFT-001-39 |
+
+An agent's authorization reaches the Issuer's interaction route (under `/oauth`), which starts the owner's Entra sign-in. Entra returns to the core's one sign-in return route, served by Web, which hands an Issuer sign-in back to the Issuer to finish the link (T029).
 
 ## Admin page sections
 
