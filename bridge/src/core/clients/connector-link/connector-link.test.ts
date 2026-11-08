@@ -118,11 +118,14 @@ async function settle(rounds = 50): Promise<void> {
 }
 
 /** A new link from the home, accepted by Connector Link. */
-function connect(test: Harness): Home {
+function connect(
+  test: Harness,
+  connectorLink: ConnectorLink = test.connectorLink,
+): Home {
   const pair = createLinkPair(test.logger);
   const frames: LinkFrame[] = [];
   pair.dialer.onFrame((frame) => frames.push(frame));
-  test.connectorLink.accept(pair.acceptor);
+  connectorLink.accept(pair.acceptor);
   return { pair, link: pair.dialer, frames };
 }
 
@@ -1028,5 +1031,86 @@ describe("ConnectorLink: across links", () => {
     }).not.toThrow();
     expect(closedWithReasons).toEqual([CORE_CLOSE_REASONS.coreError]);
     expect(test.lines.join("\n")).toContain("connector_link_accept_failed");
+  });
+});
+
+/**
+ * Admin whose next check of one key reads at once but answers only when the test lets it go: a
+ * pooled database connection that read the key before the owner's approval and answers after it.
+ */
+class LateAnswerAdmin extends AdminManager {
+  #heldKey: string | undefined;
+  #release: (() => void) | undefined;
+
+  get holding(): boolean {
+    return this.#release !== undefined;
+  }
+
+  holdNextCheckOf(keyId: string): void {
+    this.#heldKey = keyId;
+  }
+
+  release(): void {
+    this.#release?.();
+  }
+
+  override async connectorKey(
+    keyId: string,
+    signal: AbortSignal,
+  ): Promise<ConnectorKeyCheck> {
+    const read = await super.connectorKey(keyId, signal);
+    if (keyId !== this.#heldKey) {
+      return read;
+    }
+    this.#heldKey = undefined;
+    await new Promise<void>((resolve) => {
+      this.#release = resolve;
+    });
+    return read;
+  }
+}
+
+describe("ConnectorLink after CP-14 review round 4", () => {
+  it("lets a newer key's session claim State last when an older key's last check answers late", async () => {
+    const test = await harness();
+    const admin = new LateAnswerAdmin({ settings: test.settings });
+    const connectorLink = new ConnectorLink({
+      admin,
+      intake: test.intake,
+      clock: test.clock,
+      logger: test.logger,
+      newNonce: () => NONCE,
+    });
+    stops.push(() => connectorLink.stop());
+    const older = await enrolledKey(test);
+    const olderHome = connect(test, connectorLink);
+    send(olderHome, "hello", hello(older));
+    const challenge = await frameOf(olderHome, "challenge");
+    admin.holdNextCheckOf(signingKeyId(older.publicKey));
+    send(olderHome, "challenge_response", {
+      signature: signChallenge(older.privateKey, String(challenge.nonce)),
+    });
+    await until(() => admin.holding);
+
+    const newer = await enrolledKey(test);
+    const newerHome = connect(test, connectorLink);
+    send(newerHome, "hello", hello(newer));
+    const newerChallenge = await frameOf(newerHome, "challenge");
+    send(newerHome, "challenge_response", {
+      signature: signChallenge(newer.privateKey, String(newerChallenge.nonce)),
+    });
+    await settle();
+    admin.release();
+    await frameOf(newerHome, "hello_ok");
+
+    expect(test.intake.calls.map((call) => call.session.key_id)).toEqual([
+      signingKeyId(older.publicKey),
+      signingKeyId(newer.publicKey),
+    ]);
+    await test.clock.advance(KEY_RECHECK_MS);
+    expect(await closedWith(olderHome)).toMatchObject({
+      reason: "key_revoked",
+    });
+    expect(newerHome.link.closed).toBeUndefined();
   });
 });

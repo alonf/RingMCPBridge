@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 36
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 1 in implement on 2026-11-08)
+**Total drift events**: 37
+**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 2 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
 ## Events
@@ -1135,6 +1135,44 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an older inventory answering a pending request;
   - the snapshot's version drawn after its entries';
   - the inventory not naming its session.
+
+### DRIFT-001-37: CP-14 review round 4 found that an inventory read before a reconnect could end the new session's refresh, and that a late key check could take State from a newer key; both fixed
+
+- **Detected**: 2026-11-08, implement, CP-14 review round 4 (Codex). The reviewer reported two findings as major; Specrew kept them as notes because they named no concrete failure. Each was checked against the code and is real, and checking the first found a second way in.
+- **Kind**: two defects against FR-006 and the one active key (FR-032), and a narrower meaning for the link contract's `session_id`. No spec change
+- **Observed**:
+  - **An inventory read before a reconnect could end the new session's refresh.**
+    - Ingest named an inventory with the session open as it was written, not the one its Ring read began in.
+    - An alarm mode change during the new session's own read sent the old picture at once, named with the new session. A read begun before the link dropped (the 10 s tick or an `inventory_request`) and finished after the reconnect was named with it too.
+    - The core ended the refresh on either, so old states showed `cached` until the session's own read was stored. A Ring call that never answers can delay that read without limit (DRIFT-001-35).
+    - Two reads that overlapped could also finish out of order, and the earlier one's older picture was then sent after the newer one, under a higher version.
+  - **A late key check could take State from a newer key's session.**
+    - A link's last key check and Event's claim of State were separate steps. With SQL Server's connection pool, an older key's check could read `active` before the owner approved a newer key, and answer after the newer key's session had claimed State.
+    - The older session then claimed State. It closed as revoked within 15 s, but the newer session stayed open with every message acked as not current and its heartbeats ignored, so the home showed offline until that link dropped.
+- **Fix**:
+  - **Named only by its own read** [P]:
+    - an inventory names a session only when its Ring read began in that session and the session is still open as it is written;
+    - an alarm mode change's inventory, built from the newest picture, follows the same rule with that picture's read;
+    - only such an inventory pays the inventory a session is owed, so Ingest reads again on the 10 s tick until one is queued.
+  - **The newer read wins** [P]: reads are numbered as they begin, and one that finishes after a read begun later is dropped (`superseded`), because the later read's picture is newer.
+  - **One takeover at a time** [P]:
+    - Connector Link runs each link's last key check and its claim of State in one turn, one link at a time across the core;
+    - approving a key revokes the older ones in the same transaction (FR-032), so a check that runs after a newer key's turn reads the older key as revoked;
+    - the single-instance lease keeps one core taking turns (FR-044), and no new column is needed.
+  - The link contract's `session_id` and its "A session's own inventory" rule now say which session an inventory names.
+- **Requirement citation**: spec FR-006, FR-032, FR-044 and SC-005; `contracts/connector-link.md` "Device inventory and state"; DRIFT-001-35 and DRIFT-001-36.
+- **Resolution**: fixed after the owner typed "approved for allowance reset" and "fix both", to fix both and run round 5. Cost: about 1 SP (estimate), recorded in CP-14's actual, and $0.
+- **Class closure**: new tests:
+  - Ingest: an alarm mode change during a reconnect's read; a read begun before the session while the session's own first read fails; two overlapping reads that finish out of order;
+  - Connector Link: an older key's last check answering after the owner approved a newer key, with the newer session claiming State last and staying open.
+
+  A deliberate break of six parts was caught:
+  - every inventory named with the session open as it is written;
+  - an alarm mode change's inventory named with the session open then;
+  - a read begun before the session named with it;
+  - a read begun before the session paying the inventory it owes;
+  - an earlier read that finishes last kept;
+  - takeovers not taken in turn.
 
 ### Resolution Strategies (Unused)
 

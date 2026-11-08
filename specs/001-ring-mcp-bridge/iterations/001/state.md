@@ -3,11 +3,20 @@
 **Schema**: v2
 **Last Completed Task**: T021
 **Tasks Remaining**: T023-T036 (14 tasks, 17 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: CP-14 (the read path): T019, T020 and T021 are done, and T018 (CP-11a); review round 3's three findings are fixed (DRIFT-001-36); next round 4, the last of the allowance, on the owner's approval
+**In Progress**: CP-14 (the read path): T019, T020 and T021 are done, and T018 (CP-11a); review round 4's two findings are fixed (DRIFT-001-37) after the owner's allowance reset; next round 5
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-07T22:41:44Z
+**Updated**: 2026-11-08T02:34:40Z
 
 ## Execution Summary
+
+- CP-14 review round 4 found two more problems, and both are fixed (DRIFT-001-37), after the owner reset the review allowance and chose to fix both:
+  - an inventory read before a reconnect, or sent on an alarm mode change during the new session's read, no longer ends that session's refresh: an inventory names a session only when its Ring read began in it, and of two overlapping reads only the later one is sent;
+  - a key check that answers late can no longer take State from a newer key's session: Connector Link runs each link's last key check and its claim of State one link at a time.
+
+  About 1 SP (estimate), in CP-14's actual. A deliberate break of six parts was caught. Checks:
+  - 924 tests: 823 pass and 101 skip without SQL Server; with it, 912 pass and 12 skip;
+  - coverage with SQL Server: 97.9% of lines and 94.5% of branches;
+  - lint, tsc, prettier and depcruise (222 modules) are clean.
 
 - CP-14 review round 3 found three ways old data could look current or come back, and all three are fixed (DRIFT-001-36), on the owner's choice to fix them and run round 4:
   - a resent older inventory can no longer bring back what a newer one removed, and an empty one now clears the home: every inventory carries its own version, and State skips one older than the newest it applied (migration 5);

@@ -14,6 +14,12 @@
 // link. A change that arrives while a read is running goes into that read's snapshot, because the
 // read's answer may be older than the change.
 //
+// An inventory names a session only when the Ring read it carries began in that session and the
+// session is still open as it is written (CP-14 review round 4): the core keeps a new session's data
+// stale until it stores such an inventory, so a picture read before the reconnect, or sent on an
+// alarm mode change while the session's own read runs, does not end that. Of two reads that overlap,
+// the one begun later holds the newer picture: an earlier read that finishes after it is dropped.
+//
 // Messages go out on the link in the `LinkSlot`, which Core Link fills once a session is open. A
 // message is sent when it is written, and the 10 s tick sends again what has waited 10 s without
 // its ack (T016). Events, catch-up and the late marker come with CP-08b (iteration 002).
@@ -48,11 +54,16 @@ import type { TimedChange } from "./home-view.ts";
  * What became of an inventory. Each is a case the caller handles on the spot, by trying again
  * later:
  * - `queued`: written to the outbox;
+ * - `superseded`: a read begun later finished first, so this older picture was dropped;
  * - `ring_unavailable` or `session_lost`: Ring could not be read (the Ring Adapter's kinds);
  * - `outbox_unavailable`: the outbox could not be written.
  */
 export type InventoryOutcome =
-  "queued" | "ring_unavailable" | "session_lost" | "outbox_unavailable";
+  | "queued"
+  | "superseded"
+  | "ring_unavailable"
+  | "session_lost"
+  | "outbox_unavailable";
 
 /** What Ingest is wired with. */
 export interface IngestOptions {
@@ -62,6 +73,14 @@ export interface IngestOptions {
   readonly link: LinkSlot;
   readonly clock: Clock;
   readonly logger: Logger;
+}
+
+// The newest picture of the home: the number of the read it came from, in the order reads began,
+// and the session open as that read began.
+interface LatestView {
+  readonly view: HomeView;
+  readonly read: number;
+  readonly readFor: string | undefined;
 }
 
 /** How many due messages one step sends, one at a time, before another step continues. */
@@ -79,11 +98,13 @@ export class Ingest {
   readonly #logger: Logger;
   readonly #readsRunning = new Set<TimedChange[]>();
   readonly #errorCounts = new Map<string, number>();
-  #view: HomeView | undefined;
+  #latest: LatestView | undefined;
+  #readsBegun = 0;
   #steps: Promise<void> = Promise.resolve();
   #stopWatching: StopWatching | undefined;
   #inventoryOwed = false;
-  // The session last opened, which an inventory composed while its link is in the slot is for.
+  // The session last opened. An inventory read since it opened names it while its link is in the
+  // slot.
   #sessionId: string | undefined;
   // True from a session's start until its "everything is due again" step is done: nothing is sent
   // meanwhile, so a send step queued before the session cannot overtake older unacked messages.
@@ -113,8 +134,8 @@ export class Ingest {
 
   /**
    * A session opened, and its link is in the slot. Every unacked message becomes due again before
-   * anything is sent on the new link, and a fresh inventory, stamped with this session, is owed
-   * until it is queued. Then what is due is sent.
+   * anything is sent on the new link, and an inventory read from Ring since this session opened is
+   * owed until it is queued. Then what is due is sent.
    */
   async sessionOpened(sessionId: string, signal: AbortSignal): Promise<void> {
     this.#sessionId = sessionId;
@@ -176,9 +197,18 @@ export class Ingest {
     void link.send({ type: HOME_MESSAGE_TYPES.heartbeat, body: heartbeat });
   }
 
-  // The session an inventory composed now is for: none while no link is in the slot.
+  // The session open now: none while no link is in the slot.
   #composingFor(): string | undefined {
     return this.#link.current === undefined ? undefined : this.#sessionId;
+  }
+
+  // The session an inventory names as it is written: the one its read began in, if that one is
+  // still open then. A picture read before a session opened is not that session's refresh.
+  #nameFor(readFor: string | undefined): () => string | undefined {
+    return () =>
+      readFor !== undefined && readFor === this.#composingFor()
+        ? readFor
+        : undefined;
   }
 
   /** Resolves once every step accepted so far is done, or has failed and been logged. */
@@ -186,18 +216,27 @@ export class Ingest {
     return this.#steps;
   }
 
+  // The inventory owed is the open session's own: one read before it opened does not pay it.
   async #queueInventory(signal: AbortSignal): Promise<InventoryOutcome> {
-    const outcome = await this.#writeInventory(signal);
+    const readFor = this.#composingFor();
+    const outcome = await this.#writeInventory(readFor, signal);
     if (outcome === "queued") {
-      this.#inventoryOwed = false;
-    } else {
+      if (readFor !== undefined && readFor === this.#composingFor()) {
+        this.#inventoryOwed = false;
+      }
+    } else if (outcome !== "superseded") {
       this.#inventoryOwed = true;
       this.#count(outcome);
     }
     return outcome;
   }
 
-  async #writeInventory(signal: AbortSignal): Promise<InventoryOutcome> {
+  async #writeInventory(
+    readFor: string | undefined,
+    signal: AbortSignal,
+  ): Promise<InventoryOutcome> {
+    this.#readsBegun += 1;
+    const read = this.#readsBegun;
     const seenDuringRead: TimedChange[] = [];
     this.#readsRunning.add(seenDuringRead);
     let view: HomeView;
@@ -208,15 +247,15 @@ export class Ingest {
     } finally {
       this.#readsRunning.delete(seenDuringRead);
     }
+    if (this.#latest !== undefined && read < this.#latest.read) {
+      return "superseded";
+    }
     for (const change of seenDuringRead) {
       view.apply(change);
     }
-    this.#view = view;
+    this.#latest = { view, read, readFor };
     try {
-      await this.#write(
-        inventoryDraft(view, () => this.#composingFor()),
-        signal,
-      );
+      await this.#write(inventoryDraft(view, this.#nameFor(readFor)), signal);
       return "queued";
     } catch (error) {
       if (error instanceof OutboxStoreError) {
@@ -244,7 +283,7 @@ export class Ingest {
     for (const seen of this.#readsRunning) {
       seen.push(timed);
     }
-    this.#view?.apply(timed);
+    this.#latest?.view.apply(timed);
     if (change.kind === "device") {
       const { device } = change;
       this.#writeChange(
@@ -256,14 +295,12 @@ export class Ingest {
       );
       return;
     }
-    if (this.#view !== undefined) {
-      this.#writeChange(
-        inventoryDraft(this.#view, () => this.#composingFor()),
-        {
-          message_type: "inventory",
-          location_id: change.location.location_id,
-        },
-      );
+    if (this.#latest !== undefined) {
+      const { view, readFor } = this.#latest;
+      this.#writeChange(inventoryDraft(view, this.#nameFor(readFor)), {
+        message_type: "inventory",
+        location_id: change.location.location_id,
+      });
     }
   }
 
@@ -421,7 +458,7 @@ export class Ingest {
 }
 
 // The body is built when the write runs, so it holds every change taken in before then, and names
-// the session open then.
+// the session `sessionId` gives then.
 function inventoryDraft(
   view: HomeView,
   sessionId: () => string | undefined,

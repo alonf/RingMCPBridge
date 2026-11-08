@@ -21,6 +21,7 @@ import {
   OutboxStoreError,
 } from "../../access/outbox-store/index.ts";
 import type { OutboxItem } from "../../access/outbox-store/index.ts";
+import { RingAdapterError } from "../../access/ring-adapter/index.ts";
 import type {
   RingChange,
   RingDevice,
@@ -722,5 +723,186 @@ describe("Ingest after CP-14 review round 3", () => {
       (item) => item.kind === "inventory",
     );
     expect(queued.at(-1)?.body).not.toHaveProperty("session_id");
+  });
+});
+
+/** A Ring whose reads each wait, once Ring has answered, until the test lets them go. */
+class GatedReads implements RingPort {
+  readonly #engine: ScenarioEngine;
+  readonly waiting: {
+    readonly release: () => void;
+    readonly fail: (error: Error) => void;
+  }[] = [];
+
+  constructor(engine: ScenarioEngine) {
+    this.#engine = engine;
+  }
+
+  sessionStatus(): RingSessionStatus {
+    return this.#engine.sessionStatus();
+  }
+
+  async locations(readSignal: AbortSignal): Promise<readonly RingLocation[]> {
+    const taken = await this.#engine.locations(readSignal);
+    await new Promise<void>((release, failRead) => {
+      this.waiting.push({ release, fail: failRead });
+    });
+    return taken;
+  }
+
+  devices(
+    locationId: string,
+    readSignal: AbortSignal,
+  ): Promise<readonly RingDevice[]> {
+    return this.#engine.devices(locationId, readSignal);
+  }
+
+  watch(listener: (change: RingChange) => void): StopWatching {
+    return this.#engine.watch(listener);
+  }
+}
+
+/** Lets the work already started run until `ready` holds. */
+async function until(ready: () => boolean): Promise<void> {
+  for (let turn = 0; turn < 500 && !ready(); turn += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  expect(ready()).toBe(true);
+}
+
+/** A link from home whose core end records each inventory it receives. */
+function recordedLink(): {
+  readonly dialer: LinkConnection;
+  readonly inventories: InventoryBody[];
+} {
+  const pair = createLinkPair(
+    new Logger({ sink: () => undefined, now: () => 0, minLevel: "debug" }),
+  );
+  const inventories: InventoryBody[] = [];
+  pair.acceptor.onFrame((frame) => {
+    if (frame.kind === "message" && frame.type === "inventory") {
+      inventories.push(frame.body as InventoryBody);
+    }
+  });
+  return { dialer: pair.dialer, inventories };
+}
+
+function namesOf(
+  inventories: readonly InventoryBody[],
+): (string | undefined)[] {
+  return inventories.map((inventory) => inventory.session_id);
+}
+
+/** Ingest over gated reads, with session one open and its first inventory read. */
+async function afterFirstSession(): Promise<{
+  readonly engine: ScenarioEngine;
+  readonly ring: GatedReads;
+  readonly store: OutboxStore;
+  readonly slot: LinkSlot;
+  readonly ingest: Ingest;
+  readonly first: ReturnType<typeof recordedLink>;
+}> {
+  const engine = new ScenarioEngine(clock);
+  const ring = new GatedReads(engine);
+  const store = await openStore();
+  const slot = new LinkSlot();
+  const ingest = new Ingest({
+    ring,
+    outbox: store,
+    link: slot,
+    clock,
+    logger: new Logger({
+      sink: (line) => lines.push(line),
+      now: () => clock.now(),
+      minLevel: "debug",
+    }),
+  });
+  ingest.start();
+  ingests.push(ingest);
+  const first = recordedLink();
+  slot.put(first.dialer);
+  const opened = ingest.sessionOpened("session-one", signal);
+  await until(() => ring.waiting.length === 1);
+  ring.waiting[0]?.release();
+  await opened;
+  return { engine, ring, store, slot, ingest, first };
+}
+
+describe("Ingest after CP-14 review round 4", () => {
+  it("does not name the new session on an inventory sent on an alarm mode change while that session's own read runs", async () => {
+    const { engine, ring, slot, ingest, first } = await afterFirstSession();
+    slot.clear(first.dialer);
+    const second = recordedLink();
+    slot.put(second.dialer);
+    const reopened = ingest.sessionOpened("session-two", signal);
+    await until(() => ring.waiting.length === 2);
+
+    engine.apply({
+      kind: "alarm_mode",
+      locationId: STANDARD_LOCATION_ID,
+      mode: "away",
+    });
+    await ingest.flush();
+    ring.waiting[1]?.release();
+    await reopened;
+    await until(() => second.inventories.length === 3);
+
+    // Session one's unacked inventory goes again first, still naming session one.
+    expect(namesOf(second.inventories)).toEqual([
+      "session-one",
+      undefined,
+      "session-two",
+    ]);
+    expect(second.inventories[2]?.locations[0]?.alarm_mode).toBe("away");
+  });
+
+  it("does not name the new session on an inventory read before it opened, and still owes that session its own", async () => {
+    const { ring, slot, ingest, first } = await afterFirstSession();
+    const asked = ingest.inventoryRequested(signal);
+    await until(() => ring.waiting.length === 2);
+    slot.clear(first.dialer);
+    const second = recordedLink();
+    slot.put(second.dialer);
+    const reopened = ingest.sessionOpened("session-two", signal);
+    await until(() => ring.waiting.length === 3);
+    ring.waiting[2]?.fail(
+      new RingAdapterError("ring_unavailable", "Ring is down."),
+    );
+    await reopened;
+
+    ring.waiting[1]?.release();
+    expect(await asked).toBe("queued");
+    const tick = ingest.sendDue(signal);
+    await until(() => ring.waiting.length === 4);
+    ring.waiting[3]?.release();
+    await tick;
+    await until(() => second.inventories.length === 3);
+
+    expect(namesOf(second.inventories)).toEqual([
+      "session-one",
+      undefined,
+      "session-two",
+    ]);
+  });
+
+  it("drops a read that finishes after one begun later, whose picture is newer", async () => {
+    const engine = new ScenarioEngine(clock);
+    const ring = new GatedReads(engine);
+    const store = await openStore();
+    const ingest = startIngest(ring, store);
+    const earlier = ingest.inventoryRequested(signal);
+    await until(() => ring.waiting.length === 1);
+    const later = ingest.inventoryRequested(signal);
+    await until(() => ring.waiting.length === 2);
+
+    ring.waiting[1]?.release();
+    expect(await later).toBe("queued");
+    ring.waiting[0]?.release();
+    expect(await earlier).toBe("superseded");
+    await ingest.flush();
+
+    const items = await takeAll(store);
+    expect(items.filter((item) => item.kind === "inventory")).toHaveLength(1);
+    expect(lines.join("\n")).not.toContain("superseded");
   });
 });

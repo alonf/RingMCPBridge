@@ -10,7 +10,11 @@
 // - one open session per key: a newer one replaces the older, which closes as `session_replaced`;
 // - one link waiting for the owner: a newer `enroll` replaces the request, and the older link
 //   closes as `enrollment_replaced`, but only while it still waits: a link whose key was approved
-//   meanwhile carries a session, which no `enroll` may end (round 3).
+//   meanwhile carries a session, which no `enroll` may end (round 3);
+// - one takeover at a time: a link's last key check and its claim of State run in turn with every
+//   other link's, so a check that read a key before the owner approved a newer one cannot claim
+//   State after the newer key's session did (CP-14 review round 4). The single-instance lease
+//   keeps one core running them (FR-044).
 import type { Clock } from "../../../utilities/clock/index.ts";
 import type { LinkConnection } from "../../../utilities/link-transport/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
@@ -41,6 +45,7 @@ export class ConnectorLink {
   readonly #sessions = new Set<CoreSession>();
   readonly #openByKey = new Map<string, CoreSession>();
   #enrolling: CoreSession | undefined;
+  #takeovers: Promise<unknown> = Promise.resolve();
   #stopping = false;
 
   constructor(options: ConnectorLinkOptions) {
@@ -98,6 +103,7 @@ export class ConnectorLink {
       clock: this.#options.clock,
       logger: this.#logger,
       newNonce: this.#options.newNonce ?? createChallengeNonce,
+      inTakeoverTurn: (work) => this.#inTakeoverTurn(work),
       onProven: (proven) => {
         this.#proven(proven);
       },
@@ -110,6 +116,14 @@ export class ConnectorLink {
     });
     this.#sessions.add(session);
     session.start();
+  }
+
+  // Runs `work` after every takeover queued before it. A takeover's failure reaches its own link
+  // and does not stop the others.
+  #inTakeoverTurn<T>(work: () => Promise<T>): Promise<T> {
+    const turn = this.#takeovers.then(work);
+    this.#takeovers = turn.catch(() => undefined);
+    return turn;
   }
 
   #unprovenCount(): number {

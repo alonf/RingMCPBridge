@@ -131,6 +131,11 @@ export interface CoreSessionContext {
   readonly clock: Clock;
   readonly logger: Logger;
   readonly newNonce: () => string;
+  /**
+   * Runs a link's last key check and its claim of State in turn with every other link's, one at a
+   * time across the core (CP-14 review round 4).
+   */
+  readonly inTakeoverTurn: <T>(work: () => Promise<T>) => Promise<T>;
   /** The connector proved its key: an older session for the same key gives way. */
   readonly onProven: (session: CoreSession) => void;
   /** An enroll request now waits on this link: an older waiting link gives way. */
@@ -337,7 +342,8 @@ export class CoreSession {
   // start, both before `hello_ok`, so the home sends nothing on a session the core cannot carry:
   // - the owner may have approved a newer key while this link proved itself (T018 follow-up);
   // - Event claims State's versions for this key; without that claim it could keep no message of
-  //   the session, so a failure closes the link and the home dials again (T018 follow-up).
+  //   the session, so a failure closes the link and the home dials again (T018 follow-up);
+  // - the two run in one takeover turn (`#takeOver`).
   // The nonce is used once: a second message before the answer closes the link (`#arrived`).
   async #verify(
     response: ChallengeResponseMessage,
@@ -348,22 +354,11 @@ export class CoreSession {
       this.#close(LINK_CLOSE_REASONS.challengeFailed);
       return;
     }
-    const key = await this.#checkKey(keyId);
-    this.#signal.throwIfAborted();
-    if (key === undefined) {
-      this.#close(CORE_CLOSE_REASONS.coreUnavailable);
-      return;
-    }
-    if (key.kind !== "active") {
-      this.#close(closeReasonFor(key));
-      return;
-    }
-    const recorded = await this.#toEvent("hello", (signal) =>
-      this.#context.intake.homeSessionOpened(session, signal),
+    const refused = await this.#context.inTakeoverTurn(() =>
+      this.#takeOver(keyId, session),
     );
-    this.#signal.throwIfAborted();
-    if (recorded === NOT_COMMITTED) {
-      this.#close(CORE_CLOSE_REASONS.coreUnavailable);
+    if (refused !== undefined) {
+      this.#close(refused);
       return;
     }
     this.#state = { phase: "open", keyId, session };
@@ -375,6 +370,32 @@ export class CoreSession {
     this.#timer(KEY_RECHECK_MS, () => {
       this.#enqueue(() => this.#recheckKey());
     });
+  }
+
+  // The last key check and State's claim, in one takeover turn: a check that read this key as
+  // active before the owner approved a newer one cannot then claim State after the newer key's
+  // session did, which would leave that session's messages discarded as not current. The answer
+  // is the reason to close the link, or `undefined` once the session's start is recorded.
+  async #takeOver(
+    keyId: string,
+    session: HomeLinkSession,
+  ): Promise<string | undefined> {
+    this.#signal.throwIfAborted();
+    const key = await this.#checkKey(keyId);
+    this.#signal.throwIfAborted();
+    if (key === undefined) {
+      return CORE_CLOSE_REASONS.coreUnavailable;
+    }
+    if (key.kind !== "active") {
+      return closeReasonFor(key);
+    }
+    const recorded = await this.#toEvent("hello", (signal) =>
+      this.#context.intake.homeSessionOpened(session, signal),
+    );
+    this.#signal.throwIfAborted();
+    return recorded === NOT_COMMITTED
+      ? CORE_CLOSE_REASONS.coreUnavailable
+      : undefined;
   }
 
   async #enroll(enroll: EnrollMessage): Promise<void> {
