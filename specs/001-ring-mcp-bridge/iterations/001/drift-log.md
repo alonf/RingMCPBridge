@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 44
+**Total drift events**: 45
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,30 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-45: CP-15's review follow-up: a code or refresh token redeemed twice at once
+
+- **Detected**: 2026-11-09, review, CP-15's round (run-20261109-185805237-2a0a159a), in CP-16's code (T022, T023)
+- **Kind**: a defect, found by review. No spec change; one contract rule made explicit
+- **Observed**:
+  - oidc-provider checks that a code or refresh token is unused, reads the account and the grant, then asks the adapter to consume it. Grants marked the record without a condition, so two redemptions at the same moment both passed the check, and both got tokens.
+  - A stolen refresh token sent at the same moment as the agent's own refresh therefore escaped the reuse check that ends the grant. The thief could keep refreshing for up to 90 days, unless the owner removed the agent first.
+  - A test that holds both requests until each has read the record showed it: both answered 200, for a refresh token and for an authorization code.
+- **Decided**:
+  - Grants' `consume` marks a record only if it is unused and its time is not up, in one statement. It says what it did: marked it; found it used already, with its grant; or found nothing to use.
+  - The adapter refuses the redemption that loses with `invalid_grant`. When the record was used already, it first ends the grant: `revokeGrant` removes the grant's own record and every record of it, in one statement.
+  - A pushed authorization request belongs to no grant. One that loses is refused with `invalid_request_uri`, as oidc-provider refuses a used one.
+  - With the grant gone, the tokens the winning request saves are refused too, because the MCP endpoint's check and the refresh flow both need the grant. So both sides lose their tokens, and the owner links the agent again, as for any reuse.
+  - Every SQL Server test database now runs with read-committed snapshot on, which is Azure SQL's default, so the tests read as the bridge's database will. The whole suite passes that way. Five redemptions at once mark the record once on both databases.
+  - Neither kind of reuse is logged, as before.
+- **Pilot check**: an agent that refreshes the same token twice at once now always loses its link. Before, it usually kept two token chains. Whether any listed agent does that shows in the pilot, as a link the owner has to make again.
+- **Requirement citation**: FR-029; `contracts/web-endpoints.md` "Rules" (refresh tokens rotate); CP-15's review finding `finding-fc255d1df613a041`.
+- **Resolution**: fixed before T026, as the owner chose when stopping CP-15's review. About 1 SP against an estimate of 0.5 (estimates), the test databases' change included, and $0, with no Ring calls.
+- **Class closure**: the class is "check a single-use record unused, wait on other work, then mark it used". Every single-use record in the bridge was checked:
+  - codes, refresh tokens and pushed requests are marked in one statement (this fix);
+  - the connector's enrollment code was already claimed by one conditional UPDATE whose count is checked (`settings-store.ts`, `ACTIVATE`);
+  - a pending Entra sign-in is taken from memory in one synchronous step (`pending-sign-ins.ts`, `take`).
+  - Tests: the two races at the Issuer, the store's single winner and lost claims on both databases, ending a grant, and the adapter's refusals. Deliberate breaks: 12, all caught.
 
 ### DRIFT-001-44: T025's read rate limit and the read latency check
 

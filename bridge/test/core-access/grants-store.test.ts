@@ -1,5 +1,6 @@
 // Grants (T022) on SQLite and on SQL Server: oidc-provider's records in one `(model, id)` table
-// (PT-11), bearer ids kept only as hashes (SC4), expiry, consume, and revoking by grant.
+// (PT-11), bearer ids kept only as hashes (SC4), expiry, consume (one redemption only, CP-15's
+// review), and revoking by grant.
 import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 import {
@@ -224,13 +225,68 @@ describeStoreMatrix("Grants", (store) => {
     await grants.upsert("RefreshToken", TOKEN, REFRESH_TOKEN, HOUR_S, never());
     await clock.advance(2_500);
 
-    await grants.consume("RefreshToken", TOKEN, never());
-    await grants.consume("RefreshToken", "not-saved", never());
+    await expect(
+      grants.consume("RefreshToken", TOKEN, never()),
+    ).resolves.toEqual({ kind: "consumed" });
+    await expect(
+      grants.consume("RefreshToken", "not-saved", never()),
+    ).resolves.toEqual({ kind: "not_found" });
 
     await expect(grants.find("RefreshToken", TOKEN, never())).resolves.toEqual({
       ...REFRESH_TOKEN,
       consumed: START_S + 2,
     });
+  });
+
+  it("marks a record used once, however many redemptions arrive together, and names its grant to the rest", async () => {
+    const { grants } = await setUp();
+    await grants.upsert("RefreshToken", TOKEN, REFRESH_TOKEN, HOUR_S, never());
+
+    const outcomes = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        grants.consume("RefreshToken", TOKEN, never()),
+      ),
+    );
+
+    expect(
+      outcomes.filter((outcome) => outcome.kind === "consumed"),
+    ).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.kind !== "consumed")).toEqual(
+      Array(4).fill({ kind: "already_used", grantId: "grant-1" }),
+    );
+  });
+
+  it("marks nothing whose time is up, but still names a used record's grant after its time is up", async () => {
+    const { grants, clock } = await setUp();
+    await grants.upsert(
+      "AuthorizationCode",
+      "code-1",
+      { jti: "code-1", grantId: "grant-1" },
+      60,
+      never(),
+    );
+    await grants.upsert("RefreshToken", TOKEN, REFRESH_TOKEN, HOUR_S, never());
+    await grants.upsert(
+      "PushedAuthorizationRequest",
+      "par-1",
+      { jti: "par-1" },
+      HOUR_S,
+      never(),
+    );
+    await grants.consume("RefreshToken", TOKEN, never());
+    await grants.consume("PushedAuthorizationRequest", "par-1", never());
+
+    await clock.advance(HOUR_S * 1000);
+
+    await expect(
+      grants.consume("AuthorizationCode", "code-1", never()),
+    ).resolves.toEqual({ kind: "not_found" });
+    await expect(
+      grants.consume("RefreshToken", TOKEN, never()),
+    ).resolves.toEqual({ kind: "already_used", grantId: "grant-1" });
+    await expect(
+      grants.consume("PushedAuthorizationRequest", "par-1", never()),
+    ).resolves.toEqual({ kind: "already_used", grantId: undefined });
   });
 
   it("destroys one record", async () => {
@@ -289,6 +345,62 @@ describeStoreMatrix("Grants", (store) => {
     ).resolves.toBeDefined();
   });
 
+  it("ends a grant: its own record and every record of it, of every model, leaving other grants", async () => {
+    const { grants } = await setUp();
+    const other = "Other-refresh-token-value";
+    for (const grantId of ["grant-1", "grant-2"]) {
+      await grants.upsert("Grant", grantId, { jti: grantId }, HOUR_S, never());
+    }
+    await grants.upsert("RefreshToken", TOKEN, REFRESH_TOKEN, HOUR_S, never());
+    await grants.upsert(
+      "AccessToken",
+      "access-1",
+      { jti: "access-1", grantId: "grant-1" },
+      HOUR_S,
+      never(),
+    );
+    await grants.upsert(
+      "AuthorizationCode",
+      "code-1",
+      { jti: "code-1", grantId: "grant-1" },
+      HOUR_S,
+      never(),
+    );
+    await grants.upsert(
+      "RefreshToken",
+      other,
+      { ...REFRESH_TOKEN, jti: other, grantId: "grant-2" },
+      HOUR_S,
+      never(),
+    );
+    // A record of another model whose id happens to be the grant's id is not the grant.
+    await grants.upsert(
+      "Client",
+      "grant-1",
+      { client_id: "grant-1" },
+      undefined,
+      never(),
+    );
+
+    await grants.revokeGrant("grant-1", never());
+
+    for (const [model, id] of [
+      ["Grant", "grant-1"],
+      ["RefreshToken", TOKEN],
+      ["AccessToken", "access-1"],
+      ["AuthorizationCode", "code-1"],
+    ] as const) {
+      await expect(grants.find(model, id, never())).resolves.toBeUndefined();
+    }
+    for (const [model, id] of [
+      ["Grant", "grant-2"],
+      ["RefreshToken", other],
+      ["Client", "grant-1"],
+    ] as const) {
+      await expect(grants.find(model, id, never())).resolves.toBeDefined();
+    }
+  });
+
   it("refuses what it cannot store, on both dialects alike", async () => {
     const { grants } = await setUp();
 
@@ -344,6 +456,7 @@ describeStoreMatrix("Grants", (store) => {
       () => grants.consume("AuthorizationCode", "code", never()),
       () => grants.destroy("Client", "c-1", never()),
       () => grants.revokeByGrantId("AccessToken", "grant-1", never()),
+      () => grants.revokeGrant("grant-1", never()),
     ]) {
       const error = await expectStoreError(work(), "unavailable");
       expect(error.cause).toMatchObject({ kind: "store_down" });

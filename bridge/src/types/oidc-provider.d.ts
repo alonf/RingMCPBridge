@@ -290,6 +290,10 @@ declare module "oidc-provider" {
     // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name
     readonly InvalidClientMetadata: typeof OIDCProviderError;
     // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name
+    readonly InvalidGrant: typeof OIDCProviderError;
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name
+    readonly InvalidRequestUri: typeof OIDCProviderError;
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name
     readonly InvalidTarget: typeof OIDCProviderError;
   };
 }

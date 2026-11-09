@@ -148,7 +148,13 @@ function sqlServerStore(config: MssqlConfig): StoreUnderTest {
         throw new Error("The test SQL Server is not connected.");
       }
       const name = `store_${randomBytes(NAME_BYTES).toString("hex")}`;
-      await master.request().query(`CREATE DATABASE [${name}]`);
+      // Read-committed snapshot is Azure SQL's default, so every test reads as the bridge's own
+      // database will (DRIFT-001-45). Set before anyone connects, it takes effect at once.
+      await master
+        .request()
+        .query(
+          `CREATE DATABASE [${name}]; ALTER DATABASE [${name}] SET READ_COMMITTED_SNAPSHOT ON`,
+        );
       databases.push(name);
       const layer = createTsqlQueryLayer(
         { ...config, database: name },

@@ -2,6 +2,12 @@
 // passed to the `(model, id)` table. The `Client` model holds only agents that registered themselves
 // (DCR): a client is stored only when it matches a listed agent, and is found only while it still
 // does (listed-agents.ts). A refused registration answers 400 `invalid_client_metadata`.
+//
+// oidc-provider checks that a code or refresh token is unused, reads more, then consumes it. Two
+// redemptions at the same moment both pass its check (CP-15's review), so consume itself decides:
+// the store marks the record in one statement, and the redemption that loses is refused here. When
+// the record was used already, its grant ends first, as oidc-provider ends it for a reuse it sees
+// itself; with the grant gone, the tokens the winner saves are refused too.
 import { errors } from "oidc-provider";
 import type { Adapter, AdapterPayload } from "oidc-provider";
 import type { GrantsStore } from "../../access/grants/index.ts";
@@ -10,6 +16,7 @@ import type { ListedAgents } from "./listed-agents.ts";
 /** How long one storage call may take before the request that made it fails. */
 const STORE_TIMEOUT_MS = 10_000;
 const CLIENT_MODEL = "Client";
+const PUSHED_REQUEST_MODEL = "PushedAuthorizationRequest";
 
 /** What every adapter is built with. */
 export interface AdapterContext {
@@ -66,7 +73,28 @@ class GrantsAdapter implements Adapter {
   }
 
   async consume(id: string): Promise<void> {
-    await this.context.grants.consume(this.model, id, this.signal());
+    const outcome = await this.context.grants.consume(
+      this.model,
+      id,
+      this.signal(),
+    );
+    if (outcome.kind === "consumed") {
+      return;
+    }
+    // A pushed request belongs to no grant; oidc-provider refuses a used one with this error.
+    if (this.model === PUSHED_REQUEST_MODEL) {
+      throw new errors.InvalidRequestUri(
+        "request_uri is invalid, expired, or was already used",
+      );
+    }
+    if (outcome.kind === "already_used" && outcome.grantId !== undefined) {
+      await this.context.grants.revokeGrant(outcome.grantId, this.signal());
+    }
+    throw new errors.InvalidGrant(
+      outcome.kind === "already_used"
+        ? "grant already used"
+        : "grant not found or expired",
+    );
   }
 
   async destroy(id: string): Promise<void> {

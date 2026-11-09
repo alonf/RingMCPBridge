@@ -18,6 +18,7 @@ import { SdkHttpError } from "@modelcontextprotocol/client";
 import { decodeProtectedHeader } from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GrantsStore } from "../../src/core/access/grants/index.ts";
+import type { GrantPayload } from "../../src/core/access/grants/index.ts";
 import { SettingsStore } from "../../src/core/access/settings/index.ts";
 import type { AgentSeed } from "../../src/core/access/settings/index.ts";
 import type {
@@ -93,6 +94,55 @@ function secretsWith(document: string | undefined): CoreSecrets {
   };
 }
 
+/**
+ * Grants that make two redemptions overlap (CP-15's review): once `race` is called, a consume of
+ * that model waits until the model has been found `finds` times, so every request reads the record
+ * before any marks it used.
+ */
+class RacingGrants extends GrantsStore {
+  #model: string | undefined;
+  #finds = 0;
+  #found = 0;
+  #release: () => void = () => undefined;
+  #ready: Promise<void> = Promise.resolve();
+
+  /** Holds this model's consumes until it has been found `finds` times. */
+  race(model: string, finds: number): void {
+    this.#model = model;
+    this.#finds = finds;
+    this.#found = 0;
+    this.#ready = new Promise((resolve) => {
+      this.#release = resolve;
+    });
+  }
+
+  override async find(
+    model: string,
+    id: string,
+    signal: AbortSignal,
+  ): Promise<GrantPayload | undefined> {
+    const payload = await super.find(model, id, signal);
+    if (model === this.#model) {
+      this.#found += 1;
+      if (this.#found >= this.#finds) {
+        this.#release();
+      }
+    }
+    return payload;
+  }
+
+  override async consume(
+    model: string,
+    id: string,
+    signal: AbortSignal,
+  ): ReturnType<GrantsStore["consume"]> {
+    if (model === this.#model) {
+      await this.#ready;
+    }
+    return super.consume(model, id, signal);
+  }
+}
+
 interface Rig {
   /** The core's origin: the Issuer is under `/oauth`, Web's sign-in return at `/sign-in/return`. */
   readonly origin: string;
@@ -102,7 +152,7 @@ interface Rig {
   /** What the Issuer's start reported. */
   readonly started: string;
   readonly standIn: EntraStandIn;
-  readonly grants: GrantsStore;
+  readonly grants: RacingGrants;
   readonly layer: QueryLayer;
   /** Client ID metadata documents the agents publish, by URL. */
   readonly documents: Map<string, object>;
@@ -139,7 +189,7 @@ async function startRig(
     defaultBatteryThresholdPct: 20,
   });
   await settings.seedAgents([DOCUMENT_AGENT, REGISTERING_AGENT], never());
-  const grants = new GrantsStore({ store: layer, clock });
+  const grants = new RacingGrants({ store: layer, clock });
 
   let route: (
     request: IncomingMessage,
@@ -393,6 +443,14 @@ async function metadataOf(rig: Rig): Promise<AuthorizationServerMetadata> {
   return metadata;
 }
 
+/** An agent's code, after the authorization and the owner's sign-in, before the exchange. */
+interface Authorized {
+  readonly metadata: AuthorizationServerMetadata;
+  readonly code: string;
+  readonly iss: string;
+  readonly codeVerifier: string;
+}
+
 /** Links an agent: the authorization, the owner's sign-in, and the code exchange. */
 async function link(
   rig: Rig,
@@ -401,6 +459,32 @@ async function link(
   scope = "read",
   jars?: Map<string, Map<string, string>>,
 ): Promise<Tokens> {
+  const { metadata, code, iss, codeVerifier } = await authorize(
+    rig,
+    clientId,
+    redirectUri,
+    scope,
+    jars,
+  );
+  return exchangeAuthorization(rig.issuerUrl, {
+    metadata,
+    clientInformation: { client_id: clientId },
+    authorizationCode: code,
+    iss,
+    codeVerifier,
+    redirectUri,
+    resource: new URL(rig.resource),
+  });
+}
+
+/** The authorization and the owner's sign-in, up to the agent's code. */
+async function authorize(
+  rig: Rig,
+  clientId: string,
+  redirectUri: string,
+  scope = "read",
+  jars?: Map<string, Map<string, string>>,
+): Promise<Authorized> {
   const metadata = await metadataOf(rig);
   const { authorizationUrl, codeVerifier } = await startAuthorization(
     rig.issuerUrl,
@@ -417,22 +501,20 @@ async function link(
   if (code === null) {
     throw new Error(`The link failed: ${reply.get("error") ?? "no code"}`);
   }
-  return exchangeAuthorization(rig.issuerUrl, {
-    metadata,
-    clientInformation: { client_id: clientId },
-    authorizationCode: code,
-    iss: reply.get("iss") ?? "",
-    codeVerifier,
-    redirectUri,
-    resource: new URL(rig.resource),
-  });
+  return { metadata, code, iss: reply.get("iss") ?? "", codeVerifier };
+}
+
+/** A token endpoint's answer, as it came. */
+interface TokenReply {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
 }
 
 /** One token request, answered as it came. */
 async function tokenRequest(
   rig: Rig,
   form: Readonly<Record<string, string>>,
-): Promise<{ status: number; body: Record<string, unknown> }> {
+): Promise<TokenReply> {
   const response = await fetch(`${rig.issuerUrl}/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -448,7 +530,7 @@ function refresh(
   rig: Rig,
   clientId: string,
   refreshToken: string,
-): Promise<{ status: number; body: Record<string, unknown> }> {
+): Promise<TokenReply> {
   return tokenRequest(rig, {
     grant_type: "refresh_token",
     client_id: clientId,
@@ -991,6 +1073,69 @@ describe("the Issuer", () => {
           never(),
         ),
       ).toBeUndefined();
+    });
+
+    // CP-15's review: two redemptions of one code or refresh token at the same moment both read it
+    // before either marks it used. Only one may pass, and the grant ends as it does for a reuse, so
+    // a stolen token raced against the agent's own cannot slip past the reuse check.
+    async function expectOneThroughAndTheGrantEnded(
+      replies: readonly TokenReply[],
+    ): Promise<void> {
+      expect(replies.map((reply) => reply.status).sort()).toEqual([200, 400]);
+      const passed = replies.find((reply) => reply.status === 200);
+      const refused = replies.find((reply) => reply.status === 400);
+      expect(refused?.body).toMatchObject({ error: "invalid_grant" });
+
+      expect(
+        await rig.issuer.checkAccessToken(
+          textOf(passed?.body.access_token),
+          never(),
+        ),
+      ).toEqual({ kind: "invalid" });
+      expect(
+        await refresh(
+          rig,
+          DOCUMENT_AGENT.client_id,
+          textOf(passed?.body.refresh_token),
+        ),
+      ).toMatchObject({ status: 400, body: { error: "invalid_grant" } });
+    }
+
+    it("lets one of two simultaneous uses of a refresh token through, and ends the grant", async () => {
+      const refreshToken = textOf((await linked()).refresh_token);
+      rig.grants.race("RefreshToken", 2);
+
+      const replies = await Promise.all([
+        refresh(rig, DOCUMENT_AGENT.client_id, refreshToken),
+        refresh(rig, DOCUMENT_AGENT.client_id, refreshToken),
+      ]);
+
+      await expectOneThroughAndTheGrantEnded(replies);
+    });
+
+    it("lets one of two simultaneous exchanges of an authorization code through, and ends the grant", async () => {
+      const redirectUri = textOf(DOCUMENT_AGENT.redirect_uris[0]);
+      const { code, codeVerifier } = await authorize(
+        rig,
+        DOCUMENT_AGENT.client_id,
+        redirectUri,
+      );
+      rig.grants.race("AuthorizationCode", 2);
+      const exchange = {
+        grant_type: "authorization_code",
+        client_id: DOCUMENT_AGENT.client_id,
+        code,
+        code_verifier: codeVerifier,
+        redirect_uri: redirectUri,
+        resource: rig.resource,
+      };
+
+      const replies = await Promise.all([
+        tokenRequest(rig, exchange),
+        tokenRequest(rig, exchange),
+      ]);
+
+      await expectOneThroughAndTheGrantEnded(replies);
     });
   });
 

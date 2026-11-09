@@ -42,7 +42,7 @@ These are recorded client needs. The discovery paths themselves come from the pr
 | Listed agents only; CIMD preferred, DCR as the fallback (DCR is deprecated in the 2026-07-28 era) | SC1, SC §Evidence |
 | The authorization-server metadata advertises PKCE `S256` | SC §Evidence (ChatGPT) |
 | For CIMD it advertises `client_id_metadata_document_supported: true` and `none` in `token_endpoint_auth_methods_supported` | SC §Evidence (Claude) |
-| Access tokens last 1 hour. Refresh tokens rotate and end after 30 days unused or 90 days at most; a dead refresh token answers `invalid_grant` | FR-029, SC1, SC §Evidence |
+| Access tokens last 1 hour. Refresh tokens rotate and end after 30 days unused or 90 days at most; a dead refresh token answers `invalid_grant`. A refresh token or code used twice, even at the same moment, ends its grant: every token from it is refused, and the owner links the agent again | FR-029, SC1, SC §Evidence, DRIFT-001-45 |
 | Signing keys live in Key Vault, are rotated every 90 days by the Scheduler and Admin, and the old key is kept for checking | SC4, CD-A1 |
 | Tokens and confirmations are bound to the owner's `sub` and the client | SC3 |
 | Only the owner signs in: the ID token's object id (`oid`) must be the configured owner's, and every sign-in is refused while none is configured. The app registration also requires assignment, with only the owner assigned. The sign-in asks for `openid profile`, since Entra sends `oid` only with `profile` | the owner's choice (c), 2026-11-08 (DRIFT-001-39) |

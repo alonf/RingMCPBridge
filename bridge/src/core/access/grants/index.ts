@@ -3,7 +3,11 @@
 
 /** The store, the models it keeps by their id's hash, and the DTOs it declares. */
 export { GrantsStore, HASHED_MODELS } from "./grants-store.ts";
-export type { GrantPayload, GrantsStoreOptions } from "./grants-store.ts";
+export type {
+  ConsumeOutcome,
+  GrantPayload,
+  GrantsStoreOptions,
+} from "./grants-store.ts";
 
 /** The error every operation throws: `unavailable` or `failed`. */
 export { GrantsStoreError } from "./grants-store-error.ts";

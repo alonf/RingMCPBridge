@@ -3,11 +3,22 @@
 **Schema**: v2
 **Last Completed Task**: T025
 **Tasks Remaining**: T026-T036 (11 tasks, 13 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: CP-15's review is signed off; its one follow-up (a code or refresh token redeemed twice at once) is fixed first, then T026 (the Lease accessor)
+**In Progress**: CP-15's review follow-up is fixed (DRIFT-001-45); next, T026 (the Lease accessor)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-09T19:28:02Z
+**Updated**: 2026-11-09T19:54:53Z
 
 ## Execution Summary
+
+- **CP-15's review follow-up is fixed** (2026-11-09; DRIFT-001-45):
+  - A code or refresh token redeemed twice at the same moment no longer gets two sets of tokens. The store marks it used in one statement, and the request that loses is refused. When it was used already, the grant ends, so the other request's new tokens stop working too, as for any reuse.
+  - The two races are tested at the Issuer: both requests read the token before either marks it. On today's code before the fix, both answered 200.
+  - SQL Server test databases now run with read-committed snapshot, Azure SQL's default, and the whole suite passes that way.
+  - About 1 SP against an estimate of 0.5 (estimates), and $0. Deliberate breaks: 12, all caught.
+  - **Checks**:
+    - 1,062 tests: 957 pass and 105 skip without SQL Server;
+    - with SQL Server on 2 workers, with snapshot reads, 1,050 pass and 12 skip;
+    - coverage with SQL Server: 97.6% of lines and 93.3% of branches;
+    - lint, tsc, prettier and depcruise (243 modules) clean.
 
 - **CP-15's review is signed off** (2026-11-09):
   - One round (run-20261109-185805237-2a0a159a, about 13 minutes, $0) found nothing in T024 or T025.

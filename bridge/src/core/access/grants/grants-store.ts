@@ -46,6 +46,15 @@ export const HASHED_MODELS: ReadonlySet<string> = new Set([
 /** One record as oidc-provider hands it over and expects it back: JSON-ready data. */
 export type GrantPayload = Readonly<Record<string, unknown>>;
 
+/**
+ * What `consume` did: marked the record used; found it used already, with the grant it belongs to;
+ * or found nothing to use (never saved, removed, or its time is up).
+ */
+export type ConsumeOutcome =
+  | { readonly kind: "consumed" }
+  | { readonly kind: "already_used"; readonly grantId: string | undefined }
+  | { readonly kind: "not_found" };
+
 /** What Grants is wired with. */
 export interface GrantsStoreOptions {
   /** The core's database (Azure SQL in mode H, SQLite in mode A), migrated by the Host. */
@@ -66,11 +75,19 @@ const SELECT_BY_UID = `SELECT data FROM oidc_item WHERE model = @model AND uid =
 const DELETE_BY_ID = "DELETE FROM oidc_item WHERE model = @model AND id = @id";
 const DELETE_BY_GRANT =
   "DELETE FROM oidc_item WHERE model = @model AND grant_id = @grant_id";
+// A grant's own record has the grant's id as its id; every other record names it in `grant_id`.
+const DELETE_GRANT =
+  "DELETE FROM oidc_item WHERE grant_id = @grant_id OR (model = 'Grant' AND id = @grant_id)";
+// Marks only a record that is unused and whose time is not up, so one statement decides which of
+// two redemptions at the same moment wins. On SQL Server the UPDATE reads the rows it changes with
+// locks even under read-committed snapshot, so the loser sees the winner's mark and changes nothing.
 const CONSUME: Readonly<Record<SqlDialect, string>> = {
-  sqlite:
-    "UPDATE oidc_item SET data = json_set(data, '$.consumed', @consumed) WHERE model = @model AND id = @id",
-  tsql: "UPDATE oidc_item SET data = JSON_MODIFY(data, '$.consumed', @consumed) WHERE model = @model AND id = @id",
+  sqlite: `UPDATE oidc_item SET data = json_set(data, '$.consumed', @consumed) WHERE model = @model AND id = @id AND json_extract(data, '$.consumed') IS NULL AND ${NOT_EXPIRED}`,
+  tsql: `UPDATE oidc_item SET data = JSON_MODIFY(data, '$.consumed', @consumed) WHERE model = @model AND id = @id AND JSON_VALUE(data, '$.consumed') IS NULL AND ${NOT_EXPIRED}`,
 };
+// After a lost claim: the record as it is, its time up or not, to tell a reuse from nothing to use.
+const SELECT_ANY_BY_ID =
+  "SELECT grant_id, data FROM oidc_item WHERE model = @model AND id = @id";
 
 /** The Issuer's records. One per core process, over the core's database. */
 export class GrantsStore {
@@ -180,21 +197,48 @@ export class GrantsStore {
   }
 
   /**
-   * Marks a record used, in one statement: `consumed` becomes the time in seconds since 1970, as
-   * oidc-provider's own adapter sets it. A reused code or refresh token is then refused.
+   * Marks a record used if it is unused and its time is not up, in one statement, so of two
+   * redemptions at the same moment only one marks it (CP-15's review). `consumed` becomes the time
+   * in seconds since 1970, as oidc-provider's own adapter sets it. When nothing is marked, says
+   * whether the record was used already, and by which grant, or is not there to use.
    */
-  async consume(model: string, id: string, signal: AbortSignal): Promise<void> {
-    const consumed = Math.floor(this.#clock.now() / MS_PER_SECOND);
-    await this.#guard(signal, "The record could not be updated.", () =>
-      this.#store.run(
-        statement(CONSUME[this.#store.dialect], {
-          consumed,
-          model,
-          id: storedId(model, id),
-        }),
+  async consume(
+    model: string,
+    id: string,
+    signal: AbortSignal,
+  ): Promise<ConsumeOutcome> {
+    const now = this.#clock.now();
+    const stored = storedId(model, id);
+    const marked = await this.#guard(
+      signal,
+      "The record could not be updated.",
+      () =>
+        this.#store.run(
+          statement(CONSUME[this.#store.dialect], {
+            consumed: Math.floor(now / MS_PER_SECOND),
+            model,
+            id: stored,
+            now,
+          }),
+          signal,
+        ),
+    );
+    if (marked > 0) {
+      return { kind: "consumed" };
+    }
+    const row = await this.#guard(signal, "The record could not be read.", () =>
+      this.#store.get(
+        statement(SELECT_ANY_BY_ID, { model, id: stored }),
         signal,
       ),
     );
+    if (row === undefined || payloadOf(row).consumed === undefined) {
+      return { kind: "not_found" };
+    }
+    return {
+      kind: "already_used",
+      grantId: typeof row.grant_id === "string" ? row.grant_id : undefined,
+    };
   }
 
   /** Removes one record. Removing one that is not there does nothing. */
@@ -221,6 +265,16 @@ export class GrantsStore {
         statement(DELETE_BY_GRANT, { model, grant_id: grantId }),
         signal,
       ),
+    );
+  }
+
+  /**
+   * Ends a grant: removes the grant's own record and every record that belongs to it, of every
+   * model, in one statement. A token saved under the grant later is refused too: its grant is gone.
+   */
+  async revokeGrant(grantId: string, signal: AbortSignal): Promise<void> {
+    await this.#guard(signal, "The grant could not be removed.", () =>
+      this.#store.run(statement(DELETE_GRANT, { grant_id: grantId }), signal),
     );
   }
 
