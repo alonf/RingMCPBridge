@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 46
+**Total drift events**: 47
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,43 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-47: T027 part 1: Config's settings for each run mode
+
+- **Detected**: 2026-11-09, implement, while doing T027
+- **Kind**: details the records leave open, versus the code. No spec change
+- **Observed and decided**:
+  - Config read only six common settings. Each run mode now adds its own, read once the mode is known. An error names every bad variable of both groups, never a value.
+  - **Mode H's core**:
+    - `BRIDGE_PUBLIC_URL`, the core's public origin. The Issuer (`/oauth`), the MCP endpoint (`/mcp`), the link (`/link`) and the sign-in return hang off it, and its host is the one the MCP endpoint answers to. Those uses come with part 4.
+    - `BRIDGE_PORT`, 8080 by default.
+    - `BRIDGE_TRUST_PROXY`, off by default.
+    - `BRIDGE_SQL_SERVER` and `BRIDGE_SQL_DATABASE`, `BRIDGE_KEY_VAULT_URL`, and `BRIDGE_MANAGED_IDENTITY_CLIENT_ID`.
+    - `BRIDGE_ENTRA_TENANT_ID` and `BRIDGE_ENTRA_CLIENT_ID`.
+    - `BRIDGE_OWNER_OBJECT_ID`. Unset, every sign-in is refused (DRIFT-001-39).
+    - `BRIDGE_AGENTS`, the listed agents as JSON, checked strictly. Unset means none, and since the listing is seeded from it at each start, an agent left out is removed.
+  - **The connector**:
+    - `BRIDGE_CORE_URL`, `wss:` only. This closes DRIFT-001-25's carry-forward: the config refuses a URL that is not `wss:`.
+    - `BRIDGE_DATA_DIR` (the outbox and the Secrets File) and `BRIDGE_SECRETS_KEY_FILE` (the key, kept apart).
+    - `BRIDGE_FFMPEG_PATH`, `ffmpeg` from the path by default.
+    - `BRIDGE_ENROLLMENT_CODE`, optional, until T028 keeps the code in the Secrets File.
+  - **Mode A**: `BRIDGE_DATA_DIR`, `BRIDGE_SECRETS_KEY_FILE` and `BRIDGE_FFMPEG_PATH`.
+  - Plain `http:` or `ws:` is accepted only to this machine, for local runs. A URL with a user name or password is refused.
+  - The variable names and defaults are [P].
+- **Requirement citation**: tasks.md T027; data-model.md "Configuration"; DRIFT-001-25, DRIFT-001-39 and DRIFT-001-46.
+- **Resolution**: implementation choices, recorded for CP-10's co-review. About 0.5 SP (estimate) and $0.
+- **Class closure**: 35 Config tests, at 100% of lines and branches. Deliberate breaks: 11, all caught:
+  - an `https:` core URL;
+  - plain `ws:` off this machine;
+  - a public URL with a path;
+  - a URL with a password;
+  - an agent with unknown fields;
+  - proxy trust on by default;
+  - an unset owner kept as a key;
+  - an unbounded enrollment code;
+  - the mode's errors dropped when a common one fails;
+  - settings frozen only at the top;
+  - an empty value counted as set.
 
 ### DRIFT-001-46: T026's Lease: the hold ends before the row, and what T027 must decide
 

@@ -4,7 +4,26 @@
 export { loadSettings, SETTING_VARIABLES } from "./settings.ts";
 
 /** The checked settings and the run mode. */
-export type { RunMode, Settings, SettingsLogLevel } from "./settings.ts";
+export type {
+  CommonSettings,
+  RunMode,
+  Settings,
+  SettingsLogLevel,
+} from "./settings.ts";
+
+/** Each run mode's own settings, and the variables behind them (T027). */
+export {
+  CORE_HOST_VARIABLES,
+  HOME_VARIABLES,
+  LOCAL_VARIABLES,
+} from "./mode-settings.ts";
+export type {
+  CoreHostSettings,
+  HomeSettings,
+  ListedAgentScope,
+  ListedAgentSetting,
+  LocalSettings,
+} from "./mode-settings.ts";
 
 /** The utility's error: `invalid_settings`, naming the bad variables only. */
 export { ConfigError } from "./config-error.ts";

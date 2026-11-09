@@ -3,11 +3,16 @@
 **Schema**: v2
 **Last Completed Task**: T026
 **Tasks Remaining**: T027-T036 (10 tasks, 12 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: T026 (the Lease accessor) is done; next, T027 (the Host), which completes CP-10
+**In Progress**: T027 (the Host), in parts, each tested and committed (about 5 SP in all, estimate, against 1 + 0.5): (1) Config's per-mode settings, 0.5 SP, done (DRIFT-001-47); (2) the shared core and connector assembly, with the lease gating Connector Link and Event, 1 SP; (3) `all-in-one.ts`: mode A over stdio, the in-process link, the end-to-end test and the dev script, 1 SP; (4) mode H `core.ts`: Issuer (proxy trust, start retried until the key exists), Key Vault, T-SQL, HTTP routes, `/livez` and `/readyz`, 1 SP; (5) `connector.ts`: wiring, the owner's (y) restart rule, escaped errors logged, readiness, 1 SP; (6) `main.ts`, the Dockerfile and a real CI build, 0.5 SP. Then CP-10's review round
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-09T20:36:40Z
+**Updated**: 2026-11-09T21:09:13Z
 
 ## Execution Summary
+
+- **T027 part 1, Config's settings for each run mode, is built** (2026-11-09; DRIFT-001-47):
+  - Each run mode reads its own settings once the mode is known: the core's public URL, port, proxy trust, database, vault, identity, Entra app, owner and listed agents; the connector's core URL (`wss:` only), data folder, key file, ffmpeg and enrollment code; and mode A's data folder, key file and ffmpeg.
+  - An error names every bad variable, never a value.
+  - About 0.5 SP (estimate) and $0. 35 tests at 100% coverage; deliberate breaks: 11, all caught.
 
 - **T026, the Lease accessor, is built** (2026-11-09; DRIFT-001-46):
   - One row per Ring account, renewed every 15 s, expiring 45 s after the last renewal. One statement takes or keeps it, so only one instance holds it, on SQLite and on SQL Server.

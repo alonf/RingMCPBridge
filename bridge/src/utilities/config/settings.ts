@@ -1,8 +1,23 @@
 // Start-up settings from the environment, checked with zod (CD5: values tuned in the pilot).
 // Iteration 001's values; later iterations add theirs here. Defaults are the recorded ones
-// (data-model.md "Configuration").
+// (data-model.md "Configuration"). Each run mode adds its own section (T027, mode-settings.ts).
 import { z } from "zod";
 import { ConfigError } from "./config-error.ts";
+import {
+  CORE_HOST_SCHEMA,
+  CORE_HOST_VARIABLES,
+  HOME_SCHEMA,
+  HOME_VARIABLES,
+  LOCAL_SCHEMA,
+  LOCAL_VARIABLES,
+} from "./mode-settings.ts";
+import type {
+  CoreHostSettings,
+  HomeSettings,
+  LocalSettings,
+} from "./mode-settings.ts";
+import { readSection } from "./section.ts";
+import type { SectionResult } from "./section.ts";
 
 const READS_PER_HOUR_DEFAULT = 600;
 const BATTERY_THRESHOLD_PCT_DEFAULT = 20;
@@ -20,8 +35,8 @@ export type RunMode = "core" | "connector" | "all-in-one";
 /** The log levels, matching the Logging utility's. */
 export type SettingsLogLevel = "debug" | "info" | "warn" | "error";
 
-/** The checked start-up settings. */
-export interface Settings {
+/** The settings every mode reads. */
+export interface CommonSettings {
   readonly mode: RunMode;
   readonly logLevel: SettingsLogLevel;
   /** Read tool calls allowed per agent per hour (FR-026, SC6). */
@@ -34,7 +49,22 @@ export interface Settings {
   readonly eventRetentionDays: number;
 }
 
-/** The environment variable behind each setting. */
+/** The checked start-up settings: the common ones and the run mode's own. */
+export type Settings =
+  | (CommonSettings & {
+      readonly mode: "core";
+      readonly core: CoreHostSettings;
+    })
+  | (CommonSettings & {
+      readonly mode: "connector";
+      readonly home: HomeSettings;
+    })
+  | (CommonSettings & {
+      readonly mode: "all-in-one";
+      readonly local: LocalSettings;
+    });
+
+/** The environment variable behind each common setting. */
 export const SETTING_VARIABLES = {
   mode: "BRIDGE_MODE",
   logLevel: "BRIDGE_LOG_LEVEL",
@@ -59,62 +89,95 @@ function wholeNumber(
     .transform((value) => value ?? defaultValue);
 }
 
-const SETTINGS_SCHEMA = z.object({
-  mode: z.enum(["core", "connector", "all-in-one"]),
-  logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
-  readsPerHour: wholeNumber(READS_PER_HOUR_DEFAULT, 1, MAX_READS_PER_HOUR),
-  batteryThresholdPct: wholeNumber(
-    BATTERY_THRESHOLD_PCT_DEFAULT,
-    0,
-    MAX_PERCENT,
-  ),
-  staleAfterS: wholeNumber(STALE_AFTER_S_DEFAULT, 1, MAX_STALE_AFTER_S),
-  eventRetentionDays: wholeNumber(
-    EVENT_RETENTION_DAYS_DEFAULT,
-    1,
-    MAX_RETENTION_DAYS,
-  ),
-});
+const COMMON_SCHEMA = z
+  .object({
+    mode: z.enum(["core", "connector", "all-in-one"]),
+    logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
+    readsPerHour: wholeNumber(READS_PER_HOUR_DEFAULT, 1, MAX_READS_PER_HOUR),
+    batteryThresholdPct: wholeNumber(
+      BATTERY_THRESHOLD_PCT_DEFAULT,
+      0,
+      MAX_PERCENT,
+    ),
+    staleAfterS: wholeNumber(STALE_AFTER_S_DEFAULT, 1, MAX_STALE_AFTER_S),
+    eventRetentionDays: wholeNumber(
+      EVENT_RETENTION_DAYS_DEFAULT,
+      1,
+      MAX_RETENTION_DAYS,
+    ),
+  })
+  .transform(({ staleAfterS, ...rest }): CommonSettings => ({
+    ...rest,
+    staleAfterMs: staleAfterS * MS_PER_SECOND,
+  }));
 
-type SettingKey = keyof typeof SETTING_VARIABLES;
+type Environment = Readonly<Record<string, string | undefined>>;
 
-function isSettingKey(key: PropertyKey | undefined): key is SettingKey {
-  return typeof key === "string" && Object.hasOwn(SETTING_VARIABLES, key);
+/** The run mode's own settings. */
+type ModeSection =
+  | { readonly mode: "core"; readonly core: CoreHostSettings }
+  | { readonly mode: "connector"; readonly home: HomeSettings }
+  | { readonly mode: "all-in-one"; readonly local: LocalSettings };
+
+const RUN_MODE = z.enum(["core", "connector", "all-in-one"]);
+
+function modeSection(
+  mode: RunMode,
+  environment: Environment,
+): SectionResult<ModeSection> {
+  switch (mode) {
+    case "core":
+      return mapSection(
+        readSection(CORE_HOST_SCHEMA, CORE_HOST_VARIABLES, environment),
+        (core) => ({ mode, core }),
+      );
+    case "connector":
+      return mapSection(
+        readSection(HOME_SCHEMA, HOME_VARIABLES, environment),
+        (home) => ({ mode, home }),
+      );
+    case "all-in-one":
+      return mapSection(
+        readSection(LOCAL_SCHEMA, LOCAL_VARIABLES, environment),
+        (local) => ({ mode, local }),
+      );
+  }
 }
 
-/** Empty values count as unset, so `BRIDGE_LOG_LEVEL=` falls back to the default. */
-function readVariables(
-  environment: Readonly<Record<string, string | undefined>>,
-): Record<SettingKey, string | undefined> {
-  const read = (variable: string): string | undefined => {
-    const value = environment[variable];
-    return value === "" ? undefined : value;
-  };
-  return {
-    mode: read(SETTING_VARIABLES.mode),
-    logLevel: read(SETTING_VARIABLES.logLevel),
-    readsPerHour: read(SETTING_VARIABLES.readsPerHour),
-    batteryThresholdPct: read(SETTING_VARIABLES.batteryThresholdPct),
-    staleAfterS: read(SETTING_VARIABLES.staleAfterS),
-    eventRetentionDays: read(SETTING_VARIABLES.eventRetentionDays),
-  };
+function mapSection<T>(
+  section: SectionResult<T>,
+  build: (value: T) => ModeSection,
+): SectionResult<ModeSection> {
+  return section.ok ? { ok: true, value: build(section.value) } : section;
 }
 
 /**
- * Reads and checks the settings. Throws `ConfigError` (`invalid_settings`) naming every bad
- * variable; the error never holds a value, which could be a pasted secret (FR-034).
+ * Reads and checks the settings: the common ones and, once the run mode is known, the mode's own.
+ * Throws `ConfigError` (`invalid_settings`) naming every bad variable of both; the error never holds
+ * a value, which could be a pasted secret (FR-034).
  */
-export function loadSettings(
-  environment: Readonly<Record<string, string | undefined>>,
-): Settings {
-  const parsed = SETTINGS_SCHEMA.safeParse(readVariables(environment));
-  if (!parsed.success) {
-    const keys = parsed.error.issues
-      .map((issue) => issue.path[0])
-      .filter(isSettingKey);
-    const variables = [...new Set(keys)].map((key) => SETTING_VARIABLES[key]);
-    throw new ConfigError("invalid_settings", variables);
+export function loadSettings(environment: Environment): Settings {
+  const common = readSection(COMMON_SCHEMA, SETTING_VARIABLES, environment);
+  const mode = RUN_MODE.safeParse(environment[SETTING_VARIABLES.mode]);
+  const section = mode.success
+    ? modeSection(mode.data, environment)
+    : undefined;
+  if (!common.ok || section?.ok !== true) {
+    const failed = [
+      ...(common.ok ? [] : common.variables),
+      ...(section === undefined || section.ok ? [] : section.variables),
+    ];
+    throw new ConfigError("invalid_settings", failed);
   }
-  const { staleAfterS, ...rest } = parsed.data;
-  return Object.freeze({ ...rest, staleAfterMs: staleAfterS * MS_PER_SECOND });
+  return deepFreeze({ ...common.value, ...section.value });
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === "object" && value !== null) {
+    for (const inner of Object.values(value)) {
+      deepFreeze(inner);
+    }
+    Object.freeze(value);
+  }
+  return value;
 }
