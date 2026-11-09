@@ -3,11 +3,18 @@
 **Schema**: v2
 **Last Completed Task**: T025
 **Tasks Remaining**: T026-T036 (11 tasks, 13 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: T025 (the read rate limit) is done, which completes CP-15's tasks; its review round waits for the owner's approval; then T026 (the Lease accessor)
+**In Progress**: CP-15's review is signed off; its one follow-up (a code or refresh token redeemed twice at once) is fixed first, then T026 (the Lease accessor)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-08T23:41:54Z
+**Updated**: 2026-11-09T19:28:02Z
 
 ## Execution Summary
+
+- **CP-15's review is signed off** (2026-11-09):
+  - One round (run-20261109-185805237-2a0a159a, about 13 minutes, $0) found nothing in T024 or T025.
+  - It found one problem in the Issuer's token store, built in CP-16. The owner chose to stop the review there and to have it fixed as a follow-up before T026:
+    - when a code or refresh token is redeemed, the store checks it is unused, reads the database a few more times, then marks it used. Two requests with the same token at the same moment can both pass, so a stolen refresh token raced against the agent's own refresh escapes the reuse check that would end the grant.
+  - The reviewer called it major; Specrew demoted it to minor because it named no concrete failure scenario. The scenario above is ours, from reading oidc-provider's code.
+  - CP-15 took about 4 SP against its estimate of 2 (estimates).
 
 - **T025, the read rate limit, is built** (2026-11-09; DRIFT-001-44):
   - Each agent may make 600 reads in any hour (Config's `readsPerHour`), counted in memory. A read over the limit answers `RATE_LIMITED` with the seconds until a read is free, and a refused read does not count.
