@@ -16,6 +16,7 @@
   - Its status says why an instance lacks the lease, for `/readyz`.
   - For T027: the lease's name (one per deployment), wiring the connector link and State writes to it, and how the first migration runs before the `lease` table exists.
   - About 1 SP against an estimate of 1 (estimates), and $0. Deliberate breaks: 19, all caught; two missed at first, and each got a test.
+  - **CI flake**: CI's first run on 9d663d8 failed three timing-based SQL Server tests in `tsql.test.ts`, which cut a connection a set time after a statement starts. A rerun passed. The Lease tests had made 13 SQL Server databases at the same moment. They now share one database per run, with a lease name per test, taking 6 s instead of 17 s locally; the 19 breaks are still all caught.
   - **Checks**:
     - 1,093 tests: 972 pass and 121 skip without SQL Server;
     - with SQL Server on 2 workers, 1,080 pass and 13 skip;

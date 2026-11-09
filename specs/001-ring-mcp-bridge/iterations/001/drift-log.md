@@ -1199,6 +1199,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Class closure**: the tests run on SQLite and on SQL Server: one holder of two and of five, renewal for 5 minutes, a lapse with the holder's database down and the handover only after the row expires, a return, clocks 15 s apart, a clock past the margin, a handover on stop, a release after the write in flight, a write past its deadline, a slow write, and start and stop guards. Deliberate breaks: 19, all caught. Two missed at first, and each got a test:
   - a renewal that finds another holder keeping the hold;
   - a start after stop leaving a timer.
+  - CI: the Lease tests share one database per run, after CI's first run on 9d663d8 failed three timing-based tests in `tsql.test.ts` while they made 13 databases at once; a rerun passed.
 
 ### DRIFT-001-45: CP-15's review follow-up: a code or refresh token redeemed twice at once
 

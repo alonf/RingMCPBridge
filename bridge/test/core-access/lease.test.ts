@@ -23,7 +23,7 @@ import type {
 import { describeStoreMatrix, requireSqlServerInCi } from "../support/index.ts";
 
 const START = Date.UTC(2026, 10, 9, 9, 0, 0);
-const ACCOUNT = "ring-account-1";
+const ACCOUNT = "ring-account";
 const SECOND_MS = 1000;
 
 function never(): AbortSignal {
@@ -87,11 +87,28 @@ function testStore(layer: QueryLayer): TestStore {
 requireSqlServerInCi();
 
 describeStoreMatrix("Lease", (database) => {
-  async function setUp(): Promise<{ layer: QueryLayer; clock: FakeClock }> {
-    const clock = new FakeClock(START);
+  // One database for the file, migrated once. Each test takes a lease of its own name, so the
+  // tests stay apart without each making a database, which loads CI's shared SQL Server.
+  let shared: Promise<QueryLayer> | undefined;
+  let tests = 0;
+  let account = ACCOUNT;
+
+  async function migrated(): Promise<QueryLayer> {
     const layer = await database.emptyDatabase();
-    await runMigrations(layer, CORE_MIGRATIONS, { clock }, never());
-    return { layer, clock };
+    await runMigrations(
+      layer,
+      CORE_MIGRATIONS,
+      { clock: new FakeClock(START) },
+      never(),
+    );
+    return layer;
+  }
+
+  async function setUp(): Promise<{ layer: QueryLayer; clock: FakeClock }> {
+    shared ??= migrated();
+    tests += 1;
+    account = `${ACCOUNT}-${String(tests)}`;
+    return { layer: await shared, clock: new FakeClock(START) };
   }
 
   function leaseFor(
@@ -99,7 +116,7 @@ describeStoreMatrix("Lease", (database) => {
     clock: FakeClock,
     holder: string,
   ): Lease {
-    return new Lease({ store, clock, name: ACCOUNT, holder });
+    return new Lease({ store, clock, name: account, holder });
   }
 
   /** Moves every clock on by `ms`, then waits for each lease's write in flight. */
@@ -403,9 +420,9 @@ describeStoreMatrix("Lease", (database) => {
 
     for (const [name, holder] of [
       ["", "core-a"],
-      [ACCOUNT, ""],
+      [account, ""],
       ["n".repeat(129), "core-a"],
-      [ACCOUNT, "h".repeat(129)],
+      [account, "h".repeat(129)],
     ] as const) {
       expect(() => new Lease({ store: layer, clock, name, holder })).toThrow(
         RangeError,
