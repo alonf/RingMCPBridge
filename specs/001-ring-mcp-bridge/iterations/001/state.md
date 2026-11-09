@@ -1,13 +1,26 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T025
-**Tasks Remaining**: T026-T036 (11 tasks, 13 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: CP-15's review follow-up is fixed (DRIFT-001-45); next, T026 (the Lease accessor)
+**Last Completed Task**: T026
+**Tasks Remaining**: T027-T036 (10 tasks, 12 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
+**In Progress**: T026 (the Lease accessor) is done; next, T027 (the Host), which completes CP-10
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-09T19:54:53Z
+**Updated**: 2026-11-09T20:36:40Z
 
 ## Execution Summary
+
+- **T026, the Lease accessor, is built** (2026-11-09; DRIFT-001-46):
+  - One row per Ring account, renewed every 15 s, expiring 45 s after the last renewal. One statement takes or keeps it, so only one instance holds it, on SQLite and on SQL Server.
+  - The holder stops counting on the lease 15 s before its row expires. Two instances whose clocks differ by up to 15 s never both hold it.
+  - Fail closed: a renewal that finds another holder drops the hold at once, and a failed or slow write lets it run out. A stopped instance hands the lease over at the other instance's next renewal.
+  - Its status says why an instance lacks the lease, for `/readyz`.
+  - For T027: the lease's name (one per deployment), wiring the connector link and State writes to it, and how the first migration runs before the `lease` table exists.
+  - About 1 SP against an estimate of 1 (estimates), and $0. Deliberate breaks: 19, all caught; two missed at first, and each got a test.
+  - **Checks**:
+    - 1,093 tests: 972 pass and 121 skip without SQL Server;
+    - with SQL Server on 2 workers, 1,080 pass and 13 skip;
+    - coverage with SQL Server: 97.7% of lines and 93.4% of branches;
+    - lint, tsc, prettier and depcruise (246 modules) clean.
 
 - **CP-15's review follow-up is fixed** (2026-11-09; DRIFT-001-45):
   - A code or refresh token redeemed twice at the same moment no longer gets two sets of tokens. The store marks it used in one statement, and the request that loses is refused. When it was used already, the grant ends, so the other request's new tokens stop working too, as for any reuse.

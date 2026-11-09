@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 45
+**Total drift events**: 46
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,32 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-46: T026's Lease: the hold ends before the row, and what T027 must decide
+
+- **Detected**: 2026-11-09, implement, while doing T026
+- **Kind**: details the records leave open, versus the code. No spec change
+- **Observed and decided**:
+  - **One statement takes or keeps the lease** on each dialect: SQLite's `INSERT … ON CONFLICT … DO UPDATE … WHERE`, and SQL Server's `MERGE … WITH (HOLDLOCK)`. It writes only when the row is absent, already this instance's, or expired. Five instances asking at once get one holder, on SQLite and on SQL Server with read-committed snapshot.
+  - **The hold ends 15 s before the row** [P]. The records say "renewed every 15 s, expiring after 45 s", and each instance compares times on its own clock. So the holder counts on the lease for 30 s from the start of its last successful renewal, while the row blocks others for 45 s. Two instances whose clocks differ by up to 15 s never both hold it.
+    - The time is read before the write, so a slow write stretches neither the hold nor the row.
+    - Between the holder's hold ending and the row expiring, nobody holds the lease: up to 15 s more of the fail-closed gap, and $0.
+  - **Fail closed**: a renewal that finds another holder drops the hold at once. A failed write, or one past its 10 s deadline [P], does not extend it, and the hold runs out by itself.
+  - **One write at a time**: a renewal while one is in flight joins it.
+  - **Stopping** drops the hold at once, waits for the write in flight, then removes only this instance's row, so the next instance takes over at its next renewal. A row it cannot remove expires by itself.
+  - **Status for `/readyz`**: held until a time, or not held with a reason: `not_started`, `held_elsewhere`, `store_unavailable`, `expired` or `stopped` [P].
+  - **The holder's id** is the Host's choice, or a random one by default [P].
+  - Lease takes only `dialect` and `run` from the Query layer, so its tests take one instance's database down or slow on its own.
+- **Carried forward to T027**:
+  - **The lease's name.** The core has no Ring account key: one deployment serves one Ring account, with one home part (data-model.md, Settings). T027 names the lease with one fixed value per deployment.
+  - **What the lease gates in iteration 001.** `connector-link.ts` and `event-manager.ts` say the lease keeps one core running them. T027 wires that: without the lease, the core does not run the connector link or write State.
+  - **Migrations "under the lease"** (research.md, "Migrations"). On an empty database the `lease` table does not exist until migration 1 runs. T027 decides how the first migration runs.
+  - `/readyz` reads `status`.
+- **Requirement citation**: tasks.md T026; FR-044; data-model.md "Single writer" and the Lease row; research.md R25 "Single-instance lease"; spec Edge Cases "A second bridge instance starts".
+- **Resolution**: implementation choices, recorded for CP-10's co-review. About 1 SP against an estimate of 1 (estimates), and $0.
+- **Class closure**: the tests run on SQLite and on SQL Server: one holder of two and of five, renewal for 5 minutes, a lapse with the holder's database down and the handover only after the row expires, a return, clocks 15 s apart, a clock past the margin, a handover on stop, a release after the write in flight, a write past its deadline, a slow write, and start and stop guards. Deliberate breaks: 19, all caught. Two missed at first, and each got a test:
+  - a renewal that finds another holder keeping the hold;
+  - a start after stop leaving a timer.
 
 ### DRIFT-001-45: CP-15's review follow-up: a code or refresh token redeemed twice at once
 

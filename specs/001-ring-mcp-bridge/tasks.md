@@ -377,7 +377,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 
 ### Host
 
-- [ ] T026 [US1] [assigned_to: Implementer] [effort: 1] Lease accessor in `bridge/src/core/access/lease/`:
+- [x] T026 [US1] [assigned_to: Implementer] [effort: 1] Lease accessor in `bridge/src/core/access/lease/`:
   - one lease row per Ring account, renewed every 15 s, expiring after 45 s;
   - an instance without the lease controls nothing (fail closed) and reports that it lacks the lease.
 
