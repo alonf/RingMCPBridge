@@ -12,6 +12,17 @@ import type { Clock } from "../utilities/clock/index.ts";
 import { LinkSlot } from "../utilities/link-transport/index.ts";
 import type { DialOutcome } from "../utilities/link-transport/index.ts";
 import type { Logger } from "../utilities/logging/index.ts";
+import type { SigningKeyPair } from "../utilities/security/index.ts";
+
+/** The home's outbox file in the data folder. */
+export const OUTBOX_FILE = "outbox.db";
+
+/** The home side's Ring port and key: from the Secrets File in production, or a simulated home. */
+export interface LocalHome {
+  readonly ring: RingPort;
+  readonly key: SigningKeyPair;
+  close(): Promise<void>;
+}
 
 /** What the home part's components are built over. */
 export interface HomeAssemblyOptions {

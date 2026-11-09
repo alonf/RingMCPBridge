@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 50
+**Total drift events**: 51
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,40 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-51: T027 part 5: the connector, and the owner's (y) for a stuck Ring connection
+
+- **Detected**: 2026-11-10, implement, while doing T027
+- **Kind**: details the records leave open, versus the code; one option added to CP-07's Ring Adapter. No spec change
+- **Observed and decided**:
+  - **The connector** (`host/connector.ts`) runs the home part over a home side it is handed: the Secrets File and the Ring Adapter in production (`startRingConnector`), a simulated home in the tests.
+    - It keeps its outbox (`outbox.db`) in the data folder, beside the Secrets File, with the Secrets File's key apart.
+    - It dials `BRIDGE_CORE_URL` with `dialLink`, and takes its version from the package.
+    - This closes DRIFT-001-23's carry-forward, with part 1's `wss:` check in Config.
+    - A forbidden import of Azure, oidc-provider or the SQL Server driver into `connector.ts` fails the dependency check, which only now can fire (DRIFT-001-49).
+  - **The owner's (y)** (DRIFT-001-35):
+    - The Ring Adapter gains `onConnectionStuck`. It hears, once, that a hub's live connection has stayed counted closed (past its 30 s grace) for 5 minutes more while no call to Ring failed.
+    - The check runs on every status update, not only on a change. A connection closed while calls fail stays `unavailable` when the calls recover, and the wait starts then.
+    - The connector hands it to `onFatal` as `ring_connection_stuck`. The process ends and its service restarts it; `main.ts` does that (part 6).
+    - The (y) choice's other half, logging a library error that escapes, belongs with the process handlers in `main.ts` (part 6).
+  - **Health** [P]: the connector serves no HTTP in iteration 001. Its link and Ring status reach the core in each heartbeat, so `get_health` and the admin page show the home link down after `core_link_failed`, and its own log says why. Its service restarts it when it exits. This settles DRIFT-001-23's carry-forward on readiness.
+  - **The enrollment code** comes from `BRIDGE_ENROLLMENT_CODE` until the Setup CLI keeps it in the Secrets File (T028). Without one, only an already enrolled key can link.
+  - **Still with T028**: an outbox lost while its key is kept, which restarts the home's version counter (DRIFT-001-36).
+  - `LocalHome` and the outbox's file name moved to `host/home-assembly.ts`, so the connector does not import mode A's file. The host tests share a core fixture.
+- **Requirement citation**: tasks.md T027; FR-005, FR-042; DRIFT-001-23, DRIFT-001-35, DRIFT-001-36.
+- **Resolution**: implementation choices, recorded for CP-10's co-review; the stuck option is a change to CP-07's code. About 1 SP against an estimate of 1 (estimates), and $0.
+- **Class closure**: the recurrence guards are these tests, each caught by a deliberate break:
+  - 4 new adapter tests:
+    - stuck, reported once even after a later call;
+    - not while calls fail;
+    - stuck 5 minutes after calls recover with the connection still closed;
+    - not once the connection opens again.
+  - 3 connector tests:
+    - enrolment with its code, the owner's approval, the link over a WebSocket, and the inventory in the core's State;
+    - "run the setup first" with no Secrets File;
+    - a stuck connection handed to `onFatal`.
+  - Deliberate breaks: 9, all caught, three of them forbidden imports into `connector.ts`. One, a stuck connection reported more than once, was missed at first and got the later call.
+  - 1,140 tests: 1,018 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,127 pass and 13 skip; coverage 97.7% of lines and 93.7% of branches.
 
 ### DRIFT-001-50: T027 part 4: mode H's core service, and the carry-forwards it closes
 

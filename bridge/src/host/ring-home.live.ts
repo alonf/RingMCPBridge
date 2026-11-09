@@ -13,7 +13,7 @@ import { RingApiAdapter } from "../connector/access/ring-adapter/ring-api-adapte
 import { createRingClient } from "../connector/access/ring-adapter/ring-client.live.ts";
 import type { Clock } from "../utilities/clock/index.ts";
 import type { Logger } from "../utilities/logging/index.ts";
-import type { LocalHome } from "./all-in-one.ts";
+import type { LocalHome } from "./home-assembly.ts";
 import { HostError } from "./host-error.ts";
 
 /** The Secrets File's name in the data folder; the Setup CLI makes it (T028). */
@@ -26,11 +26,16 @@ export interface RingHomeSettings {
   readonly ffmpegPath: string;
 }
 
-/** Opens the Secrets File and the Ring Adapter. Throws `HostError` (`setup_needed`) when there is no Secrets File yet. */
+/**
+ * Opens the Secrets File and the Ring Adapter. `onConnectionStuck` hears, once, that a hub's live
+ * connection has stayed closed for 5 minutes while Ring's calls work (the owner's (y)). Throws
+ * `HostError` (`setup_needed`) when there is no Secrets File yet.
+ */
 export async function openRingHome(
   settings: RingHomeSettings,
   clock: Clock,
   logger: Logger,
+  onConnectionStuck?: () => void,
 ): Promise<LocalHome> {
   const key = await readSecretsFileKey(settings.secretsKeyPath);
   const file = await SecretsFile.open({
@@ -54,6 +59,7 @@ export async function openRingHome(
     clock,
     logger,
     saveRefreshToken: (token) => file.update({ ringRefreshToken: token }),
+    ...(onConnectionStuck === undefined ? {} : { onConnectionStuck }),
   });
   return {
     ring,

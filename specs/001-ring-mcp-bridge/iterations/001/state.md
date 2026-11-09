@@ -3,11 +3,17 @@
 **Schema**: v2
 **Last Completed Task**: T026
 **Tasks Remaining**: T027-T036 (10 tasks, 12 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: T027 (the Host), in parts, each tested and committed (about 5 SP in all, estimate, against 1 + 0.5): (1) Config's per-mode settings, 0.5 SP, done (DRIFT-001-47); (2) the shared core and connector assembly, with the lease gating Connector Link and Event, 1 SP, done (DRIFT-001-48); (3) `all-in-one.ts`: mode A over stdio, the in-process link, the end-to-end test and the dev script, 1 SP, done in about 1.5 SP (DRIFT-001-49); (4) mode H `core.ts`: Issuer (proxy trust, start retried until the key exists), Key Vault, T-SQL, HTTP routes, `/livez` and `/readyz`, 1 SP, done in about 1.5 SP (DRIFT-001-50); (5) `connector.ts`: wiring, the owner's (y) restart rule, escaped errors logged, readiness, 1 SP; (6) `main.ts`, the Dockerfile and a real CI build, 0.5 SP. Then CP-10's review round
+**In Progress**: T027 (the Host), in parts, each tested and committed (about 5 SP in all, estimate, against 1 + 0.5): (1) Config's per-mode settings, 0.5 SP, done (DRIFT-001-47); (2) the shared core and connector assembly, with the lease gating Connector Link and Event, 1 SP, done (DRIFT-001-48); (3) `all-in-one.ts`: mode A over stdio, the in-process link, the end-to-end test and the dev script, 1 SP, done in about 1.5 SP (DRIFT-001-49); (4) mode H `core.ts`: Issuer (proxy trust, start retried until the key exists), Key Vault, T-SQL, HTTP routes, `/livez` and `/readyz`, 1 SP, done in about 1.5 SP (DRIFT-001-50); (5) `connector.ts`: wiring, the owner's (y) restart rule, escaped errors logged, readiness, 1 SP, done (DRIFT-001-51; escaped errors move to part 6's `main.ts`); (6) `main.ts`, the Dockerfile and a real CI build, 0.5 SP. Then CP-10's review round
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-09T22:47:40Z
+**Updated**: 2026-11-09T23:09:31Z
 
 ## Execution Summary
+
+- **T027 part 5, the connector, is built** (2026-11-10; DRIFT-001-51):
+  - The connector runs the home part, keeps its outbox in the data folder, and dials the core over WSS. Tested against mode H's core: it enrolls with its code, waits for the owner, links, and the home's inventory lands in the core's State.
+  - The owner's (y): a hub's live connection closed for 5 minutes while Ring's calls work is reported once, and the connector ends for its service to restart it.
+  - The connector serves no HTTP in iteration 001: its health reaches the core in each heartbeat.
+  - About 1 SP against an estimate of 1 (estimates), and $0. Deliberate breaks: 9, all caught.
 
 - **T027 part 4, mode H's core service, is built** (2026-11-10; DRIFT-001-50):
   - The core runs behind one HTTP server: the Issuer under `/oauth` (and its metadata at the standard path), the owner's sign-in return, `/mcp`, the home's link at `/link`, `/livez` and `/readyz`.

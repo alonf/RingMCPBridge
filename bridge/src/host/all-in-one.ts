@@ -20,7 +20,6 @@ import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { OutboxStore } from "../connector/access/outbox-store/index.ts";
-import type { RingPort } from "../connector/access/ring-adapter/index.ts";
 import type { LeaseTiming } from "../core/access/lease/index.ts";
 import type { SettingsStore } from "../core/access/settings/index.ts";
 import { McpEndpoint } from "../core/clients/mcp-endpoint/index.ts";
@@ -39,14 +38,13 @@ import { signingKeyId } from "../utilities/security/index.ts";
 import type { SigningKeyPair } from "../utilities/security/index.ts";
 import { assembleCore } from "./core-assembly.ts";
 import type { CoreAssembly } from "./core-assembly.ts";
-import { assembleHome } from "./home-assembly.ts";
+import { assembleHome, OUTBOX_FILE } from "./home-assembly.ts";
+import type { LocalHome } from "./home-assembly.ts";
 import { HostError } from "./host-error.ts";
 import { LEASE_CHECK_MS } from "./leased-links.ts";
 
 /** The core's database file in the data folder. */
 export const CORE_DATABASE_FILE = "bridge.db";
-/** The home's outbox file in the data folder. */
-export const OUTBOX_FILE = "outbox.db";
 /**
  * Mode A's lease timing [P]: renewed every 2 s, its row lasting 6 s. A copy of the process ended
  * without cleaning up holds the folder for at most 6 s.
@@ -65,13 +63,6 @@ const LOCAL_HOSTS = ["localhost"];
 const NO_TOKENS: AccessTokens = {
   checkAccessToken: () => Promise.resolve({ kind: "invalid" }),
 };
-
-/** The home side's Ring port and key. */
-export interface LocalHome {
-  readonly ring: RingPort;
-  readonly key: SigningKeyPair;
-  close(): Promise<void>;
-}
 
 /** What mode A is started with, besides its settings. */
 export interface AllInOneParts {

@@ -1,52 +1,35 @@
 // Mode H's core service (T027 part 4), on SQLite with a stand-in Entra in place of Azure SQL, Key
 // Vault and Entra: its routes, its readiness and what it names when something is missing, the
 // home's link over WebSocket, and the listed agents seeded from the settings at each start.
-import { createServer } from "node:net";
-import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { OutboxStore } from "../../src/connector/access/outbox-store/index.ts";
-import type { CoreSecrets } from "../../src/core/access/secrets/index.ts";
 import {
   generateSigningKey,
   signingKeyDocument,
 } from "../../src/core/clients/issuer/index.ts";
-import {
-  AUTHORIZATION_SERVER_METADATA_PATH,
-  startCoreService,
-} from "../../src/host/core-service.ts";
-import type { RunningCore } from "../../src/host/core-service.ts";
+import { AUTHORIZATION_SERVER_METADATA_PATH } from "../../src/host/core-service.ts";
 import { assembleHome } from "../../src/host/home-assembly.ts";
 import { SystemClock } from "../../src/utilities/clock/index.ts";
-import { loadSettings } from "../../src/utilities/config/index.ts";
 import { dialLink } from "../../src/utilities/link-transport/index.ts";
 import { Logger } from "../../src/utilities/logging/index.ts";
-import { openSqliteQueryLayer } from "../../src/utilities/query-layer/index.ts";
 import {
-  EntraOwnerSignIn,
   generateSigningKeyPair,
-  Secret,
   signingKeyId,
 } from "../../src/utilities/security/index.ts";
 import { ScenarioEngine, standardHome } from "../scenarios/index.ts";
-import { startEntraStandIn } from "../support/index.ts";
-import type { EntraStandIn } from "../support/index.ts";
+import {
+  AGENT,
+  eventually,
+  json,
+  memorySecrets,
+  OTHER_AGENT,
+  startTestCore,
+} from "./core-fixture.ts";
+import type { Cleanups } from "./core-fixture.ts";
 
 const CODE = "home-code-1";
-const POLL_MS = 50;
-const WAIT_LIMIT_MS = 15_000;
-const AGENT = {
-  client_id: "https://agent.example.test/oauth/client.json",
-  platform: "Document agent",
-  scopes: ["read"],
-  redirect_uris: ["https://agent.example.test/oauth/callback"],
-};
-const OTHER_AGENT = {
-  client_id: "registering-agent",
-  scopes: ["read"],
-  redirect_uris: ["https://chat.example.test/oauth/callback"],
-};
 
-const cleanups: (() => Promise<void>)[] = [];
+const cleanups: Cleanups = [];
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) {
@@ -54,137 +37,9 @@ afterEach(async () => {
   }
 });
 
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const { port } = server.address() as AddressInfo;
-  await new Promise<void>((resolve) => {
-    server.close(() => {
-      resolve();
-    });
-  });
-  return port;
-}
-
-/** Secrets kept in memory, as Key Vault would keep them. */
-function memorySecrets(document?: string): CoreSecrets & {
-  put(document: string): void;
-} {
-  let stored = document;
-  return {
-    read: () =>
-      Promise.resolve(
-        stored === undefined
-          ? { kind: "missing" }
-          : { kind: "found", value: new Secret(stored) },
-      ),
-    write: () => Promise.reject(new Error("The core never writes its keys.")),
-    put: (value) => {
-      stored = value;
-    },
-  };
-}
-
-interface Started {
-  readonly running: RunningCore;
-  readonly url: string;
-  readonly standIn: EntraStandIn;
-  readonly logLines: string[];
-}
-
-async function start(
-  options: {
-    readonly secrets?: CoreSecrets;
-    readonly owner?: boolean;
-    readonly agents?: readonly object[];
-    readonly file?: string;
-  } = {},
-): Promise<Started> {
-  const port = await freePort();
-  const url = `http://127.0.0.1:${String(port)}`;
-  const standIn = await startEntraStandIn({
-    redirectUri: `${url}/sign-in/return`,
-  });
-  cleanups.push(() => standIn.close());
-  const settings = loadSettings({
-    BRIDGE_MODE: "core",
-    BRIDGE_PUBLIC_URL: url,
-    BRIDGE_PORT: String(port),
-    BRIDGE_SQL_SERVER: "unused-on-sqlite",
-    BRIDGE_SQL_DATABASE: "unused-on-sqlite",
-    BRIDGE_KEY_VAULT_URL: "https://unused.vault.example.test",
-    BRIDGE_MANAGED_IDENTITY_CLIENT_ID: "unused-identity",
-    BRIDGE_ENTRA_TENANT_ID: standIn.tenantId,
-    BRIDGE_ENTRA_CLIENT_ID: standIn.clientId,
-    BRIDGE_AGENTS: JSON.stringify(options.agents ?? [AGENT]),
-    ...(options.owner === false
-      ? {}
-      : { BRIDGE_OWNER_OBJECT_ID: standIn.owner.objectId }),
-  });
-  if (settings.mode !== "core") {
-    throw new Error("expected the core's settings");
-  }
-  const clock = new SystemClock();
-  const logLines: string[] = [];
-  const logger = new Logger({
-    sink: (line) => logLines.push(line),
-    now: () => clock.now(),
-    minLevel: "debug",
-  });
-  const running = await startCoreService(settings, {
-    store: openSqliteQueryLayer(options.file ?? ":memory:", { clock }),
-    secrets:
-      options.secrets ??
-      memorySecrets(signingKeyDocument([generateSigningKey()])),
-    ownerSignIn: new EntraOwnerSignIn(
-      {
-        issuer: standIn.issuer,
-        clientId: standIn.clientId,
-        redirectUri: `${url}/sign-in/return`,
-        ...(settings.core.ownerObjectId === undefined
-          ? {}
-          : { ownerObjectId: settings.core.ownerObjectId }),
-      },
-      {
-        clock,
-        fetch: (target, init) => fetch(target, init),
-        clientAssertion: (signal) => standIn.clientAssertion(signal),
-      },
-    ),
-    fetch: () => Promise.resolve(new Response("not found", { status: 404 })),
-    clock,
-    logger,
-    signingKeysRetryMs: POLL_MS,
-  });
-  cleanups.push(() => running.stop());
-  return { running, url, standIn, logLines };
-}
-
-async function eventually(
-  condition: () => Promise<boolean> | boolean,
-): Promise<void> {
-  const startedAt = Date.now();
-  while (!(await condition())) {
-    if (Date.now() - startedAt > WAIT_LIMIT_MS) {
-      throw new Error("It did not get there in time.");
-    }
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-  }
-}
-
-async function json(
-  url: string,
-  init?: RequestInit,
-): Promise<{ status: number; body: unknown }> {
-  const response = await fetch(url, init);
-  return { status: response.status, body: await response.json() };
-}
-
 describe("mode H's core service", () => {
   it("answers /livez, and /readyz once the database, the lease, the signing keys and the owner are in place", async () => {
-    const { url } = await start();
+    const { url } = await startTestCore(cleanups);
 
     await expect(json(`${url}/livez`)).resolves.toEqual({
       status: 200,
@@ -207,7 +62,7 @@ describe("mode H's core service", () => {
 
   it("is not ready while its signing keys or its owner are missing, and names them; it starts the Issuer once the keys appear", async () => {
     const secrets = memorySecrets();
-    const { url } = await start({ secrets, owner: false });
+    const { url } = await startTestCore(cleanups, { secrets, owner: false });
     await eventually(async () => {
       const ready = (await json(`${url}/readyz`)).body as {
         checks: { lease: string };
@@ -244,7 +99,7 @@ describe("mode H's core service", () => {
   });
 
   it("serves the Issuer's metadata at the RFC 8414 path, the MCP endpoint's metadata, and 404 elsewhere", async () => {
-    const { url } = await start();
+    const { url } = await startTestCore(cleanups);
 
     await expect(
       json(`${url}${AUTHORIZATION_SERVER_METADATA_PATH}`),
@@ -274,7 +129,7 @@ describe("mode H's core service", () => {
   });
 
   it("links a home over WebSocket at /link, and the home's inventory lands in State", async () => {
-    const { running, url } = await start();
+    const { running, url } = await startTestCore(cleanups);
     const key = await generateSigningKeyPair();
     await running.core.settings.requestEnrollment(
       { public_key: key.publicKey, code: CODE },
@@ -324,14 +179,17 @@ describe("mode H's core service", () => {
 
   it("seeds the listed agents from its settings at each start, removing one no longer listed", async () => {
     const file = `file:core-service-${String(Date.now())}?mode=memory&cache=shared`;
-    const first = await start({ agents: [AGENT, OTHER_AGENT], file });
+    const first = await startTestCore(cleanups, {
+      agents: [AGENT, OTHER_AGENT],
+      file,
+    });
     expect(
       (
         await first.running.core.settings.agents(new AbortController().signal)
       ).map((agent) => agent.client_id),
     ).toEqual(expect.arrayContaining([AGENT.client_id, OTHER_AGENT.client_id]));
 
-    const second = await start({ agents: [AGENT], file });
+    const second = await startTestCore(cleanups, { agents: [AGENT], file });
     // Two cores on one database: the second waits for the lease, and says so.
     await expect(json(`${second.url}/readyz`)).resolves.toMatchObject({
       status: 503,

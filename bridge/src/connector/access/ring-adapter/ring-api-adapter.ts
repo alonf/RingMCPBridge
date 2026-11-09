@@ -59,6 +59,12 @@ export const RING_CALL_TIMEOUT_MS = 30_000;
  * within SC-005's 2 minutes.
  */
 export const RING_CONNECTION_GRACE_MS = 30_000;
+/**
+ * How long a hub's live connection may stay counted closed, while no call to Ring fails, before the
+ * adapter reports it stuck: the owner's choice (y), DRIFT-001-35. The library makes no further
+ * attempt once its reconnect's ticket request fails, so only a restart brings it back.
+ */
+export const RING_CONNECTION_STUCK_MS = 5 * 60_000;
 /** How often Ring is asked again while calls to it fail: the gate's probe, so the circuit admits it. */
 export const RING_RECOVERY_PROBE_MS = RING_CALL_LIMITS.circuit.probeIntervalMs;
 
@@ -80,6 +86,12 @@ export interface RingApiAdapterOptions {
   readonly callTimeoutMs?: number;
   readonly connectionGraceMs?: number;
   readonly recoveryProbeMs?: number;
+  /**
+   * Hears, once, that a hub's live connection has stayed closed for `connectionStuckMs` past the
+   * grace while no call to Ring failed. The connector restarts then (T027).
+   */
+  readonly onConnectionStuck?: () => void;
+  readonly connectionStuckMs?: number;
 }
 
 interface Unsubscribe {
@@ -106,6 +118,10 @@ export class RingApiAdapter implements RingPort {
   readonly #timeoutMs: number;
   readonly #graceMs: number;
   readonly #probeMs: number;
+  readonly #stuckMs: number;
+  readonly #onConnectionStuck: (() => void) | undefined;
+  #cancelStuck: Cancel | undefined;
+  #stuckReported = false;
   readonly #locations = new Map<string, RingClientLocation>();
   readonly #alarmDevices = new Map<string, AlarmDevices>();
   readonly #listeners = new Set<(change: RingChange) => void>();
@@ -133,6 +149,8 @@ export class RingApiAdapter implements RingPort {
     this.#timeoutMs = options.callTimeoutMs ?? RING_CALL_TIMEOUT_MS;
     this.#graceMs = options.connectionGraceMs ?? RING_CONNECTION_GRACE_MS;
     this.#probeMs = options.recoveryProbeMs ?? RING_RECOVERY_PROBE_MS;
+    this.#stuckMs = options.connectionStuckMs ?? RING_CONNECTION_STUCK_MS;
+    this.#onConnectionStuck = options.onConnectionStuck;
     this.#subscriptions.push(
       options.client.onRefreshTokenUpdated.subscribe(({ newRefreshToken }) => {
         this.#saveToken(newRefreshToken);
@@ -196,6 +214,8 @@ export class RingApiAdapter implements RingPort {
   /** Stops every subscription and the probe, and closes the Ring connection. */
   close(): void {
     this.#stopProbe();
+    this.#cancelStuck?.();
+    this.#cancelStuck = undefined;
     this.#closing.abort(new Error("The Ring Adapter is closing."));
     for (const subscription of this.#subscriptions.splice(0)) {
       subscription.unsubscribe();
@@ -413,6 +433,7 @@ export class RingApiAdapter implements RingPort {
       : this.#callsFailing || this.#connectionsClosed.size > 0
         ? "unavailable"
         : "ok";
+    this.#followStuck();
     if (status === this.#status) {
       return;
     }
@@ -454,6 +475,33 @@ export class RingApiAdapter implements RingPort {
         });
       }
     }
+  }
+
+  // The owner's choice (y): a hub's connection counted closed while calls to Ring work is stuck once
+  // it has stayed so for `#stuckMs`. Calls failing, the session lost, or the connection open again
+  // end the wait. It is reported once.
+  #followStuck(): void {
+    const stuck =
+      !this.#lost && !this.#callsFailing && this.#connectionsClosed.size > 0;
+    if (!stuck) {
+      this.#cancelStuck?.();
+      this.#cancelStuck = undefined;
+      return;
+    }
+    if (
+      this.#cancelStuck !== undefined ||
+      this.#stuckReported ||
+      this.#onConnectionStuck === undefined
+    ) {
+      return;
+    }
+    const report = this.#onConnectionStuck;
+    this.#cancelStuck = this.#clock.schedule(this.#stuckMs, () => {
+      this.#cancelStuck = undefined;
+      this.#stuckReported = true;
+      this.#logger.error("ring_connection_stuck");
+      report();
+    });
   }
 
   // A hub's live connection: closed past the grace after it had been open, Ring counts as

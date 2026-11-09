@@ -6,9 +6,15 @@
  * - `key_revoked`: the owner revoked this home's key; the home must enroll a new one.
  * - `signing_keys_missing`: mode H's core has no Issuer signing keys yet (T031 writes them).
  * - `lease_lost`: mode A lost its lease to another process on the same data folder.
+ * - `ring_connection_stuck`: a hub's live connection stayed closed while Ring's calls worked; the
+ *   process restarts (the owner's choice (y)).
  */
 export type HostErrorKind =
-  "setup_needed" | "key_revoked" | "signing_keys_missing" | "lease_lost";
+  | "setup_needed"
+  | "key_revoked"
+  | "signing_keys_missing"
+  | "lease_lost"
+  | "ring_connection_stuck";
 
 /** A process that could not start. */
 export class HostError extends Error {

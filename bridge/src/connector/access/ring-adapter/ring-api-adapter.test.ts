@@ -9,6 +9,7 @@ import type { Secret } from "../../../utilities/security/index.ts";
 import { RING_CALL_LIMITS, RingCallGate } from "./call-limits.ts";
 import {
   RING_CONNECTION_GRACE_MS,
+  RING_CONNECTION_STUCK_MS,
   RING_RECOVERY_PROBE_MS,
   RingApiAdapter,
 } from "./ring-api-adapter.ts";
@@ -43,6 +44,7 @@ interface Setup {
 
 function setup(
   save: (token: Secret<string>) => Promise<void> = () => Promise.resolve(),
+  onConnectionStuck?: () => void,
 ): Setup {
   const clock = new FakeClock(START);
   const client = new FakeRingClient();
@@ -62,6 +64,7 @@ function setup(
       saved.push(token);
       return save(token);
     },
+    ...(onConnectionStuck === undefined ? {} : { onConnectionStuck }),
   });
   adapter.watch((change) => changes.push(change));
   return { clock, client, adapter, lines, saved, changes };
@@ -723,8 +726,10 @@ function signInGone(): Promise<never> {
 // The owner's choice (c)+(a), DRIFT-001-35: a hub's live connection closing tells that Ring went
 // away, and a probe once a minute, only while calls to Ring fail, tells that it is back (SC-005).
 describe("RingApiAdapter notices Ring going away and coming back", () => {
-  async function watching(): Promise<Setup & { readonly hub: FakeLocation }> {
-    const ready = setup();
+  async function watching(
+    onConnectionStuck?: () => void,
+  ): Promise<Setup & { readonly hub: FakeLocation }> {
+    const ready = setup(undefined, onConnectionStuck);
     await driveFakeClock(ready.clock, ready.adapter.locations(never()));
     const hub = ready.client.locationsList[0];
     if (hub === undefined) {
@@ -839,6 +844,66 @@ describe("RingApiAdapter notices Ring going away and coming back", () => {
     expect(adapter.sessionStatus()).toBe("unavailable");
     hub.connectedStream.emit(true);
     expect(adapter.sessionStatus()).toBe("ok");
+  });
+
+  // The owner's choice (y): the library makes no further attempt once its reconnect fails, so a
+  // connection still closed after 5 minutes, with Ring's calls working, means a restart.
+  it("reports a hub's connection stuck once, after the grace and 5 minutes more with no call failing", async () => {
+    let reports = 0;
+    const { clock, adapter, hub, lines } = await watching(() => {
+      reports += 1;
+    });
+
+    hub.connectedStream.emit(false);
+    await pass(
+      clock,
+      RING_CONNECTION_GRACE_MS + RING_CONNECTION_STUCK_MS - STEP_MS,
+    );
+    expect(reports).toBe(0);
+    await pass(clock, STEP_MS);
+    expect(reports).toBe(1);
+    // A call that works afterwards updates the status again, with the connection still closed.
+    await driveFakeClock(clock, adapter.devices("loc-1", never()));
+    await pass(clock, 2 * RING_CONNECTION_STUCK_MS);
+
+    expect(reports).toBe(1);
+    expect(lines.join("\n")).toContain("ring_connection_stuck");
+  });
+
+  it("does not report a stuck connection while calls to Ring fail, and does 5 minutes after they work again with it still closed", async () => {
+    let reports = 0;
+    const { clock, client, adapter, hub } = await watching(() => {
+      reports += 1;
+    });
+    hub.connectedStream.emit(false);
+    client.nextFailure = () => Promise.reject(ringHttpError(503));
+    await failureOf(clock, adapter.devices("loc-1", never()));
+
+    await pass(clock, RING_CONNECTION_GRACE_MS + 2 * RING_CONNECTION_STUCK_MS);
+    expect(reports).toBe(0);
+
+    // The probe gets through: calls work again, with the connection still closed. Ring's status
+    // stays unavailable, so the wait starts without any change of status.
+    client.nextFailure = undefined;
+    await pass(clock, RING_RECOVERY_PROBE_MS);
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    await pass(clock, RING_CONNECTION_STUCK_MS);
+
+    expect(reports).toBe(1);
+  });
+
+  it("does not report a stuck connection once it opens again", async () => {
+    let reports = 0;
+    const { clock, hub } = await watching(() => {
+      reports += 1;
+    });
+
+    hub.connectedStream.emit(false);
+    await pass(clock, RING_CONNECTION_GRACE_MS + RING_CONNECTION_STUCK_MS / 2);
+    hub.connectedStream.emit(true);
+    await pass(clock, 2 * RING_CONNECTION_STUCK_MS);
+
+    expect(reports).toBe(0);
   });
 
   it("stops probing once the session is lost", async () => {
