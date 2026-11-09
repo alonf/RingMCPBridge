@@ -93,8 +93,12 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Build
-        run: npm run build --if-present
+      # The one image for the core and the connector (T027), for linux/amd64 here; the deploy
+      # builds linux/arm64 too. Each mode then starts and stops at the first thing it lacks.
+      - name: Build the image
+        run: docker build -f bridge/Dockerfile -t ring-mcp-bridge:ci .
+      - name: Smoke-test the image in each mode
+        run: node scripts/image-smoke.mjs ring-mcp-bridge:ci
       - name: npm audit gate (fails on high or critical, with the written exception list)
         run: node scripts/audit-gate.mjs
       - name: Licence gate over npm sbom

@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 51
+**Total drift events**: 52
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,39 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-52: T027 part 6: one entry point, one image, and a real build in CI
+
+- **Detected**: 2026-11-10, implement, while doing T027
+- **Kind**: details the records leave open, versus the code. No spec change
+- **Observed and decided**:
+  - **`host/main.ts` is the one entry point**, picking the wiring by `BRIDGE_MODE`.
+    - Each mode loads only its own wiring, by a dynamic import, so the connector never loads the Azure libraries or oidc-provider, and the core never loads Ring's library.
+    - The log goes to stdout, except in mode A, whose stdout carries the MCP protocol: there it goes to stderr.
+    - SIGTERM, SIGINT and, in mode A, the client closing stdin stop it cleanly. A fatal error stops it with exit code 1, for its service to restart it: the home cannot open, mode A's lease is lost, or a Ring connection is stuck.
+    - Settings that fail their check stop it before anything starts, naming the variables only.
+  - **Escaped errors**, the other half of the owner's (y) (DRIFT-001-35):
+    - a rejection nothing handled, such as one from Ring's library, is logged, and the process goes on, since the (y) rule restarts it if Ring stays unreachable;
+    - an uncaught exception is logged and stops the process, since its state is unknown.
+  - **Production mode A** does not approve its home key at start. The owner is asked whether it should (DRIFT-001-49).
+  - **The image**, `bridge/Dockerfile`, serves the core and the connector:
+    - Node 24.13.0 on Debian bookworm-slim. Node runs the TypeScript as it is, so there is no build step.
+    - Only the bridge's production dependencies are installed, with no install scripts.
+    - It runs as the `node` user, with `/data` its own, and exposes 8080 for the core. Node's experimental-SQLite warning is turned off in its log.
+    - `.dockerignore` lets in only the package files and the bridge's source without its tests, so the dev script, the tests and the records stay out.
+    - Size: 336 MB for linux/amd64.
+    - It builds and runs for linux/arm64 too, checked here under emulation: a 133 s build, and the smoke below passing in 97 s.
+    - **No ffmpeg in the image yet**: ring-client-api needs it only for live video, which comes in iteration 003. Carried forward to the media tasks.
+  - **CI's build job builds the image** (linux/amd64) and runs `scripts/image-smoke.mjs` against it, in place of `npm run build --if-present`, which built nothing. This closes DRIFT-001-18's carry-forward.
+    - The smoke starts each mode just far enough to fail on purpose: no settings; the core on an unreachable database; the connector without its key; mode A without its Secrets File, with its stdout empty.
+    - It then checks that the image holds no tests, no dev script and no dev dependencies.
+    - Nothing reaches Ring, Azure or Entra.
+    - It adds about 1 minute of runner time to each CI run (estimate). The deploy (T030) builds linux/arm64 as well.
+  - **For local runs on Windows**, Git Bash rewrites an argument such as `BRIDGE_DATA_DIR=/data` into a Windows path. Set `MSYS_NO_PATHCONV=1` when passing container paths to `docker run`.
+- **Requirement citation**: tasks.md T027; FR-044, FR-045; DRIFT-001-18, DRIFT-001-35, DRIFT-001-49.
+- **Resolution**: implementation choices, recorded for CP-10's co-review. About 0.5 SP against an estimate of 0.5 (estimates), and $0 beyond the runner time.
+- **Class closure**: the image smoke runs in CI on every change. Deliberate breaks: 5, 4 caught. The one missed removed only `--omit=dev`, which `NODE_ENV=production` already gives npm; removing both was caught once the contents check also looked for the bridge's own dev dependency.
+  - 1,140 tests: 1,018 pass and 122 skip without SQL Server (part 6 changes no tested source; with SQL Server, part 5's run stands: 1,127 pass and 13 skip); the image smoke passes on linux/amd64 and, under emulation, linux/arm64; lint, tsc, prettier and depcruise (282 modules) clean.
 
 ### DRIFT-001-51: T027 part 5: the connector, and the owner's (y) for a stuck Ring connection
 

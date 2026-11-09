@@ -382,7 +382,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - an instance without the lease controls nothing (fail closed) and reports that it lacks the lease.
 
   Tests: two instances on the fake clock; the lease lapses when the database is down (Trace: FR-044; CP-10)
-- [ ] T027 [US1] [assigned_to: Implementer] [effort: 1] Host in `bridge/src/host/`:
+- [x] T027 [US1] [assigned_to: Implementer] [effort: 1] Host in `bridge/src/host/`:
   - **Wiring:** `main.ts` loads `core.ts`, `connector.ts` or `all-in-one.ts` by the Config run mode. Each process has one Link transport, and mode A wires the home side to the core side in the same process.
   - **Health endpoints:**
     - `/livez`: the process and its event loop are alive;
