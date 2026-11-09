@@ -3,11 +3,13 @@
 **Schema**: v2
 **Last Completed Task**: T027
 **Tasks Remaining**: T028-T036 (9 tasks, 11 story_points)
-**In Progress**: T027 (the Host) is done, which completes CP-10's tasks; CP-10's review round waits for the owner's approval, and two choices wait for the owner (review coverage, mode A's home key); then T028
+**In Progress**: T027 (the Host) is done, which completes CP-10's tasks; the owner chose (i) for mode A's home key (DRIFT-001-53); CP-10's review round waits for the owner's approval; then T028
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
 **Updated**: 2026-11-09T23:35:14Z
 
 ## Execution Summary
+
+- **The owner chose (i)** (2026-11-10; DRIFT-001-53): production mode A approves its own home key at start, since its home part runs in the same process with no network link. data-model.md and the web endpoints contract are amended. About 0 SP and $0.
 
 - **T027, the Host, is done** (2026-11-10; DRIFT-001-47 to DRIFT-001-52):
   - **Part 6**: one entry point, `main.ts`, which loads only the chosen mode's wiring; one image for the core and the connector, built for amd64 in CI and checked for arm64 here; and CI's build job now builds the image and starts each mode in it.

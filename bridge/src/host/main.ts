@@ -104,6 +104,9 @@ async function start(chosen: Settings): Promise<Running> {
         clock,
         logger,
         openHome: () => openRingHome(chosen.local, clock, logger),
+        // Mode A's in-process home part has no network link, so no other home can enroll: its key
+        // is approved at start (the owner's choice (i), DRIFT-001-53).
+        approveLocalKey: true,
         connectorVersion: BRIDGE_VERSION,
         onFatal: fatal,
       });

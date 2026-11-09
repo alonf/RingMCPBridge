@@ -97,7 +97,8 @@ The PIN never passes through the agent, the client or the model (FR-028).
 | Issuer, owner sign-in | none: mode A has no owner sign-in | spec Clarifications, spec Assumptions |
 | Admin page | localhost only, opened with a one-time link printed at startup; risky actions need the typed confirmation. The link's path is not named | FR-039, FR-045, spec Clarifications |
 | Confirm page | not served: disarm is never offered in mode A | FR-027, FR-045 |
-| Connector link | not used: Ring Access calls Execute in process | CD map v3 |
-| `/livez`, `/readyz` | not recorded for mode A | - |
+| Home part enrollment | not served: the home part runs in the same process, linked in memory, and its key is approved at start | the owner's choice (i), DRIFT-001-53 |
+| Connector link | in memory, with no socket: the same frames and order as over WSS, between the home part and the core in one process | CD map v3, DRIFT-001-49 |
+| `/livez`, `/readyz` | not served: mode A serves stdio only, and its log goes to stderr | DRIFT-001-49, DRIFT-001-52 |
 
 Mode A is wired by the same Host from 001 for development and CI (DA Option B). The one-time localhost admin link is US7 work, in iteration 004. How local clients authorize in mode A is carried to the iteration 004 plan (G14 in `../data-model.md`).

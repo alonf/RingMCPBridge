@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 52
+**Total drift events**: 53
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,24 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-53: the owner's choice (i): mode A approves its own home key at start
+
+- **Detected**: 2026-11-10, implement, while doing T027 (DRIFT-001-49 raised it)
+- **Kind**: a design record versus the owner's decision. data-model.md and `contracts/web-endpoints.md` amended
+- **Observed**: data-model.md "Configuration" said enrolling a connector in mode A needs the owner's typed confirmation. Mode A's admin page comes only in iteration 004 (`contracts/web-endpoints.md`), so a real mode A start would have waited for an approval with no way to give it. Only the dev script and the tests, which approved the key themselves, showed mode A working.
+- **Decided**: the owner chose (i) on 2026-11-10, typed "i", after asking for the decision to be explained.
+  - Production mode A approves its own home key at start: `approveLocalKey` in `main.ts`.
+  - The in-process home part has no network link, and mode A listens for no home part, so no other home can enroll.
+  - Anyone who could reach the data folder would already hold the Ring token, so the confirmation would not stop them either.
+  - The typed confirmation for mode A's risky actions (disarm, revoke all, delete now) is unchanged.
+  - data-model.md's validation sentence names the exception, and the contract's mode A table gains a row for it.
+- **Also corrected in the contract's mode A table**:
+  - the connector link is in memory, not "not used" (DRIFT-001-49);
+  - `/livez` and `/readyz` are not served in mode A (DRIFT-001-52).
+- **Requirement citation**: FR-039, FR-045; data-model.md "Configuration"; `contracts/web-endpoints.md` "All-in-one mode (A)"; DRIFT-001-49.
+- **Resolution**: applied as the owner chose. About 0 SP and $0.
+- **Class closure**: NONE - a one-off decision on one sentence; the mode A end-to-end test and the image smoke already run mode A with the key approved at start.
 
 ### DRIFT-001-52: T027 part 6: one entry point, one image, and a real build in CI
 

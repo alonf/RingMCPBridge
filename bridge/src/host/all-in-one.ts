@@ -11,9 +11,9 @@
 //   with its Ring connection, opens only once this process holds the lease, and a copy that never
 //   holds it never reaches Ring. If this process loses the lease, `onFatal` hears of it, and the
 //   caller ends the process: mode A is a single process.
-// - **The home's key**: like any home's, it waits for the owner's typed confirmation on the admin
-//   page (data-model.md "Configuration", T029). `approveLocalKey` approves it at start, for the dev
-//   script and the tests. Its enrollment code is new at each start and shown only on that page.
+// - **The home's key** is approved at start (`approveLocalKey`; the owner's choice (i),
+//   DRIFT-001-53): the in-process home part has no network link, so no other home can enroll, and
+//   mode A's admin page comes only in iteration 004. Its enrollment code is new at each start.
 // - **The log goes to stderr**: stdout carries the protocol. The caller serves stdio.
 // It reaches no Azure library, oidc-provider or SQL Server driver (a dependency rule checks it).
 import { randomBytes } from "node:crypto";
@@ -74,7 +74,7 @@ export interface AllInOneParts {
    * (`ring-home.live.ts`), the scenario engine in development and tests.
    */
   readonly openHome: () => Promise<LocalHome>;
-  /** Approves the home's key at start, as the owner's confirmation will. The dev script and tests only. */
+  /** Approves the home's key at start: production mode A, the dev script and most tests (DRIFT-001-53). */
   readonly approveLocalKey?: boolean;
   readonly connectorVersion: string;
   /** Hears that mode A cannot go on: the home could not open, or the lease was lost. */

@@ -556,7 +556,7 @@ Field names are [P]. The content is CD-A2's.
 | Shared locations, and the owners' agreement (who, date) | off | Settings `setting`, `owner_agreement` | FR-036, SC7 C5 | 004 |
 | Mode-A control switch (arm, lights) | off | configuration | FR-045, spec Clarifications | 004 |
 
-**Validation:** turning disarm on, revoke all, delete now and enrolling a connector need a sign-in under 5 minutes old plus a typed confirmation. In mode A they need the typed confirmation only (FR-039, FR-045, UX U4).
+**Validation:** turning disarm on, revoke all, delete now and enrolling a connector need a sign-in under 5 minutes old plus a typed confirmation. In mode A they need the typed confirmation only (FR-039, FR-045, UX U4), except mode A's own home part: it runs in the same process with no network link, so no other home can enroll, and its key is approved at start (the owner's choice (i), 2026-11-10, DRIFT-001-53).
 
 ### Other stored state (supporting the entities)
 
