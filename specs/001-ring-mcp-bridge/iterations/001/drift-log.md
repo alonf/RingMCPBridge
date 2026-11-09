@@ -1188,6 +1188,8 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - a rejection nothing handled, such as one from Ring's library, is logged, and the process goes on, since the (y) rule restarts it if Ring stays unreachable;
     - an uncaught exception is logged and stops the process, since its state is unknown.
   - **Production mode A** does not approve its home key at start. The owner is asked whether it should (DRIFT-001-49).
+  - **Mode A has no (y) restart**: no service restarts a stdio server an agent started. A stuck Ring connection there shows as Ring unavailable in `get_health`, and the agent starting the server again brings it back.
+  - **Carried forward to T030**: `/readyz` is not ready while another instance holds the lease. A deploy that waits for the new container's `/readyz` before stopping the old one would never switch over. So the deploy must not gate the switch on `/readyz`; check how App Service's slot swap and health check use that path.
   - **The image**, `bridge/Dockerfile`, serves the core and the connector:
     - Node 24.13.0 on Debian bookworm-slim. Node runs the TypeScript as it is, so there is no build step.
     - Only the bridge's production dependencies are installed, with no install scripts.
@@ -1200,10 +1202,10 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - The smoke starts each mode just far enough to fail on purpose: no settings; the core on an unreachable database; the connector without its key; mode A without its Secrets File, with its stdout empty.
     - It then checks that the image holds no tests, no dev script and no dev dependencies.
     - Nothing reaches Ring, Azure or Entra.
-    - It adds about 1 minute of runner time to each CI run (estimate). The deploy (T030) builds linux/arm64 as well.
+    - On its first run the build job took 75 s, against 48 s before: 22 s to build the image and 5 s for the smoke (measured, 2026-11-10). The test job grew by about 70 s with T027's new tests. The deploy (T030) builds linux/arm64 as well.
   - **For local runs on Windows**, Git Bash rewrites an argument such as `BRIDGE_DATA_DIR=/data` into a Windows path. Set `MSYS_NO_PATHCONV=1` when passing container paths to `docker run`.
 - **Requirement citation**: tasks.md T027; FR-044, FR-045; DRIFT-001-18, DRIFT-001-35, DRIFT-001-49.
-- **Resolution**: implementation choices, recorded for CP-10's co-review. About 0.5 SP against an estimate of 0.5 (estimates), and $0 beyond the runner time.
+- **Resolution**: implementation choices, recorded for CP-10's co-review. About 0.5 SP against an estimate of 0.5 (estimates), and $0 beyond about 30 s more runner time per CI run (measured).
 - **Class closure**: the image smoke runs in CI on every change. Deliberate breaks: 5, 4 caught. The one missed removed only `--omit=dev`, which `NODE_ENV=production` already gives npm; removing both was caught once the contents check also looked for the bridge's own dev dependency.
   - 1,140 tests: 1,018 pass and 122 skip without SQL Server (part 6 changes no tested source; with SQL Server, part 5's run stands: 1,127 pass and 13 skip); the image smoke passes on linux/amd64 and, under emulation, linux/arm64; lint, tsc, prettier and depcruise (282 modules) clean.
 

@@ -17,7 +17,8 @@
     - leftover handshake timers in Core Link and Connector Link;
     - a dependency rule that could never fire;
     - the MCP SDK's double start of a stdio server.
-  - **Cost**: T027 took about 6 SP against its estimate of 1.5 (estimates: 1, plus 0.5 for the owner's (y)), and $0 besides about 1 minute of CI runner time per run. CP-10 took about 7 SP against its estimate of 2.
+  - **Cost**: T027 took about 6 SP against its estimate of 1.5 (estimates: 1, plus 0.5 for the owner's (y)), and $0 besides about 30 s more CI runner time per run for the image (measured). CP-10 took about 7 SP against its estimate of 2, which includes fixes to CP-01's, CP-07's, CP-09's and CP-16's code.
+  - CI on 0349fab passed: the build job, now building the image, took 75 s (48 s before).
   - Deliberate breaks for part 6: 5, 4 caught. The one missed removed only `--omit=dev`, which `NODE_ENV=production` already gives npm; removing both was caught once the contents check also looked for the bridge's own dev dependency.
   - **Checks**: 1,140 tests: 1,018 pass and 122 skip without SQL Server (part 6 changes no tested source; with SQL Server, part 5's run stands: 1,127 pass and 13 skip); the image smoke passes on linux/amd64 and, under emulation, linux/arm64; lint, tsc, prettier and depcruise (282 modules) clean.
 
