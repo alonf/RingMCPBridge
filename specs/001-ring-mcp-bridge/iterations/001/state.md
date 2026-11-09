@@ -13,7 +13,7 @@
   - A code or refresh token redeemed twice at the same moment no longer gets two sets of tokens. The store marks it used in one statement, and the request that loses is refused. When it was used already, the grant ends, so the other request's new tokens stop working too, as for any reuse.
   - The two races are tested at the Issuer: both requests read the token before either marks it. On today's code before the fix, both answered 200.
   - SQL Server test databases now run with read-committed snapshot, Azure SQL's default, and the whole suite passes that way.
-  - About 1 SP against an estimate of 0.5 (estimates), and $0. Deliberate breaks: 12, all caught.
+  - About 1 SP against an estimate of 0.5 (estimates), and $0. It is booked to CP-16, whose code it fixes: CP-16 has now taken about 5 SP against its estimate of 3. Deliberate breaks: 12, all caught.
   - **Checks**:
     - 1,062 tests: 957 pass and 105 skip without SQL Server;
     - with SQL Server on 2 workers, with snapshot reads, 1,050 pass and 12 skip;
