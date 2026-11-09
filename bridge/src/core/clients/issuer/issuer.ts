@@ -71,6 +71,11 @@ export interface IssuerSettings {
   readonly issuer: string;
   /** The MCP endpoint's URL: tokens are issued for it alone (RFC 8707). */
   readonly resource: string;
+  /**
+   * Trust the proxy in front (App Service's) for `X-Forwarded-Proto`, so a request that reached it
+   * over HTTPS counts as secure and the Issuer's secure cookies can be set (T027). Off by default.
+   */
+  readonly trustProxy?: boolean;
 }
 
 /** What the Issuer is wired with. */
@@ -180,6 +185,7 @@ export class Issuer {
           ]),
       }),
     );
+    provider.proxy = this.#settings.trustProxy === true;
     provider.on("server_error", (_context, error) => {
       this.#dependencies.logger.error(
         "issuer_request_failed",

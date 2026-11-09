@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 49
+**Total drift events**: 50
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,45 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-50: T027 part 4: mode H's core service, and the carry-forwards it closes
+
+- **Detected**: 2026-11-10, implement, while doing T027
+- **Kind**: details the records leave open, versus the code; one setting added to CP-16's Issuer. No spec change
+- **Observed and decided**:
+  - **Two files.**
+    - `host/core-service.ts` runs the HTTP server in front of the core's components. It takes its database, secrets and owner sign-in already made, so the tests start it on SQLite with the stand-in Entra.
+    - `host/core.ts` makes the real ones: Azure SQL and Key Vault through the core's managed identity, and the Entra sign-in, whose client assertion that identity signs. It is excluded from coverage like the other live wiring and is proved in the pilot. A forbidden import of Ring's library, or of the home's Ring wiring, fails the dependency check.
+  - **The start, in order**:
+    - **The migrations run first**, under their own lock on SQL Server. Two starts migrate once (`tsql.test.ts`). The `lease` table they create must exist before the lease can be taken, so this is how "migrations under the lease" is met. This closes DRIFT-001-46's carry-forward.
+    - **The listed agents are seeded** from `BRIDGE_AGENTS` at each start, and one no longer listed is removed. The Issuer checks the listing on each use, so a removed agent's tokens are refused at once. Deleting its stored records is left to the later task that removes expired records (DS retention). This closes DRIFT-001-25's carry-forward, the seeding, apart from that deletion.
+    - Then the lease, and the link while it is held (DRIFT-001-48).
+  - **The Issuer**:
+    - It is mounted under `/oauth`, its metadata also at the RFC 8414 path `/.well-known/oauth-authorization-server/oauth`, with `/sign-in/return` for the owner's return. A return that is not the Issuer's answers 404 until the admin page (T029).
+    - **Proxy trust** is a new Issuer setting, from `BRIDGE_TRUST_PROXY`, off by default. With it, a request App Service's front end took over HTTPS counts as secure, and the Issuer's cookies are marked `Secure`; without it they are not. A test shows both.
+    - **Its start is retried every minute [P] while its signing keys are missing.** T031 writes the first key after the core may already run. A live key swap is not built: rotation comes with the Scheduler. This settles PT-04's 10-minute reload for iteration 001.
+    - This closes DRIFT-001-39's carry-forwards, except the return route's hand-off to the admin page (T029) and the deployment's owner id (T030, T031).
+  - **The MCP endpoint** is at `/mcp`, with its protected-resource metadata. Its resource is the same URL the Issuer issues tokens for. It answers the public URL's host name (its host check compares names without the port) and takes Config's `readsPerHour`. This closes DRIFT-001-42's and DRIFT-001-44's carry-forwards.
+  - **The home's link** is upgraded to a WebSocket at `/link`; anything else that asks for an upgrade is closed. The link server's `onLink` is the lease-gated Connector Link. On stop, the HTTP server and the link server close before the core stops and the database closes. This closes DRIFT-001-26's carry-forward.
+  - **`/livez`** answers while the process runs. **`/readyz`** answers 200 only when:
+    - the database answers within 2 s;
+    - this instance holds the lease;
+    - the signing keys are loaded;
+    - the owner's object id is configured.
+    - Otherwise it answers 503, naming each check's state, never a secret.
+- **Requirement citation**: tasks.md T027; FR-029, FR-030, FR-044; `contracts/web-endpoints.md`; data-model.md "Configuration"; DRIFT-001-25, DRIFT-001-26, DRIFT-001-39, DRIFT-001-42, DRIFT-001-44, DRIFT-001-46.
+- **Resolution**: implementation choices, recorded for CP-10's co-review; the proxy setting is a change to CP-16's code. About 1.5 SP against an estimate of 1 (estimates), and $0.
+- **Class closure**: 5 service tests and 1 Issuer test:
+  - `/livez`, and `/readyz` ready;
+  - not ready, naming missing signing keys and a missing owner, then the Issuer started once the keys appear;
+  - not ready while another core holds the lease;
+  - the RFC 8414 metadata, the MCP endpoint's metadata, 401 without a token, and 404 elsewhere;
+  - a home linked over WebSocket whose inventory lands in State;
+  - the listed agents seeded, and one removed at the next start;
+  - the Issuer's cookies `Secure` behind a trusted proxy, and only then.
+  - Deliberate breaks: 9, all caught, two of them forbidden imports into `core.ts`.
+  - Not covered by a test at the service level: that the service hands `BRIDGE_TRUST_PROXY` to the Issuer.
+  - 1,134 tests: 1,012 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,121 pass and 13 skip; coverage 97.7% of lines and 93.6% of branches.
 
 ### DRIFT-001-49: T027 part 3: mode A over stdio, and what its end-to-end check found
 

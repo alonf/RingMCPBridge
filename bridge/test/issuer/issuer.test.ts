@@ -178,6 +178,8 @@ async function startRig(
     readonly keys?: string | undefined;
     /** Also serve the MCP Endpoint at the resource, checking tokens with this Issuer (T024). */
     readonly mcp?: boolean;
+    /** Trust `X-Forwarded-Proto` from a proxy in front (T027). */
+    readonly trustProxy?: boolean;
   } = {},
 ): Promise<Rig> {
   const clock = new SystemClock();
@@ -240,7 +242,13 @@ async function startRig(
     minLevel: "debug",
   });
   const issuer = new Issuer(
-    { issuer: issuerUrl, resource },
+    {
+      issuer: issuerUrl,
+      resource,
+      ...(options.trustProxy === undefined
+        ? {}
+        : { trustProxy: options.trustProxy }),
+    },
     {
       grants,
       agents: settings,
@@ -1448,5 +1456,50 @@ describe("the Issuer's signing keys", () => {
     expect(
       parseSigningKeys(signingKeyDocument(signingKeys.slice(1))).cookieKeys,
     ).toEqual([keys.cookieKeys[1]]);
+  });
+});
+
+// T027: behind App Service's front end, requests arrive over plain HTTP with `X-Forwarded-Proto`.
+describe("the Issuer behind a proxy", () => {
+  async function cookiesOfFirstStep(
+    trustProxy: boolean,
+    forwardedProto: string | undefined,
+  ): Promise<string[]> {
+    if (signingKeys.length === 0) {
+      signingKeys = [generateSigningKey(), generateSigningKey()];
+    }
+    const proxied = await startRig({ trustProxy });
+    try {
+      publishDocument(proxied);
+      const { authorizationUrl } = await startAuthorization(proxied.issuerUrl, {
+        metadata: await metadataOf(proxied),
+        clientInformation: { client_id: DOCUMENT_AGENT.client_id },
+        redirectUrl: textOf(DOCUMENT_AGENT.redirect_uris[0]),
+        scope: "read",
+        resource: new URL(proxied.resource),
+      });
+      const response = await fetch(authorizationUrl, {
+        redirect: "manual",
+        headers:
+          forwardedProto === undefined
+            ? {}
+            : { "x-forwarded-proto": forwardedProto },
+      });
+      expect(response.status).toBe(303);
+      return response.headers.getSetCookie();
+    } finally {
+      await proxied.close();
+    }
+  }
+
+  it("marks its cookies Secure for a request the trusted proxy took over HTTPS, and only then", async () => {
+    const trusted = await cookiesOfFirstStep(true, "https");
+    const untrusted = await cookiesOfFirstStep(false, "https");
+    const direct = await cookiesOfFirstStep(true, undefined);
+
+    expect(trusted.length).toBeGreaterThan(0);
+    expect(trusted.every((cookie) => cookie.includes("; secure"))).toBe(true);
+    expect(untrusted.some((cookie) => cookie.includes("; secure"))).toBe(false);
+    expect(direct.some((cookie) => cookie.includes("; secure"))).toBe(false);
   });
 });

@@ -244,6 +244,8 @@ declare module "oidc-provider" {
   /** The OpenID provider (a Koa application); also the default export, which the bridge leaves unused. */
   export class Provider {
     constructor(issuer: string, configuration?: Configuration);
+    /** Koa's: trust a proxy in front for `X-Forwarded-Proto` and the client's address. */
+    proxy: boolean;
     // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name
     readonly Grant: {
       new (properties: { accountId: string; clientId: string }): Grant;

@@ -3,11 +3,19 @@
 **Schema**: v2
 **Last Completed Task**: T026
 **Tasks Remaining**: T027-T036 (10 tasks, 12 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: T027 (the Host), in parts, each tested and committed (about 5 SP in all, estimate, against 1 + 0.5): (1) Config's per-mode settings, 0.5 SP, done (DRIFT-001-47); (2) the shared core and connector assembly, with the lease gating Connector Link and Event, 1 SP, done (DRIFT-001-48); (3) `all-in-one.ts`: mode A over stdio, the in-process link, the end-to-end test and the dev script, 1 SP, done in about 1.5 SP (DRIFT-001-49); (4) mode H `core.ts`: Issuer (proxy trust, start retried until the key exists), Key Vault, T-SQL, HTTP routes, `/livez` and `/readyz`, 1 SP; (5) `connector.ts`: wiring, the owner's (y) restart rule, escaped errors logged, readiness, 1 SP; (6) `main.ts`, the Dockerfile and a real CI build, 0.5 SP. Then CP-10's review round
+**In Progress**: T027 (the Host), in parts, each tested and committed (about 5 SP in all, estimate, against 1 + 0.5): (1) Config's per-mode settings, 0.5 SP, done (DRIFT-001-47); (2) the shared core and connector assembly, with the lease gating Connector Link and Event, 1 SP, done (DRIFT-001-48); (3) `all-in-one.ts`: mode A over stdio, the in-process link, the end-to-end test and the dev script, 1 SP, done in about 1.5 SP (DRIFT-001-49); (4) mode H `core.ts`: Issuer (proxy trust, start retried until the key exists), Key Vault, T-SQL, HTTP routes, `/livez` and `/readyz`, 1 SP, done in about 1.5 SP (DRIFT-001-50); (5) `connector.ts`: wiring, the owner's (y) restart rule, escaped errors logged, readiness, 1 SP; (6) `main.ts`, the Dockerfile and a real CI build, 0.5 SP. Then CP-10's review round
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-09T22:28:18Z
+**Updated**: 2026-11-09T22:47:40Z
 
 ## Execution Summary
+
+- **T027 part 4, mode H's core service, is built** (2026-11-10; DRIFT-001-50):
+  - The core runs behind one HTTP server: the Issuer under `/oauth` (and its metadata at the standard path), the owner's sign-in return, `/mcp`, the home's link at `/link`, `/livez` and `/readyz`.
+  - It starts in order: migrations, the listed agents from the settings, the lease, then the link while the lease is held. The Issuer starts once its signing keys exist, trying again every minute.
+  - `/readyz` is ready only with the database, the lease, the signing keys and the owner in place, and names what is missing.
+  - The Issuer gains proxy trust for App Service, off by default.
+  - Tested on SQLite with the stand-in Entra, including a home linked over WebSocket. The real wiring (Azure SQL, Key Vault, Entra) is proved in the pilot.
+  - About 1.5 SP against an estimate of 1 (estimates), and $0. Deliberate breaks: 9, all caught.
 
 - **T027 part 3, mode A, runs end to end** (2026-11-10; DRIFT-001-49):
   - The MCP SDK client starts the dev script over stdio, in each protocol era, and the four read tools answer on the simulated home of about 100 devices, about 17 s to 24 s after start.
