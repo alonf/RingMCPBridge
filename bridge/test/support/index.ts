@@ -34,3 +34,11 @@ export type { ThrowawayCertificate } from "./throwaway-certificate.ts";
 /** Event's intake as a recorder, until the Event manager exists (T017, T018). */
 export { RecordingIntake } from "./recording-intake.ts";
 export type { IntakeCall, IntakeMethod } from "./recording-intake.ts";
+
+/** Driving the fake clock in small steps while real I/O runs. */
+export {
+  DRIVE_LIMIT_MS,
+  DRIVE_STEP_MS,
+  driveFor,
+  driveUntil,
+} from "./drive-clock.ts";

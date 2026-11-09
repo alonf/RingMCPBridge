@@ -3,11 +3,17 @@
 **Schema**: v2
 **Last Completed Task**: T026
 **Tasks Remaining**: T027-T036 (10 tasks, 12 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: T027 (the Host), in parts, each tested and committed (about 5 SP in all, estimate, against 1 + 0.5): (1) Config's per-mode settings, 0.5 SP, done (DRIFT-001-47); (2) the shared core and connector assembly, with the lease gating Connector Link and Event, 1 SP; (3) `all-in-one.ts`: mode A over stdio, the in-process link, the end-to-end test and the dev script, 1 SP; (4) mode H `core.ts`: Issuer (proxy trust, start retried until the key exists), Key Vault, T-SQL, HTTP routes, `/livez` and `/readyz`, 1 SP; (5) `connector.ts`: wiring, the owner's (y) restart rule, escaped errors logged, readiness, 1 SP; (6) `main.ts`, the Dockerfile and a real CI build, 0.5 SP. Then CP-10's review round
+**In Progress**: T027 (the Host), in parts, each tested and committed (about 5 SP in all, estimate, against 1 + 0.5): (1) Config's per-mode settings, 0.5 SP, done (DRIFT-001-47); (2) the shared core and connector assembly, with the lease gating Connector Link and Event, 1 SP, done (DRIFT-001-48); (3) `all-in-one.ts`: mode A over stdio, the in-process link, the end-to-end test and the dev script, 1 SP; (4) mode H `core.ts`: Issuer (proxy trust, start retried until the key exists), Key Vault, T-SQL, HTTP routes, `/livez` and `/readyz`, 1 SP; (5) `connector.ts`: wiring, the owner's (y) restart rule, escaped errors logged, readiness, 1 SP; (6) `main.ts`, the Dockerfile and a real CI build, 0.5 SP. Then CP-10's review round
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-09T21:09:13Z
+**Updated**: 2026-11-09T21:32:14Z
 
 ## Execution Summary
+
+- **T027 part 2, the shared assemblies and the lease gate, is built** (2026-11-09; DRIFT-001-48):
+  - The core's components and the home's are assembled once, for mode H's core, the connector and mode A alike.
+  - The connector link and Event, the only writer of State, run only while this instance holds the lease. A standby refuses links, and a holder that loses the lease closes its links and stops Event before another instance can take over.
+  - Tested in one process: the home's inventory and a live change reach State, a standby refuses a link, and a handover never runs the link on both cores.
+  - About 1 SP (estimate) and $0. Deliberate breaks: 9, all caught.
 
 - **T027 part 1, Config's settings for each run mode, is built** (2026-11-09; DRIFT-001-47):
   - Each run mode reads its own settings once the mode is known: the core's public URL, port, proxy trust, database, vault, identity, Entra app, owner and listed agents; the connector's core URL (`wss:` only), data folder, key file, ffmpeg and enrollment code; and mode A's data folder, key file and ffmpeg.

@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 47
+**Total drift events**: 48
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,33 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-48: T027 part 2: the shared assemblies, and the lease gating the link and Event
+
+- **Detected**: 2026-11-09, implement, while doing T027
+- **Kind**: details the records leave open, versus the code. No spec change
+- **Observed and decided**:
+  - **Two shared assemblies.**
+    - `host/core-assembly.ts` builds the stores, the managers, the lease, and the connector link with Event. It reaches no Azure library, oidc-provider or SQL Server driver: mode H adds those in `core.ts`.
+    - `host/home-assembly.ts` builds Ingest, Core Link and the scheduler over a Ring port it is handed: the Ring Adapter in production, the scenario engine in development and tests. It reaches no Ring library.
+    - Mode H's core, the connector and mode A use these. Hand-wired, with no container (CD3, CD5).
+  - **The lease's name is fixed**, `ring-account` [P]. One deployment serves one Ring account, and the core keeps no Ring account key. This closes DRIFT-001-46's carry-forward.
+  - **The lease gates the link and Event**, the only writer of State. This closes DRIFT-001-46's carry-forward and makes the comments in `connector-link.ts` and `event-manager.ts` true.
+    - Without the lease, a new link is closed as `core_unavailable`, and the home dials again with its backoff.
+    - Each lease term gets a new Connector Link and Event manager, because Connector Link's stop is final.
+    - When the lease is lost, Connector Link closes every link as `core_stopping` and finishes their last steps, then Event stops, with its timer that marks the home offline. A new term starts only once the last one has ended.
+    - The gate checks the lease every second [P], well inside the 15 s between the end of a hold and the end of its row.
+    - Event's intake also checks the lease on each message. A refused message stays unacked, and the home sends it again.
+    - Log lines: `core_lease_acquired`, `core_lease_lost`, `core_lease_term_end_failed`, `event_silence_check_failed` and `pub_sub_handler_failed`.
+  - **Test support** gains `driveUntil` and `driveFor`, which move the fake clock in small steps while real I/O runs.
+- **Requirement citation**: tasks.md T027; FR-044; data-model.md "Single writer"; DRIFT-001-46.
+- **Resolution**: implementation choices, recorded for CP-10's co-review. About 1 SP (estimate) and $0.
+- **Class closure**: 5 tests:
+  - the home and the core link up in one process, the inventory lands in State, and a live change follows on the same link;
+  - a standby core refuses a link;
+  - a holder that loses its lease hands the link over, both are never serving at once, and the home links to the new holder;
+  - the intake's guard, held and not held.
+  - Deliberate breaks: 9, all caught. One, Ingest never started, was missed at first and got the live-change check.
 
 ### DRIFT-001-47: T027 part 1: Config's settings for each run mode
 
