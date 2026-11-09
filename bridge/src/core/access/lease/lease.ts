@@ -29,8 +29,24 @@ export const LEASE_RENEW_MS = 15_000;
 export const LEASE_EXPIRES_MS = 45_000;
 /** How long the holder counts on the lease after a renewal: one renewal short of the row's end. */
 export const LEASE_HELD_MS = LEASE_EXPIRES_MS - LEASE_RENEW_MS;
-/** How long one write may take before it counts as failed. */
+/** How long one write may take before it counts as failed, at most. */
 export const LEASE_WRITE_TIMEOUT_MS = 10_000;
+
+/**
+ * How often the lease is renewed and how long its row lasts after a renewal. The holder counts on
+ * it for the difference. Mode H uses the recorded 15 s and 45 s; mode A, whose lease guards one
+ * local file, may use shorter ones (T027).
+ */
+export interface LeaseTiming {
+  readonly renewMs: number;
+  readonly expiresMs: number;
+}
+
+/** The recorded timing: renewed every 15 s, expiring after 45 s (FR-044). */
+export const LEASE_TIMING: LeaseTiming = {
+  renewMs: LEASE_RENEW_MS,
+  expiresMs: LEASE_EXPIRES_MS,
+};
 
 const MAX_TEXT_LENGTH = 128;
 const HOLDER_BYTES = 12;
@@ -65,6 +81,8 @@ export interface LeaseOptions {
   readonly name: string;
   /** This instance's id, as the row stores it; a random one when left out. 1 to 128 characters. */
   readonly holder?: string;
+  /** The recorded `LEASE_TIMING` when left out. The row must outlast two renewals. */
+  readonly timing?: LeaseTiming;
 }
 
 const TAKE: Readonly<Record<SqlDialect, string>> = {
@@ -79,6 +97,7 @@ export class Lease {
   readonly #store: LeaseStore;
   readonly #clock: Clock;
   readonly #name: string;
+  readonly #timing: LeaseTiming;
   readonly #holder: string;
   #heldUntil = 0;
   #lack: LeaseLack = "not_started";
@@ -91,6 +110,18 @@ export class Lease {
       options.holder ?? randomBytes(HOLDER_BYTES).toString("base64url");
     checkText(options.name, "A lease name");
     checkText(holder, "A holder");
+    const timing = options.timing ?? LEASE_TIMING;
+    if (
+      !Number.isInteger(timing.renewMs) ||
+      timing.renewMs < 1 ||
+      !Number.isInteger(timing.expiresMs) ||
+      timing.expiresMs <= 2 * timing.renewMs
+    ) {
+      throw new RangeError(
+        "A lease is renewed every whole number of milliseconds, and its row outlasts two renewals.",
+      );
+    }
+    this.#timing = timing;
     this.#store = options.store;
     this.#clock = options.clock;
     this.#name = options.name;
@@ -119,7 +150,7 @@ export class Lease {
     if (this.#timer !== undefined || this.#stopped) {
       return;
     }
-    this.#timer = this.#clock.every(LEASE_RENEW_MS, () => {
+    this.#timer = this.#clock.every(this.#timing.renewMs, () => {
       void this.renew();
     });
     void this.renew();
@@ -169,7 +200,7 @@ export class Lease {
       written = await this.#write(TAKE[this.#store.dialect], {
         name: this.#name,
         holder: this.#holder,
-        expires_at: startedAt + LEASE_EXPIRES_MS,
+        expires_at: startedAt + this.#timing.expiresMs,
         now: startedAt,
       });
     } catch {
@@ -177,7 +208,10 @@ export class Lease {
       return this.status;
     }
     if (!this.#stopped) {
-      this.#heldUntil = written > 0 ? startedAt + LEASE_HELD_MS : 0;
+      this.#heldUntil =
+        written > 0
+          ? startedAt + this.#timing.expiresMs - this.#timing.renewMs
+          : 0;
       this.#lack = written > 0 ? "expired" : "held_elsewhere";
     }
     return this.status;
@@ -193,7 +227,8 @@ export class Lease {
   // One statement with a deadline on the instance's clock, so a write that hangs counts as failed.
   async #write(sql: string, params: SqlParams): Promise<number> {
     const deadline = new AbortController();
-    const cancel = this.#clock.schedule(LEASE_WRITE_TIMEOUT_MS, () => {
+    const timeoutMs = Math.min(LEASE_WRITE_TIMEOUT_MS, this.#timing.renewMs);
+    const cancel = this.#clock.schedule(timeoutMs, () => {
       deadline.abort(new Error("The lease write took too long."));
     });
     try {

@@ -653,8 +653,13 @@ export class CoreSession {
     return this.#controller.signal;
   }
 
+  // A session that has ended sets no timer: a link closed before the session began ends it at
+  // once, and a timer set after that would be left for nothing to cancel (T027).
   #timer(ms: number, action: () => void): void {
     this.#cancelTimer();
+    if (this.#state.phase === "closed") {
+      return;
+    }
     this.#cancelTimer = this.#context.clock.schedule(ms, action);
   }
 

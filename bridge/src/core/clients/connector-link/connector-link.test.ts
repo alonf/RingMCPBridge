@@ -1137,3 +1137,18 @@ describe("ConnectorLink after CP-14 review round 4", () => {
     expect(newerHome.link.closed).toBeUndefined();
   });
 });
+
+describe("ConnectorLink: a link closed before its session (T027)", () => {
+  it("leaves no handshake timer behind for a link that closed before it was accepted", async () => {
+    const test = await harness();
+    const pair = createLinkPair(test.logger);
+    pair.dialer.close("connector_stopping");
+    await settle();
+
+    test.connectorLink.accept(pair.acceptor);
+    await settle();
+
+    expect(pair.acceptor.closed).toBeDefined();
+    expect(test.clock.pendingTimers).toBe(0);
+  });
+});

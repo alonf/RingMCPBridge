@@ -3,11 +3,19 @@
 **Schema**: v2
 **Last Completed Task**: T026
 **Tasks Remaining**: T027-T036 (10 tasks, 12 story_points; T027 also carries about 0.5 SP, estimate, for the owner's (y), DRIFT-001-35)
-**In Progress**: T027 (the Host), in parts, each tested and committed (about 5 SP in all, estimate, against 1 + 0.5): (1) Config's per-mode settings, 0.5 SP, done (DRIFT-001-47); (2) the shared core and connector assembly, with the lease gating Connector Link and Event, 1 SP, done (DRIFT-001-48); (3) `all-in-one.ts`: mode A over stdio, the in-process link, the end-to-end test and the dev script, 1 SP; (4) mode H `core.ts`: Issuer (proxy trust, start retried until the key exists), Key Vault, T-SQL, HTTP routes, `/livez` and `/readyz`, 1 SP; (5) `connector.ts`: wiring, the owner's (y) restart rule, escaped errors logged, readiness, 1 SP; (6) `main.ts`, the Dockerfile and a real CI build, 0.5 SP. Then CP-10's review round
+**In Progress**: T027 (the Host), in parts, each tested and committed (about 5 SP in all, estimate, against 1 + 0.5): (1) Config's per-mode settings, 0.5 SP, done (DRIFT-001-47); (2) the shared core and connector assembly, with the lease gating Connector Link and Event, 1 SP, done (DRIFT-001-48); (3) `all-in-one.ts`: mode A over stdio, the in-process link, the end-to-end test and the dev script, 1 SP, done in about 1.5 SP (DRIFT-001-49); (4) mode H `core.ts`: Issuer (proxy trust, start retried until the key exists), Key Vault, T-SQL, HTTP routes, `/livez` and `/readyz`, 1 SP; (5) `connector.ts`: wiring, the owner's (y) restart rule, escaped errors logged, readiness, 1 SP; (6) `main.ts`, the Dockerfile and a real CI build, 0.5 SP. Then CP-10's review round
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-09T21:32:14Z
+**Updated**: 2026-11-09T22:28:18Z
 
 ## Execution Summary
+
+- **T027 part 3, mode A, runs end to end** (2026-11-10; DRIFT-001-49):
+  - The MCP SDK client starts the dev script over stdio, in each protocol era, and the four read tools answer on the simulated home of about 100 devices, about 17 s to 24 s after start.
+  - That check found two things, both fixed.
+    - The SDK client, pinned to 2026-07-28, starts a short-lived copy of the server first. So mode A's lease now uses a short timing (2 s and 6 s), and its home part opens only once it holds the lease.
+    - A timer left behind in Core Link kept mode A alive 30 s after its client left.
+  - Production mode A's home key waits for the owner's confirmation (T029); the owner is asked whether it should be approved at start.
+  - About 1.5 SP against an estimate of 1 (estimates), and $0. Deliberate breaks: 7 for mode A, all caught, and 6 for the dependency rules, all caught.
 
 - **T027 part 2, the shared assemblies and the lease gate, is built** (2026-11-09; DRIFT-001-48):
   - The core's components and the home's are assembled once, for mode H's core, the connector and mode A alike.

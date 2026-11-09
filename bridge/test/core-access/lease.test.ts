@@ -415,6 +415,56 @@ describeStoreMatrix("Lease", (database) => {
     expect(lease.status).toEqual({ held: false, reason: "expired" });
   });
 
+  it("follows a shorter timing when given one: renewed every 2 s, its row lasting 6 s and its hold 4 s (mode A)", async () => {
+    const { layer, clock } = await setUp();
+    const timing = { renewMs: 2_000, expiresMs: 6_000 };
+    const holder = new Lease({
+      store: layer,
+      clock,
+      name: account,
+      holder: "core-a",
+      timing,
+    });
+    const other = new Lease({
+      store: layer,
+      clock,
+      name: account,
+      holder: "core-b",
+      timing,
+    });
+
+    await expect(holder.renew()).resolves.toEqual({
+      held: true,
+      until: START + 4_000,
+    });
+    holder.start();
+    await holder.settled();
+    await clock.advance(2_000);
+    await holder.settled();
+    expect(holder.status).toEqual({ held: true, until: START + 6_000 });
+
+    await holder.stop();
+    await expect(other.renew()).resolves.toMatchObject({ held: true });
+    expect(
+      () =>
+        new Lease({
+          store: layer,
+          clock,
+          name: account,
+          timing: { renewMs: 2_000, expiresMs: 4_000 },
+        }),
+    ).toThrow(RangeError);
+    expect(
+      () =>
+        new Lease({
+          store: layer,
+          clock,
+          name: account,
+          timing: { renewMs: 0.5, expiresMs: 4_000 },
+        }),
+    ).toThrow(RangeError);
+  });
+
   it("refuses a name or a holder it cannot store, and gives each instance its own holder by default", async () => {
     const { layer, clock } = await setUp();
 

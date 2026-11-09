@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 48
+**Total drift events**: 49
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,56 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-49: T027 part 3: mode A over stdio, and what its end-to-end check found
+
+- **Detected**: 2026-11-10, implement, while doing T027
+- **Kind**: details the records leave open, versus the code; one record corrected (DRIFT-001-42); one defect in Core Link and Connector Link (CP-09's code) and one in the dependency check's configuration (CP-01's), found and fixed. No spec change
+- **Observed and decided**:
+  - **Mode A** (`host/all-in-one.ts`) runs the core and the home part in one process, with the MCP endpoint over stdio:
+    - the core's database (`bridge.db`) and the outbox (`outbox.db`) in the data folder [P];
+    - the in-process link pair, now labelled for mode A as well as tests (its hold and drop controls stay for tests);
+    - no Issuer and no HTTP;
+    - the log on stderr.
+  - **No Azure in mode A.** A new dependency rule keeps the Azure libraries, oidc-provider and the SQL Server driver out of everything `host/all-in-one.ts` and the dev script reach. This closes DRIFT-001-26's carry-forward.
+  - **The home side is handed in.** In production, `host/ring-home.live.ts` opens the Secrets File (`secrets.sealed` [P]) and the Ring Adapter, and writes a rotated Ring token back. With no Secrets File, the process stops with "run the setup first" (T028 makes the file). The dev script and the tests hand in the scenario engine.
+  - **The home's key** waits for the owner's typed confirmation, as data-model.md "Configuration" says, and the admin page comes with T029. The dev script and the tests approve it at start. The owner is asked whether production mode A should do the same.
+  - **The dev script**, `npm run dev:all-in-one` (`bridge/dev/all-in-one-scenario.ts`), runs mode A with the simulated home of about 100 devices, no Ring account and no secrets. `tsconfig.json` now includes `bridge/dev`. The production image leaves it out (part 6).
+- **Found by the end-to-end check**:
+  - **The SDK's stdio client starts the server twice when the era is pinned to 2026-07-28.** It first runs a short-lived copy to learn the era, then ends it by closing its stdin and sending SIGTERM, then SIGKILL a second later. On Windows SIGTERM ends a process at once, with no clean-up.
+    - This corrects DRIFT-001-42, which said the client in `auto` mode starts the server twice and that pinning the era avoids it. Measured: the pinned client started two processes on the same data folder, and the default client started one.
+    - The second process found the lease held by the first, so its home part never linked.
+  - **What changed for it**:
+    - **Mode A's lease timing is shorter [P]**: renewed every 2 s, the row lasting 6 s. The Lease takes an optional timing for this; mode H keeps the recorded 15 s and 45 s. A copy ended without clean-up holds the folder for at most 6 s.
+    - **The home part, with its Ring connection, opens only once the process holds the lease.** So a second process on the folder never reaches Ring while the first runs. Two Ring clients on one refresh token could otherwise break each other if Ring invalidates the old token when it rotates.
+    - **A process that loses the lease ends.** Mode A is a single process.
+  - **A defect in CP-09's code, found and fixed.**
+    - A home session started on a link that was already closed (mode A's first dial, refused before the lease) still set its 30 s handshake timer, and nothing cancelled it.
+    - So mode A stayed alive for up to 30 s after stdin closed. It now ends at once.
+    - In mode H the same leftover timer was harmless: it fired, logged and closed a closed link.
+    - Connector Link's session had the same flaw for a link closed before it was accepted. Its timers now start only while the session is open.
+- **A defect in the dependency check's configuration (CP-01's), found and fixed.**
+  - Its `exclude` pattern dropped every path holding `dist/` or `coverage/`, packages in `node_modules` included. The Azure libraries ship from `dist/`, so the edge to them vanished, and a rule about reaching them could never fire.
+  - So the connector's rule, "reaches no Azure library", has never been able to catch one, and the new mode A rule missed an Azure import in a deliberate break.
+  - It now excludes only the project's own `dist/` and `coverage/`. The graph grew from 261 to 275 modules, with no violation.
+  - A forbidden import broke each rule whose source file exists today, 6 of 6 caught: mode A reaching Azure, oidc-provider or the SQL Server driver; the dev script reaching Azure; Ring's library outside the Ring Adapter; `ws` outside the Link transport. The core's and the connector's rules get the same check when parts 4 and 5 add their files.
+- **Pilot checks**:
+  - At the very first start, a probing host's short-lived copy is the first process and takes the lease. It opens its home part at its first check, 1 s on. Whether a host's copy lives that long, and so briefly reaches Ring, shows in the pilot.
+  - Whether Ring invalidates a refresh token when it rotates.
+- **Requirement citation**: tasks.md T027 and "Checkpoint" (US1 end to end in mode A); FR-044, FR-045; data-model.md "Configuration"; DRIFT-001-26, DRIFT-001-42, DRIFT-001-46.
+- **Resolution**: implementation choices, recorded for CP-10's co-review; the Core Link fix is CP-09's code. About 1.5 SP against an estimate of 1 (estimates), and $0.
+- **Class closure**: a rule that cannot fire is checked by breaking each rule once, as above. The leftover timer's class is "a timer set after the thing it guards may already have ended". Each place that sets a timeout after registering an end listener was checked:
+  - Core Link's handshake: fixed, with a test;
+  - Connector Link's timers: the same flaw, fixed, with a test that failed before the fix;
+  - the Lease's write deadline and the MCP endpoint's token-check deadline: each cancelled in `finally`.
+  - Tests:
+    - mode A end to end over stdio in both eras, the four read tools on the simulated home, about 17 s to 24 s each;
+    - a second mode A process on one folder never opening its home part while the first holds the lease, then taking over;
+    - a home that cannot open, reported;
+    - Core Link and Connector Link leaving no timer on a link closed before their session;
+    - the Lease's shorter timing.
+  - Deliberate breaks: 7 for mode A, all caught, and 6 for the dependency rules, all caught.
+  - 1,128 tests: 1,006 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,115 pass and 13 skip; coverage 97.7% of lines and 93.6% of branches; lint, tsc, prettier and depcruise (275 modules) clean.
 
 ### DRIFT-001-48: T027 part 2: the shared assemblies, and the lease gating the link and Event
 

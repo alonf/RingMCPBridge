@@ -4,7 +4,7 @@
 // H's, wired in core.ts. Hand-wired, with no container (CD3, CD5).
 import { GrantsStore } from "../core/access/grants/index.ts";
 import { Lease } from "../core/access/lease/index.ts";
-import type { LeaseStore } from "../core/access/lease/index.ts";
+import type { LeaseStore, LeaseTiming } from "../core/access/lease/index.ts";
 import { SettingsStore } from "../core/access/settings/index.ts";
 import { StateStore } from "../core/access/state/index.ts";
 import { AdminManager } from "../core/managers/admin/index.ts";
@@ -35,6 +35,8 @@ export interface CoreAssemblyOptions {
   readonly leaseStore?: LeaseStore;
   /** This instance's id in the lease row; random when left out. */
   readonly leaseHolder?: string;
+  /** The lease's timing; the recorded 15 s and 45 s when left out. */
+  readonly leaseTiming?: LeaseTiming;
 }
 
 /** The core's components, built once per process. */
@@ -75,6 +77,9 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
     ...(options.leaseHolder === undefined
       ? {}
       : { holder: options.leaseHolder }),
+    ...(options.leaseTiming === undefined
+      ? {}
+      : { timing: options.leaseTiming }),
   });
   const events = new PubSub<EventTopics>((topic, error) => {
     logger.error("pub_sub_handler_failed", { kind: topic }, error);

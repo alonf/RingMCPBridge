@@ -1,6 +1,7 @@
-// Two linked ends in one process, for tests (CP-09, T015; CD X2 "an in-memory pair"): no sockets,
-// but the same frames, encoding, order and closing as over WSS. A test can hold writes, to see the
-// sending order, and drop the connection.
+// Two linked ends in one process (CP-09, T015; CD X2 "an in-memory pair"): no sockets, but the
+// same frames, encoding, order and closing as over WSS. Mode A links its home part and its core
+// with it (T027); tests use it too. A test can also hold writes, to see the sending order, and drop
+// the connection; mode A never does.
 import type { Logger } from "../logging/index.ts";
 import { LinkEndpoint } from "./link-connection.ts";
 import type { LinkConnection, LinkWire } from "./link-connection.ts";

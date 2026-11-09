@@ -411,6 +411,46 @@ describe("CoreLink: the outbox over the link", () => {
     ).toHaveLength(1);
   });
 
+  it("leaves no handshake timer behind for a link the core closed before the session began (T027)", async () => {
+    const test = await harness();
+    const logger = new Logger({
+      sink: () => undefined,
+      now: () => test.clock.now(),
+      minLevel: "debug",
+    });
+    const refused = new CoreLink({
+      // A core without the lease closes the link at once, before the session begins (mode A).
+      dial: () => {
+        const pair = createLinkPair(logger);
+        pair.acceptor.close("core_unavailable");
+        return Promise.resolve({ kind: "connected", link: pair.dialer });
+      },
+      slot: test.slot,
+      ingest: new Ingest({
+        ring: test.engine,
+        outbox: test.store,
+        link: test.slot,
+        clock: test.clock,
+        logger,
+      }),
+      identity: {
+        key: test.key,
+        enrollmentCode: CODE,
+        connectorVersion: VERSION,
+      },
+      clock: test.clock,
+      logger,
+      random: () => 1,
+    });
+    refused.start();
+    await settle();
+
+    await refused.stop();
+    await settle();
+
+    expect(test.clock.pendingTimers).toBe(0);
+  });
+
   it("drops a message too large for a frame, logs it once by id, and still sends the rest", async () => {
     const test = await harness();
     const tooLarge = await test.store.append(

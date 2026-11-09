@@ -102,6 +102,11 @@ export class HomeSession {
         this.#context.slot.clear(link);
         resolve(this.#ended(closed));
       });
+      // A link closed before the session began has already ended it, above: sending would leave
+      // a handshake timer nothing cancels, which keeps the process alive for 30 s (T027).
+      if (link.closed !== undefined) {
+        return;
+      }
       if (this.#phase === "enrolling") {
         this.#sendEnroll();
       } else {

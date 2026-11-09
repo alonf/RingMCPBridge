@@ -15,6 +15,19 @@ module.exports = {
       },
     },
     {
+      name: "all-in-one-reaches-no-cloud-libraries",
+      comment:
+        "From mode A's wiring and its dev script, no import path reaches the Azure libraries, oidc-provider or the SQL Server driver: mode A runs on the owner's machine alone (FR-045, DRIFT-001-25).",
+      severity: "error",
+      from: {
+        path: "^bridge/(src/host/all-in-one|dev/all-in-one-scenario)\\.ts$",
+      },
+      to: {
+        path: "node_modules/(@azure/|oidc-provider/|mssql/|tedious/)",
+        reachable: true,
+      },
+    },
+    {
       name: "core-reaches-no-ring-libraries",
       comment:
         "From the core's wiring, no import path reaches the Ring libraries or werift: Ring is reached only from home (S2, I5.3).",
@@ -128,7 +141,10 @@ module.exports = {
   ],
   options: {
     doNotFollow: { path: "node_modules" },
-    exclude: { path: "(^|/)(dist|coverage)/" },
+    // The project's own build and coverage output only: a package in node_modules that ships from
+    // a dist/ folder (the Azure libraries do) must stay in the graph, or the rules about what the
+    // wiring reaches could never see it (T027).
+    exclude: { path: "^((bridge|shim)/)?(dist|coverage)/" },
     tsPreCompilationDeps: true,
     tsConfig: { fileName: "tsconfig.json" },
     enhancedResolveOptions: {

@@ -27,6 +27,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "dev:all-in-one": "node bridge/dev/all-in-one-scenario.ts",
     "test:coverage": "vitest run --coverage",
     "test:pages": "playwright test",
     "schemas:check": "vitest run bridge/test/contract",

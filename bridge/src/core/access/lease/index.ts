@@ -8,6 +8,7 @@ export {
   LEASE_EXPIRES_MS,
   LEASE_HELD_MS,
   LEASE_RENEW_MS,
+  LEASE_TIMING,
   LEASE_WRITE_TIMEOUT_MS,
 } from "./lease.ts";
 export type {
@@ -15,4 +16,5 @@ export type {
   LeaseOptions,
   LeaseStatus,
   LeaseStore,
+  LeaseTiming,
 } from "./lease.ts";
