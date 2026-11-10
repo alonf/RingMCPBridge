@@ -174,6 +174,8 @@ main { padding: 1rem; display: grid; gap: 1rem; align-content: start; min-width:
 }
 .hint { color: var(--muted); font-size: 0.9rem; margin: 0; }
 .signed-out { max-width: 32rem; margin: 3rem auto; }
+.page-title { margin: 0; font-size: 1.35rem; }
+h1 { font-size: 1.35rem; margin: 0 0 0.75rem; }
 
 @media (min-width: 600px) {
   .menu { display: none; }

@@ -1,13 +1,19 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T028
-**Tasks Remaining**: T029-T036 (8 tasks, 10 story_points)
-**In Progress**: T029 part 1, the admin page's server side, is done (DRIFT-001-59); next, part 2: the Playwright checks at three widths in both themes, and the keyboard path
+**Last Completed Task**: T029
+**Tasks Remaining**: T030-T036 (7 tasks, 9 story_points)
+**In Progress**: T029 is done (DRIFT-001-59, DRIFT-001-60); next, CP-17's review round, then T030
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-10T19:41:56Z
+**Updated**: 2026-11-10T20:13:18Z
 
 ## Execution Summary
+
+- **T029, the admin page, is done** (2026-11-10; DRIFT-001-60):
+  - Playwright checks it in a real browser at three widths, dark and light: 19 checks in each of the six projects, 114 in all, against a dev server with stand-ins.
+  - That found that every form would have failed in a browser: the page's referrer policy made browsers send `Origin: null`. It now sends no referrer only to other sites. Refresh now refreshes; an approval that gets no answer says its outcome is unknown; form bodies are limited.
+  - Running the page checks in CI is offered to the owner: about 3 minutes more per push (estimate), from the private repository's Actions allowance.
+  - T029 took about 4 SP (estimate) against its 1, and $0.
 
 - **T029 part 1, the admin page's server side, is done** (2026-11-10; DRIFT-001-59):
   - The owner signs in afresh at `/admin` and sees the Health section, polled every 15 s, with a banner and what to do for the home offline, Ring signed out, the store down and stale data, and "connector behind".

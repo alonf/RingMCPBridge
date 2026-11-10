@@ -3,8 +3,9 @@
 // - **The theme switch** changes the theme in place, keeping what the owner typed, and remembers
 //   the choice in the theme cookie. Without the script, the switch posts a form instead.
 // - **The health poll**: every 15 s it fetches the Health section alone and puts it in place, so the
-//   Enroll section and what is typed there are never touched. When the session has ended, it shows
-//   the signed-out notice the server sent and stops.
+//   Enroll section and what is typed there are never touched; Refresh polls at once. When the
+//   session has ended, it shows the signed-out notice the server sent and stops. Without the
+//   script, Refresh loads the whole page again.
 
 /** How often the open page fetches the Health section again (FR-040; UX U3). */
 export const HEALTH_POLL_MS = 15_000;
@@ -40,7 +41,8 @@ export function pageScript(options: {
   if (!document.getElementById("health") || document.body.getAttribute("data-signed-in") !== "yes") {
     return;
   }
-  var timer = window.setInterval(function () {
+  var timer;
+  function poll() {
     window.fetch(${JSON.stringify(options.healthPath)}, { cache: "no-store", credentials: "same-origin" })
       .then(function (response) {
         return response.text().then(function (text) {
@@ -56,7 +58,16 @@ export function pageScript(options: {
       .catch(function () {
         /* The next poll tries again. */
       });
-  }, ${String(HEALTH_POLL_MS)});
+  }
+  timer = window.setInterval(poll, ${String(HEALTH_POLL_MS)});
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    var link = target && target.closest ? target.closest("a[data-refresh]") : null;
+    if (link) {
+      event.preventDefault();
+      poll();
+    }
+  });
 })();
 `;
 }

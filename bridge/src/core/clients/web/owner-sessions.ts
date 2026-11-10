@@ -21,7 +21,8 @@ export type Notice =
   | { readonly kind: "code_mismatch" }
   | { readonly kind: "sign_in_stale" }
   | { readonly kind: "not_serving" }
-  | { readonly kind: "unavailable" };
+  | { readonly kind: "unavailable" }
+  | { readonly kind: "outcome_unknown" };
 
 /** A signed-in owner. */
 export interface OwnerSession {

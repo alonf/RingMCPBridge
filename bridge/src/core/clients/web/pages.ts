@@ -129,6 +129,10 @@ const NOTICES: Readonly<
     tone: "bad",
     text: "The bridge's database did not answer, so nothing was approved. Try again in a moment.",
   },
+  outcome_unknown: {
+    tone: "bad",
+    text: "The bridge's database did not answer while approving. Reload the page to see whether the connector was approved.",
+  },
 };
 
 /** The page shown to anyone not signed in. */
@@ -179,6 +183,7 @@ export function adminPage(view: {
       <div class="shell">
         <div class="side">${navigation(view.paths, "Sections")}</div>
         <main id="main">
+          <h1 class="page-title">Bridge admin</h1>
           ${view.notice === undefined ? "" : notice(view.notice)}
           ${healthSection(view.health, view.paths)}
           ${enrollSection(view.enroll, view.formToken, view.paths)}
@@ -194,7 +199,8 @@ export function healthSection(panel: HealthPanel, paths: PagePaths): Html {
       <h2 id="health-title">Health</h2>
       ${panel.asOf === undefined ? "" : html`<span class="as-of">as of ${panel.asOf}</span>`}<a
         class="button"
-        href="${paths.page}#health"
+        href="${paths.page}"
+        data-refresh
         >Refresh</a
       >
     </div>
@@ -322,8 +328,9 @@ function enrollBody(
         </p>
         <p class="code">${panel.code}</p>
         <p class="hint">
-          The request waits until ${panel.expiresAt}. Approving makes this
-          connector the home's only one: any older connector key is revoked.
+          Approve only if it matches the code the setup printed at home. The
+          request waits until ${panel.expiresAt}. Approving makes this connector
+          the home's only one: any older connector key is revoked.
         </p>
         ${panel.fresh ? approveForm(panel.keyId, formToken, paths) : signInAgain(paths)}`;
   }

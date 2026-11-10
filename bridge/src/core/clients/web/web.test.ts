@@ -262,7 +262,8 @@ describe("the admin page's sign-in", () => {
     );
     expect(page.headers.get("x-content-type-options")).toBe("nosniff");
     expect(page.headers.get("cache-control")).toBe("no-store");
-    expect(page.headers.get("referrer-policy")).toBe("no-referrer");
+    // Not `no-referrer`, under which browsers send `Origin: null` on the page's own forms.
+    expect(page.headers.get("referrer-policy")).toBe("same-origin");
   });
 
   it("starts a fresh sign-in bound to this browser, and opens a session on its return", async () => {
@@ -607,7 +608,7 @@ describe("the admin page's Enroll section", () => {
     expect(fakes.approved).toEqual([KEY_ID]);
   });
 
-  it("approves nothing on a core instance without the lease, or with the store down", async () => {
+  it("approves nothing on a core instance without the lease, or when the request cannot be read", async () => {
     const fakes = setUp();
     fakes.pending = waiting();
     const session = await signIn(fakes);
@@ -616,13 +617,68 @@ describe("the admin page's Enroll section", () => {
     expect(await approve(fakes, session, CODE)).toContain("not serving");
 
     fakes.serving = true;
+    const page = await pageOf(fakes, session);
+    fakes.pendingRead = () =>
+      Promise.reject(
+        new AdminError("unavailable", "The request could not be read."),
+      );
+    await post(
+      fakes.web,
+      "/admin/enroll/approve",
+      { form_token: formToken(page), key_id: KEY_ID, confirmation: CODE },
+      { cookies: session },
+    );
+    fakes.pendingRead = () => Promise.resolve(fakes.pending);
+    expect(noticeOn(await pageOf(fakes, session))).toBe(
+      "The bridge&#39;s database did not answer, so nothing was approved. Try again in a moment.",
+    );
+    expect(fakes.approved).toEqual([]);
+  });
+
+  it("says the outcome is unknown when the approval itself gets no answer", async () => {
+    const fakes = setUp();
+    fakes.pending = waiting();
+    const session = await signIn(fakes);
     fakes.approval = () =>
       Promise.reject(
         new AdminError("unavailable", "The enrollment could not be approved."),
       );
-    expect(await approve(fakes, session, CODE)).toContain(
-      "database did not answer",
+
+    expect(await approve(fakes, session, CODE)).toBe(
+      "The bridge&#39;s database did not answer while approving. Reload the page to see whether the connector was approved.",
     );
+  });
+
+  it("refuses a form body too large to be a form, before reading it", async () => {
+    const fakes = setUp();
+    fakes.pending = waiting();
+    const session = await signIn(fakes);
+    const page = await pageOf(fakes, session);
+
+    const refused = await post(
+      fakes.web,
+      "/admin/enroll/approve",
+      {
+        form_token: formToken(page),
+        key_id: KEY_ID,
+        confirmation: CODE,
+        padding: "x".repeat(8 * 1024),
+      },
+      { cookies: session },
+    );
+
+    expect(refused.status).toBe(413);
+    expect(fakes.approved).toEqual([]);
+  });
+
+  it("titles the page, and its Refresh fetches the section again rather than jumping to it", async () => {
+    const fakes = setUp();
+    const session = await signIn(fakes);
+
+    const page = await pageOf(fakes, session);
+
+    expect(page).toContain(`<h1 class="page-title">Bridge admin</h1>`);
+    expect(page).toMatch(/href="\/admin"\s+data-refresh/);
   });
 
   it("shows the section's own state when the request cannot be read", async () => {

@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 59
+**Total drift events**: 60
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1174,6 +1174,31 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
+### DRIFT-001-60: T029 part 2: the admin page in a real browser, and what that found
+
+- **Detected**: 2026-11-10, implement, T029. The first two findings came from a review of part 1 before its review round; the browser checks then showed them.
+- **Kind**: defects in part 1 (DRIFT-001-59), found before review, and the task's Playwright checks. No spec change
+- **Observed**:
+  - **Every form would have failed in a browser.** Part 1 sent `Referrer-Policy: no-referrer`. Under it, browsers send `Origin: null` on a page's own form posts, so the Origin check refused the approval, the sign-out and the theme form. The tests set the header by hand, so none could see it. A deliberate break proves it: with `no-referrer` back, the browser's approval fails.
+  - **Refresh did not refresh**: a link to `/admin#health`, on `/admin`, only scrolls.
+  - **An approval that got no answer said "nothing was approved"**, though the change may have been made before the answer was lost.
+  - **No limit on a form's size**: the Origin check stops browsers, not a script that sets its own headers.
+  - The page had no `h1`. DRIFT-001-59 claimed that typing the code proves the owner compared it with the connector's log; the code is shown right above the field, so it does not.
+  - A sign-in lands on `/admin#health`, and the fragment moves where the browser's Tab starts. That is the browser's own behaviour, and the keyboard check starts from a plain load.
+- **Decided**:
+  - `Referrer-Policy: same-origin`, which still sends no referrer to other sites. The Origin check stays strict and never takes `null`.
+  - Refresh fetches the Health section at once through the page script, and loads the whole page without it.
+  - A failure while approving says the outcome is unknown and asks the owner to reload; a failure before it still says nothing was approved.
+  - Form bodies over 4 KB are refused before they are read [P], with hono's built-in body limit: no new dependency.
+  - The page is titled "Bridge admin", and the Enroll section says to approve only if the code matches the one the setup printed at home.
+  - **The Playwright checks** (`npm run test:pages`) run against a dev server, `bridge/dev/admin-pages.ts`, with stand-in managers and a stand-in Entra on localhost. Each check opens its own scenario, so they run side by side. They cover 19 checks in each of the six projects (three widths, dark and light): signed out, all OK, each banner, connector behind, not linked, a waiting code, approved, not pending, a wrong code, a sign-in too old, and signed out by the owner. Each asserts its theme and that nothing scrolls sideways. Further checks show the typed code kept through the poll, Refresh, the theme switch and unfolding the phone, and the approval made from the keyboard alone, with focus visible at each step.
+  - Playwright 1.64.1's headless Chromium was downloaded to this machine: a browser for the existing dev dependency, not a new package.
+- **Not chosen, and offered to the owner**: running the page checks in CI. The repository is private, so its Actions minutes come from the account's monthly allowance. They would add about 3 minutes per push (estimate). Until the owner says so, they run locally before each push that touches the page.
+- **Requirement citation**: tasks.md T029; FR-040, FR-005, FR-032; UX U1-U5; DRIFT-001-59.
+- **Resolution**: T029 done. About 4 SP in all (estimate) against its 1, and $0.
+- **Class closure**: the class is "a check that only a test's hand-made request passes". The page's forms are now proven as a browser sends them, in every project; each of the browser's own behaviours the page relies on has a check and a deliberate break: the Origin under the page's referrer policy, the poll and Refresh keeping what is typed, the theme kept, the side menu once unfolded, visible focus, no sideways scroll at the folded width, the default and chosen theme (9 breaks), plus the body limit and the unknown outcome (2 more, in Vitest). All 11 were caught.
+  - 1,247 tests: 1,125 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,234 pass and 13 skip. The page checks: 114 pass.
+
 ### DRIFT-001-59: T029 part 1: the admin page's server side, and how a connector is approved safely
 
 - **Detected**: 2026-11-10, implement, T029.
@@ -1191,12 +1216,12 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - the cookies are `Secure`, `HttpOnly` and `SameSite=Lax`. Every form carries its session's token and must come from the core's own origin;
     - Entra's subject and object ID are never logged.
   - **Approving a connector**:
-    - the owner types the request's code, as the connector's log shows it, compared without dashes, spaces or case [P]. Typing the code makes the comparison itself the confirmation;
+    - the owner types the request's code, compared without dashes, spaces or case [P]: a typed confirmation tied to the request shown. The page asks the owner to approve only if it matches the code the setup printed at home (corrected in DRIFT-001-60);
     - the form posts the key the page showed. If a newer request replaced it, nothing is approved and the page shows the new code;
     - the sign-in's age is checked on the server when the form arrives. From 5 minutes on, the page asks for a new sign-in instead of the form, and the request, which waits 10 minutes, is still there after it;
     - a core instance without the lease approves nothing;
     - approval makes the key the one active key and revokes the older ones. The versions start again when the new key's first session claims them, which the end-to-end test shows: a second connector's change is applied, not skipped as older.
-  - **The page**: server-rendered with hono's `html` helper, which escapes every value; the code and version from the home are never raw markup. Dark by default, with a light theme kept in a cookie the server reads, so there is no flash. The stylesheet and the script are served from their own paths, under a policy with no inline script or style, no framing, nothing cached and no referrer. The Health section is polled alone every 15 s, so the typed code is never wiped; once the session ends, the poll shows a signed-out notice and stops.
+  - **The page**: server-rendered with hono's `html` helper, which escapes every value; the code and version from the home are never raw markup. Dark by default, with a light theme kept in a cookie the server reads, so there is no flash. The stylesheet and the script are served from their own paths, under a policy with no inline script or style, no framing, nothing cached, and no referrer sent to other sites (DRIFT-001-60). The Health section is polled alone every 15 s, so the typed code is never wiped; once the session ends, the poll shows a signed-out notice and stops.
   - **Failures as page states**: the store down is a banner, never an error page; a sign-in refused, not the owner's, from another browser, or ended says so on the sign-in page.
   - **"Connector behind" [P]**: both versions are `major.minor.patch` and the connector's is lower. Any other form is never called behind.
   - **Contrast**: a test works out WCAG ratios from both themes' colours: 4.5:1 for text, 3:1 for the focus ring. No new dependency.

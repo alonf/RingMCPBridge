@@ -14,6 +14,7 @@
 //   error page. Each is logged once, here.
 import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Clock } from "../../../utilities/clock/index.ts";
@@ -85,11 +86,14 @@ const THEME_COOKIE_MAX_AGE_S = 365 * 24 * 60 * 60;
 const BINDING_BYTES = 32;
 const KEY_ID_MAX_LENGTH = 64;
 const FORM_TOKEN_MAX_LENGTH = 64;
+/** The largest form body taken [P]: the forms hold a few short fields. */
+const FORM_BODY_LIMIT_BYTES = 4 * 1024;
 
 const HTTP_SEE_OTHER = 303;
 const HTTP_UNAUTHORIZED = 401;
 const HTTP_FORBIDDEN = 403;
 const HTTP_NOT_FOUND = 404;
+const HTTP_PAYLOAD_TOO_LARGE = 413;
 const HTTP_SERVER_ERROR = 500;
 
 const POLICY = [
@@ -107,7 +111,9 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "content-security-policy": POLICY,
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
-  "referrer-policy": "no-referrer",
+  // Not `no-referrer`: with it, browsers send `Origin: null` on the page's own form posts, and
+  // every form would fail the Origin check. `same-origin` still sends nothing to other sites.
+  "referrer-policy": "same-origin",
   "cross-origin-opener-policy": "same-origin",
   "cache-control": "no-store",
 };
@@ -196,6 +202,23 @@ export class Web {
     app.get(ADMIN_PATHS.signIn, (context) => this.#startSignIn(context));
     app.get(SIGN_IN_RETURN_PATH, (context) => this.#finishSignIn(context));
     app.get(HEALTH_PATH, (context) => this.#health(context));
+    for (const path of [
+      ADMIN_PATHS.approve,
+      ADMIN_PATHS.signOut,
+      ADMIN_PATHS.theme,
+    ]) {
+      app.use(
+        path,
+        bodyLimit({
+          maxSize: FORM_BODY_LIMIT_BYTES,
+          onError: (context) =>
+            this.#refuse(context, "This form is too large.", {
+              status: HTTP_PAYLOAD_TOO_LARGE,
+              reason: "too_large",
+            }),
+        }),
+      );
+    }
     app.post(ADMIN_PATHS.approve, (context) => this.#approve(context));
     app.post(ADMIN_PATHS.signOut, (context) => this.#signOut(context));
     app.post(ADMIN_PATHS.theme, (context) => this.#theme(context));
@@ -373,36 +396,61 @@ export class Web {
     if (!this.#dependencies.serving()) {
       return { kind: "not_serving" };
     }
-    const { admin } = this.#dependencies;
-    const signal = AbortSignal.timeout(MANAGER_TIMEOUT_MS);
+    return (await this.#checkRequest(form)) ?? this.#approveShown(form.key_id);
+  }
+
+  // Nothing is approved yet: a failure here changes nothing. `undefined` when the key may be approved.
+  async #checkRequest(
+    form: z.infer<typeof APPROVE_FORM>,
+  ): Promise<Notice | undefined> {
     try {
-      const pending = await admin.pendingEnrollment(signal);
+      const pending = await this.#dependencies.admin.pendingEnrollment(
+        AbortSignal.timeout(MANAGER_TIMEOUT_MS),
+      );
       if (pending?.key_id !== form.key_id) {
         return { kind: "not_pending" };
       }
-      if (
-        comparable(form.confirmation) !== comparable(pending.enrollment_code)
-      ) {
-        return { kind: "code_mismatch" };
-      }
-      const approval = await admin.approveEnrollment(form.key_id, signal);
+      return comparable(form.confirmation) ===
+        comparable(pending.enrollment_code)
+        ? undefined
+        : { kind: "code_mismatch" };
+    } catch (error) {
+      return this.#notApproved(error, "unavailable");
+    }
+  }
+
+  // A failure while approving may come after the change was made: its outcome is unknown.
+  async #approveShown(keyId: string): Promise<Notice> {
+    try {
+      const approval = await this.#dependencies.admin.approveEnrollment(
+        keyId,
+        AbortSignal.timeout(MANAGER_TIMEOUT_MS),
+      );
       if (approval.kind === "not_pending") {
         return { kind: "not_pending" };
       }
       this.#logger.info("web_connector_approved", {
-        key_id: form.key_id,
+        key_id: keyId,
         count: approval.revokedKeyIds.length,
       });
       return { kind: "approved", revoked: approval.revokedKeyIds.length };
     } catch (error) {
-      if (!(error instanceof AdminError || isTimeout(error))) {
-        throw error;
-      }
-      this.#logger.warn("web_connector_not_approved", {
-        error_code: error instanceof AdminError ? error.kind : "timeout",
-      });
-      return { kind: "unavailable" };
+      return this.#notApproved(error, "outcome_unknown");
     }
+  }
+
+  #notApproved(
+    error: unknown,
+    notice: "unavailable" | "outcome_unknown",
+  ): Notice {
+    if (!(error instanceof AdminError || isTimeout(error))) {
+      throw error;
+    }
+    this.#logger.warn("web_connector_not_approved", {
+      error_code: error instanceof AdminError ? error.kind : "timeout",
+      outcome: notice,
+    });
+    return { kind: notice };
   }
 
   async #signOut(context: WebContext): Promise<Response> {
@@ -462,11 +510,19 @@ export class Web {
     return { session, form: form.data };
   }
 
-  #refuse(context: WebContext, text: string): Response | Promise<Response> {
-    this.#logger.warn("web_form_refused", { error_code: "not_this_site" });
+  // A form the page does not take: from another site by default.
+  #refuse(
+    context: WebContext,
+    text: string,
+    why: {
+      readonly status: typeof HTTP_FORBIDDEN | typeof HTTP_PAYLOAD_TOO_LARGE;
+      readonly reason: string;
+    } = { status: HTTP_FORBIDDEN, reason: "not_this_site" },
+  ): Response | Promise<Response> {
+    this.#logger.warn("web_form_refused", { error_code: why.reason });
     return context.html(
       refusedPage({ paths: ADMIN_PATHS, theme: themeOf(context), text }),
-      HTTP_FORBIDDEN,
+      why.status,
     );
   }
 

@@ -416,7 +416,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - it prints the one-time enrollment code, which the connector also logs.
 
   Tests use the scenario engine in place of Ring (Trace: FR-032; CP-06)
-- [ ] T029 [US6] [assigned_to: Implementer] [effort: 1] Minimal admin page in `bridge/src/core/clients/web/`: server-rendered with hono, for the owner only, behind a fresh Entra sign-in.
+- [x] T029 [US6] [assigned_to: Implementer] [effort: 1] Minimal admin page in `bridge/src/core/clients/web/`: server-rendered with hono, for the owner only, behind a fresh Entra sign-in.
   - **The Health section:**
     - the `get_health` data, read through Inquiry and polled every 15 s;
     - "connector behind";
