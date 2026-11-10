@@ -316,12 +316,16 @@ async function writeSecrets(
   }
 }
 
+// A path is missing when it is not there, or when a folder on its way is a file: Linux answers
+// that with ENOTDIR, where Windows answers ENOENT.
+const MISSING: ReadonlySet<unknown> = new Set(["ENOENT", "ENOTDIR"]);
+
 async function exists(path: string): Promise<boolean> {
   try {
     await stat(path);
     return true;
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (error instanceof Error && "code" in error && MISSING.has(error.code)) {
       return false;
     }
     throw error;

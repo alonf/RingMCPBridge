@@ -1177,7 +1177,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 ### DRIFT-001-57: T028: the Setup CLI, with the enrollment code and a lost outbox settled
 
 - **Detected**: 2026-11-10, implement, T028.
-- **Kind**: the task as written, with decisions the tasks left open, and two carry-forwards closed (DRIFT-001-36, DRIFT-001-51). No spec change
+- **Kind**: the task as written, with decisions the tasks left open, and two carry-forwards closed (DRIFT-001-36, DRIFT-001-51). `data-model.md` amended: the Secrets File also keeps the enrollment code, and a lost outbox needs a new key
 - **Observed**:
   - T027 read the enrollment code from `BRIDGE_ENROLLMENT_CODE` until the Setup CLI kept it (DRIFT-001-47, DRIFT-001-51).
   - DRIFT-001-36 left a limit to T027 and T028. An outbox lost while the key is kept restarts the home's version counter, and the core then skips the home's changes as older. It named two ways out: a new outbox means a new key, or the hello carries the counter.
@@ -1207,6 +1207,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - The Secrets File is opened in `host/home-files.ts`, apart from the Ring client, so the tests open a real one over the simulated home.
     - The image smoke gains a `setup` case: the image loads the Setup CLI and Ring's sign-in, and refuses to run without a terminal.
     - The connector's dependency rule now covers the setup's wiring too.
+    - CI on Linux found that the existence checks counted only `ENOENT` as missing. There, a path under a file answers `ENOTDIR`, and the check threw. Both checks now count either as missing.
 - **Requirement citation**: tasks.md T028; FR-032, FR-034, SC2, SC4; DRIFT-001-36, DRIFT-001-47, DRIFT-001-51.
 - **Resolution**: done. About 2 SP (estimate) against T028's 1, and $0.
 - **Class closure**: the class is "a carry-forward left open past the task named to settle it". Both of T028's are closed here: the enrollment code (DRIFT-001-47 and DRIFT-001-51, whose lines now point here) and the lost outbox (DRIFT-001-36). The others on record stay with their tasks:

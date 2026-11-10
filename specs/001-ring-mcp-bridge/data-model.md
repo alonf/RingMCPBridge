@@ -87,7 +87,7 @@ Each table belongs to exactly one resource-access component. No other component 
 | Media Cache | `media`; Blob `media/` | Azure SQL + Blob | SQLite + folder | 003 |
 | Command | `command`, `used_token`, `pending_disarm`, the disarm-lock row [P name `disarm_lock`] | Azure SQL | SQLite | 003 (`pending_disarm`, `disarm_lock`: 004) |
 | Outbox Store (home) | outbox, executed command ids, auto-off timers, catch-up mark | home SQLite | SQLite | 001 (event rows, catch-up mark: 002; command ids, timers: 003) |
-| Secrets File (home) | Ring token, push credentials, Ring's session hardware ID, connector private key | encrypted file | encrypted file | 001 |
+| Secrets File (home) | Ring token, push credentials, Ring's session hardware ID, connector private key, and the enrollment code (T028) | encrypted file | encrypted file | 001 |
 
 Owner names follow component-design, which assigned the owners data-storage left open:
 
@@ -568,7 +568,7 @@ Field names are [P]. The content is CD-A2's.
 | Executed command ids | Outbox Store (home) | `command_id`, the stored result | CD map v3, IA D8 step 8 | 003 |
 | Auto-off timers | Outbox Store (home) | device, off time, the state to restore | CD C3, CD key flow 2 | 003 |
 | Catch-up mark | Outbox Store (home) | the last point Ring history was read up to | CD map v3 | 002 |
-| Ring secrets | Secrets File (home) | Ring refresh token, push credentials, Ring's session hardware ID, connector private key | SC4 | 001 |
+| Ring secrets | Secrets File (home) | Ring refresh token, push credentials, Ring's session hardware ID, connector private key; also the enrollment code the Setup CLI printed, which is not a secret: the connector logs it (T028, DRIFT-001-57) | SC4 | 001 |
 | Core secrets | Secrets | `issuer-signing-keys` (rotated every 90 days, old key kept for checking), `pin-hash`, requestState key, plan-token key, S1 secrets | SC4, CD-A1 | 001 / 002 / 003 / 004 |
 
 ## Consistency rules
@@ -708,7 +708,7 @@ Where a resolution needed a detail it did not state, this plan applied the readi
 
 1. **History-recovered events under PT-25.** PT-25 has Ingest stamp only `received_at`. An event read from Ring history after a gap reaches home long after it occurred, so `received_at` alone cannot show that it is late. The link therefore carries `from_history: true` [P], a fact about the event's origin rather than a lateness judgment, and Classify sets `late` for it, as CD-A4 and OR5 require.
 2. **Recovery-event priority under PT-29.** `health.home_online` and `health.ring_restored` are HIGH [P], like the losses they end, so every agent receives them (US2 scenario 6). `health.ring_restored` also ends a `ring.session_lost` [P].
-3. **The inventory under PT-30.** The snapshot also carries the locations (name, time zone, alarm mode, ownership), which State needs for US1. The home keeps `state_version` in the Outbox Store so it survives a restart, and events that change a device carry it too. A new enrollment resets the core's stored versions [P].
+3. **The inventory under PT-30.** The snapshot also carries the locations (name, time zone, alarm mode, ownership), which State needs for US1. The home keeps `state_version` in the Outbox Store so it survives a restart, and events that change a device carry it too. A new enrollment resets the core's stored versions [P]. A home whose outbox is lost while its Secrets File is kept refuses to start until it is set up again with a new key, since its counter would start again below the versions the core keeps (DRIFT-001-57).
 4. **The audit kind under PT-23** is written `event_ingested`, in snake case, to match `media_access`.
 
 ## Carried to the iteration 003/004 plans
