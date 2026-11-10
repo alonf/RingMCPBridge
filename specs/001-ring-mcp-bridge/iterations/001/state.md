@@ -14,6 +14,7 @@
   - That found that every form would have failed in a browser: the page's referrer policy made browsers send `Origin: null`. It now sends no referrer only to other sites. Refresh now refreshes; an approval that gets no answer says its outcome is unknown; form bodies are limited.
   - Running the page checks in CI is offered to the owner: about 3 minutes more per push (estimate), from the private repository's Actions allowance.
   - T029 took about 4 SP (estimate) against its 1, and $0.
+  - **For the deployment docs task**: the quickstart's approval step should give the page's address, `https://<core>/admin`, and say the owner types the code shown to approve. The admin page always signs in fresh, so it needs the `auth_time` optional claim on the ID token, which step 6 already lists; without it, the owner cannot sign in to the page.
 
 - **T029 part 1, the admin page's server side, is done** (2026-11-10; DRIFT-001-59):
   - The owner signs in afresh at `/admin` and sees the Health section, polled every 15 s, with a banner and what to do for the home offline, Ring signed out, the store down and stale data, and "connector behind".
