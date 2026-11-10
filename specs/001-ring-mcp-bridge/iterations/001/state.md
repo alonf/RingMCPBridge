@@ -1,13 +1,18 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T027
-**Tasks Remaining**: T028-T036 (9 tasks, 11 story_points)
-**In Progress**: CP-10's review follow-up is fixed (DRIFT-001-56); next, T028 (the Setup CLI)
+**Last Completed Task**: T028
+**Tasks Remaining**: T029-T036 (8 tasks, 10 story_points)
+**In Progress**: T028 is done (DRIFT-001-57); next, CP-06's review round, then T029 (the admin page)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-10T02:08:37Z
+**Updated**: 2026-11-10T03:10:58Z
 
 ## Execution Summary
+
+- **T028, the Setup CLI, is done** (2026-11-10; DRIFT-001-57):
+  - The owner runs `setup` in the connector's image: the Ring email, the password unseen, the code Ring sent (3 tries). It writes the Secrets File last: Ring's token, the session hardware ID, a new key pair and the enrollment code. It prints the code, and the connector logs it when it enrolls.
+  - `BRIDGE_ENROLLMENT_CODE` is gone. A lost outbox beside a kept Secrets File now stops the connector and mode A, which say to run the setup again (closing DRIFT-001-36's limit).
+  - About 2 SP (estimate) against 1, and $0. 34 new tests; deliberate breaks: 16, all caught. The image smoke passes its new `setup` case.
 
 - **CP-10's review follow-up is fixed** (2026-11-10; DRIFT-001-56):
   - The home side's stop could wait for ever on a send a pushed-back connection never finishes. It now closes the link before waiting for its scheduler, and closing a link now settles the frame being written as well.

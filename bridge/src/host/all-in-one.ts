@@ -19,7 +19,10 @@
 import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { OutboxStore } from "../connector/access/outbox-store/index.ts";
+import {
+  OUTBOX_FILE_NAME,
+  OutboxStore,
+} from "../connector/access/outbox-store/index.ts";
 import type { LeaseTiming } from "../core/access/lease/index.ts";
 import type { SettingsStore } from "../core/access/settings/index.ts";
 import { McpEndpoint } from "../core/clients/mcp-endpoint/index.ts";
@@ -38,8 +41,9 @@ import { signingKeyId } from "../utilities/security/index.ts";
 import type { SigningKeyPair } from "../utilities/security/index.ts";
 import { assembleCore } from "./core-assembly.ts";
 import type { CoreAssembly } from "./core-assembly.ts";
-import { assembleHome, OUTBOX_FILE } from "./home-assembly.ts";
+import { assembleHome } from "./home-assembly.ts";
 import type { LocalHome } from "./home-assembly.ts";
+import { refuseLostOutbox } from "./home-files.ts";
 import { HostError } from "./host-error.ts";
 import { LEASE_CHECK_MS } from "./leased-links.ts";
 
@@ -199,6 +203,7 @@ class HomePart {
   async #open(): Promise<void> {
     const { clock, logger } = this.#parts;
     const signal = never();
+    await refuseLostOutbox(this.#dataDir);
     const home = await this.#parts.openHome();
     this.#closers.push(() => home.close());
     const enrollmentCode = randomBytes(ENROLLMENT_CODE_BYTES).toString(
@@ -208,7 +213,7 @@ class HomePart {
       await approveKey(this.#core.settings, home.key, enrollmentCode, signal);
     }
     const outbox = await OutboxStore.open(
-      { path: join(this.#dataDir, OUTBOX_FILE), clock },
+      { path: join(this.#dataDir, OUTBOX_FILE_NAME), clock },
       signal,
     );
     this.#closers.push(() => outbox.close());

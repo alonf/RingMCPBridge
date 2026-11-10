@@ -11,6 +11,8 @@
 //   unreachable. An uncaught exception is logged and ends the process, since its state is unknown.
 // - **Settings that fail their check** end the process before anything starts, naming the
 //   variables only.
+// - **`setup`** as the first argument runs the Setup CLI at the terminal instead (T028), before the
+//   run mode's settings are read: it needs only the data folder and the key's path.
 import { SystemClock } from "../utilities/clock/index.ts";
 import { ConfigError, loadSettings } from "../utilities/config/index.ts";
 import type { Settings } from "../utilities/config/index.ts";
@@ -22,6 +24,27 @@ const EXIT_FAILURE = 1;
 /** Something running that can be stopped. */
 interface Running {
   stop(): Promise<void>;
+}
+
+if (process.argv[2] === "setup") {
+  const { runSetupCommand } = await import("./setup.ts");
+  let code: number;
+  try {
+    code = await runSetupCommand(process.env, {
+      input: process.stdin,
+      output: process.stdout,
+      errors: process.stderr,
+      exit: (exitCode) => process.exit(exitCode),
+    });
+  } catch (error) {
+    const reason =
+      error instanceof Error ? `${error.name}: ${error.message}` : "unknown";
+    process.stderr.write(
+      `The setup stopped on an unexpected error. ${reason}\n`,
+    );
+    code = EXIT_FAILURE;
+  }
+  process.exit(code);
 }
 
 const clock = new SystemClock();

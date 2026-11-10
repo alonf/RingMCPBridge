@@ -1,7 +1,11 @@
 // Config utility (CP-02, T006): start-up settings from the environment. The only entry point (CD4).
 
 /** Reads and checks the settings; the Host calls it once with `process.env`. */
-export { loadSettings, SETTING_VARIABLES } from "./settings.ts";
+export {
+  loadSettings,
+  loadSetupSettings,
+  SETTING_VARIABLES,
+} from "./settings.ts";
 
 /** The checked settings and the run mode. */
 export type {
@@ -16,6 +20,7 @@ export {
   CORE_HOST_VARIABLES,
   HOME_VARIABLES,
   LOCAL_VARIABLES,
+  SETUP_VARIABLES,
 } from "./mode-settings.ts";
 export type {
   CoreHostSettings,
@@ -23,6 +28,7 @@ export type {
   ListedAgentScope,
   ListedAgentSetting,
   LocalSettings,
+  SetupSettings,
 } from "./mode-settings.ts";
 
 /** The utility's error: `invalid_settings`, naming the bad variables only. */

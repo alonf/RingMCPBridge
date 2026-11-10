@@ -23,6 +23,9 @@ import type {
 import { OUTBOX_MIGRATIONS } from "./outbox-migrations.ts";
 import { OutboxStoreError } from "./outbox-store-error.ts";
 
+/** The outbox's file in the home's data folder. */
+export const OUTBOX_FILE_NAME = "outbox.db";
+
 /** How long a sent message waits for its ack before it is sent again (connector-link.md). */
 export const RESEND_AFTER_MS = 10_000;
 

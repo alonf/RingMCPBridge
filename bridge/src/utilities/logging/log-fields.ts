@@ -20,6 +20,8 @@ export const LOG_FIELD_KINDS = {
   message_id: "identifier",
   location_id: "identifier",
   device_id: "identifier",
+  /** The code the Setup CLI printed, which the owner compares on the admin page (T028). */
+  enrollment_code: "identifier",
   tool: "code",
   message_type: "code",
   kind: "code",

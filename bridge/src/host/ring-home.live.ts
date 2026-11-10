@@ -2,9 +2,6 @@
 // sealed under the key kept apart from the data folder, and the Ring Adapter over ring-client-api.
 // A rotated Ring refresh token is written back to the Secrets File (T012). Only the Host's wiring
 // imports this file; the dev script and the tests hand in the scenario engine instead.
-import { join } from "node:path";
-import { SecretsFile } from "../connector/access/secrets-file/index.ts";
-import { readSecretsFileKey } from "../connector/access/secrets-file/index.ts";
 import {
   RING_CALL_LIMITS,
   RingCallGate,
@@ -14,15 +11,11 @@ import { createRingClient } from "../connector/access/ring-adapter/ring-client.l
 import type { Clock } from "../utilities/clock/index.ts";
 import type { Logger } from "../utilities/logging/index.ts";
 import type { LocalHome } from "./home-assembly.ts";
-import { HostError } from "./host-error.ts";
-
-/** The Secrets File's name in the data folder; the Setup CLI makes it (T028). */
-export const SECRETS_FILE = "secrets.sealed";
+import { openHomeSecrets } from "./home-files.ts";
+import type { HomeFileSettings } from "./home-files.ts";
 
 /** Where the home keeps its secrets, and the system ffmpeg. */
-export interface RingHomeSettings {
-  readonly dataDir: string;
-  readonly secretsKeyPath: string;
+export interface RingHomeSettings extends HomeFileSettings {
   readonly ffmpegPath: string;
 }
 
@@ -37,17 +30,7 @@ export async function openRingHome(
   logger: Logger,
   onConnectionStuck?: () => void,
 ): Promise<LocalHome> {
-  const key = await readSecretsFileKey(settings.secretsKeyPath);
-  const file = await SecretsFile.open({
-    path: join(settings.dataDir, SECRETS_FILE),
-    key,
-  });
-  if (file === undefined) {
-    throw new HostError(
-      "setup_needed",
-      `There is no ${SECRETS_FILE} in the data folder: run the setup first.`,
-    );
-  }
+  const file = await openHomeSecrets(settings);
   const secrets = file.secrets;
   const ring = new RingApiAdapter({
     client: createRingClient({
@@ -64,6 +47,9 @@ export async function openRingHome(
   return {
     ring,
     key: secrets.connectorKey,
+    ...(secrets.enrollmentCode === undefined
+      ? {}
+      : { enrollmentCode: secrets.enrollmentCode }),
     // Closing stops new token rotations; the one being saved, if any, is waited for.
     close: async () => {
       ring.close();

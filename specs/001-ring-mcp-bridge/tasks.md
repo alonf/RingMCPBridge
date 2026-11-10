@@ -409,7 +409,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 
 **Depends on**: T012 and T013 (Setup CLI); T017, T021 and T023 (admin page).
 
-- [ ] T028 [US6] [assigned_to: Implementer] [effort: 1] Setup CLI in `bridge/src/connector/clients/setup-cli/`:
+- [x] T028 [US6] [assigned_to: Implementer] [effort: 1] Setup CLI in `bridge/src/connector/clients/setup-cli/`:
   - the owner runs the Ring login with 2FA; the agent never does;
   - it saves the Ring secrets to the Secrets File;
   - it creates the connector key pair, and the private key never leaves home;

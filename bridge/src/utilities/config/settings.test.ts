@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ConfigError, loadSettings } from "./index.ts";
+import { ConfigError, loadSettings, loadSetupSettings } from "./index.ts";
 
 /** Mode A's required settings. */
 const LOCAL = {
@@ -327,36 +327,31 @@ describe("mode H's core settings", () => {
 });
 
 describe("the connector's settings", () => {
-  it("reads the connector's settings, with ffmpeg from the path and no enrollment code by default", () => {
+  it("reads the connector's settings, with ffmpeg from the path", () => {
     const settings = loadSettings(HOME);
 
-    expect(settings).toMatchObject({
-      mode: "connector",
-      home: {
-        coreUrl: "wss://bridge.example.test/link",
-        dataDir: "/data",
-        secretsKeyPath: "/run/secrets/bridge-secrets-key",
-        ffmpegPath: "ffmpeg",
-      },
+    expect(settings.mode === "connector" && settings.home).toEqual({
+      coreUrl: "wss://bridge.example.test/link",
+      dataDir: "/data",
+      secretsKeyPath: "/run/secrets/bridge-secrets-key",
+      ffmpegPath: "ffmpeg",
     });
-    expect(
-      settings.mode === "connector" && "enrollmentCode" in settings.home,
-    ).toBe(false);
   });
 
-  it("reads an enrollment code of up to 64 characters, and plain ws to this machine", () => {
+  it("accepts plain ws to this machine, for a local run", () => {
     expect(
-      loadSettings({
-        ...HOME,
-        BRIDGE_CORE_URL: "ws://127.0.0.1:8080/link",
-        BRIDGE_ENROLLMENT_CODE: "c".repeat(64),
-      }),
-    ).toMatchObject({
-      home: {
-        coreUrl: "ws://127.0.0.1:8080/link",
-        enrollmentCode: "c".repeat(64),
-      },
+      loadSettings({ ...HOME, BRIDGE_CORE_URL: "ws://127.0.0.1:8080/link" }),
+    ).toMatchObject({ home: { coreUrl: "ws://127.0.0.1:8080/link" } });
+  });
+
+  // T028: the enrollment code lives in the Secrets File, so the setting is gone.
+  it("no longer reads an enrollment code from the environment", () => {
+    const settings = loadSettings({
+      ...HOME,
+      BRIDGE_ENROLLMENT_CODE: "7Q4K-29XM",
     });
+
+    expect(JSON.stringify(settings)).not.toContain("7Q4K-29XM");
   });
 
   it.each([
@@ -370,14 +365,38 @@ describe("the connector's settings", () => {
       { BRIDGE_CORE_URL: "ws://bridge.example.test/link" },
       "BRIDGE_CORE_URL",
     ],
-    [
-      "an enrollment code over 64 characters",
-      { BRIDGE_ENROLLMENT_CODE: "c".repeat(65) },
-      "BRIDGE_ENROLLMENT_CODE",
-    ],
   ])("refuses %s", (_, overrides, variable) => {
     expect(configErrorFrom({ ...HOME, ...overrides }).variables).toEqual([
       variable,
+    ]);
+  });
+});
+
+describe("the Setup CLI's settings (T028)", () => {
+  it("reads only the data folder and the key's path, so the setup runs before the rest is set", () => {
+    expect(
+      loadSetupSettings({
+        BRIDGE_DATA_DIR: "/data",
+        BRIDGE_SECRETS_KEY_FILE: "/run/secrets/bridge-secrets-key",
+      }),
+    ).toEqual({
+      dataDir: "/data",
+      secretsKeyPath: "/run/secrets/bridge-secrets-key",
+    });
+  });
+
+  it("names each missing variable, never a value", () => {
+    let error: unknown;
+    try {
+      loadSetupSettings({ BRIDGE_DATA_DIR: "", BRIDGE_MODE: "core" });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(ConfigError);
+    expect((error as ConfigError).variables).toEqual([
+      "BRIDGE_DATA_DIR",
+      "BRIDGE_SECRETS_KEY_FILE",
     ]);
   });
 });

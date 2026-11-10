@@ -14,13 +14,12 @@ import type { DialOutcome } from "../utilities/link-transport/index.ts";
 import type { Logger } from "../utilities/logging/index.ts";
 import type { SigningKeyPair } from "../utilities/security/index.ts";
 
-/** The home's outbox file in the data folder. */
-export const OUTBOX_FILE = "outbox.db";
-
 /** The home side's Ring port and key: from the Secrets File in production, or a simulated home. */
 export interface LocalHome {
   readonly ring: RingPort;
   readonly key: SigningKeyPair;
+  /** The code the Setup CLI printed for the key; the connector sends it with `enroll` (T028). */
+  readonly enrollmentCode?: string;
   close(): Promise<void>;
 }
 

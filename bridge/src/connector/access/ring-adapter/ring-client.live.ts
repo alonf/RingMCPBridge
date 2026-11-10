@@ -2,8 +2,8 @@
 // `RingClient`, so the compiler checks that the library still fits. Imported only by the
 // connector's wiring, and never run in CI: tests use the simulated home or fakes (SC4, I4).
 import { RingApi } from "ring-client-api";
-import { useLogger } from "ring-client-api/util";
 import type { RingClient } from "./ring-client.ts";
+import { RING_SESSION_NAME, silenceRingLibrary } from "./ring-library.live.ts";
 
 /** What the client needs from the Secrets File and the settings. */
 export interface RingClientSettings {
@@ -15,22 +15,13 @@ export interface RingClientSettings {
   readonly ffmpegPath: string;
 }
 
-const CONTROL_CENTER_NAME = "ring-mcp-bridge";
-
-// ring-client-api's own log lines quote URLs and Ring's answers: content the bridge never logs
-// (FR-034, OR6). Failures reach the bridge's log as RingAdapterError instead.
-const SILENT_LOGGER = {
-  logInfo: (): void => undefined,
-  logError: (): void => undefined,
-};
-
 /** A connected client. Its own polling stays off: every call goes through the gate (FR-026). */
 export function createRingClient(settings: RingClientSettings): RingClient {
-  useLogger(SILENT_LOGGER);
+  silenceRingLibrary();
   const client: RingClient = new RingApi({
     refreshToken: settings.refreshToken,
     systemId: settings.hardwareId,
-    controlCenterDisplayName: CONTROL_CENTER_NAME,
+    controlCenterDisplayName: RING_SESSION_NAME,
     ffmpegPath: settings.ffmpegPath,
   });
   return client;

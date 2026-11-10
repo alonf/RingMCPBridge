@@ -1,6 +1,6 @@
 // The Secrets File at home (CP-06; SC4, DS3): Ring's refresh token, Ring's session hardware ID,
-// the push credentials and the connector's private key, sealed with AES-256-GCM under a key from a
-// Docker secret. Only an instance made by a successful `open` or `create` can write, so a file
+// the push credentials, the connector's private key and its enrollment code (T028), sealed with
+// AES-256-GCM under a key from a Docker secret. Only an instance made by a successful `open` or `create` can write, so a file
 // that did not open is never overwritten. Writes go one at a time, each replacing the whole file
 // in one step, so a token rotation never leaves an older token on disk (L2).
 import { readFile } from "node:fs/promises";
@@ -25,6 +25,11 @@ import { SecretsFileError } from "./secrets-file-error.ts";
 const PURPOSE: SealPurpose = "secrets-file";
 const FORMAT = 1;
 const KEY_BYTES = 32;
+/** The longest enrollment code kept: the core's limit. */
+const MAX_ENROLLMENT_CODE_LENGTH = 64;
+
+/** The Secrets File's name in the data folder. The Setup CLI makes it (T028). */
+export const SECRETS_FILE_NAME = "secrets.sealed";
 
 /** Ring's push credentials, kept as Ring Adapter hands them over; this file does not read them. */
 export type PushCredentials = Readonly<Record<string, unknown>>;
@@ -39,6 +44,11 @@ export interface HomeSecrets {
   readonly pushCredentials?: Secret<PushCredentials>;
   /** The connector's Ed25519 key pair; the private key is a `KeyObject`, which never prints. */
   readonly connectorKey: SigningKeyPair;
+  /**
+   * The code the Setup CLI printed for this key, sent with `enroll` and compared by the owner on
+   * the admin page. Not a secret: the connector logs it. Absent in files written before T028.
+   */
+  readonly enrollmentCode?: string;
 }
 
 /** What may change after setup: a rotated token, and the push credentials. */
@@ -63,6 +73,7 @@ const STORED = z.strictObject({
   ring_hardware_id: z.string().min(1),
   push_credentials: z.record(z.string(), z.unknown()).optional(),
   connector_private_key: z.base64url().min(1),
+  enrollment_code: z.string().min(1).max(MAX_ENROLLMENT_CODE_LENGTH).optional(),
 });
 
 type Stored = z.infer<typeof STORED>;
@@ -99,6 +110,9 @@ function toStored(secrets: HomeSecrets): Stored {
     connector_private_key: Buffer.from(
       exportPrivateKey(secrets.connectorKey.privateKey),
     ).toString("base64url"),
+    ...(secrets.enrollmentCode === undefined
+      ? {}
+      : { enrollment_code: secrets.enrollmentCode }),
   });
   if (!stored.success) {
     throw new SecretsFileError(
@@ -127,6 +141,9 @@ function fromStored(stored: Stored): HomeSecrets {
       ? {}
       : { pushCredentials: new Secret(stored.push_credentials) }),
     connectorKey,
+    ...(stored.enrollment_code === undefined
+      ? {}
+      : { enrollmentCode: stored.enrollment_code }),
   };
 }
 

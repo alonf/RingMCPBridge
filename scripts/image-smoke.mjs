@@ -1,6 +1,7 @@
 // Smoke test of the bridge image (T027): each mode starts, loads its wiring and its libraries, and
 // stops at the first thing it lacks, with exit code 1 and a clear reason. Nothing reaches Ring,
-// Azure or Entra: every mode is given just enough to start and then fail on purpose.
+// Azure or Entra: every mode is given just enough to start and then fail on purpose. The `setup`
+// command (T028) loads the Setup CLI and Ring's sign-in, then refuses to run without a terminal.
 //
 //   node scripts/image-smoke.mjs <image>
 import { spawnSync } from "node:child_process";
@@ -66,6 +67,12 @@ const CASES = [
     // Its stdout carries the MCP protocol: the log must go to stderr, and stdout stay empty here.
     logOnStderrOnly: true,
   },
+  {
+    name: "setup: loads the Setup CLI and Ring's sign-in, and refuses to run without a terminal",
+    env: { BRIDGE_DATA_DIR: "/data", BRIDGE_SECRETS_KEY_FILE: "/tmp/k" },
+    args: ["setup"],
+    expect: "The setup needs a terminal",
+  },
 ];
 
 let failed = 0;
@@ -76,7 +83,7 @@ for (const smoke of CASES) {
   ]);
   const command =
     smoke.shell === undefined
-      ? ["run", "--rm", ...environment, image]
+      ? ["run", "--rm", ...environment, image, ...(smoke.args ?? [])]
       : [
           "run",
           "--rm",

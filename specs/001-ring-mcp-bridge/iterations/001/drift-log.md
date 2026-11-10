@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 56
+**Total drift events**: 57
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1174,6 +1174,48 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
+### DRIFT-001-57: T028: the Setup CLI, with the enrollment code and a lost outbox settled
+
+- **Detected**: 2026-11-10, implement, T028.
+- **Kind**: the task as written, with decisions the tasks left open, and two carry-forwards closed (DRIFT-001-36, DRIFT-001-51). No spec change
+- **Observed**:
+  - T027 read the enrollment code from `BRIDGE_ENROLLMENT_CODE` until the Setup CLI kept it (DRIFT-001-47, DRIFT-001-51).
+  - DRIFT-001-36 left a limit to T027 and T028. An outbox lost while the key is kept restarts the home's version counter, and the core then skips the home's changes as older. It named two ways out: a new outbox means a new key, or the hello carries the counter.
+  - Ring's library retries a request that gets no answer every 5 s, without end, and its own log quotes Ring's answers.
+- **Decided**:
+  - **The Setup CLI** (`connector/clients/setup-cli/`), which the owner runs as `docker run -it <image> setup`:
+    - it asks for the Ring email, then the password unseen, then the code Ring sent. After 3 codes Ring does not accept, it stops;
+    - each sign-in step waits at most 2 minutes [P], since the library never gives up on its own;
+    - it makes the Secrets File's key file when there is none, a new key pair, the enrollment code, and a random session hardware ID, used for the sign-in and later by the connector's Ring client;
+    - **the Secrets File is written last**, after the sign-in. A run that stops early leaves at most an empty outbox and the key file, and the next run takes them as they are. An existing Secrets File is refused and left alone, before any question;
+    - it holds the outbox while it runs, so a connector running on the folder is found before the owner signs in;
+    - it refuses to run without a terminal, and reads only `BRIDGE_DATA_DIR` and `BRIDGE_SECRETS_KEY_FILE`, so it runs before the rest is set;
+    - **it calls the access components directly, with no manager**: the setup is the owner's one-off task at home, not a use case of the running connector.
+  - **The Ring sign-in** is a port in the Ring Adapter (`RingLogin`). The live one wraps ring-client-api's `RingRestClient`:
+    - it reads each step's outcome from the client's state;
+    - Ring's own text is never passed on, except the prompt that says where the code went, which only the owner sees;
+    - its test answers Ring's token endpoint with a stubbed `fetch`, with no network and no real credentials. The agent never runs the real one.
+  - **The enrollment code**: 8 characters of Crockford's base32 in two groups, such as `7Q4K-29XM`, from 40 random bits.
+    - It is kept in the Secrets File, as a new optional field, so older files still open.
+    - It is logged at `core_link_enroll_sent` as `enrollment_code`. A test logs every shape of code, all digits included, and none is redacted.
+    - `BRIDGE_ENROLLMENT_CODE` is gone. A home whose Secrets File holds no code is refused as `setup_needed`.
+  - **A lost outbox** (DRIFT-001-36): a new outbox means a new key.
+    - The connector and mode A refuse to start (`outbox_lost`) when the Secrets File is there and the outbox is not. They refuse before making a new outbox, and say to delete the Secrets File, run the setup again and approve the new code. Approving the new key resets the core's versions.
+    - **Not chosen**: the hello carrying the counter. That changes the link contract and the core's handling for a rare loss, since the outbox and the Secrets File live in the same folder.
+  - **Smaller moves**:
+    - The file names moved into their components (`SECRETS_FILE_NAME`, `OUTBOX_FILE_NAME`), so the Setup CLI needs nothing from the Host.
+    - The Secrets File is opened in `host/home-files.ts`, apart from the Ring client, so the tests open a real one over the simulated home.
+    - The image smoke gains a `setup` case: the image loads the Setup CLI and Ring's sign-in, and refuses to run without a terminal.
+    - The connector's dependency rule now covers the setup's wiring too.
+- **Requirement citation**: tasks.md T028; FR-032, FR-034, SC2, SC4; DRIFT-001-36, DRIFT-001-47, DRIFT-001-51.
+- **Resolution**: done. About 2 SP (estimate) against T028's 1, and $0.
+- **Class closure**: the class is "a carry-forward left open past the task named to settle it". Both of T028's are closed here: the enrollment code (DRIFT-001-47 and DRIFT-001-51, whose lines now point here) and the lost outbox (DRIFT-001-36). The others on record stay with their tasks:
+  - T030 must not gate the switch-over on `/readyz`;
+  - no ffmpeg in the image until iteration 003;
+  - the pilot's checks.
+  - Tests: 34 new, among them the setup end to end (the Setup CLI's Secrets File, then the connector over it with the simulated home, the printed code matching the core's and the log's, then approval and the inventory). Deliberate breaks: 16, all caught.
+  - 1,183 tests: 1,061 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,170 pass and 13 skip.
+
 ### DRIFT-001-56: CP-10's review follow-up: a home stop held by a send that never finishes
 
 - **Detected**: 2026-11-10, review, CP-10's round 3 (run-20261110-012921571-b48e7f6f). Minor; reported as major and demoted by Specrew for naming no failure scenario.
@@ -1326,7 +1368,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - The connector hands it to `onFatal` as `ring_connection_stuck`. The process ends and its service restarts it; `main.ts` does that (part 6).
     - The (y) choice's other half, logging a library error that escapes, belongs with the process handlers in `main.ts` (part 6).
   - **Health** [P]: the connector serves no HTTP in iteration 001. Its link and Ring status reach the core in each heartbeat, so `get_health` and the admin page show the home link down after `core_link_failed`, and its own log says why. Its service restarts it when it exits. This settles DRIFT-001-23's carry-forward on readiness.
-  - **The enrollment code** comes from `BRIDGE_ENROLLMENT_CODE` until the Setup CLI keeps it in the Secrets File (T028). Without one, only an already enrolled key can link.
+  - **The enrollment code** comes from `BRIDGE_ENROLLMENT_CODE` until the Setup CLI keeps it in the Secrets File (T028). Without one, only an already enrolled key can link. (T028 keeps it there and removes the setting: DRIFT-001-57.)
   - **Still with T028**: an outbox lost while its key is kept, which restarts the home's version counter (DRIFT-001-36).
   - `LocalHome` and the outbox's file name moved to `host/home-assembly.ts`, so the connector does not import mode A's file. The host tests share a core fixture.
 - **Requirement citation**: tasks.md T027; FR-005, FR-042; DRIFT-001-23, DRIFT-001-35, DRIFT-001-36.
@@ -1478,7 +1520,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - `BRIDGE_CORE_URL`, `wss:` only. This closes DRIFT-001-25's carry-forward: the config refuses a URL that is not `wss:`.
     - `BRIDGE_DATA_DIR` (the outbox and the Secrets File) and `BRIDGE_SECRETS_KEY_FILE` (the key, kept apart).
     - `BRIDGE_FFMPEG_PATH`, `ffmpeg` from the path by default.
-    - `BRIDGE_ENROLLMENT_CODE`, optional, until T028 keeps the code in the Secrets File.
+    - `BRIDGE_ENROLLMENT_CODE`, optional, until T028 keeps the code in the Secrets File. (Removed in T028: DRIFT-001-57.)
   - **Mode A**: `BRIDGE_DATA_DIR`, `BRIDGE_SECRETS_KEY_FILE` and `BRIDGE_FFMPEG_PATH`.
   - Plain `http:` or `ws:` is accepted only to this machine, for local runs. A URL with a user name or password is refused.
   - The variable names and defaults are [P].

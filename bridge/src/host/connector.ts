@@ -10,13 +10,16 @@
 //   the link fails (`core_link_failed`). Its service restarts it when it exits (DRIFT-001-51).
 // - **One connector per data folder**: the outbox is opened first and holds its file, so a second
 //   connector on the same folder stops before it reaches Ring or the core (CP-10 review).
-// - **The enrollment code** comes from `BRIDGE_ENROLLMENT_CODE` until the Setup CLI keeps it in the
-//   Secrets File (T028). Without one, only an already enrolled key can link.
+// - **The enrollment code** is the one the Setup CLI printed and kept in the Secrets File (T028).
+//   A home without one is refused: its `enroll` would carry nothing for the owner to compare.
+// - **A lost outbox** while the Secrets File is kept is refused before the outbox is made again,
+//   since the core would skip the home's changes as older (DRIFT-001-36).
 // It reaches no Azure library, oidc-provider or SQL Server driver (the dependency rule
 // `connector-reaches-no-cloud-libraries`).
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  OUTBOX_FILE_NAME,
   OutboxStore,
   OutboxStoreError,
 } from "../connector/access/outbox-store/index.ts";
@@ -24,8 +27,9 @@ import type { Clock } from "../utilities/clock/index.ts";
 import type { Settings } from "../utilities/config/index.ts";
 import { dialLink } from "../utilities/link-transport/index.ts";
 import type { Logger } from "../utilities/logging/index.ts";
-import { assembleHome, OUTBOX_FILE } from "./home-assembly.ts";
+import { assembleHome } from "./home-assembly.ts";
 import type { LocalHome } from "./home-assembly.ts";
+import { refuseLostOutbox } from "./home-files.ts";
 import { HostError } from "./host-error.ts";
 import { openRingHome } from "./ring-home.live.ts";
 
@@ -56,8 +60,9 @@ export async function startConnector(
   const { clock, logger } = parts;
   const { home: homeSettings } = settings;
   await mkdir(homeSettings.dataDir, { recursive: true });
+  await refuseLostOutbox(homeSettings.dataDir);
   const outbox = await openOutbox(
-    join(homeSettings.dataDir, OUTBOX_FILE),
+    join(homeSettings.dataDir, OUTBOX_FILE_NAME),
     clock,
   );
   let home: LocalHome;
@@ -74,13 +79,22 @@ export async function startConnector(
     await outbox.close();
     throw error;
   }
+  const { enrollmentCode } = home;
+  if (enrollmentCode === undefined) {
+    await home.close();
+    await outbox.close();
+    throw new HostError(
+      "setup_needed",
+      "The Secrets File holds no enrollment code: it was made before the setup kept one. Delete it and run the setup again.",
+    );
+  }
   const homeSide = assembleHome({
     ring: home.ring,
     outbox,
     dial: (signal) => dialLink(homeSettings.coreUrl, { clock, logger }, signal),
     identity: {
       key: home.key,
-      enrollmentCode: homeSettings.enrollmentCode ?? "",
+      enrollmentCode,
       connectorVersion: parts.connectorVersion,
     },
     clock,

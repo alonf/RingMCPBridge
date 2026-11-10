@@ -34,6 +34,7 @@ const TOKEN = "rt-SECRET-token-0001";
 const ROTATED_TOKEN = "rt-SECRET-token-0002";
 const HARDWARE_ID = "hw-SECRET-0003";
 const PUSH_TOKEN = "push-SECRET-0004";
+const ENROLLMENT_CODE = "7Q4K-29XM";
 const MOVE_DELAY_MS = 30;
 
 let folder: string;
@@ -234,6 +235,29 @@ describe("SecretsFile", () => {
     expect(reopened?.secrets.ringRefreshToken.reveal()).toBe(ROTATED_TOKEN);
     expect(reopened?.secrets.ringHardwareId.reveal()).toBe(HARDWARE_ID);
     await expect(readdir(folder)).resolves.toEqual(["secrets.sealed"]);
+  });
+
+  // T028: the Setup CLI keeps the enrollment code with the key it was printed for.
+  it("keeps the enrollment code through a token rotation, and opens a file written before it was kept", async () => {
+    const file = await SecretsFile.create(
+      { path, key },
+      { ...homeSecrets(), enrollmentCode: ENROLLMENT_CODE },
+    );
+    await file.update({ ringRefreshToken: new Secret(ROTATED_TOKEN) });
+    const reopened = await SecretsFile.open({ path, key });
+    expect(reopened?.secrets.enrollmentCode).toBe(ENROLLMENT_CODE);
+
+    await writeSealed(
+      JSON.stringify({
+        format: 1,
+        ring_refresh_token: TOKEN,
+        ring_hardware_id: HARDWARE_ID,
+        connector_private_key: privateKeyText(connectorKey),
+      }),
+    );
+    const older = await SecretsFile.open({ path, key });
+    expect(older?.secrets.ringRefreshToken.reveal()).toBe(TOKEN);
+    expect(older?.secrets).not.toHaveProperty("enrollmentCode");
   });
 
   it("writes overlapping rotations in order, so the newest token is on disk", async () => {

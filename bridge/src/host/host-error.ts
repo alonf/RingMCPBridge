@@ -9,6 +9,8 @@
  * - `ring_connection_stuck`: a hub's live connection stayed closed while Ring's calls worked; the
  *   process restarts (the owner's choice (y)).
  * - `data_folder_in_use`: another connector holds this data folder.
+ * - `outbox_lost`: the outbox is gone while the Secrets File is kept; the setup runs again with a
+ *   new key (DRIFT-001-36).
  */
 export type HostErrorKind =
   | "setup_needed"
@@ -16,7 +18,8 @@ export type HostErrorKind =
   | "signing_keys_missing"
   | "lease_lost"
   | "ring_connection_stuck"
-  | "data_folder_in_use";
+  | "data_folder_in_use"
+  | "outbox_lost";
 
 /** A process that could not start. */
 export class HostError extends Error {

@@ -518,6 +518,10 @@ describe("CoreLink: reconnecting", () => {
       code: CODE,
     });
     expect(messagesOf(second, "hello")).toEqual([]);
+    // The owner compares the logged code with the admin page's (T028).
+    expect(
+      test.lines.find((line) => line.includes("core_link_enroll_sent")),
+    ).toContain(`"enrollment_code":"${CODE}"`);
     void second.core.send({
       type: "enrolled",
       body: { key_id: signingKeyId(test.key.publicKey) },

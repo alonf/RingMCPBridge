@@ -6,9 +6,9 @@ module.exports = {
     {
       name: "connector-reaches-no-cloud-libraries",
       comment:
-        "From the connector's wiring, no import path reaches the Azure libraries, oidc-provider or the SQL Server driver (I5.3).",
+        "From the connector's wiring and the Setup CLI's (T028), no import path reaches the Azure libraries, oidc-provider or the SQL Server driver (I5.3).",
       severity: "error",
-      from: { path: "^bridge/src/host/connector\\.ts$" },
+      from: { path: "^bridge/src/host/(connector|setup)\\.ts$" },
       to: {
         path: "node_modules/(@azure/|oidc-provider/|mssql/|tedious/)",
         reachable: true,

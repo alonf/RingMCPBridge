@@ -2,7 +2,7 @@
 // Its only entry point (CD4). Its values are never logged and never sent on the link (FR-034).
 
 /** The file: open, create for the Setup CLI, and update on a token rotation. */
-export { SecretsFile } from "./secrets-file.ts";
+export { SECRETS_FILE_NAME, SecretsFile } from "./secrets-file.ts";
 export type {
   HomeSecrets,
   HomeSecretsChange,

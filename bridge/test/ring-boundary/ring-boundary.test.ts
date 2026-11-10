@@ -127,7 +127,12 @@ describe("only the live clients import ring-client-api", () => {
         importers.push(relative(SOURCE_ROOT, file).replaceAll("\\", "/"));
       }
     }
-    expect(importers).toEqual([`${ADAPTER_FOLDER}/ring-client.live.ts`]);
+    // The client, what the live files share, and the Setup CLI's sign-in (T028).
+    expect(importers.sort()).toEqual([
+      `${ADAPTER_FOLDER}/ring-client.live.ts`,
+      `${ADAPTER_FOLDER}/ring-library.live.ts`,
+      `${ADAPTER_FOLDER}/ring-login.live.ts`,
+    ]);
     expect(importers.every((file) => LIVE_CLIENT.test(file))).toBe(true);
   });
 });

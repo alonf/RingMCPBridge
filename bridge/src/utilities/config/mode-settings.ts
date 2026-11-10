@@ -7,7 +7,6 @@ import { z } from "zod";
 const PORT_DEFAULT = 8080;
 const MAX_PORT = 65_535;
 const MAX_ID_LENGTH = 400;
-const MAX_ENROLLMENT_CODE_LENGTH = 64;
 const LOCAL_HOSTS: ReadonlySet<string> = new Set([
   "localhost",
   "127.0.0.1",
@@ -68,8 +67,6 @@ export interface HomeSettings {
   /** The file holding the Secrets File's key, apart from the data folder. */
   readonly secretsKeyPath: string;
   readonly ffmpegPath: string;
-  /** The one-time code the owner compares on the admin page when the home first enrolls (T028 stores it). */
-  readonly enrollmentCode?: string;
 }
 
 /** Mode A: core and home in one process, with everything in one folder. */
@@ -78,6 +75,12 @@ export interface LocalSettings {
   readonly dataDir: string;
   readonly secretsKeyPath: string;
   readonly ffmpegPath: string;
+}
+
+/** The Setup CLI (T028): the home's folder and the Secrets File's key, for the connector or mode A. */
+export interface SetupSettings {
+  readonly dataDir: string;
+  readonly secretsKeyPath: string;
 }
 
 /** The variable behind each of mode H's core settings. */
@@ -101,7 +104,6 @@ export const HOME_VARIABLES = {
   dataDir: "BRIDGE_DATA_DIR",
   secretsKeyPath: "BRIDGE_SECRETS_KEY_FILE",
   ffmpegPath: "BRIDGE_FFMPEG_PATH",
-  enrollmentCode: "BRIDGE_ENROLLMENT_CODE",
 } as const;
 
 /** The variable behind each of mode A's settings. */
@@ -109,6 +111,12 @@ export const LOCAL_VARIABLES = {
   dataDir: "BRIDGE_DATA_DIR",
   secretsKeyPath: "BRIDGE_SECRETS_KEY_FILE",
   ffmpegPath: "BRIDGE_FFMPEG_PATH",
+} as const;
+
+/** The variable behind each of the Setup CLI's settings: the same as the connector's and mode A's. */
+export const SETUP_VARIABLES = {
+  dataDir: "BRIDGE_DATA_DIR",
+  secretsKeyPath: "BRIDGE_SECRETS_KEY_FILE",
 } as const;
 
 /** A URL with one of `protocols`; plain `http:` or `ws:` only to this machine, for local runs. */
@@ -191,20 +199,19 @@ export const CORE_HOST_SCHEMA: z.ZodType<CoreHostSettings> = z
     ...(ownerObjectId === undefined ? {} : { ownerObjectId }),
   }));
 
-export const HOME_SCHEMA: z.ZodType<HomeSettings> = z
-  .object({
-    coreUrl: urlWith("wss:", "ws:").transform((url) => url.href),
-    dataDir: text(MAX_ID_LENGTH),
-    secretsKeyPath: text(MAX_ID_LENGTH),
-    ffmpegPath: text(MAX_ID_LENGTH)
-      .optional()
-      .transform((path) => path ?? DEFAULT_FFMPEG),
-    enrollmentCode: text(MAX_ENROLLMENT_CODE_LENGTH).optional(),
-  })
-  .transform(({ enrollmentCode, ...home }): HomeSettings => ({
-    ...home,
-    ...(enrollmentCode === undefined ? {} : { enrollmentCode }),
-  }));
+export const HOME_SCHEMA: z.ZodType<HomeSettings> = z.object({
+  coreUrl: urlWith("wss:", "ws:").transform((url) => url.href),
+  dataDir: text(MAX_ID_LENGTH),
+  secretsKeyPath: text(MAX_ID_LENGTH),
+  ffmpegPath: text(MAX_ID_LENGTH)
+    .optional()
+    .transform((path) => path ?? DEFAULT_FFMPEG),
+});
+
+export const SETUP_SCHEMA: z.ZodType<SetupSettings> = z.object({
+  dataDir: text(MAX_ID_LENGTH),
+  secretsKeyPath: text(MAX_ID_LENGTH),
+});
 
 export const LOCAL_SCHEMA: z.ZodType<LocalSettings> = z.object({
   dataDir: text(MAX_ID_LENGTH),

@@ -10,11 +10,14 @@ import {
   HOME_VARIABLES,
   LOCAL_SCHEMA,
   LOCAL_VARIABLES,
+  SETUP_SCHEMA,
+  SETUP_VARIABLES,
 } from "./mode-settings.ts";
 import type {
   CoreHostSettings,
   HomeSettings,
   LocalSettings,
+  SetupSettings,
 } from "./mode-settings.ts";
 import { readSection } from "./section.ts";
 import type { SectionResult } from "./section.ts";
@@ -170,6 +173,19 @@ export function loadSettings(environment: Environment): Settings {
     throw new ConfigError("invalid_settings", failed);
   }
   return deepFreeze({ ...common.value, ...section.value });
+}
+
+/**
+ * Reads the Setup CLI's settings (T028): the data folder and the Secrets File key's path, under the
+ * names the connector and mode A use, and nothing else, so the setup runs before the rest is set.
+ * Throws `ConfigError` (`invalid_settings`) naming the bad variables.
+ */
+export function loadSetupSettings(environment: Environment): SetupSettings {
+  const section = readSection(SETUP_SCHEMA, SETUP_VARIABLES, environment);
+  if (!section.ok) {
+    throw new ConfigError("invalid_settings", section.variables);
+  }
+  return Object.freeze({ ...section.value });
 }
 
 function deepFreeze<T>(value: T): T {

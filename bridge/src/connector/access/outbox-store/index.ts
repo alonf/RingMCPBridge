@@ -2,8 +2,12 @@
 // counter, in the connector's own SQLite file. Its only entry point (CD4). Ingest writes to it;
 // Core Link sends from it through Ingest (T016).
 
-/** The store, its resend time, and the DTOs it declares. */
-export { OutboxStore, RESEND_AFTER_MS } from "./outbox-store.ts";
+/** The store, its file's name, its resend time, and the DTOs it declares. */
+export {
+  OUTBOX_FILE_NAME,
+  OutboxStore,
+  RESEND_AFTER_MS,
+} from "./outbox-store.ts";
 export type {
   OutboxBody,
   OutboxDraft,

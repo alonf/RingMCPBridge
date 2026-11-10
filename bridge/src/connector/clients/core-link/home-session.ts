@@ -183,7 +183,10 @@ export class HomeSession {
       type: HOME_MESSAGE_TYPES.enroll,
       body: enroll,
     });
-    this.#logger.info("core_link_enroll_sent");
+    // The code is logged for the owner to compare with the admin page's (T028, SC2).
+    this.#logger.info("core_link_enroll_sent", {
+      enrollment_code: enroll.code,
+    });
   }
 
   #sendHello(): void {

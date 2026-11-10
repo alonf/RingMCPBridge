@@ -1,7 +1,8 @@
 // Mode A's one process per data folder (T027 part 3): a second process on the same folder never
 // opens its home part, and so never reaches Ring, while the first holds the lease; it takes over
-// once the first stops. A home that cannot open is reported, not left half started.
-import { mkdtemp, rm } from "node:fs/promises";
+// once the first stops. A home that cannot open is reported, not left half started, and so is a
+// folder whose outbox is gone while its Secrets File is kept (T028, DRIFT-001-36).
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -126,5 +127,19 @@ describe("mode A, one process per data folder", () => {
 
     await driveUntil(clock, () => bridge.fatal.length > 0);
     expect(bridge.fatal).toEqual([missing]);
+  });
+
+  it("refuses a folder whose outbox is gone while its Secrets File is kept, before opening the home", async () => {
+    const dataDir = await folder();
+    await writeFile(join(dataDir, "secrets.sealed"), "kept");
+    const clock = new FakeClock(START);
+
+    const bridge = await modeA(dataDir, clock);
+
+    await driveUntil(clock, () => bridge.fatal.length > 0);
+    expect(bridge.fatal[0]).toBeInstanceOf(HostError);
+    expect(bridge.fatal[0]).toMatchObject({ kind: "outbox_lost" });
+    expect(bridge.homesOpened()).toBe(0);
+    expect(await readdir(dataDir)).not.toContain("outbox.db");
   });
 });
