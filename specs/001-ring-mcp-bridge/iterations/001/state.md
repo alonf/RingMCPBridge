@@ -3,11 +3,18 @@
 **Schema**: v2
 **Last Completed Task**: T028
 **Tasks Remaining**: T029-T036 (8 tasks, 10 story_points)
-**In Progress**: T028 is done (DRIFT-001-57); next, CP-06's review round, then T029 (the admin page)
+**In Progress**: CP-06's review is signed off; its two follow-ups (a failed device-list write reported as stale, one guard for both home run modes) are fixed first, then T029 (the admin page)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-10T03:10:58Z
+**Updated**: 2026-11-10T07:40:00Z
 
 ## Execution Summary
+
+- **CP-06's review is signed off** (2026-11-10):
+  - One round (run-20261110-071004856-9c5b0f5d), about 14 minutes, $0 (estimate). It covered T028 and its follow-up.
+  - It found two problems, both demoted to notes because neither named a concrete failure. Both hold up against the code, though each needs an unusual situation. The owner chose to stop the review there; both are fixed before T029:
+    - a device-list refresh that cannot be written to the outbox is retried, but the heartbeat does not tell the core its device list is out of date;
+    - mode A and connector mode guard against a second copy of themselves with different guards, so one of each on the same data folder could both reach Ring with the same saved token.
+  - The review's round budget (4 rounds) is spent.
 
 - **T028, the Setup CLI, is done** (2026-11-10; DRIFT-001-57):
   - The owner runs `setup` in the connector's image: the Ring email, the password unseen, the code Ring sent (3 tries). It writes the Secrets File last: Ring's token, the session hardware ID, a new key pair and the enrollment code. It prints the code, and the connector logs it when it enrolls.
