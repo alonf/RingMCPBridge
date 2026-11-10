@@ -126,6 +126,7 @@ export class RingApiAdapter implements RingPort {
   readonly #alarmDevices = new Map<string, AlarmDevices>();
   readonly #listeners = new Set<(change: RingChange) => void>();
   readonly #subscriptions: Unsubscribe[] = [];
+  readonly #saving = new Set<Promise<void>>();
   // The status's inputs: calls failing, the hubs whose connection stayed closed past the grace, and
   // a lost session, which is final.
   #callsFailing = false;
@@ -209,6 +210,14 @@ export class RingApiAdapter implements RingPort {
     return () => {
       this.#listeners.delete(listener);
     };
+  }
+
+  /**
+   * Resolves once every rotated token already being saved is saved, or its failure logged. Call it
+   * after `close`, which stops new ones, so a shutdown never loses a rotation.
+   */
+  async drained(): Promise<void> {
+    await Promise.all([...this.#saving]);
   }
 
   /** Stops every subscription and the probe, and closes the Ring connection. */
@@ -598,9 +607,16 @@ export class RingApiAdapter implements RingPort {
     }
   }
 
+  // A rotated token being saved is kept until its save settles, so shutdown can wait for it: Ring
+  // may refuse the old token once it has rotated it (CP-10 review).
   #saveToken(token: string): void {
-    this.#saveRefreshToken(new Secret(token)).catch((error: unknown) => {
-      this.#logger.error("ring_refresh_token_not_saved", undefined, error);
-    });
+    const saving: Promise<void> = this.#saveRefreshToken(new Secret(token))
+      .catch((error: unknown) => {
+        this.#logger.error("ring_refresh_token_not_saved", undefined, error);
+      })
+      .finally(() => {
+        this.#saving.delete(saving);
+      });
+    this.#saving.add(saving);
   }
 }

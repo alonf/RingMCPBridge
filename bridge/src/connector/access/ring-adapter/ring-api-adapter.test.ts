@@ -487,6 +487,32 @@ describe("RingApiAdapter token and changes", () => {
     await Promise.resolve();
   });
 
+  // CP-10's review: a shutdown during a save would lose the rotation, and Ring may refuse the old
+  // token once it has rotated it.
+  it("lets close's caller wait for a rotated token still being saved", async () => {
+    let finishSave: () => void = () => undefined;
+    const { client, adapter } = setup(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    client.onRefreshTokenUpdated.emit({ newRefreshToken: TOKEN });
+    adapter.close();
+    let drained = false;
+    const draining = adapter.drained().then(() => {
+      drained = true;
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(drained).toBe(false);
+    finishSave();
+    await draining;
+
+    expect(drained).toBe(true);
+    await expect(adapter.drained()).resolves.toBeUndefined();
+  });
+
   it("logs a failed save without the token", async () => {
     const { client, lines } = setup(() =>
       Promise.reject(new Error(`disk full ${TOKEN}`)),

@@ -124,6 +124,40 @@ describe("the connector", () => {
     expect(await readdir(dataDir)).toContain("outbox.db");
   });
 
+  // CP-10's review: two connectors on one folder would replace each other's link once a second.
+  it("refuses a second connector on the same data folder before it opens its home", async () => {
+    const dataDir = await folder();
+    const clock = new SystemClock();
+    const key = await generateSigningKeyPair();
+    let homesOpened = 0;
+    const parts = {
+      clock,
+      logger: quietLogger(clock),
+      openHome: () => {
+        homesOpened += 1;
+        return Promise.resolve({
+          ring: new ScenarioEngine(clock),
+          key,
+          close: () => Promise.resolve(),
+        });
+      },
+      connectorVersion: "0.1.0",
+      onFatal: () => undefined,
+    };
+    const settings = connectorSettings("ws://127.0.0.1:9/link", dataDir);
+    const first = await startConnector(settings, parts);
+    cleanups.push(() => first.stop());
+
+    const refused = await startConnector(settings, parts).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(refused).toBeInstanceOf(HostError);
+    expect(refused).toMatchObject({ kind: "data_folder_in_use" });
+    expect(homesOpened).toBe(1);
+  });
+
   it("stops as 'run the setup first' when its data folder holds no Secrets File", async () => {
     const dataDir = await folder();
     await writeFile(

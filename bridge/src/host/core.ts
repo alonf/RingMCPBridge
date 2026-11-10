@@ -16,9 +16,9 @@ import type { RunningCore } from "./core-service.ts";
 
 type CoreSettings = Extract<Settings, { readonly mode: "core" }>;
 
-/** The Entra issuer for a tenant id or verified domain. */
-export function entraIssuer(tenant: string): string {
-  return `https://login.microsoftonline.com/${tenant}/v2.0`;
+/** The Entra issuer for a tenant, named by its directory (tenant) ID, as Entra's discovery names it. */
+export function entraIssuer(tenantId: string): string {
+  return `https://login.microsoftonline.com/${tenantId}/v2.0`;
 }
 
 /** Starts mode H's core over Azure SQL, Key Vault and Entra. `clock` must be the `SystemClock`. */

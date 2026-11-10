@@ -8,13 +8,18 @@
 // - **Health**: the connector serves no HTTP in iteration 001. Its link and Ring status reach the
 //   core in each heartbeat, so `get_health` and the admin page show them, and its log says when
 //   the link fails (`core_link_failed`). Its service restarts it when it exits (DRIFT-001-51).
+// - **One connector per data folder**: the outbox is opened first and holds its file, so a second
+//   connector on the same folder stops before it reaches Ring or the core (CP-10 review).
 // - **The enrollment code** comes from `BRIDGE_ENROLLMENT_CODE` until the Setup CLI keeps it in the
 //   Secrets File (T028). Without one, only an already enrolled key can link.
 // It reaches no Azure library, oidc-provider or SQL Server driver (the dependency rule
 // `connector-reaches-no-cloud-libraries`).
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { OutboxStore } from "../connector/access/outbox-store/index.ts";
+import {
+  OutboxStore,
+  OutboxStoreError,
+} from "../connector/access/outbox-store/index.ts";
 import type { Clock } from "../utilities/clock/index.ts";
 import type { Settings } from "../utilities/config/index.ts";
 import { dialLink } from "../utilities/link-transport/index.ts";
@@ -51,22 +56,22 @@ export async function startConnector(
   const { clock, logger } = parts;
   const { home: homeSettings } = settings;
   await mkdir(homeSettings.dataDir, { recursive: true });
-  const home = await parts.openHome(() => {
-    parts.onFatal(
-      new HostError(
-        "ring_connection_stuck",
-        "A hub's live connection to Ring stayed closed while Ring's calls worked.",
-      ),
-    );
-  });
-  let outbox: OutboxStore;
+  const outbox = await openOutbox(
+    join(homeSettings.dataDir, OUTBOX_FILE),
+    clock,
+  );
+  let home: LocalHome;
   try {
-    outbox = await OutboxStore.open(
-      { path: join(homeSettings.dataDir, OUTBOX_FILE), clock },
-      new AbortController().signal,
-    );
+    home = await parts.openHome(() => {
+      parts.onFatal(
+        new HostError(
+          "ring_connection_stuck",
+          "A hub's live connection to Ring stayed closed while Ring's calls worked.",
+        ),
+      );
+    });
   } catch (error) {
-    await home.close();
+    await outbox.close();
     throw error;
   }
   const homeSide = assembleHome({
@@ -91,6 +96,25 @@ export async function startConnector(
       logger.info("bridge_stopped", { mode: "connector" });
     },
   };
+}
+
+// The outbox, holding its file: a second connector on the same data folder stops here.
+async function openOutbox(path: string, clock: Clock): Promise<OutboxStore> {
+  try {
+    return await OutboxStore.open(
+      { path, clock, exclusive: true },
+      new AbortController().signal,
+    );
+  } catch (error) {
+    if (error instanceof OutboxStoreError && error.kind === "in_use") {
+      throw new HostError(
+        "data_folder_in_use",
+        "Another connector is using this data folder.",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 /** Starts the connector over the Secrets File and Ring. */

@@ -3,11 +3,18 @@
 **Schema**: v2
 **Last Completed Task**: T027
 **Tasks Remaining**: T028-T036 (9 tasks, 11 story_points)
-**In Progress**: CP-10's review round 1 found two minor problems; both are fixed (DRIFT-001-54), and round 2 waits for the owner's typed approval; then T028
+**In Progress**: CP-10's review round 2 found three minor problems; all are fixed (DRIFT-001-55), and round 3 waits for the owner's typed approval; then T028
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-10T00:30:15Z
+**Updated**: 2026-11-10T01:12:11Z
 
 ## Execution Summary
+
+- **CP-10's review round 2 is fixed** (2026-11-10; DRIFT-001-55):
+  - The round (about 13 minutes, $0) passed round 1's fixes and found three minor problems. The owner chose to fix them and run another round.
+  - **A Ring token rotation could be lost at shutdown**: closing now waits for a token still being saved.
+  - **A tenant named by its domain broke sign-in**: Config now accepts only the tenant ID.
+  - **Two connectors on one folder fought**: the connector now holds its outbox file, and a second one stops before it reaches Ring.
+  - About 1 SP (estimate), booked to CP-07, CP-08a and CP-10, and $0. Deliberate breaks: 5, all caught.
 
 - **CP-10's review round 1 is fixed** (2026-11-10; DRIFT-001-54):
   - The round (about 13 minutes, $0) found two minor problems. The owner chose to fix them and run another round.

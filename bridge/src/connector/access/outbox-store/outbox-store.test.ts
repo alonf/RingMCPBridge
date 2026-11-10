@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FakeClock } from "../../../utilities/clock/index.ts";
+import { FakeClock, SystemClock } from "../../../utilities/clock/index.ts";
 import { openSqliteQueryLayer } from "../../../utilities/query-layer/index.ts";
 import { OutboxStore, OutboxStoreError, RESEND_AFTER_MS } from "./index.ts";
 import type { OutboxDraft, OutboxItem } from "./index.ts";
@@ -289,5 +289,36 @@ describe("OutboxStore", () => {
     for (const limit of [0, -1, 1.5, Number.NaN]) {
       await expect(store.takeDue(limit, signal)).rejects.toThrow(RangeError);
     }
+  });
+});
+
+// CP-10's review: one connector per data folder. The real clock: a refused lock is retried once
+// after the Query layer's pause.
+describe("OutboxStore holding its file", () => {
+  it("refuses a second store on a file another holds, as in_use, and opens once it is let go", async () => {
+    const path = join(folder, "held.db");
+    const systemClock = new SystemClock();
+    const first = await OutboxStore.open(
+      { path, clock: systemClock, exclusive: true },
+      signal,
+    );
+
+    const refused = await OutboxStore.open(
+      { path, clock: systemClock, exclusive: true },
+      signal,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(refused).toBeInstanceOf(OutboxStoreError);
+    expect(refused).toMatchObject({ kind: "in_use" });
+
+    await first.close();
+    const next = await OutboxStore.open(
+      { path, clock: systemClock, exclusive: true },
+      signal,
+    );
+    opened.push(next);
+    await expect(next.depth(signal)).resolves.toBe(0);
   });
 });

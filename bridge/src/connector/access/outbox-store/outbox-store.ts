@@ -55,7 +55,17 @@ export interface OutboxStoreOptions {
   /** The connector's own SQLite file; `:memory:` for one that lives only in this process. */
   readonly path: string;
   readonly clock: Clock;
+  /**
+   * Holds the file's lock for as long as the store is open, so a second process on the same file
+   * is refused as `in_use`. The operating system lets the lock go if the process dies, so a crash
+   * leaves nothing to clear (CP-10 review).
+   */
+  readonly exclusive?: boolean;
 }
+
+/** SQLite's primary result codes for a lock another connection holds: SQLITE_BUSY, SQLITE_LOCKED. */
+const LOCK_HELD_CODES: ReadonlySet<number> = new Set([5, 6]);
+const PRIMARY_CODE_MASK = 0xff;
 
 const KNOWN_KINDS: ReadonlySet<string> = new Set<OutboxKind>([
   "inventory",
@@ -102,6 +112,9 @@ export class OutboxStore {
       layer = openSqliteQueryLayer(options.path, { clock: options.clock });
     } catch (error) {
       throw unavailable("The outbox file could not be opened.", error);
+    }
+    if (options.exclusive === true) {
+      await holdFile(layer, signal);
     }
     try {
       await runMigrations(
@@ -306,6 +319,44 @@ function isKnownKind(kind: string): kind is OutboxKind {
 
 function unreadableRow(): OutboxStoreError {
   return unavailable("The outbox holds a message this store did not write.");
+}
+
+// Takes the file's lock and keeps it: in exclusive locking mode, SQLite holds the lock it takes for
+// the connection's life. A lock another process holds answers SQLITE_BUSY: the file is in use.
+async function holdFile(layer: QueryLayer, signal: AbortSignal): Promise<void> {
+  try {
+    for (const sql of [
+      "PRAGMA locking_mode = EXCLUSIVE",
+      "BEGIN EXCLUSIVE",
+      "COMMIT",
+    ]) {
+      await layer.run({ sql, params: {} }, signal);
+    }
+  } catch (error) {
+    await layer.close();
+    signal.throwIfAborted();
+    throw lockHeldElsewhere(error)
+      ? new OutboxStoreError("in_use", "Another process holds the outbox file.")
+      : unavailable("The outbox file could not be locked.", error);
+  }
+}
+
+function lockHeldElsewhere(error: unknown): boolean {
+  let current: unknown = error;
+  while (typeof current === "object" && current !== null) {
+    const { errcode, cause } = current as {
+      errcode?: unknown;
+      cause?: unknown;
+    };
+    if (
+      typeof errcode === "number" &&
+      LOCK_HELD_CODES.has(errcode & PRIMARY_CODE_MASK)
+    ) {
+      return true;
+    }
+    current = cause;
+  }
+  return false;
 }
 
 function unavailable(message: string, cause?: unknown): OutboxStoreError {

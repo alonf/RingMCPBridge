@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ConfigError, loadSettings } from "./index.ts";
 
@@ -8,7 +9,10 @@ const LOCAL = {
   BRIDGE_SECRETS_KEY_FILE: "/run/keys/secrets-key",
 };
 
-/** Mode H's core, every required setting. Ids are not GUID-shaped. */
+/** The Entra tenant's ID, made at run time: the repository holds no ID-shaped text. */
+const TENANT_ID = randomUUID();
+
+/** Mode H's core, every required setting. Other ids are not GUID-shaped. */
 const CORE = {
   BRIDGE_MODE: "core",
   BRIDGE_PUBLIC_URL: "https://bridge.example.test",
@@ -16,7 +20,7 @@ const CORE = {
   BRIDGE_SQL_DATABASE: "bridge",
   BRIDGE_KEY_VAULT_URL: "https://bridge-vault.vault.azure.net",
   BRIDGE_MANAGED_IDENTITY_CLIENT_ID: "core-identity-1",
-  BRIDGE_ENTRA_TENANT_ID: "contoso.example",
+  BRIDGE_ENTRA_TENANT_ID: TENANT_ID,
   BRIDGE_ENTRA_CLIENT_ID: "bridge-app-1",
 };
 
@@ -189,7 +193,7 @@ describe("mode H's core settings", () => {
         sqlDatabase: "bridge",
         keyVaultUrl: "https://bridge-vault.vault.azure.net",
         managedIdentityClientId: "core-identity-1",
-        entraTenantId: "contoso.example",
+        entraTenantId: TENANT_ID,
         entraClientId: "bridge-app-1",
         agents: [],
       },
@@ -273,6 +277,11 @@ describe("mode H's core settings", () => {
       "a proxy flag other than true or false",
       { BRIDGE_TRUST_PROXY: "yes" },
       "BRIDGE_TRUST_PROXY",
+    ],
+    [
+      "a tenant named by its domain, which Entra's issuer never is",
+      { BRIDGE_ENTRA_TENANT_ID: "contoso.onmicrosoft.com" },
+      "BRIDGE_ENTRA_TENANT_ID",
     ],
     [
       "an owner id with spaces",

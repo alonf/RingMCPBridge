@@ -64,9 +64,10 @@ export async function openRingHome(
   return {
     ring,
     key: secrets.connectorKey,
-    close: () => {
+    // Closing stops new token rotations; the one being saved, if any, is waited for.
+    close: async () => {
       ring.close();
-      return Promise.resolve();
+      await ring.drained();
     },
   };
 }

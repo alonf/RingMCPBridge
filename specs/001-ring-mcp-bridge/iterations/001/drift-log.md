@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 54
+**Total drift events**: 55
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,36 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-55: CP-10's review round 2: a token rotation lost at shutdown, a tenant named by domain, and two connectors on one folder
+
+- **Detected**: 2026-11-10, review, CP-10's round 2 (run-20261110-003649007-a4d37bb5). Three findings, all minor; two were reported as major and demoted by Specrew for naming no failure scenario.
+- **Kind**: three defects, in CP-07's Ring Adapter, CP-08a's Outbox Store and T027's Host. No spec change
+- **Observed**:
+  - **A Ring token rotation could be lost at shutdown.** When Ring rotated the refresh token, the Ring Adapter started saving it to the Secrets File without keeping the save, and closing it did not wait. A stop overlapping the save (a restart, a deploy, mode A's client leaving) could end before the new token was on disk. The next start would then use the old token, which Ring may refuse once rotated.
+  - **A tenant named by its domain broke sign-in.** Config accepted `BRIDGE_ENTRA_TENANT_ID` as a tenant ID or a domain. Entra names a tenant's issuer by its ID, and the sign-in requires the exact issuer its discovery returns, so a domain passed the start-up check and then failed every sign-in.
+  - **Two connectors on one data folder fought.** Nothing kept a second connector off a folder in use. Both opened Ring and dialed the core with the same key. Connector Link replaced the older session, the other reconnected within a second, and so on, while both wrote the same Secrets File and outbox.
+- **Decided**:
+  - **The Ring Adapter keeps each token save** until it settles, and `drained()` waits for them. The production home's close calls `close()`, which stops new rotations, then waits for `drained()`.
+  - **Config accepts only the directory (tenant) ID**, and names the variable when a domain is given.
+  - **The connector holds its data folder.** It opens its outbox first with a new `exclusive` option. In SQLite's exclusive locking mode, the outbox keeps its file's lock for as long as it is open, and the operating system lets the lock go if the process dies, so a crash leaves nothing to clear. A second connector finds the file in use and stops with `data_folder_in_use`, before it opens Ring or dials the core. Mode A keeps its lease for the same purpose (DRIFT-001-49).
+  - The image smoke names the tenant by an ID made at run time.
+- **Not covered by a test**: that the production Ring home's close waits for `drained()`. That file is live wiring, excluded from tests; the adapter's own test covers the wait.
+- **Requirement citation**: FR-029, FR-042, FR-044; plan "One connector per Ring account"; CP-10's review findings.
+- **Resolution**: fixed after the owner chose to run another round (typed "1"). About 1 SP (estimate), booked where each fix's code is: 0.25 to CP-07, 0.25 to CP-08a and 0.5 to CP-10. $0.
+- **Class closure**: the recurrence guards are four tests and five deliberate breaks, all caught:
+  - **Tests**:
+    - a close waiting for a token still being saved;
+    - a tenant domain refused;
+    - a held outbox file refused as `in_use`, and opened once let go;
+    - a second connector refused before it opens its home.
+  - **Breaks**:
+    - the outbox never holding its file;
+    - a held file reported as unavailable;
+    - the home opened before the outbox;
+    - a token save not kept;
+    - a tenant domain accepted.
+  - 1,147 tests: 1,025 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,134 pass and 13 skip; coverage 97.7% of lines and 93.7% of branches; the image smoke passes.
 
 ### DRIFT-001-54: CP-10's review round 1: a core stop that waited on the home's link, and overview counts taken from cut lists
 

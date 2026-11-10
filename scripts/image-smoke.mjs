@@ -4,6 +4,7 @@
 //
 //   node scripts/image-smoke.mjs <image>
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 const image = process.argv[2];
 if (image === undefined) {
@@ -28,7 +29,7 @@ const CORE_SETTINGS = {
   BRIDGE_SQL_DATABASE: "bridge",
   BRIDGE_KEY_VAULT_URL: "https://smoke.vault.azure.net",
   BRIDGE_MANAGED_IDENTITY_CLIENT_ID: "smoke-identity",
-  BRIDGE_ENTRA_TENANT_ID: "smoke.example",
+  BRIDGE_ENTRA_TENANT_ID: randomUUID(),
   BRIDGE_ENTRA_CLIENT_ID: "smoke-app",
 };
 

@@ -8,13 +8,15 @@
  * - `lease_lost`: mode A lost its lease to another process on the same data folder.
  * - `ring_connection_stuck`: a hub's live connection stayed closed while Ring's calls worked; the
  *   process restarts (the owner's choice (y)).
+ * - `data_folder_in_use`: another connector holds this data folder.
  */
 export type HostErrorKind =
   | "setup_needed"
   | "key_revoked"
   | "signing_keys_missing"
   | "lease_lost"
-  | "ring_connection_stuck";
+  | "ring_connection_stuck"
+  | "data_folder_in_use";
 
 /** A process that could not start. */
 export class HostError extends Error {

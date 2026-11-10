@@ -13,8 +13,14 @@ const LOCAL_HOSTS: ReadonlySet<string> = new Set([
   "127.0.0.1",
   "[::1]",
 ]);
-/** An Entra tenant id or verified domain, or an object or client id: letters, digits, `.` and `-`. */
+/** An Entra object or client id: letters, digits, `.` and `-`. */
 const ENTRA_ID = /^[A-Za-z0-9.-]{1,100}$/;
+/**
+ * The Entra directory (tenant) ID. Not a domain name: Entra names a tenant's issuer by its ID, and
+ * the sign-in requires that exact issuer (CP-10 review).
+ */
+const TENANT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEFAULT_FFMPEG = "ffmpeg";
 
 /** The scopes an agent may be listed with (FR-030). */
@@ -44,6 +50,7 @@ export interface CoreHostSettings {
   readonly keyVaultUrl: string;
   /** The user-assigned identity the core reaches SQL, Key Vault and Entra with. */
   readonly managedIdentityClientId: string;
+  /** The directory (tenant) ID, not a domain name. */
   readonly entraTenantId: string;
   /** The bridge's app registration. */
   readonly entraClientId: string;
@@ -174,7 +181,7 @@ export const CORE_HOST_SCHEMA: z.ZodType<CoreHostSettings> = z
     sqlDatabase: text(MAX_ID_LENGTH),
     keyVaultUrl: urlWith("https:", "https:").transform((url) => url.origin),
     managedIdentityClientId: z.string().regex(ENTRA_ID),
-    entraTenantId: z.string().regex(ENTRA_ID),
+    entraTenantId: z.string().regex(TENANT_ID),
     entraClientId: z.string().regex(ENTRA_ID),
     ownerObjectId: z.string().regex(ENTRA_ID).optional(),
     agents: AGENTS_SCHEMA,
