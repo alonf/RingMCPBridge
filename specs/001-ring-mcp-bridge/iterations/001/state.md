@@ -3,11 +3,17 @@
 **Schema**: v2
 **Last Completed Task**: T027
 **Tasks Remaining**: T028-T036 (9 tasks, 11 story_points)
-**In Progress**: T027 (the Host) is done, which completes CP-10's tasks; the owner chose (i) for mode A's home key (DRIFT-001-53); CP-10's review round waits for the owner's approval; then T028
+**In Progress**: CP-10's review round 1 found two minor problems; both are fixed (DRIFT-001-54), and round 2 waits for the owner's typed approval; then T028
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-09T23:35:14Z
+**Updated**: 2026-11-10T00:30:15Z
 
 ## Execution Summary
+
+- **CP-10's review round 1 is fixed** (2026-11-10; DRIFT-001-54):
+  - The round (about 13 minutes, $0) found two minor problems. The owner chose to fix them and run another round.
+  - **A core stop hung while a home was linked**: the server's close waited for the home's WebSocket. The links now close first, and a test stops the core with a home still linked.
+  - **The overview reported cut lists as totals** for a home too large for its token budget. `get_overview` now carries `counts`, the whole home's totals, and its text says when a list was cut. This adds a field to the public contract, which is allowed before release.
+  - About 0.75 SP (estimate), booked to CP-10 and CP-14, and $0. Deliberate breaks: 4, all caught.
 
 - **The owner chose (i)** (2026-11-10; DRIFT-001-53): production mode A approves its own home key at start, since its home part runs in the same process with no network link. data-model.md and the web endpoints contract are amended. About 0 SP and $0.
 

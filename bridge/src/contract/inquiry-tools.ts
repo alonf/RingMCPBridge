@@ -113,6 +113,17 @@ export const overviewData = z.object({
       }),
     )
     .meta({ description: "Devices whose battery is low." }),
+  counts: z
+    .object({
+      open_contacts: z.int().min(0),
+      active_motion: z.int().min(0),
+      offline_devices: z.int().min(0),
+      low_batteries: z.int().min(0),
+    })
+    .meta({
+      description:
+        "How many devices each list holds in the whole home. A list cut to fit the reply's size is shorter than its count.",
+    }),
   health: healthData,
 });
 

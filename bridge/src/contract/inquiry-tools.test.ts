@@ -88,6 +88,12 @@ describe("the tool data", () => {
       active_motion: [],
       offline_devices: [],
       low_batteries: [{ device: { id: "device-003", name: "Gate" } }],
+      counts: {
+        open_contacts: 1,
+        active_motion: 0,
+        offline_devices: 0,
+        low_batteries: 1,
+      },
       health: HEALTH,
     };
     expect(overviewData.parse(overview)).toEqual(overview);

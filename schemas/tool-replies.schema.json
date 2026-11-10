@@ -240,6 +240,39 @@
               },
               "description": "Devices whose battery is low."
             },
+            "counts": {
+              "type": "object",
+              "properties": {
+                "open_contacts": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "active_motion": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "offline_devices": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "low_batteries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "open_contacts",
+                "active_motion",
+                "offline_devices",
+                "low_batteries"
+              ],
+              "additionalProperties": false,
+              "description": "How many devices each list holds in the whole home. A list cut to fit the reply's size is shorter than its count."
+            },
             "health": {
               "type": "object",
               "properties": {
@@ -360,6 +393,7 @@
             "active_motion",
             "offline_devices",
             "low_batteries",
+            "counts",
             "health"
           ],
           "additionalProperties": false

@@ -117,6 +117,11 @@ interface Harness {
   answerWith(read: () => Promise<never>): void;
   /** Adds a field the contract does not declare to every Inquiry reply, until `restore`. */
   addUndeclaredField(): void;
+  /**
+   * Cuts the overview's offline list to one device while its count says 40, as the Summary engine
+   * cuts a home too large for the budget, until `restore`.
+   */
+  cutOverview(): void;
   restore(): void;
   close(): Promise<void>;
 }
@@ -128,13 +133,34 @@ async function startEndpoint(readsPerHour = READS_PER_HOUR): Promise<Harness> {
   const core: CoreReads = await startCoreReads(clock);
   let instead: (() => Promise<never>) | undefined;
   let undeclared = false;
+  let cut = false;
+  const cutOffline = async <Reply extends object>(
+    reply: Promise<Reply>,
+  ): Promise<Reply> => {
+    const whole = await reply;
+    if (!cut) {
+      return whole;
+    }
+    const { data } = whole as unknown as {
+      data: { offline_devices: unknown[]; counts: object };
+    };
+    return {
+      ...whole,
+      data: {
+        ...data,
+        offline_devices: data.offline_devices.slice(0, 1),
+        counts: { ...data.counts, offline_devices: 40 },
+      },
+    };
+  };
   const decorate = async <Reply extends object>(
     reply: Promise<Reply>,
   ): Promise<Reply> =>
     undeclared ? { ...(await reply), undeclared_field: "extra" } : reply;
   const inquiry: InquiryReads = {
     getOverview: (request, signal) =>
-      instead?.() ?? decorate(core.inquiry.getOverview(request, signal)),
+      instead?.() ??
+      cutOffline(decorate(core.inquiry.getOverview(request, signal))),
     listDevices: (request, signal) =>
       instead?.() ?? decorate(core.inquiry.listDevices(request, signal)),
     getDevice: (request, signal) =>
@@ -188,9 +214,13 @@ async function startEndpoint(readsPerHour = READS_PER_HOUR): Promise<Harness> {
     addUndeclaredField: () => {
       undeclared = true;
     },
+    cutOverview: () => {
+      cut = true;
+    },
     restore: () => {
       instead = undefined;
       undeclared = false;
+      cut = false;
     },
     close: async () => {
       await new Promise<void>((resolve) => {
@@ -362,6 +392,23 @@ describe.each(ERAS)("the MCP endpoint in the %s era", (era) => {
     );
 
     expect(failure.retryable).toBe(false);
+  });
+
+  // CP-10's review: a list cut to fit the budget is not the home's total.
+  it("summarizes the overview with the whole home's counts, and says when a list was cut", async () => {
+    const whole = textOf(await call("get_overview", {}));
+    expect(whole).not.toContain("shortened");
+
+    harness.cutOverview();
+    try {
+      const shortened = textOf(await call("get_overview", {}));
+      expect(shortened).toContain("40 offline");
+      expect(shortened).toContain(
+        "Some lists are shortened to fit; the counts are the whole home's.",
+      );
+    } finally {
+      harness.restore();
+    }
   });
 
   it("answers BRIDGE_UNAVAILABLE, to try again in 30 s, while the store is down", async () => {

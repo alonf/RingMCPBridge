@@ -91,7 +91,7 @@ export interface RunningCore {
   readonly address: string;
   readonly core: CoreAssembly;
   readiness(): Promise<Readiness>;
-  /** Stops taking requests and links, ends the link's term, lets the lease go, and closes the database. */
+  /** Stops taking requests and links, ends the link's term, lets the lease go, and closes the database. A second call waits for the first. */
   stop(): Promise<void>;
 }
 
@@ -229,6 +229,7 @@ export async function startCoreService(
     }
   });
 
+  let stopping: Promise<void> | undefined;
   core.start();
   const address = await listen(server, settings.core.port);
   logger.info("bridge_started", { mode: "core" });
@@ -237,19 +238,26 @@ export async function startCoreService(
     address,
     core,
     readiness,
-    stop: async () => {
-      keys.stop();
-      await new Promise<void>((resolve) => {
-        server.close(() => {
-          resolve();
+    stop: () => {
+      stopping ??= (async () => {
+        keys.stop();
+        // The server's close waits for every connection, and `closeAllConnections` leaves out the
+        // upgraded ones: the home's link, which keeps up its heartbeats. So the links are closed
+        // before the wait, or a stop with a home connected would never finish (CP-10 review).
+        const closed = new Promise<void>((resolve) => {
+          server.close(() => {
+            resolve();
+          });
         });
         server.closeAllConnections();
-      });
-      linkServer.close("core_stopping");
-      await core.stop();
-      issuer.close();
-      await store.close();
-      logger.info("bridge_stopped", { mode: "core" });
+        linkServer.close("core_stopping");
+        await closed;
+        await core.stop();
+        issuer.close();
+        await store.close();
+        logger.info("bridge_stopped", { mode: "core" });
+      })();
+      return stopping;
     },
   };
 }

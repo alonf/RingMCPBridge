@@ -121,13 +121,38 @@ function asOf(reply: { readonly as_of: string; readonly freshness: string }) {
   return `as of ${reply.as_of} (${reply.freshness})`;
 }
 
+/**
+ * The overview's text: the whole home's counts, and a word when a list was cut to fit, so a
+ * shortened list is never read as the total (CP-10 review).
+ */
+function overviewSummary(reply: {
+  readonly as_of: string;
+  readonly freshness: string;
+  readonly data: {
+    readonly counts: Readonly<Record<OverviewList, number>>;
+  } & Readonly<Record<OverviewList, readonly unknown[]>>;
+}): string {
+  const { counts } = reply.data;
+  const cut = OVERVIEW_LISTS.some(
+    (list) => reply.data[list].length < counts[list],
+  );
+  return `The home ${asOf(reply)}: ${String(counts.open_contacts)} open contacts, ${String(counts.active_motion)} with motion, ${String(counts.offline_devices)} offline, ${String(counts.low_batteries)} with a low battery.${cut ? " Some lists are shortened to fit; the counts are the whole home's." : ""}`;
+}
+
+const OVERVIEW_LISTS = [
+  "open_contacts",
+  "active_motion",
+  "offline_devices",
+  "low_batteries",
+] as const;
+type OverviewList = (typeof OVERVIEW_LISTS)[number];
+
 /** The read tools, in the catalog's order. */
 export const READ_TOOLS: readonly ReadTool[] = [
   readTool(
     getOverviewTool,
     (inquiry, input, signal) => inquiry.getOverview(present(input), signal),
-    (reply) =>
-      `The home ${asOf(reply)}: ${String(reply.data.open_contacts.length)} open contacts, ${String(reply.data.active_motion.length)} with motion, ${String(reply.data.offline_devices.length)} offline, ${String(reply.data.low_batteries.length)} with a low battery.`,
+    (reply) => overviewSummary(reply),
   ),
   readTool(
     listDevicesTool,

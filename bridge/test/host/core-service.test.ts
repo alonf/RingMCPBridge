@@ -8,6 +8,7 @@ import {
   signingKeyDocument,
 } from "../../src/core/clients/issuer/index.ts";
 import { AUTHORIZATION_SERVER_METADATA_PATH } from "../../src/host/core-service.ts";
+import type { RunningCore } from "../../src/host/core-service.ts";
 import { assembleHome } from "../../src/host/home-assembly.ts";
 import { SystemClock } from "../../src/utilities/clock/index.ts";
 import { dialLink } from "../../src/utilities/link-transport/index.ts";
@@ -28,6 +29,8 @@ import {
 import type { Cleanups } from "./core-fixture.ts";
 
 const CODE = "home-code-1";
+/** How long a stop may take before the test counts it as hung. */
+const STOP_LIMIT_MS = 5_000;
 
 const cleanups: Cleanups = [];
 
@@ -128,8 +131,8 @@ describe("mode H's core service", () => {
     expect((await fetch(`${url}/admin`)).status).toBe(404);
   });
 
-  it("links a home over WebSocket at /link, and the home's inventory lands in State", async () => {
-    const { running, url } = await startTestCore(cleanups);
+  /** Approves a new home key, then links a simulated home to the core over a WebSocket. */
+  async function linkedHome(running: RunningCore, url: string): Promise<void> {
     const key = await generateSigningKeyPair();
     await running.core.settings.requestEnrollment(
       { public_key: key.publicKey, code: CODE },
@@ -167,14 +170,35 @@ describe("mode H's core service", () => {
       await home.stop();
       await outbox.close();
     });
-
     home.start();
-
     await eventually(
       async () =>
         (await running.core.state.devices({}, new AbortController().signal))
           .length === standardHome().devices.length,
     );
+  }
+
+  it("links a home over WebSocket at /link, and the home's inventory lands in State", async () => {
+    const { running, url } = await startTestCore(cleanups);
+
+    await linkedHome(running, url);
+  });
+
+  // CP-10's review: the server's close waits for every connection, the home's link included.
+  it("stops while a home is still linked, closing the home's link first", async () => {
+    const { running, url } = await startTestCore(cleanups);
+    await linkedHome(running, url);
+
+    const outcome = await Promise.race([
+      running.stop().then(() => "stopped"),
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve("still waiting");
+        }, STOP_LIMIT_MS);
+      }),
+    ]);
+
+    expect(outcome).toBe("stopped");
   });
 
   it("seeds the listed agents from its settings at each start, removing one no longer listed", async () => {

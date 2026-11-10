@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 53
+**Total drift events**: 54
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,36 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-54: CP-10's review round 1: a core stop that waited on the home's link, and overview counts taken from cut lists
+
+- **Detected**: 2026-11-10, review, CP-10's round 1 (run-20261109-235724885-f7a7e7cc), two findings, both minor. The first was reported as major and demoted by Specrew for naming no failure scenario.
+- **Kind**: two defects: one in T027's code (CP-10), one in T021's Summary engine (CP-14). One additive field in the public contract
+- **Observed**:
+  - **The core's stop waited for the home's link.**
+    - `stop()` waited for the HTTP server's close before closing the link server. Node's `closeAllConnections` leaves upgraded connections out, and a server's close waits for every connection, so with a home linked and heartbeating, the stop never finished.
+    - A deploy stopping the old core would hang until the container was killed. The lease would go unreleased, so the next instance waited out its row.
+    - The core service's WebSocket test always stopped the home first, so it never saw this.
+  - **The overview's counts came from cut lists.**
+    - A home too large for the token budget gets its four lists cut to a shared length. The text summary then reported the cut lengths as the home's totals, for example "5 offline" when 40 were, and the reply carried no totals or sign of the cut.
+    - `list_devices` already reports its full `count`.
+- **Decided**:
+  - The core closes the home's links before it waits for the server, and its stop can be called twice safely. A test stops the core while a home is still linked: it failed (hung past 5 s) before the fix.
+  - `get_overview`'s data gains `counts`, the whole home's total for each of its four lists. A cut list is shorter than its count. The text summary reports the counts and, when a list was cut, says "Some lists are shortened to fit; the counts are the whole home's."
+    - An added field in the public contract (`contracts/mcp-tools.md`, `schemas/tool-replies.schema.json`). It is additive, and version 1 is not released before iteration 004 (FR-046, PT-07).
+- **Requirement citation**: FR-001, FR-044, FR-046, SC-006; `contracts/mcp-tools.md` `get_overview`; CP-10's review findings.
+- **Resolution**: fixed after the owner chose to run another round (typed "1"). About 0.75 SP (estimate): 0.25 booked to CP-10 and 0.5 to CP-14, whose code each fix changes, and $0.
+- **Class closure**: the recurrence guards are three tests and four deliberate breaks, all caught:
+  - **Tests**:
+    - the core stopping with a home linked;
+    - an oversized home's counts against its cut lists;
+    - the overview text in both eras, whole and cut.
+  - **Breaks**:
+    - counts taken from the cut lists;
+    - the text counting the listed devices;
+    - the text never saying a list was cut;
+    - the links closed after the wait.
+  - 1,143 tests: 1,021 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,130 pass and 13 skip; coverage 97.7% of lines and 93.7% of branches.
 
 ### DRIFT-001-53: the owner's choice (i): mode A approves its own home key at start
 

@@ -94,6 +94,12 @@ describe("the Summary engine: the overview", () => {
           battery_pct: 90,
         },
       ],
+      counts: {
+        open_contacts: 1,
+        active_motion: 1,
+        offline_devices: 1,
+        low_batteries: 2,
+      },
       health: healthData(UP, NOW),
     });
   });
@@ -305,6 +311,15 @@ describe("the Summary engine: the agent-economy budget (SC-006)", () => {
     expect(estimateTokens(data)).toBeLessThanOrEqual(DATA_BUDGET_TOKENS);
     expect(data.open_contacts.length).toBeGreaterThan(0);
     expect(data.health).toEqual(healthData(UP, NOW));
+    // The lists are cut, their counts are not: the whole home's totals stay (CP-10 review).
+    expect(data.counts).toEqual({
+      open_contacts: 1_000,
+      active_motion: 0,
+      offline_devices: 1_000,
+      low_batteries: 1_000,
+    });
+    expect(data.open_contacts.length).toBeLessThan(1_000);
+    expect(data.offline_devices.length).toBeLessThan(1_000);
   });
 });
 

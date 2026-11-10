@@ -125,6 +125,14 @@ export interface HealthData {
   readonly database: { readonly status: "ok" | "down" };
 }
 
+/** How many devices each of the overview's lists holds in the whole home, before any cut. */
+export interface OverviewCounts {
+  readonly open_contacts: number;
+  readonly active_motion: number;
+  readonly offline_devices: number;
+  readonly low_batteries: number;
+}
+
 /** `get_overview`'s data. */
 export interface OverviewData {
   readonly location: {
@@ -144,6 +152,7 @@ export interface OverviewData {
     readonly device: DeviceReference;
     readonly battery_pct?: number;
   } & StatusReadAt)[];
+  readonly counts: OverviewCounts;
   readonly health: HealthData;
 }
 
@@ -229,7 +238,7 @@ export function overview(
   policy: SummaryPolicy,
 ): OverviewData {
   const { location, devices } = input;
-  const full: OverviewData = {
+  const full: Omit<OverviewData, "counts"> = {
     location: {
       location_id: location.location_id,
       name: location.name,
@@ -266,8 +275,19 @@ export function overview(
       })),
     health: healthData(input.health, input.now),
   };
-  return within(policy.budgetTokens, longestList(full), (cap) => ({
+  // The counts are the whole home's: a list cut to fit the budget below keeps its full count, so a
+  // reply never passes a shortened list off as the total (CP-10 review).
+  const counted: OverviewData = {
     ...full,
+    counts: {
+      open_contacts: full.open_contacts.length,
+      active_motion: full.active_motion.length,
+      offline_devices: full.offline_devices.length,
+      low_batteries: full.low_batteries.length,
+    },
+  };
+  return within(policy.budgetTokens, longestList(counted), (cap) => ({
+    ...counted,
     open_contacts: full.open_contacts.slice(0, cap),
     active_motion: full.active_motion.slice(0, cap),
     offline_devices: full.offline_devices.slice(0, cap),
