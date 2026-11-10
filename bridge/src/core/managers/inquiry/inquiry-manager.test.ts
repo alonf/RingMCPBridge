@@ -432,6 +432,23 @@ describe("the Inquiry manager: freshness (FR-006, SC-005)", () => {
     });
   });
 
+  it("gives the admin page the same health, its time zone, and the connector's version (T029)", async () => {
+    const test = await harness(undefined, undefined, {
+      ...UP,
+      connector_version: "0.1.0",
+    });
+    const before = await harness([], [], "never_reported");
+
+    const owner = await test.inquiry.getOwnerHealth(never);
+
+    expect(owner.health).toEqual(await test.inquiry.getHealth(never));
+    expect(owner.time_zone).toBe("Asia/Jerusalem");
+    expect(owner.connector_version).toBe("0.1.0");
+    const none = await before.inquiry.getOwnerHealth(never);
+    expect(none.time_zone).toBe("UTC");
+    expect(none).not.toHaveProperty("connector_version");
+  });
+
   it("marks a home that never reported stale since now", async () => {
     const test = await harness([], [], "never_reported");
 

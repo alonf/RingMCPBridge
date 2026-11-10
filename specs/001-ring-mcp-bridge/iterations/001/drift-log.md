@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 58
+**Total drift events**: 59
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,40 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-59: T029 part 1: the admin page's server side, and how a connector is approved safely
+
+- **Detected**: 2026-11-10, implement, T029.
+- **Kind**: the task as written, with decisions the records left open (the paths, the typed confirmation, the session's life, "connector behind"). `contracts/web-endpoints.md` now names the paths. No spec change
+- **Observed**:
+  - The records give the admin page's sections, a fresh sign-in, and a sign-in under 5 minutes old plus a typed confirmation for risky actions (UX U4). They leave open what the owner types, how long a session lasts, and where the page is served.
+  - The return from Entra is a top-level navigation from another site, so a `SameSite=Strict` cookie never arrives on it, or on the redirect after it.
+  - The page's policy allows forms to post only to the core itself (`form-action 'self'`), and browsers apply that to the redirects after a post. A stale sign-in therefore cannot be sent straight from the approval's post to Entra.
+- **Decided**:
+  - **Web** (`core/clients/web/`) calls Admin and Inquiry, never the tables. Admin gains the waiting request and its approval; Inquiry gains the health as the page shows it, with the home's time zone and the connector's version; the core assembly hands Admin out.
+  - **Paths [P]**: the page at `/admin`, with its sign-in, sign-out, poll, approval, theme, stylesheet and script under it. Entra's return stays `/sign-in/return`: the Issuer's sign-ins first, and else the page's.
+  - **Sign-in and session**:
+    - every session starts with a fresh sign-in, bound to the browser that started it by a cookie whose hash only is kept, as the Issuer's are (DRIFT-001-40);
+    - sessions live in memory, one instance (FR-044), and end 30 minutes after their last use or 8 hours after they began [P]; the poll counts as use;
+    - the cookies are `Secure`, `HttpOnly` and `SameSite=Lax`. Every form carries its session's token and must come from the core's own origin;
+    - Entra's subject and object ID are never logged.
+  - **Approving a connector**:
+    - the owner types the request's code, as the connector's log shows it, compared without dashes, spaces or case [P]. Typing the code makes the comparison itself the confirmation;
+    - the form posts the key the page showed. If a newer request replaced it, nothing is approved and the page shows the new code;
+    - the sign-in's age is checked on the server when the form arrives. From 5 minutes on, the page asks for a new sign-in instead of the form, and the request, which waits 10 minutes, is still there after it;
+    - a core instance without the lease approves nothing;
+    - approval makes the key the one active key and revokes the older ones. The versions start again when the new key's first session claims them, which the end-to-end test shows: a second connector's change is applied, not skipped as older.
+  - **The page**: server-rendered with hono's `html` helper, which escapes every value; the code and version from the home are never raw markup. Dark by default, with a light theme kept in a cookie the server reads, so there is no flash. The stylesheet and the script are served from their own paths, under a policy with no inline script or style, no framing, nothing cached and no referrer. The Health section is polled alone every 15 s, so the typed code is never wiped; once the session ends, the poll shows a signed-out notice and stops.
+  - **Failures as page states**: the store down is a banner, never an error page; a sign-in refused, not the owner's, from another browser, or ended says so on the sign-in page.
+  - **"Connector behind" [P]**: both versions are `major.minor.patch` and the connector's is lower. Any other form is never called behind.
+  - **Contrast**: a test works out WCAG ratios from both themes' colours: 4.5:1 for text, 3:1 for the focus ring. No new dependency.
+  - **Not chosen**: `SameSite=Strict` cookies, which the return from Entra would not carry; sending a stale approval straight to Entra, which the page's policy blocks.
+  - Mode A serves no admin page in iteration 001 (iteration 004).
+- **Requirement citation**: tasks.md T029; FR-005, FR-032, FR-040; SC2; UX U1-U5; DRIFT-001-40.
+- **Resolution**: part 1 done. Part 2 adds the Playwright checks at three widths in both themes, the keyboard path, and closes T029. About 2.5 SP so far (estimate) against T029's 1, and $0.
+- **Class closure**: the class is "a risky action whose checks live only in the page". Each of the approval's checks runs on the server when the form arrives, and each has a test and a deliberate break: the key shown, the code typed, the sign-in's age either side of 5 minutes, the lease, the form's origin and token, the browser binding, the fresh sign-in, escaping, the store down as a banner, the session's idle end, the page's policy, and the return the Issuer does not own (14 breaks, all caught).
+  - Tests: 50 for Web, 2 for Admin, 1 for Inquiry, and one end to end on the core with the Entra stand-in and two connectors.
+  - 1,244 tests: 1,122 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,231 pass and 13 skip.
 
 ### DRIFT-001-58: CP-06's review follow-ups: a failed device-list refresh not reported, and one guard for both home run modes
 

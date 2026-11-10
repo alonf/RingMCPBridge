@@ -101,7 +101,7 @@ describe("mode H's core service", () => {
     });
   });
 
-  it("serves the Issuer's metadata at the RFC 8414 path, the MCP endpoint's metadata, and 404 elsewhere", async () => {
+  it("serves the Issuer's metadata at the RFC 8414 path, the MCP endpoint's metadata, the admin page, and 404 elsewhere", async () => {
     const { url } = await startTestCore(cleanups);
 
     await expect(
@@ -125,10 +125,18 @@ describe("mode H's core service", () => {
         })
       ).status,
     ).toBe(401);
-    expect((await fetch(`${url}/sign-in/return?state=unknown`)).status).toBe(
-      404,
+    // A return the Issuer does not own is the admin page's (T029): an unknown one has ended.
+    const unknownReturn = await fetch(`${url}/sign-in/return?state=unknown`, {
+      redirect: "manual",
+    });
+    expect(unknownReturn.status).toBe(303);
+    expect(unknownReturn.headers.get("location")).toBe(
+      "/admin?problem=expired",
     );
-    expect((await fetch(`${url}/admin`)).status).toBe(404);
+    const admin = await fetch(`${url}/admin`);
+    expect(admin.status).toBe(200);
+    expect(await admin.text()).toContain(`href="/admin/sign-in"`);
+    expect((await fetch(`${url}/elsewhere`)).status).toBe(404);
   });
 
   /** Approves a new home key, then links a simulated home to the core over a WebSocket. */

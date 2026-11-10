@@ -1,5 +1,6 @@
 // Admin's connector part (T017) over a real Settings on SQLite: it passes the key check and the
-// enroll request through, and turns Settings' failures into its own.
+// enroll request through, and turns Settings' failures into its own. The owner's part (T029): the
+// request waiting, and approving the key the page showed, which a newer request replaces.
 import { describe, expect, it } from "vitest";
 import { SettingsStore } from "../../access/settings/index.ts";
 import { FakeClock } from "../../../utilities/clock/index.ts";
@@ -56,6 +57,8 @@ describe("Admin, the connector's part", () => {
       () => admin.connectorKey("key", never()),
       () =>
         admin.requestEnrollment({ public_key: publicKey, code: "A" }, never()),
+      () => admin.pendingEnrollment(never()),
+      () => admin.approveEnrollment("key", never()),
     ]) {
       const error = await work().catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(AdminError);
@@ -79,5 +82,59 @@ describe("Admin, the connector's part", () => {
     await expect(
       admin.requestEnrollment({ public_key: publicKey, code: "" }, never()),
     ).rejects.toThrow(RangeError);
+  });
+});
+
+describe("Admin, the owner's part", () => {
+  it("shows the waiting request, approves its key, and revokes the older one", async () => {
+    const { admin } = await setUp();
+    const older = await generateSigningKeyPair();
+    const newer = await generateSigningKeyPair();
+    await admin.requestEnrollment(
+      { public_key: older.publicKey, code: "OLD1-OLD1" },
+      never(),
+    );
+    await admin.approveEnrollment(signingKeyId(older.publicKey), never());
+    await admin.requestEnrollment(
+      { public_key: newer.publicKey, code: "NEW2-NEW2" },
+      never(),
+    );
+
+    const pending = await admin.pendingEnrollment(never());
+    expect(pending).toMatchObject({
+      key_id: signingKeyId(newer.publicKey),
+      enrollment_code: "NEW2-NEW2",
+    });
+    await expect(
+      admin.approveEnrollment(signingKeyId(newer.publicKey), never()),
+    ).resolves.toEqual({
+      kind: "approved",
+      revokedKeyIds: [signingKeyId(older.publicKey)],
+    });
+    await expect(admin.pendingEnrollment(never())).resolves.toBeUndefined();
+    await expect(
+      admin.connectorKey(signingKeyId(older.publicKey), never()),
+    ).resolves.toEqual({ kind: "revoked" });
+  });
+
+  it("does not approve a key whose request a newer one replaced", async () => {
+    const { admin } = await setUp();
+    const shown = await generateSigningKeyPair();
+    const later = await generateSigningKeyPair();
+    await admin.requestEnrollment(
+      { public_key: shown.publicKey, code: "SHOW-N111" },
+      never(),
+    );
+    await admin.requestEnrollment(
+      { public_key: later.publicKey, code: "LATE-R222" },
+      never(),
+    );
+
+    await expect(
+      admin.approveEnrollment(signingKeyId(shown.publicKey), never()),
+    ).resolves.toEqual({ kind: "not_pending" });
+    await expect(
+      admin.connectorKey(signingKeyId(later.publicKey), never()),
+    ).resolves.toEqual({ kind: "not_enrolled" });
   });
 });

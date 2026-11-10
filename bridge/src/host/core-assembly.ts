@@ -45,6 +45,8 @@ export interface CoreAssembly {
   readonly settings: SettingsStore;
   readonly grants: GrantsStore;
   readonly inquiry: InquiryManager;
+  /** The owner's use cases, for the admin page (T029) and Connector Link. */
+  readonly admin: AdminManager;
   readonly lease: Lease;
   /** The connector link, run only while the lease is held: `accept` is the `LinkServer`'s `onLink`. */
   readonly links: LeasedLinks;
@@ -84,6 +86,7 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
   const events = new PubSub<EventTopics>((topic, error) => {
     logger.error("pub_sub_handler_failed", { kind: topic }, error);
   });
+  const admin = new AdminManager({ settings });
   const links = new LeasedLinks({
     lease,
     clock,
@@ -98,7 +101,7 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
           logger.error("event_silence_check_failed", undefined, error);
         },
       }),
-    link: { admin: new AdminManager({ settings }), clock, logger },
+    link: { admin, clock, logger },
   });
 
   return {
@@ -106,6 +109,7 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
     settings,
     grants,
     inquiry,
+    admin,
     lease,
     links,
     start: () => {

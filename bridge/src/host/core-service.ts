@@ -9,8 +9,9 @@
 // - **The Issuer** starts once its signing keys exist (T031 writes the first). Until then it
 //   answers 503, `/readyz` names the missing keys, and the start is tried again every minute.
 // - **Routes**: the Issuer under `/oauth`, and its metadata also at the RFC 8414 path; the owner's
-//   sign-in return; the MCP endpoint and its protected-resource metadata; the home's link upgrade
-//   at `/link`; `/livez` and `/readyz`. Anything else is 404.
+//   sign-in return, the Issuer's first and else the admin page's; the admin page under `/admin`
+//   (T029); the MCP endpoint and its protected-resource metadata; the home's link upgrade at
+//   `/link`; `/livez` and `/readyz`. Anything else is 404.
 // It reaches no Ring library (a dependency rule checks `core.ts`, which imports it).
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
@@ -19,6 +20,11 @@ import { getRequestListener } from "@hono/node-server";
 import type { CoreSecrets } from "../core/access/secrets/index.ts";
 import { Issuer, IssuerError } from "../core/clients/issuer/index.ts";
 import { McpEndpoint } from "../core/clients/mcp-endpoint/index.ts";
+import {
+  ADMIN_PATH,
+  SIGN_IN_RETURN_PATH,
+  Web,
+} from "../core/clients/web/index.ts";
 import type { Cancel, Clock } from "../utilities/clock/index.ts";
 import type { Settings } from "../utilities/config/index.ts";
 import { LinkServer } from "../utilities/link-transport/index.ts";
@@ -31,6 +37,10 @@ import type { QueryLayer } from "../utilities/query-layer/index.ts";
 import type { HttpFetch, OwnerSignIn } from "../utilities/security/index.ts";
 import { assembleCore } from "./core-assembly.ts";
 import type { CoreAssembly } from "./core-assembly.ts";
+import { BRIDGE_VERSION } from "./version.ts";
+
+/** Where Entra sends the owner back after signing in. */
+export { SIGN_IN_RETURN_PATH };
 
 /** The Issuer's base path. */
 export const ISSUER_PATH = "/oauth";
@@ -38,8 +48,6 @@ export const ISSUER_PATH = "/oauth";
 export const MCP_PATH = "/mcp";
 /** Where the home's link is upgraded to a WebSocket. */
 export const LINK_PATH = "/link";
-/** Where Entra sends the owner back after signing in. */
-export const SIGN_IN_RETURN_PATH = "/sign-in/return";
 /** The Issuer's metadata at the RFC 8414 path for an issuer with a path. */
 export const AUTHORIZATION_SERVER_METADATA_PATH =
   "/.well-known/oauth-authorization-server/oauth";
@@ -156,6 +164,18 @@ export async function startCoreService(
     { inquiry: core.inquiry, tokens: issuer, clock, logger },
   );
   const mcpListener = getRequestListener((request) => mcp.fetch(request));
+  const web = new Web(
+    { publicUrl, coreVersion: BRIDGE_VERSION },
+    {
+      admin: core.admin,
+      inquiry: core.inquiry,
+      ownerSignIn: resources.ownerSignIn,
+      serving: () => core.links.serving,
+      clock,
+      logger,
+    },
+  );
+  const webListener = getRequestListener((request) => web.fetch(request));
   const linkServer = new LinkServer({
     clock,
     logger,
@@ -210,7 +230,12 @@ export async function startCoreService(
     } else if (issuer.owns(request)) {
       issuer.handle(request, response);
     } else if (url.pathname === SIGN_IN_RETURN_PATH) {
-      await signInReturn(issuer, url, request, response, logger);
+      await signInReturn(issuer, url, request, response, logger, webListener);
+    } else if (
+      url.pathname === ADMIN_PATH ||
+      url.pathname.startsWith(`${ADMIN_PATH}/`)
+    ) {
+      await webListener(request, response);
     } else if (
       url.pathname === MCP_PATH ||
       url.pathname.startsWith(PROTECTED_RESOURCE_METADATA_PREFIX)
@@ -322,13 +347,17 @@ class SigningKeysStart {
   }
 }
 
-/** The owner's return from Entra: the Issuer's, or (from T029) the admin page's. */
+/** The owner's return from Entra: the Issuer's, or else the admin page's (T029). */
 async function signInReturn(
   issuer: Issuer,
   url: URL,
   request: IncomingMessage,
   response: ServerResponse,
   logger: Logger,
+  webListener: (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ) => Promise<void>,
 ): Promise<void> {
   try {
     const outcome = await issuer.finishSignIn(
@@ -339,7 +368,7 @@ async function signInReturn(
     if (outcome.kind === "continue") {
       response.writeHead(HTTP_SEE_OTHER, { location: outcome.url }).end();
     } else if (outcome.kind === "not_issuer") {
-      answer(response, HTTP_NOT_FOUND, { error: "not_found" });
+      await webListener(request, response);
     } else {
       answer(response, HTTP_BAD_REQUEST, {
         error: "Start the link again from your agent.",

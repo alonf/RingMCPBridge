@@ -3,11 +3,16 @@
 **Schema**: v2
 **Last Completed Task**: T028
 **Tasks Remaining**: T029-T036 (8 tasks, 10 story_points)
-**In Progress**: CP-06's review follow-ups are fixed (DRIFT-001-58); next, T029 (the admin page)
+**In Progress**: T029 part 1, the admin page's server side, is done (DRIFT-001-59); next, part 2: the Playwright checks at three widths in both themes, and the keyboard path
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-10T18:47:31Z
+**Updated**: 2026-11-10T19:41:56Z
 
 ## Execution Summary
+
+- **T029 part 1, the admin page's server side, is done** (2026-11-10; DRIFT-001-59):
+  - The owner signs in afresh at `/admin` and sees the Health section, polled every 15 s, with a banner and what to do for the home offline, Ring signed out, the store down and stale data, and "connector behind".
+  - The Enroll section shows the waiting connector's code. To approve, the owner types that code, with a sign-in under 5 minutes old; the page approves only the key it showed, and only on the instance holding the lease.
+  - About 2.5 SP so far (estimate) against T029's 1, and $0. 54 new tests; deliberate breaks: 14, all caught.
 
 - **CP-06's review follow-ups are fixed** (2026-11-10; DRIFT-001-58):
   - **A device-list refresh that is not queued is now reported**: the heartbeat tells the core its device list is out of date until the session's own inventory is queued, whether the outbox could not be written, Ring could not be read, or the read failed.

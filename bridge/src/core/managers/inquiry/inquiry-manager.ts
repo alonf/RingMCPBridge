@@ -93,6 +93,15 @@ export interface InquiryReply<Data> {
   readonly data: Data;
 }
 
+/** The health as the admin page shows it (T029). */
+export interface OwnerHealth {
+  readonly health: InquiryReply<Health>;
+  /** The IANA time zone `health`'s local times are in. */
+  readonly time_zone: string;
+  /** The version the connector sent in its last hello; absent until one has linked. */
+  readonly connector_version?: string;
+}
+
 /** What Inquiry is wired with. */
 export interface InquiryManagerOptions {
   readonly state: StateStore;
@@ -211,6 +220,14 @@ export class InquiryManager {
 
   /** The bridge's own health (FR-005), in the first owned location's local time. */
   async getHealth(signal: AbortSignal): Promise<InquiryReply<Health>> {
+    return (await this.getOwnerHealth(signal)).health;
+  }
+
+  /**
+   * The health as the admin page shows it (T029): `get_health`'s reply, the time zone its local
+   * times are in, and the version the connector last reported, for "connector behind".
+   */
+  async getOwnerHealth(signal: AbortSignal): Promise<OwnerHealth> {
     const [locations, stored] = await this.#guard(
       signal,
       "The health could not be read.",
@@ -222,12 +239,15 @@ export class InquiryManager {
     );
     const now = this.#clock.now();
     const health = this.#healthAsOf(stored, now);
-    return reply(
-      locations.find(isOwned)?.time_zone ?? FALLBACK_TIME_ZONE,
-      health,
-      now,
-      healthData(health, now),
-    );
+    const named = locations.find(isOwned)?.time_zone ?? FALLBACK_TIME_ZONE;
+    const timeZone = isValidTimeZone(named) ? named : FALLBACK_TIME_ZONE;
+    return {
+      health: reply(timeZone, health, now, healthData(health, now)),
+      time_zone: timeZone,
+      ...(stored?.connector_version === undefined
+        ? {}
+        : { connector_version: stored.connector_version }),
+    };
   }
 
   // The named location when it is owned; with none named, the only owned location (the contract's

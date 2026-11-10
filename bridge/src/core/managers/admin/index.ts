@@ -1,11 +1,14 @@
 // Admin manager (CD map v3): the owner's use cases from the admin page. Its only entry point
-// (CD4). At T017 it holds the connector's key check and enroll request; T029 adds the rest.
+// (CD4). At T017 it holds the connector's key check and enroll request; T029 adds the owner's
+// approval.
 
 /** The manager and the DTOs it declares. */
 export { AdminManager } from "./admin-manager.ts";
 export type {
   AdminManagerOptions,
+  ConnectorEnrollmentApproval,
   ConnectorEnrollmentOutcome,
+  ConnectorEnrollmentPending,
   ConnectorEnrollmentRequest,
   ConnectorKeyCheck,
 } from "./admin-manager.ts";
