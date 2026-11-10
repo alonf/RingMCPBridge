@@ -3,11 +3,16 @@
 **Schema**: v2
 **Last Completed Task**: T028
 **Tasks Remaining**: T029-T036 (8 tasks, 10 story_points)
-**In Progress**: CP-06's review is signed off; its two follow-ups (a failed device-list write reported as stale, one guard for both home run modes) are fixed first, then T029 (the admin page)
+**In Progress**: CP-06's review follow-ups are fixed (DRIFT-001-58); next, T029 (the admin page)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-10T07:40:00Z
+**Updated**: 2026-11-10T18:47:31Z
 
 ## Execution Summary
+
+- **CP-06's review follow-ups are fixed** (2026-11-10; DRIFT-001-58):
+  - **A device-list refresh that is not queued is now reported**: the heartbeat tells the core its device list is out of date until the session's own inventory is queued, whether the outbox could not be written, Ring could not be read, or the read failed.
+  - **One guard for both home run modes**: mode A now holds the outbox before it opens Ring, as the connector does, so a connector and mode A on the same data folder cannot both reach Ring. Both modes close Ring before they let the outbox go.
+  - About 0.75 SP (estimate), booked to CP-08a and CP-10, and $0. Seven tests; deliberate breaks: 7, all caught.
 
 - **CP-06's review is signed off** (2026-11-10):
   - One round (run-20261110-071004856-9c5b0f5d), about 14 minutes, $0 (estimate). It covered T028 and its follow-up.

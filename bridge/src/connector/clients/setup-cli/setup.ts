@@ -178,7 +178,7 @@ async function holdOutbox(dataDir: string, clock: Clock): Promise<OutboxStore> {
     if (error instanceof OutboxStoreError && error.kind === "in_use") {
       throw new Refusal(
         "data_folder_in_use",
-        "A connector is running on this data folder. Stop it, then run the setup again.",
+        "The bridge is running on this data folder. Stop it, then run the setup again.",
       );
     }
     throw error;

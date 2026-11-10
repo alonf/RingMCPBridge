@@ -25,7 +25,9 @@
 // behind with no message to show it, so the heartbeat says so (CP-14 review round 5): it carries the
 // newest `state_version` written before that change, until an inventory read in the session is
 // queued. Any inventory written after the change has a higher `snapshot_version`, and only such an
-// inventory, named with the session, ends the core's refresh.
+// inventory, named with the session, ends the core's refresh. An inventory that is not queued, for
+// any reason, leaves the same debt (CP-06 review): a device added or removed at Ring reaches the
+// core only in the fresh read that failed.
 //
 // Messages go out on the link in the `LinkSlot`, which Core Link fills once a session is open. A
 // message is sent when it is written, and the 10 s tick sends again what has waited 10 s without
@@ -235,20 +237,35 @@ export class Ingest {
     await this.#steps;
   }
 
-  // The inventory owed is the open session's own: one read before it opened does not pay it.
+  // The inventory owed is the open session's own: one read before it opened does not pay it. One
+  // that is not queued, for any reason, is a debt the heartbeat reports (CP-06 review): a device
+  // added or removed at Ring reaches the core only in a fresh inventory.
   async #queueInventory(signal: AbortSignal): Promise<InventoryOutcome> {
     const readFor = this.#composingFor();
-    const outcome = await this.#writeInventory(readFor, signal);
+    let outcome: InventoryOutcome;
+    try {
+      outcome = await this.#writeInventory(readFor, signal);
+    } catch (error) {
+      this.#oweInventory();
+      throw error;
+    }
     if (outcome === "queued") {
       if (readFor !== undefined && readFor === this.#composingFor()) {
         this.#inventoryOwed = false;
         this.#owedAfter = undefined;
       }
     } else if (outcome !== "superseded") {
-      this.#inventoryOwed = true;
+      this.#oweInventory();
       this.#count(outcome);
     }
     return outcome;
+  }
+
+  // The debt names the newest version kept so far, the latest one if writes keep failing, so an
+  // inventory written between two failures does not pay the second.
+  #oweInventory(): void {
+    this.#inventoryOwed = true;
+    this.#owedAfter = this.#lastVersion ?? 0;
   }
 
   async #writeInventory(
@@ -330,7 +347,8 @@ export class Ingest {
 
   // A device added or removed at Ring: a fresh read, as on the core's `inventory_request`. Changes
   // that arrive during it ask for one read more, not one each, since a read lists every device. A
-  // read that fails leaves an inventory owed, which the 10 s tick reads again while a session is open.
+  // read that fails, or cannot be written, leaves an inventory owed, which the 10 s tick reads again
+  // while a session is open, and which the heartbeat reports meanwhile (CP-06 review).
   #readAgain(): void {
     this.#readAgainOwed = true;
     if (this.#readingAgain !== undefined) {
@@ -389,11 +407,9 @@ export class Ingest {
     );
   }
 
-  // The debt names the newest version kept before this change, the latest one if changes keep
-  // failing, so an inventory written between two failures does not pay the second.
+  // The debt names the newest version kept before this change.
   #stateNotQueued(fields: LogFields, error: unknown): void {
-    this.#inventoryOwed = true;
-    this.#owedAfter = this.#lastVersion ?? 0;
+    this.#oweInventory();
     if (error instanceof OutboxStoreError) {
       this.#count("outbox_unavailable");
       this.#logger.warn(

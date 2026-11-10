@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 57
+**Total drift events**: 58
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1174,6 +1174,25 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
+### DRIFT-001-58: CP-06's review follow-ups: a failed device-list refresh not reported, and one guard for both home run modes
+
+- **Detected**: 2026-11-10, review, CP-06's round (run-20261110-071004856-9c5b0f5d). Two findings, both reported as major and demoted to minor by Specrew for naming no concrete failure scenario. Both hold up against the code.
+- **Kind**: defects in Ingest (CP-08a) and in the Host's two home run modes (CP-10). No spec change
+- **Observed**:
+  - **A device-list refresh that was not queued went unreported.** A device added or removed at Ring reaches the core only in a fresh inventory (DRIFT-001-41). When that inventory was not queued, because the outbox could not be written or Ring could not be read, Ingest owed one and its 10 s tick read again. But its heartbeat still said `inventory_owed_after: null`, so the core went on serving the old device list as current, its `as_of` advancing. A failed `device_state` write already reported this debt (DRIFT-001-38); a failed inventory did not. A read that failed unexpectedly did not even leave the inventory owed.
+  - **The two modes guarded the data folder differently.** Mode A's lease keeps out a second mode A, and the connector's held outbox keeps out a second connector (DRIFT-001-55). Mode A opened Ring first and the outbox after, without holding it. So a connector and mode A on the same folder, in either order, could both open Ring with the same saved token and overwrite each other's rotations.
+  - **Found while fixing it**: on stop, the connector let the outbox go before it closed Ring, so another process could take the folder while Ring was still saving a rotated token.
+- **Decided**:
+  - Ingest: an inventory that is not queued, for any reason except a newer read finishing first, leaves the same debt as a failed change: the newest version kept so far. The heartbeat reports it until the session's own inventory is queued. The core needed no change.
+  - Host: one guard, `openHomeOutbox` in `host/home-files.ts`, refuses a lost outbox and then opens the outbox, holding its file. Both modes call it before they open Ring, so whichever comes second stops with `data_folder_in_use` before its home opens. Its message now says "Another bridge process is using this data folder", and the Setup CLI's says "The bridge is running on this data folder".
+  - Both modes close Ring before they let the outbox go.
+- **Requirement citation**: FR-005, FR-006, FR-042, FR-044; CP-06's review findings.
+- **Resolution**: fixed after the owner chose to stop the review there and have both fixed before T029. About 0.75 SP (estimate): 0.25 booked to CP-08a and 0.5 to CP-10, and $0.
+- **Class closure**: two classes, each closed where it lives. "A change the core learns of only from a message the home failed to queue": every path into the outbox now leaves a debt when it fails (a device change, an alarm mode change, and an inventory for any reason). "A guard one run mode takes and the other does not": the data folder's guard is one function that both modes call before Ring, and the Setup CLI holds the same file.
+  - Tests: three for Ingest, one for each way the fresh read fails; four for the Host, a connector on mode A's folder and mode A on a connector's, and the folder held until Ring closes, in each mode.
+  - Deliberate breaks: 7, all caught (no debt for an inventory not queued, or for one that throws; mode A not holding the outbox, or opening Ring first; either mode letting the outbox go before Ring; the guard not naming the folder in use).
+  - 1,190 tests: 1,068 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,177 pass and 13 skip.
+
 ### DRIFT-001-57: T028: the Setup CLI, with the enrollment code and a lost outbox settled
 
 - **Detected**: 2026-11-10, implement, T028.
@@ -1235,7 +1254,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - the core assembly (the link's term, then the lease, then Pub/Sub);
   - the lease gate (Connector Link, then Event);
   - Core Link (abort, then close, then wait);
-  - the connector and mode A (the home side, then the outbox, then Ring, which waits for a token being saved);
+  - the connector and mode A (the home side, then the outbox, then Ring, which waits for a token being saved; DRIFT-001-58 closes Ring before the outbox);
   - this one.
   - Two tests guard it, a stop with a held send and a frame in flight settled on close, and 2 deliberate breaks, both caught.
   - 1,149 tests: 1,027 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,136 pass and 13 skip.

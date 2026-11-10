@@ -8,7 +8,8 @@
  * - `lease_lost`: mode A lost its lease to another process on the same data folder.
  * - `ring_connection_stuck`: a hub's live connection stayed closed while Ring's calls worked; the
  *   process restarts (the owner's choice (y)).
- * - `data_folder_in_use`: another connector holds this data folder.
+ * - `data_folder_in_use`: another process's home part holds this data folder: a connector, or
+ *   mode A (CP-06 review).
  * - `outbox_lost`: the outbox is gone while the Secrets File is kept; the setup runs again with a
  *   new key (DRIFT-001-36).
  */

@@ -908,46 +908,64 @@ describe("Ingest after CP-14 review round 4", () => {
   });
 });
 
-describe("Ingest after CP-14 review round 5", () => {
-  it("says in its heartbeat that it owes an inventory above the newest version written before a change it could not write, the latest such, until the session's own inventory is queued", async () => {
-    const engine = new ScenarioEngine(clock);
-    const store = await openStore();
-    const { outbox, failing } = failingWrites(store);
-    const slot = new LinkSlot();
-    const pair = createLinkPair(
-      new Logger({ sink: () => undefined, now: () => 0, minLevel: "debug" }),
-    );
-    const frames: LinkFrame[] = [];
-    pair.acceptor.onFrame((frame) => frames.push(frame));
-    const ingest = new Ingest({
-      ring: engine,
-      outbox,
-      link: slot,
-      clock,
-      logger: new Logger({
-        sink: (line) => lines.push(line),
-        now: () => clock.now(),
-        minLevel: "debug",
-      }),
-    });
-    ingest.start();
-    ingests.push(ingest);
-    slot.put(pair.dialer);
-    await ingest.sessionOpened("session-one", signal);
-    const owed = async (): Promise<unknown> => {
+/** Ingest in an open session, with what it sent read back: the heartbeat's debt and the inventories. */
+interface InSession {
+  readonly ingest: Ingest;
+  /** Sends a heartbeat and answers its `inventory_owed_after`. */
+  readonly owed: () => Promise<unknown>;
+  readonly inventories: () => InventoryBody[];
+}
+
+async function inSession(
+  ring: RingPort,
+  outbox: OutboxStore,
+): Promise<InSession> {
+  const slot = new LinkSlot();
+  const pair = createLinkPair(
+    new Logger({ sink: () => undefined, now: () => 0, minLevel: "debug" }),
+  );
+  const frames: LinkFrame[] = [];
+  pair.acceptor.onFrame((frame) => frames.push(frame));
+  const ingest = new Ingest({
+    ring,
+    outbox,
+    link: slot,
+    clock,
+    logger: new Logger({
+      sink: (line) => lines.push(line),
+      now: () => clock.now(),
+      minLevel: "debug",
+    }),
+  });
+  ingest.start();
+  ingests.push(ingest);
+  slot.put(pair.dialer);
+  await ingest.sessionOpened("session-one", signal);
+  return {
+    ingest,
+    owed: async () => {
       await ingest.sendHeartbeat(signal);
       await new Promise((resolve) => setImmediate(resolve));
       const last = frames.filter((frame) => frame.type === "heartbeat").at(-1);
       return last?.kind === "message"
         ? (last.body as { inventory_owed_after: unknown }).inventory_owed_after
         : "no heartbeat";
-    };
-    const inventories = (): InventoryBody[] =>
+    },
+    inventories: () =>
       frames.flatMap((frame) =>
         frame.kind === "message" && frame.type === "inventory"
           ? [frame.body as InventoryBody]
           : [],
-      );
+      ),
+  };
+}
+
+describe("Ingest after CP-14 review round 5", () => {
+  it("says in its heartbeat that it owes an inventory above the newest version written before a change it could not write, the latest such, until the session's own inventory is queued", async () => {
+    const engine = new ScenarioEngine(clock);
+    const store = await openStore();
+    const { outbox, failing } = failingWrites(store);
+    const { ingest, owed, inventories } = await inSession(engine, outbox);
     expect(await owed()).toBeNull();
     const written = Math.max(...versionsOf(inventories()[0] ?? fail()));
 
@@ -1079,4 +1097,58 @@ describe("Ingest after a device is added or removed at Ring (CP-16 review follow
     );
     expect(latest?.devices).toHaveLength(DEVICE_COUNT - 1);
   });
+
+  // CP-06's review: the core heard nothing of a device list change whose fresh read never reached
+  // the outbox, and kept serving the old list as current.
+  const faults = [
+    "the inventory cannot be written",
+    "Ring cannot be read",
+    "the read fails unexpectedly",
+  ] as const;
+
+  it.each(faults)(
+    "says in its heartbeat that it owes an inventory when %s after a device is added, until the next tick queues one that lists it",
+    async (fault) => {
+      const engine = new ScenarioEngine(clock);
+      const store = await openStore();
+      const { outbox, failing } = failingWrites(store);
+      let broken = false;
+      const ring: RingPort = {
+        sessionStatus: () => engine.sessionStatus(),
+        locations: (readSignal) => {
+          if (broken && fault === "Ring cannot be read") {
+            return Promise.reject(
+              new RingAdapterError("ring_unavailable", "Ring is down."),
+            );
+          }
+          if (broken && fault === "the read fails unexpectedly") {
+            return Promise.reject(new Error("not a Ring Adapter error"));
+          }
+          return engine.locations(readSignal);
+        },
+        devices: (locationId, readSignal) =>
+          engine.devices(locationId, readSignal),
+        watch: (listener) => engine.watch(listener),
+      };
+      const { ingest, owed, inventories } = await inSession(ring, outbox);
+      expect(await owed()).toBeNull();
+      const written = Math.max(...versionsOf(inventories()[0] ?? fail()));
+
+      broken = true;
+      failing.value = fault === "the inventory cannot be written";
+      engine.apply({ kind: "device_added", device: addedDevice() });
+      await ingest.flush();
+      expect(await owed()).toBe(written);
+
+      broken = false;
+      failing.value = false;
+      await ingest.sendDue(signal);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(await owed()).toBeNull();
+      const paying = inventories().at(-1) ?? fail();
+      expect(paying.session_id).toBe("session-one");
+      expect(paying.snapshot_version).toBeGreaterThan(written);
+      expect(idsOf(paying)).toContain(addedId);
+    },
+  );
 });

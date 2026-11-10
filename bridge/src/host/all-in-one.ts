@@ -11,6 +11,10 @@
 //   with its Ring connection, opens only once this process holds the lease, and a copy that never
 //   holds it never reaches Ring. If this process loses the lease, `onFatal` hears of it, and the
 //   caller ends the process: mode A is a single process.
+// - **One home part per data folder, in either mode** (CP-06 review): the lease keeps out a second
+//   mode A, but not a connector. So the home part opens the outbox first, holding its file, as the
+//   connector does, and a connector on the same folder, or this mode on a connector's folder, stops
+//   before it reaches Ring. The outbox is let go last.
 // - **The home's key** is approved at start (`approveLocalKey`; the owner's choice (i),
 //   DRIFT-001-53): the in-process home part has no network link, so no other home can enroll, and
 //   mode A's admin page comes only in iteration 004. Its enrollment code is new at each start.
@@ -19,10 +23,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  OUTBOX_FILE_NAME,
-  OutboxStore,
-} from "../connector/access/outbox-store/index.ts";
 import type { LeaseTiming } from "../core/access/lease/index.ts";
 import type { SettingsStore } from "../core/access/settings/index.ts";
 import { McpEndpoint } from "../core/clients/mcp-endpoint/index.ts";
@@ -43,7 +43,7 @@ import { assembleCore } from "./core-assembly.ts";
 import type { CoreAssembly } from "./core-assembly.ts";
 import { assembleHome } from "./home-assembly.ts";
 import type { LocalHome } from "./home-assembly.ts";
-import { refuseLostOutbox } from "./home-files.ts";
+import { openHomeOutbox } from "./home-files.ts";
 import { HostError } from "./host-error.ts";
 import { LEASE_CHECK_MS } from "./leased-links.ts";
 
@@ -203,7 +203,9 @@ class HomePart {
   async #open(): Promise<void> {
     const { clock, logger } = this.#parts;
     const signal = never();
-    await refuseLostOutbox(this.#dataDir);
+    // The closers run in reverse: the outbox's file is let go last.
+    const outbox = await openHomeOutbox(this.#dataDir, clock);
+    this.#closers.push(() => outbox.close());
     const home = await this.#parts.openHome();
     this.#closers.push(() => home.close());
     const enrollmentCode = randomBytes(ENROLLMENT_CODE_BYTES).toString(
@@ -212,11 +214,6 @@ class HomePart {
     if (this.#parts.approveLocalKey === true) {
       await approveKey(this.#core.settings, home.key, enrollmentCode, signal);
     }
-    const outbox = await OutboxStore.open(
-      { path: join(this.#dataDir, OUTBOX_FILE_NAME), clock },
-      signal,
-    );
-    this.#closers.push(() => outbox.close());
     const homeSide = assembleHome({
       ring: home.ring,
       outbox,
