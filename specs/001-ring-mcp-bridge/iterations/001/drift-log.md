@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 55
+**Total drift events**: 56
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,29 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-56: CP-10's review follow-up: a home stop held by a send that never finishes
+
+- **Detected**: 2026-11-10, review, CP-10's round 3 (run-20261110-012921571-b48e7f6f). Minor; reported as major and demoted by Specrew for naming no failure scenario.
+- **Kind**: a defect in T027's home assembly (CP-10) and in the Link transport's send queue (CP-09). No spec change
+- **Observed**:
+  - The home side's stop waited for the scheduler's running tick before closing the link. A tick that was resending waited on a send, and a connection that pushes back while messages still arrive may never finish a write. The stop then waited for ever, before the link, the outbox and Ring were closed.
+  - **Found while testing the fix: closing the link did not release that send either.** The send queue settled the frames still waiting, but not the frame already handed to the connection, which settled only when the connection reported it written.
+  - A test holds the in-memory link's writes, makes a change, and lets the resend tick start. On the old code the stop was still waiting after 2 s.
+- **Decided**:
+  - The home side asks the scheduler to stop (no new ticks), closes the link, then waits for the tick and Ingest.
+  - The send queue's close settles the frame being written as `closed` too. Whether it got out is unknown, so its sender treats it as not sent: the outbox sends it again, and the core takes a repeat by its message id and versions. The link pair's test now expects that frame `closed`. That is also true there: the other end had closed before the held write resumed.
+- **Requirement citation**: FR-042, FR-044; CP-10's review finding.
+- **Resolution**: fixed after the owner chose to stop the review and have it fixed before T028. About 0.5 SP (estimate): 0.25 booked to CP-10 and 0.25 to CP-09, and $0.
+- **Class closure**: the class is "a stop that waits on work only something later in the stop releases". Each stop was checked:
+  - the core service (fixed in DRIFT-001-54);
+  - the core assembly (the link's term, then the lease, then Pub/Sub);
+  - the lease gate (Connector Link, then Event);
+  - Core Link (abort, then close, then wait);
+  - the connector and mode A (the home side, then the outbox, then Ring, which waits for a token being saved);
+  - this one.
+  - Two tests guard it, a stop with a held send and a frame in flight settled on close, and 2 deliberate breaks, both caught.
+  - 1,149 tests: 1,027 pass and 122 skip without SQL Server; with SQL Server on 2 workers, 1,136 pass and 13 skip.
 
 ### DRIFT-001-55: CP-10's review round 2: a token rotation lost at shutdown, a tenant named by domain, and two connectors on one folder
 

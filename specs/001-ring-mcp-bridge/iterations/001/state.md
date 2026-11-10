@@ -3,11 +3,16 @@
 **Schema**: v2
 **Last Completed Task**: T027
 **Tasks Remaining**: T028-T036 (9 tasks, 11 story_points)
-**In Progress**: CP-10's review is signed off; its one follow-up (the home side's stop order) is fixed first, then T028
+**In Progress**: CP-10's review follow-up is fixed (DRIFT-001-56); next, T028 (the Setup CLI)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-10T01:12:11Z
+**Updated**: 2026-11-10T02:08:37Z
 
 ## Execution Summary
+
+- **CP-10's review follow-up is fixed** (2026-11-10; DRIFT-001-56):
+  - The home side's stop could wait for ever on a send a pushed-back connection never finishes. It now closes the link before waiting for its scheduler, and closing a link now settles the frame being written as well.
+  - The other stop paths were checked for the same ordering.
+  - About 0.5 SP (estimate), booked to CP-10 and CP-09, and $0. Two tests; 2 deliberate breaks, both caught.
 
 - **CP-10's review is signed off** (2026-11-10):
   - Three rounds, about 38 minutes in all, $0. They covered everything changed since CP-15's review: the token race fix, T026, T027 and the owner's choice (i).

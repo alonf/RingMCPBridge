@@ -3,6 +3,7 @@
 // with no moment where both run the link, and the home links to it again.
 import { afterEach, describe, expect, it } from "vitest";
 import { OutboxStore } from "../../src/connector/access/outbox-store/index.ts";
+import { RESEND_TICK_MS } from "../../src/connector/clients/home-scheduler/index.ts";
 import type { LeaseStore } from "../../src/core/access/lease/index.ts";
 import type { SettingsStore } from "../../src/core/access/settings/index.ts";
 import { assembleCore } from "../../src/host/core-assembly.ts";
@@ -15,6 +16,7 @@ import { createLinkPair } from "../../src/utilities/link-transport/index.ts";
 import type {
   DialOutcome,
   LinkClosed,
+  LinkPair,
 } from "../../src/utilities/link-transport/index.ts";
 import { Logger } from "../../src/utilities/logging/index.ts";
 import {
@@ -30,9 +32,11 @@ import {
 } from "../../src/utilities/security/index.ts";
 import type { SigningKeyPair } from "../../src/utilities/security/index.ts";
 import { ScenarioEngine, standardHome } from "../scenarios/index.ts";
-import { driveUntil } from "../support/index.ts";
+import { DRIVE_STEP_MS, driveFor, driveUntil } from "../support/index.ts";
 
 const START = Date.UTC(2026, 10, 9, 9, 0, 0);
+/** How long a stop may take before the test counts it as hung. */
+const STOP_LIMIT_MS = 2_000;
 const CODE = "home-code-1";
 const SETTINGS: CommonSettings = {
   mode: "all-in-one",
@@ -271,5 +275,51 @@ describe("the core and home assemblies", () => {
     );
     expect(first.links.serving).toBe(false);
     expect(test.logLines.join("\n")).toContain("core_lease_lost");
+  });
+
+  // CP-10's review: a send held on a pushed-back link must not hold the home's stop.
+  it("stops the home part while a send is held on its link, by closing the link first", async () => {
+    const test = await rig();
+    const coreSide = core(test, "core-a");
+    await enroll(coreSide.settings, test.key);
+    coreSide.start();
+    await driveUntil(test.clock, () => coreSide.links.serving);
+    const pairs: LinkPair[] = [];
+    const engine = new ScenarioEngine(test.clock);
+    const homeSide = await home(test, engine, () => {
+      const pair = createLinkPair(test.logger);
+      pairs.push(pair);
+      coreSide.links.accept(pair.acceptor);
+      return Promise.resolve({ kind: "connected", link: pair.dialer });
+    });
+    homeSide.start();
+    await driveUntil(
+      test.clock,
+      async () =>
+        (await deviceCount(coreSide)) === standardHome().devices.length,
+    );
+    const [device] = standardHome().devices;
+    if (device === undefined) {
+      throw new Error("The standard home has no device.");
+    }
+
+    // The connection stops taking writes: the change's send waits, and so does the next resend.
+    pairs.at(-1)?.hold();
+    engine.apply({
+      kind: "device",
+      deviceId: device.device_id,
+      changes: { name: "Held on the link" },
+    });
+    await driveFor(test.clock, RESEND_TICK_MS + DRIVE_STEP_MS);
+    const outcome = await Promise.race([
+      homeSide.stop().then(() => "stopped"),
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve("still waiting");
+        }, STOP_LIMIT_MS);
+      }),
+    ]);
+
+    expect(outcome).toBe("stopped");
   });
 });

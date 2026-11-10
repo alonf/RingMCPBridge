@@ -90,7 +90,9 @@ describe("createLinkPair", () => {
     expect(frames.map((frame) => frame.type)).toEqual(["c1", "m1", "m2", "c2"]);
   });
 
-  it("closes with a reason the other end sees, and settles what was waiting", async () => {
+  // The frame being written settles as closed too, at once: a held write may never finish, and a
+  // stop waiting on it would wait for ever (CP-10 review).
+  it("closes with a reason the other end sees, and settles what was waiting and what was being written", async () => {
     const pair = createLinkPair(logger());
     const here = closings(pair.dialer);
     const there = closings(pair.acceptor);
@@ -99,9 +101,10 @@ describe("createLinkPair", () => {
     const waiting = pair.dialer.send({ type: "m2", body: {} });
     pair.dialer.close("going away");
     await expect(waiting).resolves.toBe("closed");
+    await expect(writing).resolves.toBe("closed");
     pair.resume();
     await settle();
-    await expect(writing).resolves.toBe("sent");
+    await expect(writing).resolves.toBe("closed");
     await expect(pair.dialer.send({ type: "m3", body: {} })).resolves.toBe(
       "closed",
     );

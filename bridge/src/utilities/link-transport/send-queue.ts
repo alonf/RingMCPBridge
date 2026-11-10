@@ -28,6 +28,8 @@ export class SendQueue {
   readonly #chunks: Queued[] = [];
   #writing = false;
   #closed = false;
+  /** The frame handed to the connection and not yet reported written. */
+  #inFlight: Queued | undefined;
 
   constructor(write: FrameWriter) {
     this.#write = write;
@@ -45,9 +47,15 @@ export class SendQueue {
     });
   }
 
-  /** Settles every frame still waiting as `closed`; frames queued later resolve `closed` at once. */
+  /**
+   * Settles every frame still waiting as `closed`, the one being written included: a connection
+   * that pushes back may never finish it, and whether it got out is unknown, so its sender treats it
+   * as not sent (CP-10 review). Frames queued later resolve `closed` at once.
+   */
   close(): void {
     this.#closed = true;
+    this.#inFlight?.settle("closed");
+    this.#inFlight = undefined;
     for (const queued of this.#messages.splice(0)) {
       queued.settle("closed");
     }
@@ -65,6 +73,7 @@ export class SendQueue {
       return;
     }
     this.#writing = true;
+    this.#inFlight = next;
     let finished = false;
     this.#write(next.frame, (written) => {
       if (finished) {
@@ -72,6 +81,10 @@ export class SendQueue {
       }
       finished = true;
       this.#writing = false;
+      if (this.#inFlight === next) {
+        this.#inFlight = undefined;
+      }
+      // A frame the closing link already settled keeps that outcome: a promise settles once.
       next.settle(written ? "sent" : "closed");
       this.#writeNext();
     });

@@ -74,6 +74,21 @@ describe("SendQueue", () => {
     expect(writes).toHaveLength(1);
   });
 
+  // CP-10's review: a connection that pushes back may never finish a write, and a stop that waits
+  // on that send would wait for ever. A closed link settles the frame in flight too; whether it got
+  // out is unknown, so the sender treats it as not sent and sends it again.
+  it("settles the frame being written as closed when the link closes, though its write never finishes", async () => {
+    const { queue, writes, send } = setup();
+    const writing = send("message-1", "message");
+    expect(writes).toHaveLength(1);
+
+    queue.close();
+
+    await expect(writing).resolves.toBe("closed");
+    finishNext(writes, 0, true);
+    await expect(writing).resolves.toBe("closed");
+  });
+
   it("goes on after a frame the writer could not write, and ignores a second done", async () => {
     const { writes, send } = setup();
     const first = send("message-1", "message");
