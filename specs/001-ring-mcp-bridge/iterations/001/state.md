@@ -12,7 +12,7 @@
 - **CP-17's review follow-up is fixed** (2026-11-11; DRIFT-001-61):
   - New agent registrations are limited per hour across the Issuer (`BRIDGE_REGISTRATIONS_PER_HOUR`, 10 by default); over it, 429 and a security event. A registration the owner never links ends after 7 days; the owner's consent keeps it.
   - The Issuer removes every record whose time is up once it serves, then every hour.
-  - About 1.5 SP (estimate), booked to CP-16, and $0. Deliberate breaks: 12, all caught.
+  - About 1.5 SP (estimate), booked to CP-16, and $0. Deliberate breaks: 13, all caught.
   - **For T030 and the deployment docs**: `BRIDGE_REGISTRATIONS_PER_HOUR` is optional, 10 by default.
 
 - **CP-17's review is signed off** (2026-11-11):

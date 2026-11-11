@@ -205,6 +205,8 @@ describeStoreMatrix("Grants", (store) => {
     await grants.upsert("RefreshToken", TOKEN, REFRESH_TOKEN, 600, never());
 
     await expect(grants.keep("Client", "c-1", never())).resolves.toBe(true);
+    // Kept again, as when the owner links the same agent a second time.
+    await expect(grants.keep("Client", "c-1", never())).resolves.toBe(true);
     await expect(grants.keep("RefreshToken", TOKEN, never())).resolves.toBe(
       true,
     );

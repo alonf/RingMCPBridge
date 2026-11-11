@@ -959,7 +959,7 @@ describe("the Issuer", () => {
       expect(await storedClients()).toBe(0);
     });
 
-    it("keeps a self-registered agent linked past the 7 days an unused registration lasts", async () => {
+    it("keeps a self-registered agent linked past the 7 days an unused registration lasts, and links it again", async () => {
       const clientId = await registerAgent();
       const tokens = await link(
         rig,
@@ -983,6 +983,13 @@ describe("the Issuer", () => {
         ),
       ).resolves.toMatchObject({ kind: "valid", clientId });
       expect(await storedClients()).toBe(1);
+
+      const relinked = await link(
+        rig,
+        clientId,
+        textOf(REGISTERING_AGENT.redirect_uris[0]),
+      );
+      expect(relinked.scope).toBe("read");
     });
 
     it("refuses the link, granting nothing, when a registered agent cannot be kept", async () => {
@@ -1026,6 +1033,27 @@ describe("the Issuer", () => {
 
       rig.issuer.close();
       expect(rig.clock.intervals()).toEqual([]);
+    });
+
+    it("runs one removal at a time", async () => {
+      let release: () => void = () => undefined;
+      const removal = vi
+        .spyOn(rig.grants, "deleteExpired")
+        .mockImplementationOnce(
+          () =>
+            new Promise<number>((resolve) => {
+              release = () => {
+                resolve(0);
+              };
+            }),
+        );
+
+      const first = rig.issuer.sweepExpired();
+      await rig.issuer.sweepExpired();
+      release();
+      await first;
+
+      expect(removal).toHaveBeenCalledTimes(1);
     });
 
     it("logs a removal that fails, and the next one tries again", async () => {

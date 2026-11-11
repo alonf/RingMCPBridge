@@ -1206,13 +1206,13 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - the adapter: the lifetime, the limit (429), and an unlisted registration not counted;
   - the Issuer end to end:
     - repeated anonymous registrations of a listed URI store at most the limit, and none are left after 7 days and a removal;
-    - a linked self-registering agent still refreshes, and its token still checks, 8 days later after a removal;
+    - a linked self-registering agent still refreshes, and its token still checks, 8 days later after a removal, and links again;
     - a consent that cannot keep the client grants nothing;
-    - the hourly removal starts when the Issuer serves and stops when it closes;
-    - a failed removal is logged;
+    - the hourly removal starts when the Issuer serves and stops when it closes, the core's stop closing it;
+    - one removal runs at a time, and a failed one is logged;
   - the setting's default and bounds.
-  - Deliberate breaks: 12, all caught.
-  - 1,264 tests: with SQL Server on 2 workers, 1,251 pass and 13 skip.
+  - Deliberate breaks: 13, all caught.
+  - 1,265 tests: with SQL Server on 2 workers, 1,252 pass and 13 skip.
 
 ### DRIFT-001-60: T029 part 2: the admin page in a real browser, and what that found
 
