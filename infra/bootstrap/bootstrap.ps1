@@ -36,6 +36,7 @@ their tenant or their subscription; the values are typed when it runs.
 .EXAMPLE
 pwsh infra/bootstrap/bootstrap.ps1 -SubscriptionName '<subscription>' -GitHubRepo '<owner>/<repo>' -RegistryName '<registry>'
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPositionalParameters', '', Justification = 'Invoke-AzJson and Invoke-AzQuiet pass the az command line through, word for word.')]
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]

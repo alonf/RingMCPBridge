@@ -7,16 +7,18 @@
 # - BOOTSTRAP_ANSWERS: what the owner types at each question in turn, comma-separated; the last
 #   answer repeats.
 # Each call is printed as `CALL <tool> <arguments>`, then the script's exit code as `EXIT <code>`.
+# The stand-ins read the rules and answers through PowerShell's dynamic scoping: they are called
+# from inside the bootstrap, which runs in a child scope of this script.
 param([Parameter(Mandatory)] [string] $ScriptPath)
 
 $ErrorActionPreference = 'Stop'
-$global:BootstrapRules = @($env:BOOTSTRAP_WORLD | ConvertFrom-Json)
-$global:BootstrapAnswers = [System.Collections.Generic.Queue[string]]::new([string[]] ($env:BOOTSTRAP_ANSWERS -split ','))
+$BootstrapRules = @($env:BOOTSTRAP_WORLD | ConvertFrom-Json)
+$BootstrapAnswers = [System.Collections.Generic.Queue[string]]::new([string[]] ($env:BOOTSTRAP_ANSWERS -split ','))
 
 function global:Invoke-StandIn([string] $Tool, [object[]] $Arguments) {
     $line = ($Arguments | ForEach-Object { [string] $_ }) -join ' '
     Write-Host "CALL $Tool $line"
-    foreach ($rule in $global:BootstrapRules) {
+    foreach ($rule in $BootstrapRules) {
         if ($rule.tool -eq $Tool -and $line -like $rule.match) {
             $global:LASTEXITCODE = [int] $rule.exit
             return $rule.output
@@ -32,8 +34,8 @@ function global:node { Invoke-StandIn 'node' $args }
 function global:Read-Host {
     param([string] $Prompt)
     Write-Host "ASK $Prompt"
-    if ($global:BootstrapAnswers.Count -gt 1) { return $global:BootstrapAnswers.Dequeue() }
-    return $global:BootstrapAnswers.Peek()
+    if ($BootstrapAnswers.Count -gt 1) { return $BootstrapAnswers.Dequeue() }
+    return $BootstrapAnswers.Peek()
 }
 
 $arguments = $env:BOOTSTRAP_ARGS | ConvertFrom-Json -AsHashtable
