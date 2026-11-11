@@ -26,10 +26,12 @@ their tenant or their subscription; the values are typed when it runs.
   7. Grant the core's identity AcrPull on the registry, so App Service can pull the image.
   8. Make the core's identity the federated credential of the bridge's Entra app, and add the app's
      redirect URI, the core's sign-in return URL.
-  9. Give the signed-in owner Key Vault Secrets Officer on the vault, and write the first signing
-     key (node bridge/src/host/main.ts first-signing-key), unless one is there.
+  9. Give the signed-in owner Key Vault Secrets Officer on the vault. Key Vault takes several
+     minutes to honour a new role, so the key is written last.
  10. Print the T-SQL for the core's database user, which the owner runs as a member of the SQL
      break-glass group (infra/bootstrap/entra-app-registration.md), then restart the core.
+ 11. Write the first signing key (node bridge/src/host/main.ts first-signing-key), unless one is
+     there. The core's Issuer picks it up within a minute.
 
 .EXAMPLE
 pwsh infra/bootstrap/bootstrap.ps1 -SubscriptionName '<subscription>' -GitHubRepo '<owner>/<repo>' -RegistryName '<registry>'
@@ -205,8 +207,9 @@ function Show-Plan {
     else {
         Write-Step 7 "Grant the core's identity AcrPull on the registry '$RegistryName'."
         Write-Step 8 "Make the core's identity the Entra app's federated credential, and add the app's redirect URI."
-        Write-Step 9 'Give you Key Vault Secrets Officer on the vault, and write the first signing key unless one is there.'
+        Write-Step 9 'Give you Key Vault Secrets Officer on the vault.'
         Write-Step 10 "Print the T-SQL for the core's database user, then restart the core once you say it is done."
+        Write-Step 11 'Write the first signing key, unless one is there.'
     }
 }
 
@@ -258,9 +261,17 @@ function Invoke-BeforeDeploy {
         Write-Detail "The GitHub repository $GitHubRepo was not found; skipped. Run this stage again once it exists."
         return
     }
-    & gh api --method PUT "repos/$GitHubRepo/environments/$Environment" --silent | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "The GitHub environment '$Environment' could not be created. In a private repository, environments and their variables need GitHub Pro or Team."
+    # Read first: a PUT on an existing environment could reset its protection rules.
+    & gh api "repos/$GitHubRepo/environments/$Environment" --silent 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Detail "The environment '$Environment' exists."
+    }
+    else {
+        & gh api --method PUT "repos/$GitHubRepo/environments/$Environment" --silent | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "The GitHub environment '$Environment' could not be created. In a private repository, environments and their variables need GitHub Pro or Team."
+        }
+        Write-Detail "The environment '$Environment' created."
     }
     $variables = [ordered]@{
         AZURE_CLIENT_ID       = $identity.clientId
@@ -359,14 +370,10 @@ function Invoke-AfterDeploy {
         Write-Detail "Its redirect URI $redirectUri added."
     }
 
-    Write-Step 9 'The first signing key'
+    Write-Step 9 'Your role on the vault'
     $vault = Invoke-AzJson keyvault show --name $outputs.keyVaultName.value --query '{id:id, uri:properties.vaultUri}'
     $owner = Invoke-AzJson ad signed-in-user show --query id
     Grant-Role -PrincipalId $owner -PrincipalType User -RoleName 'Key Vault Secrets Officer' -Scope $vault.id
-    & node (Join-Path $RepoRoot 'bridge/src/host/main.ts') first-signing-key $vault.uri.TrimEnd('/')
-    if ($LASTEXITCODE -ne 0) {
-        throw 'The first signing key was not written; see the message above.'
-    }
 
     Write-Step 10 "The core's database user"
     Write-Detail "As a member of the SQL break-glass group, with your PC's address allowed for the moment, run this in the database '$($outputs.sqlServerHostName.value)' / bridge (the portal's query editor will do):"
@@ -379,7 +386,14 @@ function Invoke-AfterDeploy {
     Write-Detail 'Then remove your PC''s address and leave the break-glass group (entra-app-registration.md).'
     Confirm-Owner 'Is the database user created?'
     Invoke-AzQuiet webapp restart --resource-group $ResourceGroup --name $outputs.appName.value
-    Write-Detail "The core restarted. Its smoke test: $publicUrl/readyz"
+    Write-Detail 'The core restarted.'
+
+    Write-Step 11 'The first signing key'
+    & node (Join-Path $RepoRoot 'bridge/src/host/main.ts') first-signing-key $vault.uri.TrimEnd('/')
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The first signing key was not written; see the message above. Rerunning this stage repeats only what is missing.'
+    }
+    Write-Detail "Its smoke test, within a minute: $publicUrl/readyz"
 }
 
 if (-not $Apply) {

@@ -1,11 +1,16 @@
 // `first-signing-key <vault-url>` (T031) over a stand-in Key Vault client: it writes the first key
-// once, says only what it did, and never lets a private part of the key reach the console.
+// once, says only what it did, and never lets a private part of the key reach the console. One run
+// goes through the image's entry point itself, as the bootstrap calls it, without reaching a vault.
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { KeyVaultSecretClient } from "../../src/core/access/secrets/index.ts";
 import { parseSigningKeys } from "../../src/core/clients/issuer/index.ts";
 import { runFirstSigningKeyCommand } from "../../src/host/first-signing-key.ts";
 
 const VAULT = "https://bridge-vault.vault.azure.net";
+const MAIN = fileURLToPath(new URL("../../src/host/main.ts", import.meta.url));
+const SPAWN_TIMEOUT_MS = 60_000;
 // The private members of an RSA JWK.
 const PRIVATE_FIELDS = ["d", "p", "q", "dp", "dq", "qi"] as const;
 
@@ -53,6 +58,17 @@ async function run(
 }
 
 describe("the first-signing-key command", () => {
+  it("is reached through the image's entry point, before any run mode's settings are read", () => {
+    const result = spawnSync(process.execPath, [MAIN, "first-signing-key"], {
+      encoding: "utf8",
+      timeout: SPAWN_TIMEOUT_MS,
+      env: { PATH: process.env.PATH ?? "" },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Usage: first-signing-key");
+  });
+
   it("writes the first key to the named vault, saying so and printing no part of the key", async () => {
     const vault = new StandInVault();
 

@@ -4,6 +4,13 @@
 
 The agent never signs in to your Azure or Entra, and never runs the bootstrap with `-Apply`.
 
+## Before you start
+
+- PowerShell 7, the Azure CLI (`az`) and the GitHub CLI (`gh`), each signed in as you.
+- This repository, with Node 24 and its packages installed (`npm ci --ignore-scripts`): the bootstrap's last step runs the repository's own code to write the first signing key.
+- Your container registry in the same subscription as the bridge: the bootstrap looks for it there.
+- In a private repository, GitHub environments and their variables need GitHub Pro or Team. You can see your plan at https://github.com/settings/billing.
+
 ## The order
 
 The first deploy creates the core's managed identity, so whatever is granted to that identity comes after it. The core migrates its database before it listens, and stops if it cannot, so its container restarts until its database user exists.
@@ -30,10 +37,9 @@ The first deploy creates the core's managed identity, so whatever is granted to 
    It does the following:
    - grants the core's identity AcrPull on your registry;
    - makes the core's identity the app's federated credential, and adds the redirect URI;
-   - gives you Key Vault Secrets Officer on the vault, and writes the first signing key;
-   - prints the T-SQL for part C.
-
-   It restarts the core only after you say the database user exists.
+   - gives you Key Vault Secrets Officer on the vault;
+   - prints the T-SQL for part C, and restarts the core only after you say the database user exists;
+   - last, writes the first signing key. Key Vault takes several minutes to honour your new role, which part C usually covers. If it still refuses, wait a few minutes and run the stage again: it repeats only what is missing.
 6. **Part C** below, while the bootstrap waits: the core's database user.
 7. **The smoke test**: `https://<core-host>/readyz` answers ready, and `get_health` answers.
 

@@ -1195,14 +1195,15 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - Role Based Access Control Administrator on the resource group, under an Azure ABAC condition ("constrain roles and principal types"). It may assign and remove only Key Vault Secrets User, Key Vault Secrets Officer and Storage Blob Data Contributor, and only for service principals. The role ids are looked up by name;
     - AcrPush on the registry, and nothing more there. tasks.md, the later and stricter record, wins over the workshop proposal's "role assignment limited to AcrPull";
     - it warns, without changing the owner's registry, when the registry refuses ARM-audience tokens;
+    - it reads the GitHub environment first and creates it only when missing. GitHub's REST page does not say what a PUT does to an existing environment's protection rules, so a rerun never sends one;
     - the GitHub variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP` and `AZURE_REGISTRY_NAME`, plus the runbook's `BRIDGE_ENTRA_CLIENT_ID`, `BRIDGE_OWNER_OBJECT_ID`, `SQL_ADMIN_GROUP_NAME` and `SQL_ADMIN_GROUP_OBJECT_ID` when given.
   - **After the first deploy**, from the outputs of the deployment `ring-mcp-bridge-core`:
     - AcrPull on the registry for the core's identity;
     - the core's identity as the Entra app's federated credential (the tenant's v2.0 issuer, the identity's principal id, `api://AzureADTokenExchange`);
     - the redirect URI `<publicUrl>/sign-in/return` added beside any already there;
     - Key Vault Secrets Officer on the vault for the signed-in owner, kept afterwards, since the owner replaces the key by hand until rotation exists;
-    - the first signing key;
-    - the T-SQL for the core's database user, printed. The core is restarted only after the owner says the user exists.
+    - the T-SQL for the core's database user, printed. The core is restarted only after the owner says the user exists;
+    - **last, the first signing key.** Microsoft's "Azure RBAC for Key Vault" page (read 2026-11-11) allows several minutes for a role assignment to take effect, and part C usually covers that. A refusal stops the stage, and a rerun repeats only what is missing.
   - **The first signing key**: `node bridge/src/host/main.ts first-signing-key <vault-url>` signs in as the owner through the Azure CLI. The Issuer's `writeFirstSigningKey` reads first and writes one key only when none is there. The command says only what it did. The Issuer retries its start every minute, so it picks the key up without a restart.
   - **The runbook**, `infra/bootstrap/entra-app-registration.md`:
     - the order;
@@ -1227,10 +1228,10 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - an empty subscription is set up in the recorded order;
     - a rerun only reads;
     - a refused subscription changes nothing;
-    - after the deploy, the grants, the federated credential, the redirect URI and the key happen, and the restart waits for the owner.
-  - **A key leaked by the first-signing-key step.** The command's test checks that no private member of the key (`d`, `p`, `q`, `dp`, `dq`, `qi`) reaches its output.
+    - after the deploy, the grants, the federated credential and the redirect URI happen, the restart waits for the owner, and the key comes after it.
+  - **A key leaked by the first-signing-key step.** The command's test checks that no private member of the key (`d`, `p`, `q`, `dp`, `dq`, `qi`) reaches its output. One run goes through `main.ts` itself, as the bootstrap calls it.
   - **A deploy parameter nobody sets.** The deployment test names a source for every required `main.bicep` parameter: a variable the bootstrap or the runbook sets, or a value the deploy supplies.
-  - Deliberate breaks: 12, all caught:
+  - Deliberate breaks: 15, all caught:
     - print-only calling Azure;
     - role assignment unlimited, or allowed one more role;
     - the OIDC credential for a branch;
@@ -1241,8 +1242,11 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - the key document printed;
     - existing keys overwritten;
     - a vault URL with a path accepted;
-    - a deploy parameter with no source.
-  - 1,290 tests: with SQL Server on 2 workers, 1,277 pass and 13 skip.
+    - a deploy parameter with no source;
+    - the environment sent a PUT on every run;
+    - the key written before the restart;
+    - the command not reached through the entry point.
+  - 1,291 tests: with SQL Server on 2 workers, 1,278 pass and 13 skip.
 
 ### DRIFT-001-62: T030: the core's Bicep, what App Service really does with `/readyz`, and what is left to the owner
 

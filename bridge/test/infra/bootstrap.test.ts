@@ -167,6 +167,8 @@ function emptySubscription(id: Record<string, string>): Rule[] {
       output: json("enabled"),
     },
     { tool: "gh", match: "variable list *", output: "[]" },
+    // No environment yet: reading it fails.
+    { tool: "gh", match: "api repos/*", exit: 1 },
   ];
 }
 
@@ -286,7 +288,9 @@ describe.runIf(HAS_PWSH)("the owner's bootstrap", () => {
 
     expect(exitCode).toBe(0);
     const changes = calls.filter((call) =>
-      /^(az \S+( \S+)? (create|update)|gh variable set)/.test(call),
+      /^(az \S+( \S+)? (create|update)|gh variable set|gh api --method PUT)/.test(
+        call,
+      ),
     );
     expect(changes).toEqual([]);
   });
@@ -391,7 +395,8 @@ describe.runIf(HAS_PWSH)("the owner's bootstrap", () => {
     expect(output).toContain(
       "ALTER ROLE db_ddladmin ADD MEMBER [ringbridge-core];",
     );
-    expect(index(calls, "az webapp restart")).toBeGreaterThan(key);
+    // The key last: Key Vault takes minutes to honour the owner's new role.
+    expect(key).toBeGreaterThan(index(calls, "az webapp restart"));
   });
 
   it("does not restart the core until the owner says the database user exists", () => {
