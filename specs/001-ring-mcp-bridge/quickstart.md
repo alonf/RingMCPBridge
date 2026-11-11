@@ -191,7 +191,7 @@ The script names are not in the records.
 - StrykerJS mutation testing on the engines and Normalize;
 - the "simulated week": seven days of events, token refreshes, purges and key rotation on the fake clock.
 
-**On `main`, before the deploy approval**: the mode H end-to-end job. It runs the core and connector containers with SQL Server and Azurite.
+**In every CI run**: the mode H end-to-end test (T032, DRIFT-001-64). It runs the core service and the connector in-process, as their containers run them, on SQLite and SQL Server. An agent signs in through the Entra stand-in and reads the simulated home through the link. Containers would have needed test settings in the image the owner deploys.
 
 ## Step 5: Deploy hybrid to your own subscription (Bicep and GitHub Actions)
 
@@ -218,13 +218,11 @@ The script names are not in the records.
    - no default subscription;
    - a check-then-skip on every step, so it is safe to rerun.
 3. **Iteration 002: add the GitHub Actions secrets** for the alert email address and the phone number. They feed the Azure Monitor action group. Never commit them.
-4. **Open a PR.** The PR checks from Step 4 run, plus a Bicep what-if on `infra/`. Copilot reviews the PR, and its comments must be resolved before a merge.
-5. **Merge to `main`.** The workflow then:
-   1. runs the mode H end-to-end job;
-   2. pushes the core image to `<registry>`;
-   3. pushes the connector image to ghcr.io, for amd64 and arm64;
-   4. waits for your approval, then deploys the Bicep and the core;
-   5. runs a smoke test against `https://<core-host>/readyz` and `get_health`.
+4. **Open a PR.** The PR checks from Step 4 run, and a push that changes `infra/` also builds the Bicep. Pushes and pull requests get no Azure access (the owner's choice, 2026-11-11; DRIFT-001-64). Copilot reviews the PR, and its comments must be resolved before a merge.
+5. **Deploy by hand** (the owner's choice, 2026-11-11; DRIFT-001-64). Start the Deploy workflow from the Actions tab. Until it is on `main`, start it with `gh workflow run deploy.yml --ref <branch> -f action=<action>`:
+   1. **preview** shows the what-if;
+   2. **deploy** checks that CI passed on the commit. It builds the image on amd64 and arm64 and smoke-tests each, then pushes the core's image to `<registry>` and the connector's to ghcr.io. It deploys the Bicep and the core, then runs the smoke test: `/livez`, `/readyz` ready, and `/mcp` asking for a sign-in. `get_health` needs an agent's sign-in, so it is checked in Step 7;
+   3. **smoke** runs the smoke test alone.
 
    The Bicep sets up:
    - App Service B1 Linux, with one instance, Always On, WebSockets, VNet integration, and a health check on `/readyz` (with one instance, App Service replaces it after an hour unhealthy; DRIFT-001-62);
@@ -235,14 +233,14 @@ The script names are not in the records.
    - Log Analytics;
    - the alert rules and the action group (iteration 002).
 
-   No deploy creates or writes a secret value, and nothing is a placeholder (`research.md` PT-03). After the first deploy, `/readyz` reports not ready and names `issuer-signing-keys`. Run the bootstrap's signing-key step with your own sign-in: it generates the first key in memory and writes it straight to Key Vault, then rerun the smoke test. Later keys come from the core's 90-day rotation. `pin-hash` arrives with disarm in iteration 004.
+   No deploy creates or writes a secret value, and nothing is a placeholder (`research.md` PT-03). After the first deploy, the core cannot yet pull its image or reach its database, so that deploy skips its smoke test. Run the bootstrap's second stage with your own sign-in. Its last step generates the first key in memory and writes it straight to Key Vault. Then run the workflow with **smoke**. Later keys come from the core's 90-day rotation. `pin-hash` arrives with disarm in iteration 004.
 6. **Create the Entra app registration** for the Issuer's owner sign-in. This is a runbook step the owner performs once. The resulting IDs go into GitHub environment variables and are never committed (`research.md` PT-06). Create the SQL break-glass group the same way. The sign-in client (T006) expects the following:
    - the issuer setting written with the tenant ID, `https://login.microsoftonline.com/<tenant-id>/v2.0`, not a domain name. Entra's discovery document names the issuer by ID, and the bridge refuses a mismatch;
    - a Web redirect URI for the bridge's sign-in return URL;
    - a federated credential that trusts the core's user-assigned managed identity: the issuer is the tenant's `https://login.microsoftonline.com/<tenant-id>/v2.0`, the subject is the managed identity's principal ID, and the audience is `api://AzureADTokenExchange`. There is no client secret;
    - the optional claim `auth_time` on the ID token. A fresh sign-in (`prompt=login`, for the admin and confirm pages) is checked against the time the owner actually entered their credentials, and fails without the claim. A plain sign-in falls back to the ID token's issue time;
    - **only you may sign in** (DRIFT-001-39). On the app's enterprise application, turn on "Assignment required" and assign only yourself, so Entra refuses anyone else in the tenant. Then put your own object ID (Entra ID, Users, you, Object ID) in the bridge's owner setting, `<owner-object-id>`, a GitHub environment variable that is never committed. The bridge checks it again on every sign-in, and refuses everyone while it is empty. The sign-in asks for `openid profile`, because Entra sends your object ID only with `profile`.
-7. **Rollback**: redeploy the previous image.
+7. **Rollback**: run the Deploy workflow with **deploy** and `image_tag` set to the previous image's tag, its commit SHA. It checks that the tag is in `<registry>`, and builds nothing.
 8. **Cost**: expect about $21.50 a month in iteration 001, and about $23 from iteration 002, when the alert rule ($1.50) is added. That figure is agent-derived from list prices for Israel Central, read on 2026-10-25 and 2026-10-26. The ceiling is $30 a month; it was set by the owner at clarify on 2026-11-01 (SC-011), and the owner checks it on the bill in the pilot.
 
 ## Step 6: Enroll the home connector

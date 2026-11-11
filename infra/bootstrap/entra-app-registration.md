@@ -26,7 +26,13 @@ The first deploy creates the core's managed identity, so whatever is granted to 
 
    It only prints its plan. Read it, then run it again with `-Apply`.
 3. **Part B** below: the listed agents.
-4. **The first deploy** (T032). Afterwards the core cannot yet pull its image or reach its database.
+4. **The first deploy** (T032): run the Deploy workflow with **preview**, read the what-if, then run it again with **deploy**. Until the workflow is on main, GitHub shows no "Run workflow" button for it, so start it with the GitHub CLI:
+
+   ```powershell
+   gh workflow run deploy.yml --repo '<owner>/<repo>' --ref '<branch>' -f action=preview
+   ```
+
+   Afterwards the core cannot yet pull its image or reach its database, so the first deploy skips its smoke test.
 5. **The bootstrap's second stage**:
 
    ```powershell
@@ -41,7 +47,7 @@ The first deploy creates the core's managed identity, so whatever is granted to 
    - prints the T-SQL for part C, and restarts the core only after you say the database user exists;
    - last, writes the first signing key. Key Vault takes several minutes to honour your new role, which part C usually covers. If it still refuses, wait a few minutes and run the stage again: it repeats only what is missing.
 6. **Part C** below, while the bootstrap waits: the core's database user.
-7. **The smoke test**: `https://<core-host>/readyz` answers ready, and `get_health` answers.
+7. **The smoke test**: run the Deploy workflow with **smoke**. It checks that `/livez` answers, that `/readyz` answers ready, and that `/mcp` asks for a sign-in. `get_health` needs an agent's sign-in, so you check it at the first agent trial (T033).
 
 ## Part A: before the first deploy
 
@@ -87,6 +93,13 @@ gh variable set BRIDGE_AGENTS --env production --repo '<owner>/<repo>' --body '[
 ```
 
 An agent you leave out cannot link. Removing one later ends its links.
+
+Two more variables are optional, set the same way:
+
+- `BRIDGE_REGISTRATIONS_PER_HOUR`: how many new agent registrations the core accepts an hour, from 1 to 1000. Unset, 10.
+- `BRIDGE_LOG_LEVEL`: `debug`, `info`, `warn` or `error`. Unset, `info`.
+
+A change takes effect at the next deploy.
 
 ## Part C: the core's database user
 

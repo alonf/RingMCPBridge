@@ -1,13 +1,20 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T031
-**Tasks Remaining**: T032-T036 (5 tasks, 7 story_points)
-**In Progress**: T031 is done (DRIFT-001-63); next, T032 (the deploy workflow), which starts with two owner decisions
+**Last Completed Task**: T032
+**Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
+**In Progress**: T032 is done (DRIFT-001-64); next, T033 (the first agent trial and the soak), which the owner runs
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
 **Updated**: 2026-11-11T03:10:00Z
 
 ## Execution Summary
+
+- **T032, the deploy workflow, is done** (2026-11-11; DRIFT-001-64):
+  - `.github/workflows/deploy.yml`: Azure changes only when the owner starts it by hand (`preview`, `deploy`, `smoke`, and `image_tag` for a rollback), after CI passed on the commit. Pushes only build the Bicep, with no Azure access.
+  - A deploy builds the image on amd64 and arm64 runners, smoke-tests each, pushes both to ghcr.io and the amd64 one to the owner's registry, deploys the Bicep, and runs the smoke test (`/livez`, `/readyz`, and `/mcp` asking for a sign-in). The first deploy skips the smoke test until the bootstrap's second stage.
+  - The mode H end-to-end test runs in-process in every CI run, on SQLite and SQL Server: an agent signs in through the Entra stand-in and reads through the connector's link. Containers would have needed test settings in the deployed image.
+  - The owner chose the manual deploy and no Azure on pull requests; the plan is Pro. About 2 SP (estimate) against 1, and $0. Running it: about $0.10 a deploy, inside Pro's included compute (estimate).
+  - **For T033**: the workflow's first real runs, the ghcr.io package's visibility or a read token for the home server, and `get_health` from a signed-in agent.
 
 - **T031, the bootstrap and the runbook, are done** (2026-11-11; DRIFT-001-63):
   - `infra/bootstrap/bootstrap.ps1` runs in two stages around the first deploy, printing its plan unless `-Apply` is passed. Before the deploy: the resource group, the deploy identity with its GitHub OIDC credential and limited roles, and the GitHub variables. After it: AcrPull, the Entra app's federated credential and redirect URI, the first signing key, and the database user's T-SQL.

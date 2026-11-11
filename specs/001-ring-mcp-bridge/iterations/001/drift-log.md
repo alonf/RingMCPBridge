@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 63
+**Total drift events**: 64
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,92 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-64: T032: the deploy workflow, started by hand, and the end-to-end test in-process
+
+- **Detected**: 2026-11-11, implement, T032.
+- **Kind**: the task as written, with three changes: the owner's two choices on the approval gate and the what-if, the end-to-end job run in-process instead of in containers, and a smoke test that leaves `get_health` to T033. `quickstart.md` amended (the CI list and Step 5)
+- **Observed**:
+  - **The owner's GitHub plan.** The `gh` tokens on the owner's PC lack the `user` scope, so GitHub does not report the plan. A read-only check settles it: on a private repository, GitHub Free refuses branch protection, and GitHub answered "Branch not protected" instead. So the plan is Pro or higher, and environments and their variables work.
+  - **Starting a workflow by hand.** GitHub's "Events that trigger workflows" page (read 2026-11-11) says a `workflow_dispatch` run needs the workflow file on the default branch. It also says that once a workflow has run at least once, it can be started on any branch through the API or the CLI. `main` still holds only the template, and the pilot (T033) deploys before the feature merges.
+  - **The end-to-end job in containers.** The image runs mode H only against Entra, Key Vault, and Azure SQL through a managed identity, and the connector only against Ring. Containers against stand-ins would need settings that send those sign-ins elsewhere, and the settings would stay in the image the owner deploys.
+  - **`get_health` in the smoke test** needs an agent's token, which only the owner's sign-in gives.
+  - **The first deploy** leaves the core unable to pull its image or reach its database (DRIFT-001-62), so nothing answers, not even `/readyz`.
+  - **The Azure CLI reads a value that looks like JSON as JSON** in `--parameters name=value`, so the listed agents, a JSON array kept in a string parameter, would arrive as an array.
+  - **Runners and prices.** GitHub's runner and billing pages (read 2026-11-11) list a standard Linux arm64 runner (`ubuntu-24.04-arm`, 2 cores) for private repositories at $0.005 a minute, against $0.006 for Linux x64. Pro includes $18 of compute a month, about 3,000 Linux minutes. The Container registry's storage and transfer are free for now, with a month's notice before any change.
+- **Decided**:
+  - **The owner's choices (2026-11-11), each $0**:
+    - a deploy happens only when the owner starts the Deploy workflow by hand;
+    - pushes and pull requests get no Azure access, and only build the Bicep;
+    - the plan stays Pro.
+  - **`.github/workflows/deploy.yml`**:
+    - **On a push that changes `infra/`, the deploy scripts or the workflow:** `az bicep build` and `build-params`, with no Azure sign-in.
+    - **Started by hand** with `preview`, `deploy` or `smoke`, and an optional `image_tag`:
+      - every run first checks that CI passed on the same commit;
+      - `deploy` builds the image natively on amd64 and arm64 runners, and smoke-tests each in every mode (`scripts/image-smoke.mjs`). It pushes both to ghcr.io under one tag, for the home connector, and copies the amd64 image to the owner's registry, for the core;
+      - only the Azure jobs sign in, on the `production` environment, with the deploy identity's OIDC credential (T031);
+      - the role ids are looked up by name. The parameters go as a file written by `scripts/deploy-parameters.mjs`. The deployment is named `ring-mcp-bridge-core`, as the bootstrap reads it;
+      - `preview` runs the what-if;
+      - a first deploy skips the smoke test and says what comes next. Otherwise `scripts/deploy-smoke.mjs` checks `/livez`, `/readyz` ready, the MCP endpoint's metadata, and `/mcp` refusing a call with no token, trying for up to 10 minutes;
+      - `image_tag` deploys an image already in the owner's registry, after checking it is there: the rollback;
+      - one deploy at a time, never cancelled half-way.
+    - **Until the workflow is on `main`**, the owner starts it with `gh workflow run deploy.yml --ref <branch>`.
+  - **The end-to-end test, in-process**: `bridge/test/host/hybrid-end-to-end.test.ts`, in every CI run, on SQLite and on SQL Server:
+    - the core service and the connector as their containers run them, with the Entra stand-in and the simulated home;
+    - an agent finds the Issuer from `/mcp`'s 401 and registers itself, the owner signs in through the stand-in, and the agent reads `get_health` and `list_devices` through the connector's link with the MCP SDK client;
+    - Azurite is left out, since the core uses Blob only from iteration 003.
+  - The owner's browser in tests moved to `bridge/test/support/owner-browser.ts`, shared by the Issuer's tests and the new one.
+  - The runbook gives the deploy's commands and two optional variables, `BRIDGE_REGISTRATIONS_PER_HOUR` and `BRIDGE_LOG_LEVEL`.
+- **Requirement citation**: FR-001, FR-029, FR-044; PT-03, PT-05, PT-13; DRIFT-001-62, DRIFT-001-63.
+- **Resolution**: built and checked. The agent never started the Deploy workflow, signed in to Azure, or pushed an image. About 2 SP (estimate) against T032's 1, and $0.
+  - **Running it (estimate, from the list prices read 2026-11-11):**
+    - a deploy: about 15 to 20 runner minutes, about $0.10;
+    - a preview: about 5 minutes, about $0.03;
+    - a push that changes `infra/`: about 1 minute;
+    - a month of 4 deploys, 4 previews and 10 such pushes: about 100 minutes, about $0.60, inside Pro's $18 of included compute;
+    - ghcr.io is free for now, and each deploy adds a few MB to the owner's registry.
+- **Carry-forward**:
+  - **T033 (the pilot)**:
+    - the workflow's first real runs: whether the arm64 runner has Docker, and whether the run's `GITHUB_TOKEN` can create the ghcr.io package;
+    - the ghcr.io package is private, so the home server needs a read token to pull it, unless the owner makes the package public: the owner's decision;
+    - `get_health` from a signed-in agent;
+    - while App Service switches containers, the smoke test cannot tell the old one from the new one, so T033 checks which image runs.
+  - **Later**: old images pile up in ghcr.io and in the owner's registry. A clean-up comes when they cost something.
+  - **At the merge to main**: the "Run workflow" button appears.
+- **Class closure**: four classes, each with a check in CI:
+  - **A deploy that reaches Azure when it should not, or deploys the wrong thing.** `bridge/test/infra/deploy-workflow.test.ts` reads the workflow and checks:
+    - pushes get no Azure sign-in;
+    - only the `production` jobs sign in, only when started by hand, and only after CI passed on the commit;
+    - a build deploys only once its images are pushed;
+    - each image, amd64 and arm64, is smoke-tested before its push;
+    - the role ids are looked up by name, and the parameters go as a file;
+    - the deployment name is the bootstrap's;
+    - one deploy runs at a time, and the first deploy skips the smoke test;
+    - every variable the workflow reads is one the bootstrap or the runbook sets.
+  - **A parameter the deploy gets wrong.** The same test runs `scripts/deploy-parameters.mjs`. Every required `main.bicep` parameter has a source, missing variables stop it by name with no value printed, and the agents arrive as a string. It replaces T030's list of sources.
+  - **A deployed core that looks fine and is not.** The smoke script runs against a real core in the test. A ready core passes. Missing signing keys, an open `/mcp`, and an unreachable core each fail, named.
+  - **Mode H broken end to end.** The in-process test above, on both stores.
+  - Deliberate breaks: 19, all caught:
+    - the push job signing in to Azure;
+    - the Azure job off the `production` environment;
+    - any CI run counted, not a passed one;
+    - a build deployed without its images;
+    - an image pushed without its smoke test;
+    - a role id not looked up by name;
+    - the parameters as `name=value`;
+    - a deploy cancelled half-way;
+    - a deployment name the bootstrap does not read;
+    - the smoke test on the first deploy;
+    - no arm64 image;
+    - a variable nobody sets;
+    - a Bicep parameter with no source;
+    - a missing variable let through;
+    - the agents passed as an array;
+    - the parameter values printed;
+    - a core not ready passing the smoke test;
+    - an open `/mcp` passing it;
+    - the MCP endpoint not served, caught end to end.
+  - 1,311 tests: with SQL Server on 2 workers, 1,297 pass and 14 skip.
 
 ### DRIFT-001-63: T031: the bootstrap in two stages around the first deploy, the runbook, and the first signing key
 

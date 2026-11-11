@@ -1,7 +1,8 @@
 // The core's Azure resources (T030; R11, R12, R13, DO1, DO6, PT-03, PT-14): App Service B1 Linux
 // running the core's container, Azure SQL Database Basic, Blob storage, Key Vault, the core's
 // user-assigned managed identity, and Log Analytics, in Israel Central. Deployed into an existing
-// resource group by the deploy workflow (T032), after a what-if on each pull request.
+// resource group by the deploy workflow (T032), which the owner starts by hand, with a what-if
+// preview first.
 //
 // - **Owner values** (IDs, names, the registry) are parameters. The committed
 //   `main.example.bicepparam` holds placeholders only; the real values stay in a git-ignored

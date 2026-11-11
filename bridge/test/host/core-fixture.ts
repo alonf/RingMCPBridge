@@ -13,6 +13,7 @@ import { SystemClock } from "../../src/utilities/clock/index.ts";
 import { loadSettings } from "../../src/utilities/config/index.ts";
 import { Logger } from "../../src/utilities/logging/index.ts";
 import { openSqliteQueryLayer } from "../../src/utilities/query-layer/index.ts";
+import type { QueryLayer } from "../../src/utilities/query-layer/index.ts";
 import {
   EntraOwnerSignIn,
   Secret,
@@ -84,6 +85,8 @@ export async function startTestCore(
     readonly owner?: boolean;
     readonly agents?: readonly object[];
     readonly file?: string;
+    /** The core's database; a SQLite one in `file`, or in memory, when absent. */
+    readonly store?: QueryLayer;
   } = {},
 ): Promise<StartedCore> {
   const port = await freePort();
@@ -118,7 +121,9 @@ export async function startTestCore(
     minLevel: "debug",
   });
   const running = await startCoreService(settings, {
-    store: openSqliteQueryLayer(options.file ?? ":memory:", { clock }),
+    store:
+      options.store ??
+      openSqliteQueryLayer(options.file ?? ":memory:", { clock }),
     secrets:
       options.secrets ??
       memorySecrets(signingKeyDocument([generateSigningKey()])),

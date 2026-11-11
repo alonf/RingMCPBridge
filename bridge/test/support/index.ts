@@ -15,6 +15,10 @@ export type { StoreUnderTest } from "./store-matrix.ts";
 export { startEntraStandIn } from "./entra-stand-in.ts";
 export type { EntraStandIn, StandInOwner } from "./entra-stand-in.ts";
 
+/** The owner's browser: redirects across the core and the Entra stand-in, with cookies. */
+export { browse, cookiesOf, walk } from "./owner-browser.ts";
+export type { Jars } from "./owner-browser.ts";
+
 /** The agent's side of MCP, through the MCP SDK client. */
 export { connectInMemory, connectOverHttp, eraOptions } from "./mcp-client.ts";
 export type {

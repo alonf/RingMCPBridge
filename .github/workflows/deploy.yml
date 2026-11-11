@@ -1,0 +1,233 @@
+name: Deploy
+
+# The core's deploy (T032; PT-05, PT-13; DRIFT-001-64). The owner's choices on 2026-11-11:
+# - Azure changes only when the owner starts this workflow by hand. While the repository is
+#   private, an environment's required reviewers are not available on Free, Pro or Team.
+# - Pushes and pull requests get no Azure access: they only build the Bicep.
+#
+# Started by hand, with `action`:
+# - preview: the what-if of the Bicep, as this commit would deploy it;
+# - deploy: builds the image for amd64 and arm64 and smoke-tests each, pushes both to ghcr.io (the
+#   home connector's) and the amd64 one to the owner's registry (the core's), deploys the Bicep,
+#   then runs the smoke test. The first deploy skips the smoke test, which needs the bootstrap's
+#   second stage first (T031);
+# - smoke: the smoke test alone.
+# `image_tag` deploys an image already in the owner's registry instead of building one: the rollback.
+# Every run needs CI to have passed on the same commit.
+#
+# Until this file is on main, GitHub shows no "Run workflow" button for it. Once it has run on a
+# push, it can be started on a branch with the GitHub CLI:
+#   gh workflow run deploy.yml --ref <branch> -f action=preview
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "infra/**"
+      - "scripts/deploy-*.mjs"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "preview, deploy, or smoke"
+        type: choice
+        options: [preview, deploy, smoke]
+        default: preview
+      image_tag:
+        description: "Deploy this tag from your registry instead of building (rollback). Empty builds this commit."
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# One deploy at a time, and never one cancelled half-way.
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && 'deploy-production' || format('deploy-bicep-{0}', github.ref) }}
+  cancel-in-progress: false
+
+env:
+  DEPLOYMENT_NAME: ring-mcp-bridge-core
+  IMAGE_NAME: ring-mcp-bridge
+
+jobs:
+  bicep:
+    name: bicep
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build the Bicep, with the linter's security rules as errors
+        run: |
+          az bicep install
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+          az bicep build-params --file infra/main.example.bicepparam --stdout > /dev/null
+
+  tested:
+    name: tested
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: CI passed on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --status success --json databaseId --jq length)
+          if [ "$passed" -lt 1 ]; then
+            echo "::error::CI has not passed on $GITHUB_SHA. Deploy a commit whose CI is green."
+            exit 1
+          fi
+
+  image:
+    name: image (${{ matrix.arch }})
+    needs: tested
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' && inputs.image_tag == ''
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Build the image
+        run: docker build -f bridge/Dockerfile --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "bridge:$ARCH" .
+        env:
+          ARCH: ${{ matrix.arch }}
+      - name: Smoke-test the image in each mode
+        run: node scripts/image-smoke.mjs "bridge:$ARCH"
+        env:
+          ARCH: ${{ matrix.arch }}
+      - name: Push it to ghcr.io
+        env:
+          ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE_NAME:$GITHUB_SHA-$ARCH"
+          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker tag "bridge:$ARCH" "$image"
+          docker push "$image"
+
+  publish:
+    name: publish
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: One tag on ghcr.io for both CPUs, for the home connector
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          repository="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE_NAME"
+          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker buildx imagetools create --tag "$repository:$GITHUB_SHA" "$repository:$GITHUB_SHA-amd64" "$repository:$GITHUB_SHA-arm64"
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: The core's image into the owner's registry (amd64, as App Service runs it)
+        env:
+          AZURE_REGISTRY_NAME: ${{ vars.AZURE_REGISTRY_NAME }}
+        run: |
+          server=$(az acr show --name "$AZURE_REGISTRY_NAME" --query loginServer --output tsv)
+          az acr login --name "$AZURE_REGISTRY_NAME"
+          docker buildx imagetools create --tag "$server/$IMAGE_NAME:$GITHUB_SHA" "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE_NAME:$GITHUB_SHA-amd64"
+
+  azure:
+    name: azure (${{ inputs.action }})
+    needs: [tested, publish]
+    # A deploy that builds needs its images pushed; preview, smoke and a rollback build none.
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch' &&
+      needs.tested.result == 'success' &&
+      (needs.publish.result == 'success' || inputs.action != 'deploy' || inputs.image_tag != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_REGISTRY_NAME: ${{ vars.AZURE_REGISTRY_NAME }}
+      IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: The image to roll back to is in the registry
+        if: inputs.image_tag != ''
+        run: az acr repository show --name "$AZURE_REGISTRY_NAME" --image "$IMAGE_NAME:$IMAGE_TAG" --output none
+      - name: Look up the role ids by name
+        if: inputs.action != 'smoke'
+        run: |
+          echo "KEY_VAULT_READER_ROLE_ID=$(az role definition list --name 'Key Vault Secrets User' --query '[0].name' --output tsv)" >> "$GITHUB_ENV"
+          echo "STORAGE_BLOB_DATA_CONTRIBUTOR_ROLE_ID=$(az role definition list --name 'Storage Blob Data Contributor' --query '[0].name' --output tsv)" >> "$GITHUB_ENV"
+      - name: Write the parameters file
+        if: inputs.action != 'smoke'
+        env:
+          BRIDGE_ENTRA_CLIENT_ID: ${{ vars.BRIDGE_ENTRA_CLIENT_ID }}
+          BRIDGE_OWNER_OBJECT_ID: ${{ vars.BRIDGE_OWNER_OBJECT_ID }}
+          SQL_ADMIN_GROUP_NAME: ${{ vars.SQL_ADMIN_GROUP_NAME }}
+          SQL_ADMIN_GROUP_OBJECT_ID: ${{ vars.SQL_ADMIN_GROUP_OBJECT_ID }}
+          BRIDGE_AGENTS: ${{ vars.BRIDGE_AGENTS }}
+          BRIDGE_REGISTRATIONS_PER_HOUR: ${{ vars.BRIDGE_REGISTRATIONS_PER_HOUR }}
+          BRIDGE_LOG_LEVEL: ${{ vars.BRIDGE_LOG_LEVEL }}
+        run: node scripts/deploy-parameters.mjs "$RUNNER_TEMP/parameters.json"
+      - name: Preview the changes (what-if)
+        if: inputs.action == 'preview'
+        run: az deployment group what-if --resource-group "$RESOURCE_GROUP" --name "$DEPLOYMENT_NAME" --template-file infra/main.bicep --parameters "@$RUNNER_TEMP/parameters.json"
+      - name: Is this the first deploy?
+        id: first
+        if: inputs.action == 'deploy'
+        run: |
+          if az deployment group show --resource-group "$RESOURCE_GROUP" --name "$DEPLOYMENT_NAME" --output none 2>/dev/null; then
+            echo "first=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "first=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Deploy the Bicep and the core's image
+        if: inputs.action == 'deploy'
+        run: az deployment group create --resource-group "$RESOURCE_GROUP" --name "$DEPLOYMENT_NAME" --template-file infra/main.bicep --parameters "@$RUNNER_TEMP/parameters.json" --output none
+      - name: After the first deploy
+        if: inputs.action == 'deploy' && steps.first.outputs.first == 'true'
+        run: |
+          {
+            echo "## The first deploy is done"
+            echo ""
+            echo "The core cannot pull its image or reach its database yet, so the smoke test was skipped."
+            echo ""
+            echo "1. Run the bootstrap's second stage (infra/bootstrap/entra-app-registration.md, step 5)."
+            echo "2. Run this workflow again with **smoke**."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Smoke test
+        if: inputs.action == 'smoke' || (inputs.action == 'deploy' && steps.first.outputs.first != 'true')
+        run: |
+          url=$(az deployment group show --resource-group "$RESOURCE_GROUP" --name "$DEPLOYMENT_NAME" --query properties.outputs.publicUrl.value --output tsv)
+          node scripts/deploy-smoke.mjs "$url"

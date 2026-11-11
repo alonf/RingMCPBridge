@@ -54,14 +54,19 @@ import {
 } from "../../src/utilities/security/index.ts";
 import type { OwnerSignIn } from "../../src/utilities/security/index.ts";
 import { startCoreReads } from "../mcp-endpoint/core-fixture.ts";
-import { connectOverHttp, startEntraStandIn } from "../support/index.ts";
-import type { EntraStandIn, ProtocolEra } from "../support/index.ts";
+import {
+  browse,
+  connectOverHttp,
+  cookiesOf,
+  startEntraStandIn,
+  walk,
+} from "../support/index.ts";
+import type { EntraStandIn, Jars, ProtocolEra } from "../support/index.ts";
 
 const START = Date.UTC(2026, 10, 8, 9, 0, 0);
 const SECOND_MS = 1000;
 const HOUR_MS = 3600 * SECOND_MS;
 const DAY_MS = 24 * HOUR_MS;
-const MAX_HOPS = 20;
 const REGISTRATIONS_PER_HOUR = 10;
 
 const DOCUMENT_AGENT: AgentSeed = {
@@ -412,63 +417,6 @@ function publishDocument(rig: Rig, changes: object = {}): void {
 }
 
 /** A browser's cookies, kept apart for each server. */
-type Jars = Map<string, Map<string, string>>;
-
-/**
- * Plays a browser from `start`, following redirects and keeping each server's cookies apart, until
- * a URL that begins with `stopAt`, which it returns without opening.
- */
-async function walk(
-  start: URL | string,
-  stopAt: string,
-  jars: Jars = new Map(),
-): Promise<URL> {
-  let next = new URL(start);
-  for (let hop = 0; hop < MAX_HOPS; hop += 1) {
-    if (next.href.startsWith(stopAt)) {
-      return next;
-    }
-    const jar = jars.get(next.origin) ?? new Map<string, string>();
-    jars.set(next.origin, jar);
-    const response = await fetch(next, {
-      redirect: "manual",
-      headers: {
-        cookie: [...jar].map(([name, value]) => `${name}=${value}`).join("; "),
-      },
-    });
-    for (const setCookie of response.headers.getSetCookie()) {
-      const [pair = ""] = setCookie.split(";");
-      const separator = pair.indexOf("=");
-      jar.set(pair.slice(0, separator).trim(), pair.slice(separator + 1));
-    }
-    const location = response.headers.get("location");
-    if (location === null) {
-      throw new Error(
-        `The browser stopped at ${next.pathname} with ${String(response.status)}: ${await response.text()}`,
-      );
-    }
-    await response.body?.cancel();
-    next = new URL(location, next);
-  }
-  throw new Error("The browser never reached where it was going.");
-}
-
-/** The `Cookie` header a browser sends to one server. */
-function cookiesOf(jars: Jars, origin: string): string {
-  return [...(jars.get(origin) ?? new Map<string, string>())]
-    .map(([name, value]) => `${name}=${value}`)
-    .join("; ");
-}
-
-/** Plays the owner's browser to the agent's redirect URI, and returns that URI's query. */
-async function browse(
-  start: URL | string,
-  redirectUri: string,
-  jars?: Jars,
-): Promise<URLSearchParams> {
-  return (await walk(start, redirectUri, jars)).searchParams;
-}
-
 interface Tokens {
   readonly access_token: string;
   readonly refresh_token?: string | undefined;

@@ -477,7 +477,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
        - skip if the secret already exists. Later keys come from the core's 90-day rotation (PT-04).
 
   The runbook is `infra/bootstrap/entra-app-registration.md`. It covers the owner's one-time Entra app registration and the SQL break-glass group (PT-06). The IDs go into GitHub environment variables and are never committed (Trace: FR-029, FR-032; CP-19)
-- [ ] T032 [assigned_to: Implementer] [effort: 1] Deploy workflow `.github/workflows/deploy.yml`:
+- [x] T032 [assigned_to: Implementer] [effort: 1] Deploy workflow `.github/workflows/deploy.yml`:
   - **On a PR:** a Bicep what-if on `infra/`.
   - **On a merge to `main`:**
     1. The mode H end-to-end job: the core and connector containers run with SQL Server and Azurite, and an agent signs in through the fake Entra and reads through the link.
