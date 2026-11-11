@@ -3,7 +3,7 @@
 // imports this file, never index.ts, so mode A and the connector never reach @azure/*
 // (I5.3). It talks to the real Key Vault, so it is excluded from coverage and runs in the pilot
 // (I4.3).
-import { ManagedIdentityCredential } from "@azure/identity";
+import { AzureCliCredential, ManagedIdentityCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
 import type { KeyVaultSecretClient } from "./key-vault-secrets.ts";
 
@@ -22,4 +22,14 @@ export function createKeyVaultSecretClient(
     clientId: settings.managedIdentityClientId,
   });
   return new SecretClient(settings.vaultUrl, credential);
+}
+
+/**
+ * A Key Vault client that signs in as whoever is signed in to the Azure CLI: the owner, at the
+ * bootstrap's first-signing-key step on their own PC (T031). The core itself never uses it.
+ */
+export function createOwnerKeyVaultSecretClient(
+  vaultUrl: string,
+): KeyVaultSecretClient {
+  return new SecretClient(vaultUrl, new AzureCliCredential());
 }

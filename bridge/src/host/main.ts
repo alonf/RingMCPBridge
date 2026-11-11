@@ -13,6 +13,8 @@
 //   variables only.
 // - **`setup`** as the first argument runs the Setup CLI at the terminal instead (T028), before the
 //   run mode's settings are read: it needs only the data folder and the key's path.
+// - **`first-signing-key <vault-url>`** writes the Issuer's first key to Key Vault as the owner
+//   (T031): the bootstrap runs it on the owner's PC, never in the image.
 import { SystemClock } from "../utilities/clock/index.ts";
 import { ConfigError, loadSettings } from "../utilities/config/index.ts";
 import type { Settings } from "../utilities/config/index.ts";
@@ -45,6 +47,19 @@ if (process.argv[2] === "setup") {
     code = EXIT_FAILURE;
   }
   process.exit(code);
+}
+
+if (process.argv[2] === "first-signing-key") {
+  const { runFirstSigningKeyCommand } = await import("./first-signing-key.ts");
+  const { createOwnerKeyVaultSecretClient } =
+    await import("../core/access/secrets/key-vault-client.live.ts");
+  process.exit(
+    await runFirstSigningKeyCommand(process.argv.slice(3), {
+      output: process.stdout,
+      errors: process.stderr,
+      clientFor: createOwnerKeyVaultSecretClient,
+    }),
+  );
 }
 
 const clock = new SystemClock();

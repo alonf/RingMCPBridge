@@ -24,6 +24,10 @@ export {
 } from "./signing-keys.ts";
 export type { SigningKey, SigningKeys } from "./signing-keys.ts";
 
+/** The bootstrap's first signing key (T031): written once, never over keys already there. */
+export { writeFirstSigningKey } from "./first-signing-key.ts";
+export type { FirstSigningKeyOutcome } from "./first-signing-key.ts";
+
 /** The lifetimes the Issuer gives its tokens (FR-029). */
 export {
   ACCESS_TOKEN_TTL_S,

@@ -1,13 +1,19 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T030
-**Tasks Remaining**: T031-T036 (6 tasks, 8 story_points)
-**In Progress**: T030 is done (DRIFT-001-62); next, T031 (the bootstrap and the Entra runbook)
+**Last Completed Task**: T031
+**Tasks Remaining**: T032-T036 (5 tasks, 7 story_points)
+**In Progress**: T031 is done (DRIFT-001-63); next, T032 (the deploy workflow), which starts with two owner decisions
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
 **Updated**: 2026-11-11T03:10:00Z
 
 ## Execution Summary
+
+- **T031, the bootstrap and the runbook, are done** (2026-11-11; DRIFT-001-63):
+  - `infra/bootstrap/bootstrap.ps1` runs in two stages around the first deploy, printing its plan unless `-Apply` is passed. Before the deploy: the resource group, the deploy identity with its GitHub OIDC credential and limited roles, and the GitHub variables. After it: AcrPull, the Entra app's federated credential and redirect URI, the first signing key, and the database user's T-SQL.
+  - `infra/bootstrap/entra-app-registration.md` gives the owner's one-time steps and their order.
+  - Tested against stand-ins only; the agent ran no `az login` and no `-Apply`. About 2 SP (estimate) against 1, and $0.
+  - **For T032, owner decisions**: which identity runs the PR what-if (it needs deploy rights), and what the approval gate is while the repository is private (required reviewers need a public repository on Free, Pro and Team).
 
 - **T030, the core's Bicep, is done** (2026-11-11; DRIFT-001-62):
   - `infra/main.bicep` and six modules: App Service B1 running the core's image, Azure SQL Basic (Entra-only, reachable from the core's subnet alone), Key Vault (no secret created), Blob (the account only), Log Analytics (30 days, capped at 0.05 GB a day, at most about $5 a month) and the core's identity, in Israel Central.

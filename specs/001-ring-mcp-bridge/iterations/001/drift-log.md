@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 62
+**Total drift events**: 63
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,76 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-63: T031: the bootstrap in two stages around the first deploy, the runbook, and the first signing key
+
+- **Detected**: 2026-11-11, implement, T031.
+- **Kind**: the task as written, with the first deploy's order (DRIFT-001-62) built in, and two findings for T032. `quickstart.md` amended (Step 5)
+- **Observed**:
+  - The recorded bootstrap (PT-05) does its steps before any deploy. DRIFT-001-62 found that what the core's identity needs can only follow the first deploy, which creates that identity: AcrPull on the registry, the database user, and the Entra app's federated credential. The app's redirect URI also has to wait, because the host name comes from Azure.
+  - The Bicep's required parameters need the app registration and the break-glass group first, so part of the runbook (PT-06) comes before the first deploy.
+  - **What-if needs the same rights as a deployment.** Microsoft's "Bicep what-if" page (read 2026-11-11) says so, so no read-only identity can run the PR what-if.
+  - **GitHub plans.** GitHub's "Deployments and environments" page (read 2026-11-11) says that on GitHub Free, Pro and Team, required reviewers on an environment exist only in public repositories. Environment variables in a private repository need Pro or Team. While the repository is private, T032's approval gate on the environment cannot be a required reviewer.
+  - An argument with quotes inside does not survive `az.cmd` on Windows. The federated credential's JSON goes through a temporary file instead; it holds no secret.
+- **Decided**:
+  - **`infra/bootstrap/bootstrap.ps1`**, in PowerShell 7, in two stages (`-Stage before-deploy` or `after-deploy`):
+    - It only prints its plan unless `-Apply` is passed, and without `-Apply` it calls neither az nor gh.
+    - Every step checks first and skips what is done, so a rerun only reads.
+    - Before any change, it waits for the owner's `y` on the subscription named `-SubscriptionName`, which has no default.
+  - **Before the first deploy**, steps 1 to 6 as recorded:
+    - the deploy identity's GitHub OIDC credential is for `repo:<owner>/<repo>:environment:production` only;
+    - Contributor on the resource group;
+    - Role Based Access Control Administrator on the resource group, under an Azure ABAC condition ("constrain roles and principal types"). It may assign and remove only Key Vault Secrets User, Key Vault Secrets Officer and Storage Blob Data Contributor, and only for service principals. The role ids are looked up by name;
+    - AcrPush on the registry, and nothing more there. tasks.md, the later and stricter record, wins over the workshop proposal's "role assignment limited to AcrPull";
+    - it warns, without changing the owner's registry, when the registry refuses ARM-audience tokens;
+    - the GitHub variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP` and `AZURE_REGISTRY_NAME`, plus the runbook's `BRIDGE_ENTRA_CLIENT_ID`, `BRIDGE_OWNER_OBJECT_ID`, `SQL_ADMIN_GROUP_NAME` and `SQL_ADMIN_GROUP_OBJECT_ID` when given.
+  - **After the first deploy**, from the outputs of the deployment `ring-mcp-bridge-core`:
+    - AcrPull on the registry for the core's identity;
+    - the core's identity as the Entra app's federated credential (the tenant's v2.0 issuer, the identity's principal id, `api://AzureADTokenExchange`);
+    - the redirect URI `<publicUrl>/sign-in/return` added beside any already there;
+    - Key Vault Secrets Officer on the vault for the signed-in owner, kept afterwards, since the owner replaces the key by hand until rotation exists;
+    - the first signing key;
+    - the T-SQL for the core's database user, printed. The core is restarted only after the owner says the user exists.
+  - **The first signing key**: `node bridge/src/host/main.ts first-signing-key <vault-url>` signs in as the owner through the Azure CLI. The Issuer's `writeFirstSigningKey` reads first and writes one key only when none is there. The command says only what it did. The Issuer retries its start every minute, so it picks the key up without a restart.
+  - **The runbook**, `infra/bootstrap/entra-app-registration.md`:
+    - the order;
+    - part A: the app registration, with `auth_time`, no secret, and assignment required with only the owner assigned; the owner's object id; the empty break-glass group;
+    - part B: `BRIDGE_AGENTS`;
+    - part C: the database user's T-SQL, with the owner's temporary IP rule and group membership, both removed afterwards.
+- **Requirement citation**: FR-029, FR-032; PT-03, PT-05, PT-06, PT-13; R13, DO6; DRIFT-001-62.
+- **Resolution**: built and checked against stand-ins. The agent ran no `az login` and no `-Apply`, and made no Graph call. About 2 SP (estimate) against T031's 1, and $0.
+- **Carry-forward**:
+  - **T032 (the deploy), owner decisions, each $0**:
+    - **Which identity runs the PR what-if.** Since what-if needs deploy rights, the options are:
+      - (a) the deploy identity on pull requests;
+      - (b) the what-if under `production`, so every PR waits for the owner;
+      - (c) a separate identity with Reader and a custom role;
+      - (d) no Azure on PRs: Bicep build only, and the what-if in the main pipeline just before the approval.
+    - **What the approval gate is while the repository is private**, since required reviewers are not available on Free, Pro or Team.
+  - **T032, also**: the deployment name `ring-mcp-bridge-core`, the two role ids looked up by name, and `imageTag` from the build.
+  - **T033 (the pilot)**: the owner runs both stages for real.
+- **Class closure**: three classes, each with a check in CI:
+  - **A bootstrap step that would do the wrong thing in the owner's subscription.** `bridge/test/infra/bootstrap.test.ts` runs the script under PowerShell 7 against stand-ins for az, gh, node and the owner's answers (`bootstrap-harness.ps1`). It checks:
+    - print-only makes no call at all;
+    - an empty subscription is set up in the recorded order;
+    - a rerun only reads;
+    - a refused subscription changes nothing;
+    - after the deploy, the grants, the federated credential, the redirect URI and the key happen, and the restart waits for the owner.
+  - **A key leaked by the first-signing-key step.** The command's test checks that no private member of the key (`d`, `p`, `q`, `dp`, `dq`, `qi`) reaches its output.
+  - **A deploy parameter nobody sets.** The deployment test names a source for every required `main.bicep` parameter: a variable the bootstrap or the runbook sets, or a value the deploy supplies.
+  - Deliberate breaks: 12, all caught:
+    - print-only calling Azure;
+    - role assignment unlimited, or allowed one more role;
+    - the OIDC credential for a branch;
+    - the core restarted before its database user;
+    - the app's other redirect URIs dropped;
+    - no AcrPull;
+    - changes made before the subscription is confirmed;
+    - the key document printed;
+    - existing keys overwritten;
+    - a vault URL with a path accepted;
+    - a deploy parameter with no source.
+  - 1,290 tests: with SQL Server on 2 workers, 1,277 pass and 13 skip.
 
 ### DRIFT-001-62: T030: the core's Bicep, what App Service really does with `/readyz`, and what is left to the owner
 

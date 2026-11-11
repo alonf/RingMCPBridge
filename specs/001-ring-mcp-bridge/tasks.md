@@ -453,7 +453,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - **Owner values:** a committed example parameter file holds placeholders only, and the real values stay in a git-ignored local file.
 
   Checks: `az bicep build` and the PR what-if (Trace: FR-044, FR-032, SC-011; CP-19)
-- [ ] T031 [P] [assigned_to: Implementer] [effort: 1] The bootstrap and the Entra runbook.
+- [x] T031 [P] [assigned_to: Implementer] [effort: 1] The bootstrap and the Entra runbook.
 
   The bootstrap is `infra/bootstrap/bootstrap.ps1`, in PowerShell 7 (PT-05):
   - **Parameters:** `-SubscriptionName`, `-GitHubRepo <owner>/<repo>`, `-RegistryName` and `-Apply`.

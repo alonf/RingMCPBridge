@@ -210,6 +210,8 @@ The script names are not in the records.
       - the resource group;
       - the registry name.
 
+   It is written (T031, DRIFT-001-63) as `infra/bootstrap/bootstrap.ps1`, in two stages around the first deploy: `-Stage before-deploy` does the steps above, and `-Stage after-deploy` gives the core's new identity what it needs and writes the first signing key. `infra/bootstrap/entra-app-registration.md` gives the order, including step 6 below, which comes first.
+
    A proposal in component-design adds the detail below. It was never confirmed in the workshop, and the plan adopts it as the default (`research.md` PT-05) for the owner's review at the plan boundary:
    - a path and parameters (`infra/bootstrap/bootstrap.ps1` with `-SubscriptionName`, `-GitHubRepo <owner>/<repo>`, `-RegistryName` and `-Apply`);
    - a print-only run unless `-Apply` is passed;
@@ -225,7 +227,7 @@ The script names are not in the records.
    5. runs a smoke test against `https://<core-host>/readyz` and `get_health`.
 
    The Bicep sets up:
-   - App Service B1 Linux, with one instance, Always On, WebSockets, VNet integration, a health check on `/readyz`, and auto-heal on `/livez`;
+   - App Service B1 Linux, with one instance, Always On, WebSockets, VNet integration, and a health check on `/readyz` (with one instance, App Service replaces it after an hour unhealthy; DRIFT-001-62);
    - Azure SQL Basic;
    - Blob;
    - Key Vault;

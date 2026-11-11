@@ -8,6 +8,8 @@
 // - Only the console and platform logs leave App Service: HTTP logs record query strings, which
 //   carry OAuth codes.
 // - No deploy creates a secret (PT-03).
+// - Every parameter the deploy must be given has a named source: a GitHub variable the bootstrap or
+//   the runbook sets (T031), or a value the deploy itself supplies (T032).
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -39,6 +41,37 @@ function allBicep(): string {
 }
 
 const APP_SERVICE = infraFile("modules/app-service.bicep");
+const BOOTSTRAP = infraFile("bootstrap/bootstrap.ps1");
+const RUNBOOK = infraFile("bootstrap/entra-app-registration.md");
+
+/**
+ * Where each `main.bicep` parameter the deploy must be given comes from: a GitHub environment
+ * variable the bootstrap sets (`bootstrap`) or the runbook tells the owner to set (`runbook`), or a
+ * value the deploy workflow supplies itself (`deploy`, T032).
+ */
+const PARAMETER_SOURCES: Readonly<
+  Record<
+    string,
+    {
+      readonly from: "bootstrap" | "runbook" | "deploy";
+      readonly variable?: string;
+    }
+  >
+> = {
+  registryName: { from: "bootstrap", variable: "AZURE_REGISTRY_NAME" },
+  imageTag: { from: "deploy" },
+  entraClientId: { from: "bootstrap", variable: "BRIDGE_ENTRA_CLIENT_ID" },
+  ownerObjectId: { from: "bootstrap", variable: "BRIDGE_OWNER_OBJECT_ID" },
+  sqlAdminGroupName: { from: "bootstrap", variable: "SQL_ADMIN_GROUP_NAME" },
+  sqlAdminGroupObjectId: {
+    from: "bootstrap",
+    variable: "SQL_ADMIN_GROUP_OBJECT_ID",
+  },
+  keyVaultReaderRoleId: { from: "deploy" },
+  storageBlobDataContributorRoleId: { from: "deploy" },
+  // It has a default (no agents), but no agent can link until the owner lists one.
+  agents: { from: "runbook", variable: "BRIDGE_AGENTS" },
+};
 
 /** The app settings the Bicep names, each with the expression it sets. */
 function appSettings(): ReadonlyMap<string, string> {
@@ -91,7 +124,7 @@ describe("the core's deployment", () => {
 
   it("tells App Service and the core the port the image listens on", () => {
     const settings = appSettings();
-    const exposed = /^EXPOSE (\d+)$/m.exec(readFileSync(DOCKERFILE, "utf8"));
+    const exposed = /^EXPOSE (\d+)\r?$/m.exec(readFileSync(DOCKERFILE, "utf8"));
 
     expect(settings.get("WEBSITES_PORT")).toBe("port");
     expect(settings.get("BRIDGE_PORT")).toBe("port");
@@ -113,6 +146,26 @@ describe("the core's deployment", () => {
       "AppServicePlatformLogs",
     ]);
     expect(APP_SERVICE).toMatch(/httpLoggingEnabled: false/);
+  });
+
+  it("names a source for every parameter the deploy must be given", () => {
+    const required = [
+      ...infraFile("main.bicep").matchAll(/^param (\w+) string\r?$/gm),
+    ].map((match) => match[1]);
+
+    expect(required).toContain("imageTag");
+    expect(
+      required.filter(
+        (name) => name !== undefined && !(name in PARAMETER_SOURCES),
+      ),
+    ).toEqual([]);
+    for (const [name, source] of Object.entries(PARAMETER_SOURCES)) {
+      if (source.variable === undefined) {
+        continue;
+      }
+      const by = source.from === "bootstrap" ? BOOTSTRAP : RUNBOOK;
+      expect(by, `${name} from ${source.variable}`).toContain(source.variable);
+    }
   });
 
   it("creates no secret and writes no secret value (PT-03)", () => {
