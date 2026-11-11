@@ -9,7 +9,7 @@ The agent never signs in to your Azure or Entra, and never runs the bootstrap wi
 - PowerShell 7, the Azure CLI (`az`) and the GitHub CLI (`gh`), each signed in as you.
 - This repository, with Node 24 and its packages installed (`npm ci --ignore-scripts`): the bootstrap's last step runs the repository's own code to write the first signing key.
 - Your container registry in the same subscription as the bridge: the bootstrap looks for it there.
-- In a private repository, GitHub environments and their variables need GitHub Pro or Team. You can see your plan at https://github.com/settings/billing.
+- In a private repository, GitHub environments and their variables need GitHub Pro or Team. You can see your plan at <https://github.com/settings/billing>.
 
 ## The order
 
