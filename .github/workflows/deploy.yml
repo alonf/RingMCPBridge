@@ -145,11 +145,14 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # The deploy identity holds AcrPush on the registry and nothing more, so no command here reads
+      # the registry through Azure Resource Manager: `az acr login` falls back to the name and the
+      # cloud's suffix, as the Bicep builds the login server.
       - name: The core's image into the owner's registry (amd64, as App Service runs it)
         env:
           AZURE_REGISTRY_NAME: ${{ vars.AZURE_REGISTRY_NAME }}
         run: |
-          server=$(az acr show --name "$AZURE_REGISTRY_NAME" --query loginServer --output tsv)
+          server="${AZURE_REGISTRY_NAME,,}$(az cloud show --query suffixes.acrLoginServerEndpoint --output tsv)"
           az acr login --name "$AZURE_REGISTRY_NAME"
           docker buildx imagetools create --tag "$server/$IMAGE_NAME:$GITHUB_SHA" "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE_NAME:$GITHUB_SHA-amd64"
 

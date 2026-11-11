@@ -304,6 +304,24 @@ describe("the deploy workflow (.github/workflows/deploy.yml)", () => {
     expect(BOOTSTRAP).toContain(`$DeploymentName = '${String(name)}'`);
   });
 
+  it("pushes the core's image where App Service pulls it from", () => {
+    const image = /IMAGE_NAME: (\S+)/.exec(WORKFLOW)?.[1];
+
+    expect(MAIN_BICEP).toContain(`param imageName string = '${String(image)}'`);
+    expect(job("publish")).toContain('"$server/$IMAGE_NAME:$GITHUB_SHA"');
+    expect(job("azure")).toContain(
+      "IMAGE_TAG: ${{ inputs.image_tag || github.sha }}",
+    );
+  });
+
+  it("reaches the registry with AcrPush alone: no command reads it through Resource Manager", () => {
+    const registryCommands = new Set(
+      [...WORKFLOW.matchAll(/az acr (\w+)/g)].map((match) => match[1]),
+    );
+
+    expect([...registryCommands].sort()).toEqual(["login", "repository"]);
+  });
+
   it("passes the parameters as a file, never as name=value", () => {
     const azure = job("azure");
     const deployments = [

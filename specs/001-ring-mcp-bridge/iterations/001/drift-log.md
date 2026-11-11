@@ -1185,6 +1185,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **`get_health` in the smoke test** needs an agent's token, which only the owner's sign-in gives.
   - **The first deploy** leaves the core unable to pull its image or reach its database (DRIFT-001-62), so nothing answers, not even `/readyz`.
   - **The Azure CLI reads a value that looks like JSON as JSON** in `--parameters name=value`, so the listed agents, a JSON array kept in a string parameter, would arrive as an array.
+  - **The registry with AcrPush alone.** Microsoft's "Azure Container Registry Entra permissions and role assignments overview" (read 2026-11-11) says AcrPush has no control-plane access, and names a control-plane role for `az acr login`. The Azure CLI's source (`acr/_docker_utils.py`) shows that when the registry cannot be read, `az acr login` and `az acr repository` fall back to the registry's name and the cloud's suffix, then exchange the sign-in for a registry token. `az acr show` has no fallback, so the first draft's call to it would have failed.
   - **Runners and prices.** GitHub's runner and billing pages (read 2026-11-11) list a standard Linux arm64 runner (`ubuntu-24.04-arm`, 2 cores) for private repositories at $0.005 a minute, against $0.006 for Linux x64. Pro includes $18 of compute a month, about 3,000 Linux minutes. The Container registry's storage and transfer are free for now, with a month's notice before any change.
 - **Decided**:
   - **The owner's choices (2026-11-11), each $0**:
@@ -1198,6 +1199,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
       - `deploy` builds the image natively on amd64 and arm64 runners, and smoke-tests each in every mode (`scripts/image-smoke.mjs`). It pushes both to ghcr.io under one tag, for the home connector, and copies the amd64 image to the owner's registry, for the core;
       - only the Azure jobs sign in, on the `production` environment, with the deploy identity's OIDC credential (T031);
       - the role ids are looked up by name. The parameters go as a file written by `scripts/deploy-parameters.mjs`. The deployment is named `ring-mcp-bridge-core`, as the bootstrap reads it;
+      - the registry is reached with `az acr login` and `az acr repository` only, and its login server is built from its name, as the Bicep builds it. The deploy identity keeps AcrPush and nothing more there;
       - `preview` runs the what-if;
       - a first deploy skips the smoke test and says what comes next. Otherwise `scripts/deploy-smoke.mjs` checks `/livez`, `/readyz` ready, the MCP endpoint's metadata, and `/mcp` refusing a call with no token, trying for up to 10 minutes;
       - `image_tag` deploys an image already in the owner's registry, after checking it is there: the rollback;
@@ -1222,7 +1224,8 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - the workflow's first real runs: whether the arm64 runner has Docker, and whether the run's `GITHUB_TOKEN` can create the ghcr.io package;
     - the ghcr.io package is private, so the home server needs a read token to pull it, unless the owner makes the package public: the owner's decision;
     - `get_health` from a signed-in agent;
-    - while App Service switches containers, the smoke test cannot tell the old one from the new one, so T033 checks which image runs.
+    - while App Service switches containers, the smoke test cannot tell the old one from the new one, so T033 checks which image runs;
+    - the first push to the owner's registry tests the CLI's fallback. If the registry refuses it, the choice is the owner's: a read role on the registry for the deploy identity, or a registry token exchange in the workflow. Both cost $0.
   - **Later**: old images pile up in ghcr.io and in the owner's registry. A clean-up comes when they cost something.
   - **At the merge to main**: the "Run workflow" button appears.
 - **Class closure**: four classes, each with a check in CI:
@@ -1232,13 +1235,14 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - a build deploys only once its images are pushed;
     - each image, amd64 and arm64, is smoke-tested before its push;
     - the role ids are looked up by name, and the parameters go as a file;
-    - the deployment name is the bootstrap's;
+    - the deployment name is the bootstrap's, and the image name is the one App Service pulls;
+    - the registry is reached only through `az acr login` and `az acr repository`;
     - one deploy runs at a time, and the first deploy skips the smoke test;
     - every variable the workflow reads is one the bootstrap or the runbook sets.
   - **A parameter the deploy gets wrong.** The same test runs `scripts/deploy-parameters.mjs`. Every required `main.bicep` parameter has a source, missing variables stop it by name with no value printed, and the agents arrive as a string. It replaces T030's list of sources.
   - **A deployed core that looks fine and is not.** The smoke script runs against a real core in the test. A ready core passes. Missing signing keys, an open `/mcp`, and an unreachable core each fail, named.
   - **Mode H broken end to end.** The in-process test above, on both stores.
-  - Deliberate breaks: 19, all caught:
+  - Deliberate breaks: 21, all caught:
     - the push job signing in to Azure;
     - the Azure job off the `production` environment;
     - any CI run counted, not a passed one;
@@ -1257,8 +1261,10 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - the parameter values printed;
     - a core not ready passing the smoke test;
     - an open `/mcp` passing it;
-    - the MCP endpoint not served, caught end to end.
-  - 1,311 tests: with SQL Server on 2 workers, 1,297 pass and 14 skip.
+    - the MCP endpoint not served, caught end to end;
+    - an image name App Service does not pull;
+    - the registry read through Resource Manager.
+  - 1,313 tests: with SQL Server on 2 workers, 1,299 pass and 14 skip.
 
 ### DRIFT-001-63: T031: the bootstrap in two stages around the first deploy, the runbook, and the first signing key
 
