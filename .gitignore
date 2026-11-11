@@ -40,3 +40,8 @@ playwright-report/
 
 # The owner's own home scenarios stay local
 bridge/test/scenarios/local/
+
+# The deployment's owner values, and Bicep's compiled output
+infra/*.local.bicepparam
+infra/main.json
+infra/modules/*.json

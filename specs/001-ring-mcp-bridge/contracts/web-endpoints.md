@@ -31,7 +31,7 @@ Outbound, not routes: Delivery calls ChatGPT's MCP Events webhooks (002; IA §Co
 | `/livez` | the process and its event loop are alive | OR3 |
 | `/readyz` | the database is reachable, the single-instance lease is held, and secrets are loaded. Without the lease there is no control (fail closed), and `/readyz` reports it | OR3, OR §Amendments, CD C6, FR-044 |
 
-On App Service, `/readyz` is the health check and `/livez` drives auto-heal (DO knock-on changes, assumed equivalent for one instance). The deploy's smoke test calls `/readyz` and `get_health` (DO §CI/CD).
+On App Service, `/readyz` is the health check (T030, DRIFT-001-62). With one instance, App Service never takes it out of rotation; an instance unhealthy for an hour is replaced. A hung process fails `/readyz` too, and App Service has no second probe path, so `/livez` is not probed there. A new container counts as started when it answers App Service's own `/robots933456.txt` ping (a 404 counts), so a switch-over is never gated on `/readyz`; no warm-up path is set. The deploy's smoke test calls `/readyz` and `get_health` (DO §CI/CD).
 
 ## OAuth content rules
 

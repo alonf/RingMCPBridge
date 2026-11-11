@@ -1,13 +1,19 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T029
-**Tasks Remaining**: T030-T036 (7 tasks, 9 story_points)
-**In Progress**: CP-17's review follow-up is fixed (DRIFT-001-61); next, T030 (Bicep)
+**Last Completed Task**: T030
+**Tasks Remaining**: T031-T036 (6 tasks, 8 story_points)
+**In Progress**: T030 is done (DRIFT-001-62); next, T031 (the bootstrap and the Entra runbook)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-11T01:40:00Z
+**Updated**: 2026-11-11T03:10:00Z
 
 ## Execution Summary
+
+- **T030, the core's Bicep, is done** (2026-11-11; DRIFT-001-62):
+  - `infra/main.bicep` and six modules: App Service B1 running the core's image, Azure SQL Basic (Entra-only, reachable from the core's subnet alone), Key Vault (no secret created), Blob (the account only), Log Analytics (30 days, capped at 0.15 GB a day) and the core's identity, in Israel Central.
+  - Checked against Microsoft's docs: with one instance the health check on `/readyz` never takes the core out of rotation, and a switch-over waits on App Service's own ping, never on `/readyz`.
+  - Nothing deployed: `az bicep build` only. About 1.5 SP (estimate) against 1, and $0. Deployed, about $23 a month as recorded.
+  - **For T031**: AcrPull on the registry for the core's identity, the core's database user, the owner's role to write the first key, and the deploy identity's allow-list (Key Vault Secrets User, Storage Blob Data Contributor).
 
 - **CP-17's review follow-up is fixed** (2026-11-11; DRIFT-001-61):
   - New agent registrations are limited per hour across the Issuer (`BRIDGE_REGISTRATIONS_PER_HOUR`, 10 by default); over it, 429 and a security event. A registration the owner never links ends after 7 days; the owner's consent keeps it.
@@ -19,7 +25,7 @@
   - The owner reset the round allowance, then approved one round (run-20261110-230343975-312e4ebf), about 14 minutes, $0 (estimate). It covered T029, CP-06's two follow-ups and the admin page's CI workflow. Round budget: 1 of 4 used since the reset.
   - It found one problem, outside T029, demoted to a note for naming no concrete failure; it holds up against the code. Anyone can register a listed agent's public redirect URIs at the Issuer as often as they like, and each registration is a stored row that is never removed. The security design's T11 called for rate limits on the Issuer's open endpoints, but no task carried them.
   - Checking it found the wider class: the Issuer never deletes its expired records (registrations, unfinished sign-ins, used tokens), so anything that makes it store a record grows the database.
-  - The owner chose to stop the review there. The follow-up is fixed before T030, from T036's reserve, and reviewed in the next round.
+  - The owner chose to stop the review there. The follow-up is fixed before T030, booked to CP-16, and reviewed in the next round.
 - **The admin page's browser checks run in CI** (2026-11-11, the owner's choice): a separate workflow, not a required check, only on pushes that change the page (c41b29e). The first run billed 2 minutes.
 
 - **T029, the admin page, is done** (2026-11-10; DRIFT-001-60):

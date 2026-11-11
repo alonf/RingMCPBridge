@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 61
+**Total drift events**: 62
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,79 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-62: T030: the core's Bicep, what App Service really does with `/readyz`, and what is left to the owner
+
+- **Detected**: 2026-11-11, implement, T030.
+- **Kind**: the task as written, with three record assumptions checked against Microsoft's documentation, one role deferred, and carry-forwards to T031 to T033. `contracts/web-endpoints.md` amended (the health endpoints)
+- **Observed**:
+  - **The health check.** The contract recorded "`/readyz` is the health check and `/livez` drives auto-heal", "assumed equivalent for one instance". DRIFT-001-52 carried forward that the deploy must not gate the switch-over on `/readyz`, since `/readyz` is not ready while the old container holds the lease. Microsoft's pages "Monitor App Service instances using Health check" and "Configure a custom container" (read 2026-11-11) say:
+    - App Service has one health check path, pinged every minute. With one instance, it never takes the instance out of rotation. An instance unhealthy for an hour is replaced, at most one an hour and three a day.
+    - It has no second probe path, so nothing "drives auto-heal on `/livez`".
+    - A new container counts as started when it answers App Service's own ping to `/robots933456.txt`, a 404 included. App Service keeps serving from the old container until then. The health check path is used when scaling out, not to switch containers.
+    - B1 has no deployment slots, so there is no slot swap.
+  - **The network.** The VNet integration page (read 2026-11-11) says Basic supports VNet integration at no extra charge. Without "route all", private traffic and service-endpoint traffic still go through the subnet, so no NAT gateway is needed.
+  - **Azure SQL Entra-only.** The page on Entra-only servers (read 2026-11-11) confirms the server can be created with an Entra admin and no SQL admin password. Azure generates one it never uses.
+  - **Key Vault roles.** DO6 and A1 give the core's identity Secrets Officer on `issuer-signing-keys` and `pin-hash`. Nothing in the core writes a secret yet, and a role scoped to one secret needs that secret to exist, which PT-03 forbids at deploy.
+- **Decided**:
+  - **`infra/main.bicep` and six modules** (network, monitoring, Key Vault, storage, SQL, App Service), plus the core's user-assigned identity, in `israelcentral`. Every globally unique name takes one suffix from the resource group.
+  - **App Service**:
+    - B1 Linux, one instance, Always On, WebSockets, HTTPS only, TLS 1.2, no FTP and no publishing passwords;
+    - VNet integration on its subnet;
+    - the image pulled from the owner's registry with the core's identity;
+    - **the health check on `/readyz`**, as recorded. A hung process fails it too, so it covers what `/livez` would. No warm-up path is set, so a switch-over never waits on `/readyz`: the new container starts, the old one stops, and the new one then takes the lease. The first deploy is not ready until the owner sets the signing key, so App Service may replace its instance a few times in that window. It keeps serving meanwhile.
+  - **App settings**: every setting the core reads, with no secret:
+    - `BRIDGE_TRUST_PROXY=true`, which the Issuer's Secure cookies need;
+    - `WEBSITES_PORT` and `BRIDGE_PORT` both 8080, the image's port;
+    - `BRIDGE_REGISTRATIONS_PER_HOUR` only when given (DRIFT-001-61);
+    - the reads limit, the battery threshold, the stale time and the event retention left at their recorded defaults.
+  - **Azure SQL Basic**:
+    - Entra-only, with the break-glass group (PT-06) as the server's admin;
+    - one VNet rule for the core's subnet, through its `Microsoft.Sql` service endpoint;
+    - no IP rule, and no "allow Azure services".
+  - **Key Vault**:
+    - RBAC only; no secret is created;
+    - the core's identity has Secrets User on the vault;
+    - **Secrets Officer is deferred to the signing-key rotation**, which is the first thing that writes;
+    - soft delete for 90 days; **purge protection is off**, since turning it on cannot be undone, so it is the owner's choice.
+  - **Blob**:
+    - the account only, with no shared keys and no public blobs;
+    - the core's identity has Blob Data Contributor;
+    - its containers, their lifetimes and the WORM lock arrive with media (iteration 003) and the audit copy (iteration 004).
+  - **Log Analytics**:
+    - 30 days (PT-14);
+    - only the console and platform logs. HTTP logs are off, because they record query strings, which carry OAuth codes;
+    - **a daily cap of 0.15 GB** [P], which keeps the month inside the free 5 GB even when something floods the log. When the cap is reached, ingestion stops until the next day.
+  - **Role definition ids** are parameters, looked up by role name at deploy time (PT-13), so no GUID is committed. The example parameter file holds placeholders only, and `*.local.bicepparam` is git-ignored.
+- **Requirement citation**: FR-032, FR-044, SC-011; R11, R12, R13; DO1, DO6; PT-03, PT-06, PT-13, PT-14.
+- **Resolution**: built and checked. `az bicep build` and `az bicep build-params` are clean, with the security linter rules as errors. No deploy and no what-if: those are T032's, with the owner's approval. About 1.5 SP (estimate) against T030's 1, and $0. Deployed, the expected cost stays about $23 a month (research.md "Cost").
+- **Carry-forward**:
+  - **T031 (the bootstrap and the runbook)**:
+    - Grant the core's identity AcrPull on the owner's registry. The deploy identity has only AcrPush there, and App Service cannot pull the image until this is done. The registry must also accept ARM-audience tokens (`az acr config authentication-as-arm`).
+    - Create the core's database user (read, write and DDL, since the core migrates at start) in T-SQL, as a member of the break-glass group. Give the owner's PC a temporary IP rule for this, and remove it afterwards.
+    - Give the owner a data-plane role to write the first `issuer-signing-keys`.
+    - The deploy identity's role-assignment allow-list must include Key Vault Secrets User and Storage Blob Data Contributor, the roles this Bicep assigns.
+  - **T032 (the deploy)**: look up the two role ids by name, and pass every parameter from the GitHub environment.
+  - **T033 (the pilot)**: confirm on the first deploy that SQL is reached through the subnet, and that the switch-over completes while `/readyz` is not ready.
+  - **The deployment docs**: list the settings, `BRIDGE_REGISTRATIONS_PER_HOUR` optional among them.
+- **Class closure**: three classes. Each is closed by a check that runs in CI with no Azure access:
+  - **A setting the code reads that the deploy forgets or sets wrong.** `bridge/test/infra/core-deployment.test.ts` reads the Bicep as text. Every variable in `CORE_HOST_VARIABLES` and `SETTING_VARIABLES` must be set or listed as left at its default, and nothing the core does not read may be set. It also checks:
+    - the proxy is trusted;
+    - the port is the Dockerfile's;
+    - the health check is `/readyz`, and no warm-up path is set;
+    - only the console and platform logs are sent.
+  - **A deploy that writes a secret.** The same test refuses any Key Vault secret resource.
+  - **An owner value committed under `infra/`.** gitleaks' no-GUID rule (PT-13).
+  - Deliberate breaks: 10, all caught:
+    - the proxy setting dropped, or set to false;
+    - the owner's id unset;
+    - the health check on `/livez`;
+    - HTTP logs sent;
+    - the wrong port;
+    - a secret created;
+    - a default overridden;
+    - a warm-up path on `/readyz`;
+    - a setting the core does not read.
 
 ### DRIFT-001-61: CP-17's review follow-up: what anonymous callers can make the Issuer store, bounded
 

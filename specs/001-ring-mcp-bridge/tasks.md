@@ -444,7 +444,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 **Independent test**: quickstart Steps 5 to 8. The deploy's smoke test passes on `/readyz` and `get_health`. Claude Code, claude.ai and ChatGPT read the home after signing in.
 **Depends on**: T030 and T031 can start after T002. T032 needs T027 and T030. T033 needs T028, T029 and T032.
 
-- [ ] T030 [P] [assigned_to: Implementer] [effort: 1] Bicep in `infra/`: `main.bicep` and its modules, in the region Israel Central.
+- [x] T030 [P] [assigned_to: Implementer] [effort: 1] Bicep in `infra/`: `main.bicep` and its modules, in the region Israel Central.
   - **App Service B1 Linux:**
     - one instance, Always On, WebSockets, VNet integration;
     - the health check on `/readyz`, and auto-heal on `/livez`.
