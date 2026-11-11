@@ -3,11 +3,18 @@
 **Schema**: v2
 **Last Completed Task**: T029
 **Tasks Remaining**: T030-T036 (7 tasks, 9 story_points)
-**In Progress**: T029 is done (DRIFT-001-59, DRIFT-001-60); next, CP-17's review round, then T030
+**In Progress**: CP-17's review is signed off; its follow-up (the Issuer's stored records bounded: a registration limit, and expired records deleted) is fixed first, then T030
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-10T20:13:18Z
+**Updated**: 2026-11-11T00:40:00Z
 
 ## Execution Summary
+
+- **CP-17's review is signed off** (2026-11-11):
+  - The owner reset the round allowance, then approved one round (run-20261110-230343975-312e4ebf), about 14 minutes, $0 (estimate). It covered T029, CP-06's two follow-ups and the admin page's CI workflow. Round budget: 1 of 4 used since the reset.
+  - It found one problem, outside T029, demoted to a note for naming no concrete failure; it holds up against the code. Anyone can register a listed agent's public redirect URIs at the Issuer as often as they like, and each registration is a stored row that is never removed. The security design's T11 called for rate limits on the Issuer's open endpoints, but no task carried them.
+  - Checking it found the wider class: the Issuer never deletes its expired records (registrations, unfinished sign-ins, used tokens), so anything that makes it store a record grows the database.
+  - The owner chose to stop the review there. The follow-up is fixed before T030, from T036's reserve, and reviewed in the next round.
+- **The admin page's browser checks run in CI** (2026-11-11, the owner's choice): a separate workflow, not a required check, only on pushes that change the page (c41b29e). The first run billed 2 minutes.
 
 - **T029, the admin page, is done** (2026-11-10; DRIFT-001-60):
   - Playwright checks it in a real browser at three widths, dark and light: 19 checks in each of the six projects, 114 in all, against a dev server with stand-ins.
