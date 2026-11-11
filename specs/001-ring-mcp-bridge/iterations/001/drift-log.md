@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 60
+**Total drift events**: 61
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,46 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-61: CP-17's review follow-up: what anonymous callers can make the Issuer store, bounded
+
+- **Detected**: 2026-11-11, review, CP-17's round (run-20261110-230343975-312e4ebf). One finding, outside T029, reported as major and demoted to minor by Specrew for naming no concrete failure scenario. It holds up against the code.
+- **Kind**: a gap between the security design and the tasks, found as a defect in the Issuer (T023). No spec change; `contracts/web-endpoints.md` gains the rule
+- **Observed**:
+  - **Registrations without bound.** DCR needs no token, and a listed agent's redirect URIs are public. Anyone could post the same registration again and again, and each one stored a new `Client` row that nothing ever removed. Unlisting the agent only made the rows unusable.
+  - **The security design had named it.** T11 ("DCR floods registrations") called for rate limits on the Issuer's open endpoints, but no task carried them.
+  - **The wider class, found while checking**: the Issuer never deleted any record whose time was up. Every route an anonymous caller reaches that stores a record grew the database:
+    - `/oauth/reg` stores a `Client`, with no lifetime;
+    - `/oauth/auth` stores an `Interaction`, and a `Session`, for 10 minutes;
+    - `/oauth/request` (pushed authorization requests, on by default) stores a `PushedAuthorizationRequest` for 60 s at most.
+  - Ordinary use grew it too, more slowly: used codes and old tokens.
+- **Decided**:
+  - **Expired records are removed.** `GrantsStore.deleteExpired` deletes every record whose time is up, of every model, using the expiry index the schema already had. The Issuer runs it once it serves, then every hour (`SWEEP_INTERVAL_MS`), never two at once, and stops on `close`. A failure is logged (`issuer_records_sweep_failed`) and the next hour tries again.
+  - **Removing them changes no answer.** A record past its time was never found. The only reader of one is `consume`'s lost claim, which reads it in the moment after the record was found in time, so reuse detection is unchanged.
+  - **New registrations are limited.** The Issuer accepts so many in any hour, across all agents: `BRIDGE_REGISTRATIONS_PER_HOUR`, 10 by default, 1 to 1000 [P].
+    - Only a registration that passes the listed-URI check counts.
+    - Over the limit, the answer is 429 `temporarily_unavailable`, with `issuer_registrations_limited` logged as a security event.
+    - The count is in memory, per core process.
+  - **A registration lasts 7 days unless the owner links it** [P].
+    - At the owner's consent, the Issuer clears the client's lifetime (`GrantsStore.keep`) before it saves the grant.
+    - If the client cannot be kept, the consent is refused or fails, and nothing is granted: its tokens are checked against that row, so a linked agent must never lose it.
+  - **The trade-off, told to the owner**: one limit for the whole Issuer means someone flooding it can block a new self-registering agent for up to an hour. Linked agents, and agents with a metadata document, are unaffected.
+  - **Residual risk**: a flood of requests still costs capacity, as on any public endpoint, but the storage it can fill is now bounded. There are no request limits per endpoint.
+- **Requirement citation**: FR-029, FR-030; the security design's T11; CP-17's review finding.
+- **Resolution**: fixed after the owner chose to stop the review there and have it fixed before T030. About 1.5 SP (estimate), booked to CP-16 (the Issuer), and $0.
+- **Carry-forward**: T030's App Service settings and the deployment docs list `BRIDGE_REGISTRATIONS_PER_HOUR` as optional (10 by default).
+- **Class closure**: "a record an anonymous caller can make the Issuer store, kept without bound" is closed for every route that stores one. Registrations are bounded by the hourly limit and their lifetime; every model with a lifetime is bounded by the hourly removal. The only records kept for good are the owner's own links. Tests:
+  - the store on both databases: removal of only what is past its time, and keeping a record only while it is there and in time;
+  - the adapter: the lifetime, the limit (429), and an unlisted registration not counted;
+  - the Issuer end to end:
+    - repeated anonymous registrations of a listed URI store at most the limit, and none are left after 7 days and a removal;
+    - a linked self-registering agent still refreshes, and its token still checks, 8 days later after a removal;
+    - a consent that cannot keep the client grants nothing;
+    - the hourly removal starts when the Issuer serves and stops when it closes;
+    - a failed removal is logged;
+  - the setting's default and bounds.
+  - Deliberate breaks: 12, all caught.
+  - 1,264 tests: with SQL Server on 2 workers, 1,251 pass and 13 skip.
 
 ### DRIFT-001-60: T029 part 2: the admin page in a real browser, and what that found
 

@@ -18,6 +18,11 @@
 // The Issuer needs its signing keys before it serves anything: `start` reads them from Secrets,
 // and reports a missing secret instead of failing (PT-03), for `/readyz` to name.
 //
+// What callers on the internet can make the Issuer store is bounded (CP-17's review; T11): new
+// registrations by an hourly limit and a lifetime (grants-adapter.ts), and every record whose time
+// is up is removed once the Issuer serves, then every hour. An authorization in flight (an
+// interaction, a session, a pushed request) already ends within 10 minutes.
+//
 // Access tokens are opaque, so the MCP Endpoint asks the Issuer about each one (T024): it must be
 // stored and unexpired, for the one resource, under a grant still in force for the same owner and
 // client, and its agent must still be listed. A revocation takes effect on the next call.
@@ -37,12 +42,13 @@ import type {
   OwnerIdentity,
   OwnerSignIn,
 } from "../../../utilities/security/index.ts";
-import { adapterFor } from "./grants-adapter.ts";
+import { adapterFor, keepRegisteredClient } from "./grants-adapter.ts";
 import { IssuerError } from "./issuer-error.ts";
 import { grantableScopes, ListedAgents } from "./listed-agents.ts";
 import type { AgentListing } from "./listed-agents.ts";
 import { PendingSignIns } from "./pending-sign-ins.ts";
 import { providerConfiguration } from "./provider-configuration.ts";
+import { RegistrationLimit } from "./registration-limit.ts";
 import { parseSigningKeys } from "./signing-keys.ts";
 
 const HTTP_SEE_OTHER = 303;
@@ -57,6 +63,10 @@ const LINK_COOKIE_MAX_AGE_S = 600;
 const BINDING_BYTES = 32;
 /** How long one of the provider hooks' reads may take. */
 const HOOK_TIMEOUT_MS = 10_000;
+/** How often records whose time is up are removed. */
+export const SWEEP_INTERVAL_MS = 3_600_000;
+/** How long one removal of expired records may take. */
+const SWEEP_TIMEOUT_MS = 60_000;
 const INTERACTION_PATH = /^\/interaction\/([A-Za-z0-9_-]{1,64})$/;
 const RESOURCE_SCOPE = "read";
 // The OpenID scopes an agent may ask for alongside `read`; consenting to them grants no data.
@@ -76,6 +86,8 @@ export interface IssuerSettings {
    * over HTTPS counts as secure and the Issuer's secure cookies can be set (T027). Off by default.
    */
   readonly trustProxy?: boolean;
+  /** New registrations accepted in an hour, across the Issuer: Config's `registrationsPerHour`. */
+  readonly registrationsPerHour: number;
 }
 
 /** What the Issuer is wired with. */
@@ -139,10 +151,13 @@ export class Issuer {
   readonly #basePath: string;
   readonly #agents: ListedAgents;
   readonly #pending: PendingSignIns;
+  readonly #registrations: RegistrationLimit;
   readonly #lifetime = new AbortController();
   #provider: Provider | undefined;
   #serve:
     ((request: IncomingMessage, response: ServerResponse) => void) | undefined;
+  #stopSweeps: (() => void) | undefined;
+  #sweeping = false;
 
   constructor(settings: IssuerSettings, dependencies: IssuerDependencies) {
     this.#settings = { ...settings };
@@ -150,6 +165,10 @@ export class Issuer {
     this.#basePath = new URL(settings.issuer).pathname.replace(/\/$/, "");
     this.#agents = new ListedAgents(dependencies.agents);
     this.#pending = new PendingSignIns(dependencies.clock);
+    this.#registrations = new RegistrationLimit(
+      settings.registrationsPerHour,
+      dependencies.clock,
+    );
   }
 
   /**
@@ -175,6 +194,7 @@ export class Issuer {
         adapter: adapterFor({
           grants: this.#dependencies.grants,
           agents: this.#agents,
+          admitRegistration: () => this.#admitRegistration(),
           lifetime: this.#lifetime.signal,
         }),
         fetch: this.#dependencies.fetch,
@@ -195,7 +215,41 @@ export class Issuer {
     });
     this.#provider = provider;
     this.#serve = provider.callback();
+    this.#startSweeps();
     return "ready";
+  }
+
+  /**
+   * Removes the Issuer's records whose time is up, unless a removal is under way. A failure is
+   * logged, not thrown: the next one tries again.
+   */
+  async sweepExpired(): Promise<void> {
+    if (this.#sweeping || this.#closed()) {
+      return;
+    }
+    this.#sweeping = true;
+    try {
+      const count = await this.#dependencies.grants.deleteExpired(
+        AbortSignal.any([
+          this.#lifetime.signal,
+          AbortSignal.timeout(SWEEP_TIMEOUT_MS),
+        ]),
+      );
+      if (count > 0) {
+        this.#dependencies.logger.info("issuer_records_swept", { count });
+      }
+    } catch (error) {
+      // Closing aborts a removal under way; that is not a failure.
+      if (!this.#closed()) {
+        this.#dependencies.logger.warn(
+          "issuer_records_sweep_failed",
+          undefined,
+          error,
+        );
+      }
+    } finally {
+      this.#sweeping = false;
+    }
   }
 
   /** Whether a request's path is the Issuer's: its base path or anything under it. */
@@ -309,9 +363,37 @@ export class Issuer {
     }
   }
 
-  /** Stops the Issuer's storage calls in flight. */
+  /** Stops the Issuer's hourly removals and its storage calls in flight. */
   close(): void {
+    this.#stopSweeps?.();
+    this.#stopSweeps = undefined;
     this.#lifetime.abort(new Error("The Issuer has closed."));
+  }
+
+  #closed(): boolean {
+    return this.#lifetime.signal.aborted;
+  }
+
+  // Once the Issuer serves: a removal now, then every hour.
+  #startSweeps(): void {
+    if (this.#stopSweeps !== undefined) {
+      return;
+    }
+    this.#stopSweeps = this.#dependencies.clock.every(SWEEP_INTERVAL_MS, () => {
+      void this.sweepExpired();
+    });
+    void this.sweepExpired();
+  }
+
+  // A registration over the hour's limit is a security event: someone may be filling the store.
+  #admitRegistration(): boolean {
+    if (this.#registrations.take()) {
+      return true;
+    }
+    this.#dependencies.logger.warn("issuer_registrations_limited", {
+      count: this.#registrations.perHour,
+    });
+    return false;
   }
 
   // Starts the owner's Entra sign-in for an agent's authorization.
@@ -351,7 +433,9 @@ export class Issuer {
   }
 
   // The owner's consent: the agent's listed scopes that iteration 001 grants, on the one resource,
-  // and the OpenID scopes it asked for. An agent no longer listed is refused.
+  // and the OpenID scopes it asked for. An agent no longer listed is refused. A self-registered
+  // client is kept from here on, before its grant is saved: its tokens are checked against it, so
+  // if it cannot be kept, the consent fails and nothing is granted.
   async #consent(
     provider: Provider,
     params: Readonly<Record<string, unknown>>,
@@ -360,10 +444,19 @@ export class Issuer {
   ): Promise<InteractionResults> {
     const clientId =
       typeof params.client_id === "string" ? params.client_id : "";
+    const documentAgent = await this.#agents.byDocument(clientId, signal);
     const agent =
-      (await this.#agents.byDocument(clientId, signal)) ??
-      (await this.#registeredAgent(clientId, signal));
-    if (agent === undefined || grantableScopes(agent).length === 0) {
+      documentAgent ?? (await this.#registeredAgent(clientId, signal));
+    if (
+      agent === undefined ||
+      grantableScopes(agent).length === 0 ||
+      (documentAgent === undefined &&
+        !(await keepRegisteredClient(
+          this.#dependencies.grants,
+          clientId,
+          signal,
+        )))
+    ) {
       return {
         error: "access_denied",
         error_description: "This agent is not listed with the bridge.",

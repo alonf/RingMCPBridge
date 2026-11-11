@@ -134,6 +134,7 @@ export async function startCoreService(
       issuer: `${publicUrl}${ISSUER_PATH}`,
       resource: `${publicUrl}${MCP_PATH}`,
       trustProxy: settings.core.trustProxy,
+      registrationsPerHour: settings.core.registrationsPerHour,
     },
     {
       grants: core.grants,

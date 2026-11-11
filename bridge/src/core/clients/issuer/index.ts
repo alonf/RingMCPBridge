@@ -3,7 +3,7 @@
 // return route finishes its links; the MCP Endpoint (T024) checks the tokens it issues.
 
 /** The Issuer, its settings and seams, and what `start` reports. */
-export { Issuer } from "./issuer.ts";
+export { Issuer, SWEEP_INTERVAL_MS } from "./issuer.ts";
 export type {
   AccessCheck,
   IssuerDependencies,

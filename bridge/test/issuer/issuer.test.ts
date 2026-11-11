@@ -3,6 +3,9 @@
 // live in Grants on SQLite. Time is one clock: `Date` alone is faked, and everything reads it
 // (oidc-provider, the stand-in, jose, and the stores through SystemClock). Since T024, the agent
 // also uses its token at the MCP Endpoint, served at the resource the Issuer issues tokens for.
+// Since CP-17's review, what anonymous callers can make it store is bounded: an hourly limit and a
+// 7-day lifetime on registrations, and the hourly removal of expired records, whose timer the rig's
+// clock holds for the tests to fire.
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -31,10 +34,12 @@ import {
   IssuerError,
   parseSigningKeys,
   signingKeyDocument,
+  SWEEP_INTERVAL_MS,
 } from "../../src/core/clients/issuer/index.ts";
 import type { SigningKey } from "../../src/core/clients/issuer/index.ts";
 import { McpEndpoint } from "../../src/core/clients/mcp-endpoint/index.ts";
 import { SystemClock } from "../../src/utilities/clock/index.ts";
+import type { Cancel } from "../../src/utilities/clock/index.ts";
 import { Logger } from "../../src/utilities/logging/index.ts";
 import {
   CORE_MIGRATIONS,
@@ -57,6 +62,7 @@ const SECOND_MS = 1000;
 const HOUR_MS = 3600 * SECOND_MS;
 const DAY_MS = 24 * HOUR_MS;
 const MAX_HOPS = 20;
+const REGISTRATIONS_PER_HOUR = 10;
 
 const DOCUMENT_AGENT: AgentSeed = {
   client_id: "https://agent.example.test/oauth/client.json",
@@ -72,6 +78,32 @@ const REGISTERING_AGENT: AgentSeed = {
 };
 
 let signingKeys: readonly SigningKey[] = [];
+
+/** The system clock, except that its repeating timers wait for the test to fire them. */
+class IntervalClock extends SystemClock {
+  readonly #intervals = new Map<number, { ms: number; callback: () => void }>();
+  #next = 0;
+
+  override every(ms: number, callback: () => void): Cancel {
+    const id = this.#next++;
+    this.#intervals.set(id, { ms, callback });
+    return () => {
+      this.#intervals.delete(id);
+    };
+  }
+
+  /** The intervals waiting, in milliseconds. */
+  intervals(): readonly number[] {
+    return [...this.#intervals.values()].map(({ ms }) => ms);
+  }
+
+  /** Runs every repeating timer once. */
+  fire(): void {
+    for (const { callback } of this.#intervals.values()) {
+      callback();
+    }
+  }
+}
 
 function never(): AbortSignal {
   return new AbortController().signal;
@@ -154,6 +186,7 @@ interface Rig {
   readonly standIn: EntraStandIn;
   readonly grants: RacingGrants;
   readonly layer: QueryLayer;
+  readonly clock: IntervalClock;
   /** Client ID metadata documents the agents publish, by URL. */
   readonly documents: Map<string, object>;
   /** Every URL the Issuer fetched. */
@@ -182,7 +215,7 @@ async function startRig(
     readonly trustProxy?: boolean;
   } = {},
 ): Promise<Rig> {
-  const clock = new SystemClock();
+  const clock = new IntervalClock();
   const layer = openSqliteQueryLayer(":memory:", { clock });
   await runMigrations(layer, CORE_MIGRATIONS, { clock }, never());
   const settings = new SettingsStore({
@@ -245,6 +278,7 @@ async function startRig(
     {
       issuer: issuerUrl,
       resource,
+      registrationsPerHour: REGISTRATIONS_PER_HOUR,
       ...(options.trustProxy === undefined
         ? {}
         : { trustProxy: options.trustProxy }),
@@ -342,6 +376,7 @@ async function startRig(
     standIn,
     grants,
     layer,
+    clock,
     documents,
     fetched,
     logLines,
@@ -845,6 +880,168 @@ describe("the Issuer", () => {
       );
 
       expect(refused.body.error).toBe("invalid_client");
+    });
+  });
+
+  describe("what anonymous callers can make it store (CP-17's review)", () => {
+    function register(redirectUri: string): Promise<Response> {
+      return fetch(`${rig.issuerUrl}/reg`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          redirect_uris: [redirectUri],
+          token_endpoint_auth_method: "none",
+        }),
+      });
+    }
+
+    async function storedClients(): Promise<number> {
+      const rows = await rig.layer.all(
+        {
+          sql: "SELECT COUNT(*) AS n FROM oidc_item WHERE model = 'Client'",
+          params: {},
+        },
+        never(),
+      );
+      return Number(rows[0]?.n);
+    }
+
+    async function registerAgent(): Promise<string> {
+      const metadata = await metadataOf(rig);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- the DCR fallback is what this tests
+      const registered = await registerClient(rig.issuerUrl, {
+        metadata,
+        clientMetadata: {
+          redirect_uris: REGISTERING_AGENT.redirect_uris.map(String),
+          token_endpoint_auth_method: "none",
+        },
+      });
+      return registered.client_id;
+    }
+
+    it("stores at most the hour's limit of repeated registrations, and removes those never linked after 7 days", async () => {
+      const listed = textOf(REGISTERING_AGENT.redirect_uris[0]);
+      const statuses: number[] = [];
+      for (
+        let attempt = 0;
+        attempt < REGISTRATIONS_PER_HOUR + 3;
+        attempt += 1
+      ) {
+        const response = await register(listed);
+        statuses.push(response.status);
+        if (response.status === 429) {
+          expect(await response.json()).toMatchObject({
+            error: "temporarily_unavailable",
+          });
+        } else {
+          await response.body?.cancel();
+        }
+      }
+
+      expect(statuses.filter((status) => status === 201)).toHaveLength(
+        REGISTRATIONS_PER_HOUR,
+      );
+      expect(statuses.slice(REGISTRATIONS_PER_HOUR)).toEqual([429, 429, 429]);
+      expect(await storedClients()).toBe(REGISTRATIONS_PER_HOUR);
+      expect(
+        rig.logLines.filter((line) =>
+          line.includes('"event":"issuer_registrations_limited"'),
+        ),
+      ).toHaveLength(3);
+
+      advance(HOUR_MS);
+      const afterTheHour = await register(listed);
+      expect(afterTheHour.status).toBe(201);
+      await afterTheHour.body?.cancel();
+      advance(7 * DAY_MS);
+      await rig.issuer.sweepExpired();
+
+      expect(await storedClients()).toBe(0);
+    });
+
+    it("keeps a self-registered agent linked past the 7 days an unused registration lasts", async () => {
+      const clientId = await registerAgent();
+      const tokens = await link(
+        rig,
+        clientId,
+        textOf(REGISTERING_AGENT.redirect_uris[0]),
+      );
+      advance(8 * DAY_MS);
+      await rig.issuer.sweepExpired();
+
+      const refreshed = await refresh(
+        rig,
+        clientId,
+        textOf(tokens.refresh_token),
+      );
+
+      expect(refreshed.status).toBe(200);
+      await expect(
+        rig.issuer.checkAccessToken(
+          textOf(refreshed.body.access_token),
+          never(),
+        ),
+      ).resolves.toMatchObject({ kind: "valid", clientId });
+      expect(await storedClients()).toBe(1);
+    });
+
+    it("refuses the link, granting nothing, when a registered agent cannot be kept", async () => {
+      const clientId = await registerAgent();
+      vi.spyOn(rig.grants, "keep").mockResolvedValueOnce(false);
+
+      await expect(
+        link(rig, clientId, textOf(REGISTERING_AGENT.redirect_uris[0])),
+      ).rejects.toThrow("access_denied");
+      const grants = await rig.layer.all(
+        { sql: "SELECT id FROM oidc_item WHERE model = 'Grant'", params: {} },
+        never(),
+      );
+      expect(grants).toEqual([]);
+    });
+
+    it("removes expired records once it serves, then every hour until it closes", async () => {
+      expect(rig.clock.intervals()).toEqual([SWEEP_INTERVAL_MS]);
+      await rig.grants.upsert(
+        "Interaction",
+        "abandoned",
+        { uid: "u-1" },
+        600,
+        never(),
+      );
+      advance(600 * SECOND_MS);
+
+      rig.clock.fire();
+      await vi.waitFor(async () => {
+        const left = await rig.layer.all(
+          { sql: "SELECT id FROM oidc_item", params: {} },
+          never(),
+        );
+        expect(left).toEqual([]);
+      });
+      expect(
+        rig.logLines.some((line) =>
+          line.includes('"event":"issuer_records_swept"'),
+        ),
+      ).toBe(true);
+
+      rig.issuer.close();
+      expect(rig.clock.intervals()).toEqual([]);
+    });
+
+    it("logs a removal that fails, and the next one tries again", async () => {
+      const removal = vi
+        .spyOn(rig.grants, "deleteExpired")
+        .mockRejectedValueOnce(new Error("The store is down."));
+
+      await rig.issuer.sweepExpired();
+      await rig.issuer.sweepExpired();
+
+      expect(
+        rig.logLines.filter((line) =>
+          line.includes('"event":"issuer_records_sweep_failed"'),
+        ),
+      ).toHaveLength(1);
+      expect(removal).toHaveBeenCalledTimes(2);
     });
   });
 

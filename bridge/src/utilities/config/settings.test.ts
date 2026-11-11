@@ -180,7 +180,7 @@ describe("loadSettings", () => {
 });
 
 describe("mode H's core settings", () => {
-  it("reads the core's settings, with the port 8080, no proxy trust, no owner and no agents by default", () => {
+  it("reads the core's settings, with the port 8080, no proxy trust, no owner, no agents and 10 registrations an hour by default", () => {
     const settings = loadSettings(CORE);
 
     expect(settings).toMatchObject({
@@ -196,6 +196,7 @@ describe("mode H's core settings", () => {
         entraTenantId: TENANT_ID,
         entraClientId: "bridge-app-1",
         agents: [],
+        registrationsPerHour: 10,
       },
     });
     expect(settings.mode === "core" && "ownerObjectId" in settings.core).toBe(
@@ -210,6 +211,7 @@ describe("mode H's core settings", () => {
       BRIDGE_PORT: "3000",
       BRIDGE_TRUST_PROXY: "true",
       BRIDGE_OWNER_OBJECT_ID: "owner-object-1",
+      BRIDGE_REGISTRATIONS_PER_HOUR: "25",
       BRIDGE_AGENTS: JSON.stringify([
         AGENT,
         {
@@ -226,6 +228,7 @@ describe("mode H's core settings", () => {
         port: 3000,
         trustProxy: true,
         ownerObjectId: "owner-object-1",
+        registrationsPerHour: 25,
         agents: [
           AGENT,
           {
@@ -287,6 +290,21 @@ describe("mode H's core settings", () => {
       "an owner id with spaces",
       { BRIDGE_OWNER_OBJECT_ID: "owner 1" },
       "BRIDGE_OWNER_OBJECT_ID",
+    ],
+    [
+      "no registrations an hour",
+      { BRIDGE_REGISTRATIONS_PER_HOUR: "0" },
+      "BRIDGE_REGISTRATIONS_PER_HOUR",
+    ],
+    [
+      "over 1000 registrations an hour",
+      { BRIDGE_REGISTRATIONS_PER_HOUR: "1001" },
+      "BRIDGE_REGISTRATIONS_PER_HOUR",
+    ],
+    [
+      "a registration limit that is not a whole number",
+      { BRIDGE_REGISTRATIONS_PER_HOUR: "2.5" },
+      "BRIDGE_REGISTRATIONS_PER_HOUR",
     ],
     ["agents that are not JSON", { BRIDGE_AGENTS: "[{" }, "BRIDGE_AGENTS"],
     [

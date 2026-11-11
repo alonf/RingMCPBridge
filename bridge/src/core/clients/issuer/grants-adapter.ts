@@ -3,6 +3,13 @@
 // (DCR): a client is stored only when it matches a listed agent, and is found only while it still
 // does (listed-agents.ts). A refused registration answers 400 `invalid_client_metadata`.
 //
+// Registration needs no token, and a listed agent's redirect URIs are public, so anyone can repeat
+// one (CP-17's review; the security design's T11). Two bounds hold the rows it stores: the Issuer's
+// hourly limit on new registrations (over it, 429 `temporarily_unavailable`), and a lifetime of 7
+// days on each, which the Issuer clears when the owner links that client (`keepRegisteredClient`).
+// Only registration stores a client here: a metadata-document client is never stored, and nothing
+// updates a registration (registration access tokens are off).
+//
 // oidc-provider checks that a code or refresh token is unused, reads more, then consumes it. Two
 // redemptions at the same moment both pass its check (CP-15's review), so consume itself decides:
 // the store marks the record in one statement, and the redemption that loses is refused here. When
@@ -17,13 +24,40 @@ import type { ListedAgents } from "./listed-agents.ts";
 const STORE_TIMEOUT_MS = 10_000;
 const CLIENT_MODEL = "Client";
 const PUSHED_REQUEST_MODEL = "PushedAuthorizationRequest";
+const DAY_S = 86_400;
+/** A registration the owner never links ends after this. */
+export const UNUSED_REGISTRATION_TTL_S = 7 * DAY_S;
+const HTTP_TOO_MANY_REQUESTS = 429;
 
 /** What every adapter is built with. */
 export interface AdapterContext {
   readonly grants: GrantsStore;
   readonly agents: ListedAgents;
+  /** Counts a new registration, if the hour's limit allows one; false when it does not. */
+  readonly admitRegistration: () => boolean;
   /** Aborted when the Issuer closes. */
   readonly lifetime: AbortSignal;
+}
+
+/**
+ * Keeps a self-registered client once the owner links it: its lifetime no longer applies. Says
+ * whether it was there, in time, to keep.
+ */
+export function keepRegisteredClient(
+  grants: GrantsStore,
+  clientId: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  return grants.keep(CLIENT_MODEL, clientId, signal);
+}
+
+/** A registration over the hour's limit: 429, which oidc-provider has no error class for. */
+class RegistrationsLimited extends errors.OIDCProviderError {
+  constructor() {
+    super(HTTP_TOO_MANY_REQUESTS, "temporarily_unavailable");
+    this.error_description =
+      "too many new registrations this hour; try again later";
+  }
 }
 
 /** The factory oidc-provider calls once per model. */
@@ -117,19 +151,22 @@ class GrantsAdapter implements Adapter {
   }
 }
 
-/** Self-registered clients: kept and found only while they match a listed agent. */
+/**
+ * Self-registered clients: stored only while the hour's limit allows, for 7 days unless the owner
+ * links them, and found only while they match a listed agent.
+ */
 class RegisteredClients extends GrantsAdapter {
-  override async upsert(
-    id: string,
-    payload: AdapterPayload,
-    expiresIn: number | undefined,
-  ): Promise<void> {
+  // oidc-provider gives a new client no lifetime; this one is set here.
+  override async upsert(id: string, payload: AdapterPayload): Promise<void> {
     if (!(await this.#listed(payload))) {
       throw new errors.InvalidClientMetadata(
         "only a listed agent may register: every redirect URI must be listed for it",
       );
     }
-    await super.upsert(id, payload, expiresIn);
+    if (!this.context.admitRegistration()) {
+      throw new RegistrationsLimited();
+    }
+    await super.upsert(id, payload, UNUSED_REGISTRATION_TTL_S);
   }
 
   override async find(id: string): Promise<AdapterPayload | undefined> {

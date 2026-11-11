@@ -287,8 +287,20 @@ declare module "oidc-provider" {
     readonly statusCode: number;
   }
 
+  /**
+   * The base of the provider's errors, for an error it has no class of its own for: answered with
+   * `status`, `message` as the OAuth error code, and `error_description`.
+   */
+  class OIDCProviderBaseError extends Error {
+    constructor(status: number, message: string);
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- the OAuth field's own name
+    error_description?: string;
+  }
+
   /** The OAuth errors the bridge raises from its hooks. */
   export const errors: {
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name
+    readonly OIDCProviderError: typeof OIDCProviderBaseError;
     // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name
     readonly InvalidClientMetadata: typeof OIDCProviderError;
     // eslint-disable-next-line @typescript-eslint/naming-convention -- oidc-provider's own name

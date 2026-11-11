@@ -3,11 +3,17 @@
 **Schema**: v2
 **Last Completed Task**: T029
 **Tasks Remaining**: T030-T036 (7 tasks, 9 story_points)
-**In Progress**: CP-17's review is signed off; its follow-up (the Issuer's stored records bounded: a registration limit, and expired records deleted) is fixed first, then T030
+**In Progress**: CP-17's review follow-up is fixed (DRIFT-001-61); next, T030 (Bicep)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-11T00:40:00Z
+**Updated**: 2026-11-11T01:40:00Z
 
 ## Execution Summary
+
+- **CP-17's review follow-up is fixed** (2026-11-11; DRIFT-001-61):
+  - New agent registrations are limited per hour across the Issuer (`BRIDGE_REGISTRATIONS_PER_HOUR`, 10 by default); over it, 429 and a security event. A registration the owner never links ends after 7 days; the owner's consent keeps it.
+  - The Issuer removes every record whose time is up once it serves, then every hour.
+  - About 1.5 SP (estimate), booked to CP-16, and $0. Deliberate breaks: 12, all caught.
+  - **For T030 and the deployment docs**: `BRIDGE_REGISTRATIONS_PER_HOUR` is optional, 10 by default.
 
 - **CP-17's review is signed off** (2026-11-11):
   - The owner reset the round allowance, then approved one round (run-20261110-230343975-312e4ebf), about 14 minutes, $0 (estimate). It covered T029, CP-06's two follow-ups and the admin page's CI workflow. Round budget: 1 of 4 used since the reset.

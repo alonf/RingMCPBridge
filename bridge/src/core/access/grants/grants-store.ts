@@ -10,8 +10,11 @@
 // an interaction, a grant and a client keep their ids: oidc-provider finds a session by its `uid`,
 // which leaves no id to hand back, and the other three ids are not presented as credentials.
 //
-// A record whose time is up is never found, as with oidc-provider's own memory adapter. Records are
-// untrusted data (a client's metadata comes from the internet), never logged or quoted.
+// A record whose time is up is never found, as with oidc-provider's own memory adapter, and
+// `deleteExpired` removes it (CP-17's review): the Issuer runs it every hour, so records that callers
+// on the internet can make it store (a registration, an authorization in flight, a pushed request)
+// cannot pile up. Records are untrusted data (a client's metadata comes from the internet), never
+// logged or quoted.
 import { createHash } from "node:crypto";
 import type { Clock } from "../../../utilities/clock/index.ts";
 import {
@@ -78,6 +81,9 @@ const DELETE_BY_GRANT =
 // A grant's own record has the grant's id as its id; every other record names it in `grant_id`.
 const DELETE_GRANT =
   "DELETE FROM oidc_item WHERE grant_id = @grant_id OR (model = 'Grant' AND id = @grant_id)";
+const DELETE_EXPIRED =
+  "DELETE FROM oidc_item WHERE expires_at IS NOT NULL AND expires_at <= @now";
+const KEEP = `UPDATE oidc_item SET expires_at = NULL WHERE model = @model AND id = @id AND ${NOT_EXPIRED}`;
 // Marks only a record that is unused and whose time is not up, so one statement decides which of
 // two redemptions at the same moment wins. On SQL Server the UPDATE reads the rows it changes with
 // locks even under read-committed snapshot, so the loser sees the winner's mark and changes nothing.
@@ -275,6 +281,41 @@ export class GrantsStore {
   async revokeGrant(grantId: string, signal: AbortSignal): Promise<void> {
     await this.#guard(signal, "The grant could not be removed.", () =>
       this.#store.run(statement(DELETE_GRANT, { grant_id: grantId }), signal),
+    );
+  }
+
+  /**
+   * Keeps a record until it is destroyed: its time is no longer up at any point. Says whether
+   * there was such a record, still in time, to keep.
+   */
+  async keep(model: string, id: string, signal: AbortSignal): Promise<boolean> {
+    const kept = await this.#guard(
+      signal,
+      "The record could not be updated.",
+      () =>
+        this.#store.run(
+          statement(KEEP, {
+            model,
+            id: storedId(model, id),
+            now: this.#clock.now(),
+          }),
+          signal,
+        ),
+    );
+    return kept > 0;
+  }
+
+  /**
+   * Removes every record whose time is up, of every model, and says how many. A record past its
+   * time is never found, and nothing reads one except a lost claim in `consume`, in the moment
+   * after the record was found in time, so removing them changes no answer.
+   */
+  async deleteExpired(signal: AbortSignal): Promise<number> {
+    return this.#guard(signal, "Expired records could not be removed.", () =>
+      this.#store.run(
+        statement(DELETE_EXPIRED, { now: this.#clock.now() }),
+        signal,
+      ),
     );
   }
 

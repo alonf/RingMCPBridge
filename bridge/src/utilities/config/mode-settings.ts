@@ -6,6 +6,8 @@ import { z } from "zod";
 
 const PORT_DEFAULT = 8080;
 const MAX_PORT = 65_535;
+const REGISTRATIONS_PER_HOUR_DEFAULT = 10;
+const MAX_REGISTRATIONS_PER_HOUR = 1000;
 const MAX_ID_LENGTH = 400;
 const LOCAL_HOSTS: ReadonlySet<string> = new Set([
   "localhost",
@@ -56,6 +58,8 @@ export interface CoreHostSettings {
   /** The owner's Entra object id. Unset, every sign-in is refused, and `/readyz` says so. */
   readonly ownerObjectId?: string;
   readonly agents: readonly ListedAgentSetting[];
+  /** New agent registrations (DCR) the Issuer accepts in an hour, across all agents (CP-17's review). */
+  readonly registrationsPerHour: number;
 }
 
 /** The home part (connector). */
@@ -96,6 +100,7 @@ export const CORE_HOST_VARIABLES = {
   entraClientId: "BRIDGE_ENTRA_CLIENT_ID",
   ownerObjectId: "BRIDGE_OWNER_OBJECT_ID",
   agents: "BRIDGE_AGENTS",
+  registrationsPerHour: "BRIDGE_REGISTRATIONS_PER_HOUR",
 } as const;
 
 /** The variable behind each of the connector's settings. */
@@ -193,6 +198,13 @@ export const CORE_HOST_SCHEMA: z.ZodType<CoreHostSettings> = z
     entraClientId: z.string().regex(ENTRA_ID),
     ownerObjectId: z.string().regex(ENTRA_ID).optional(),
     agents: AGENTS_SCHEMA,
+    registrationsPerHour: z
+      .string()
+      .regex(/^\d{1,4}$/)
+      .transform(Number)
+      .pipe(z.number().int().min(1).max(MAX_REGISTRATIONS_PER_HOUR))
+      .optional()
+      .transform((limit) => limit ?? REGISTRATIONS_PER_HOUR_DEFAULT),
   })
   .transform(({ ownerObjectId, ...core }): CoreHostSettings => ({
     ...core,

@@ -1,6 +1,7 @@
 // Grants (T022) on SQLite and on SQL Server: oidc-provider's records in one `(model, id)` table
 // (PT-11), bearer ids kept only as hashes (SC4), expiry, consume (one redemption only, CP-15's
-// review), and revoking by grant.
+// review), and revoking by grant. Records whose time is up are removed, and one can be kept past
+// its time (CP-17's review).
 import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 import {
@@ -169,6 +170,59 @@ describeStoreMatrix("Grants", (store) => {
     await expect(grants.find("Client", "c-1", never())).resolves.toEqual({
       client_id: "c-1",
     });
+  });
+
+  it("removes every record whose time is up, of every model, and says how many (CP-17's review)", async () => {
+    const { grants, layer, clock } = await setUp();
+    await grants.upsert("RefreshToken", TOKEN, REFRESH_TOKEN, HOUR_S, never());
+    await grants.upsert("Interaction", "i-1", { uid: "u-1" }, 600, never());
+    await grants.upsert("Client", "c-1", { client_id: "c-1" }, 600, never());
+    await grants.upsert(
+      "Client",
+      "c-2",
+      { client_id: "c-2" },
+      undefined,
+      never(),
+    );
+    await clock.advance(600 * 1000 - 1);
+    await expect(grants.deleteExpired(never())).resolves.toBe(0);
+
+    await clock.advance(1);
+
+    await expect(grants.deleteExpired(never())).resolves.toBe(2);
+    expect(
+      await rows(layer, "SELECT model, id FROM oidc_item ORDER BY model, id"),
+    ).toEqual([
+      { model: "Client", id: "c-2" },
+      { model: "RefreshToken", id: sha256(TOKEN) },
+    ]);
+  });
+
+  it("keeps a record past its time, only while it is there and in time", async () => {
+    const { grants, clock } = await setUp();
+    await grants.upsert("Client", "c-1", { client_id: "c-1" }, 600, never());
+    await grants.upsert("Client", "c-2", { client_id: "c-2" }, 600, never());
+    await grants.upsert("RefreshToken", TOKEN, REFRESH_TOKEN, 600, never());
+
+    await expect(grants.keep("Client", "c-1", never())).resolves.toBe(true);
+    await expect(grants.keep("RefreshToken", TOKEN, never())).resolves.toBe(
+      true,
+    );
+    await expect(grants.keep("Client", "c-3", never())).resolves.toBe(false);
+    await clock.advance(600 * 1000);
+    await expect(grants.keep("Client", "c-2", never())).resolves.toBe(false);
+    await grants.deleteExpired(never());
+
+    await clock.advance(HOUR_S * 1000);
+    await expect(grants.find("Client", "c-1", never())).resolves.toEqual({
+      client_id: "c-1",
+    });
+    await expect(
+      grants.find("RefreshToken", TOKEN, never()),
+    ).resolves.toBeDefined();
+    await expect(
+      grants.find("Client", "c-2", never()),
+    ).resolves.toBeUndefined();
   });
 
   it("replaces a record saved again under the same id", async () => {
@@ -457,6 +511,8 @@ describeStoreMatrix("Grants", (store) => {
       () => grants.destroy("Client", "c-1", never()),
       () => grants.revokeByGrantId("AccessToken", "grant-1", never()),
       () => grants.revokeGrant("grant-1", never()),
+      () => grants.keep("Client", "c-1", never()),
+      () => grants.deleteExpired(never()),
     ]) {
       const error = await expectStoreError(work(), "unavailable");
       expect(error.cause).toMatchObject({ kind: "store_down" });
