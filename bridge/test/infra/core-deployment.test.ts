@@ -2,8 +2,9 @@
 // it in step with the code that will run under it.
 // - Every setting the core reads is set, or left on purpose to its recorded default; nothing is set
 //   that the core does not read.
-// - The values no other test sees: the proxy trusted, the image's port, the health check on
-//   `/readyz` with no warm-up path that would gate a switch-over on it.
+// - The values no other test sees: the proxy trusted, the image's port, the public URL from the host
+//   name Azure gave the app, and the health check on `/readyz` with no warm-up path that would
+//   gate a switch-over on it.
 // - Only the console and platform logs leave App Service: HTTP logs record query strings, which
 //   carry OAuth codes.
 // - No deploy creates a secret (PT-03).
@@ -78,6 +79,14 @@ describe("the core's deployment", () => {
 
     expect(settings.get("BRIDGE_MODE")).toBe("'core'");
     expect(settings.get("BRIDGE_TRUST_PROXY")).toBe("'true'");
+  });
+
+  it("tells the core its public URL from the host name Azure gave the app, never a guessed one", () => {
+    expect(appSettings().get("BRIDGE_PUBLIC_URL")).toBe("effectivePublicUrl");
+    expect(APP_SERVICE).toContain(
+      "'https://${app.properties.defaultHostName}'",
+    );
+    expect(allBicep()).not.toContain("azurewebsites.net'");
   });
 
   it("tells App Service and the core the port the image listens on", () => {

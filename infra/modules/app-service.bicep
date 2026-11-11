@@ -17,7 +17,9 @@
 //   events go to Log Analytics. HTTP logs are off: they record query strings, which carry OAuth
 //   codes on `/sign-in/return` and `/oauth/*`.
 // - **Settings**: every setting the core reads is set here, or left to its recorded default (the
-//   settings test checks the list). None is a secret: the secrets live in Key Vault.
+//   settings test checks the list). None is a secret: the secrets live in Key Vault. They are a
+//   separate resource so that the public URL can be the host name Azure gave the app, which is not
+//   always `<app>.azurewebsites.net` (newer sites may get a unique one with a hash and a region).
 
 @description('The Azure region.')
 param location string
@@ -49,7 +51,7 @@ param imageName string
 @description('The image tag to run.')
 param imageTag string
 
-@description('The core\'s public origin, `https://<host>`, with no path.')
+@description('The core\'s public origin, `https://<host>`, with no path; empty uses the app\'s own host.')
 param publicUrl string
 
 @description('The core\'s log level.')
@@ -87,13 +89,14 @@ param registrationsPerHour string
 
 // The port the image listens on (bridge/Dockerfile's EXPOSE), told to App Service and the core.
 var port = '8080'
+var effectivePublicUrl = empty(publicUrl) ? 'https://${app.properties.defaultHostName}' : publicUrl
 
 var settings = [
   { name: 'WEBSITES_PORT', value: port }
   { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
   { name: 'BRIDGE_MODE', value: 'core' }
   { name: 'BRIDGE_LOG_LEVEL', value: logLevel }
-  { name: 'BRIDGE_PUBLIC_URL', value: publicUrl }
+  { name: 'BRIDGE_PUBLIC_URL', value: effectivePublicUrl }
   { name: 'BRIDGE_PORT', value: port }
   // App Service's front end ends TLS: the core trusts its X-Forwarded-Proto, so the Issuer's
   // cookies are Secure (T027).
@@ -155,9 +158,14 @@ resource app 'Microsoft.Web/sites@2024-04-01' = {
       httpLoggingEnabled: false
       detailedErrorLoggingEnabled: false
       requestTracingEnabled: false
-      appSettings: concat(settings, optionalSettings)
     }
   }
+}
+
+resource appSettings 'Microsoft.Web/sites/config@2024-04-01' = {
+  parent: app
+  name: 'appsettings'
+  properties: toObject(concat(settings, optionalSettings), setting => setting.name, setting => setting.value)
 }
 
 // No publishing passwords: deploys go through the deploy identity.
@@ -195,5 +203,5 @@ resource logs 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
   }
 }
 
-@description('The app\'s default host name.')
-output defaultHostName string = app.properties.defaultHostName
+@description('The core\'s public origin, as the core was told.')
+output publicUrl string = effectivePublicUrl

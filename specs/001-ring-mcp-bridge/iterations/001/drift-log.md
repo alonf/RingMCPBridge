@@ -1194,7 +1194,8 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - VNet integration on its subnet;
     - the image pulled from the owner's registry with the core's identity;
     - **the health check on `/readyz`**, as recorded. A hung process fails it too, so it covers what `/livez` would. No warm-up path is set, so a switch-over never waits on `/readyz`: the new container starts, the old one stops, and the new one then takes the lease. The first deploy is not ready until the owner sets the signing key, so App Service may replace its instance a few times in that window. It keeps serving meanwhile.
-  - **App settings**: every setting the core reads, with no secret:
+  - **App settings**: every setting the core reads, with no secret, as a resource of their own:
+    - `BRIDGE_PUBLIC_URL` is the host name Azure gave the app, read after the app exists, unless the owner gives one. A newer site may get a unique host name with a hash and a region, not `<app>.azurewebsites.net`, so the name is never guessed;
     - `BRIDGE_TRUST_PROXY=true`, which the Issuer's Secure cookies need;
     - `WEBSITES_PORT` and `BRIDGE_PORT` both 8080, the image's port;
     - `BRIDGE_REGISTRATIONS_PER_HOUR` only when given (DRIFT-001-61);
@@ -1215,28 +1216,36 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **Log Analytics**:
     - 30 days (PT-14);
     - only the console and platform logs. HTTP logs are off, because they record query strings, which carry OAuth codes;
-    - **a daily cap of 0.15 GB** [P], which keeps the month inside the free 5 GB even when something floods the log. When the cap is reached, ingestion stops until the next day.
+    - **a daily cap of 0.05 GB** [P], about 5 times the expected volume (0.1 to 0.3 GB a month). If something floods the log, the month stops at about 1.55 GB: about $5 even if the billing account's free 5 GB is already used by other projects (agent-derived, $3.29 per GB), which keeps the total under SC-011's $30. When the cap is reached, ingestion stops until the next day.
   - **Role definition ids** are parameters, looked up by role name at deploy time (PT-13), so no GUID is committed. The example parameter file holds placeholders only, and `*.local.bicepparam` is git-ignored.
 - **Requirement citation**: FR-032, FR-044, SC-011; R11, R12, R13; DO1, DO6; PT-03, PT-06, PT-13, PT-14.
 - **Resolution**: built and checked. `az bicep build` and `az bicep build-params` are clean, with the security linter rules as errors. No deploy and no what-if: those are T032's, with the owner's approval. About 1.5 SP (estimate) against T030's 1, and $0. Deployed, the expected cost stays about $23 a month (research.md "Cost").
 - **Carry-forward**:
+  - **The first deploy's order.** The Bicep creates the core's identity, so what is granted to that identity can only follow it. The core migrates its database before it listens, and stops when it cannot, so until its database user exists its container restarts. The order:
+    1. the bootstrap's steps before any deploy (T031);
+    2. the first deploy of the Bicep (T032), after which the app cannot yet pull or start;
+    3. the owner's steps for the new identity (below);
+    4. a restart, or the deploy again;
+    5. the first signing key, then the smoke test again.
   - **T031 (the bootstrap and the runbook)**:
     - Grant the core's identity AcrPull on the owner's registry. The deploy identity has only AcrPush there, and App Service cannot pull the image until this is done. The registry must also accept ARM-audience tokens (`az acr config authentication-as-arm`).
     - Create the core's database user (read, write and DDL, since the core migrates at start) in T-SQL, as a member of the break-glass group. Give the owner's PC a temporary IP rule for this, and remove it afterwards.
     - Give the owner a data-plane role to write the first `issuer-signing-keys`.
+    - Add the core's identity as the federated credential on the bridge's Entra app registration, which replaces a client secret for the owner's sign-in. It too needs the identity to exist first.
     - The deploy identity's role-assignment allow-list must include Key Vault Secrets User and Storage Blob Data Contributor, the roles this Bicep assigns.
   - **T032 (the deploy)**: look up the two role ids by name, and pass every parameter from the GitHub environment.
-  - **T033 (the pilot)**: confirm on the first deploy that SQL is reached through the subnet, and that the switch-over completes while `/readyz` is not ready.
+  - **T033 (the pilot)**: confirm on the first deploy that SQL is reached through the subnet, that the switch-over completes while `/readyz` is not ready, and that the deploy's `publicUrl` output is the host the agents reach.
   - **The deployment docs**: list the settings, `BRIDGE_REGISTRATIONS_PER_HOUR` optional among them.
 - **Class closure**: three classes. Each is closed by a check that runs in CI with no Azure access:
   - **A setting the code reads that the deploy forgets or sets wrong.** `bridge/test/infra/core-deployment.test.ts` reads the Bicep as text. Every variable in `CORE_HOST_VARIABLES` and `SETTING_VARIABLES` must be set or listed as left at its default, and nothing the core does not read may be set. It also checks:
     - the proxy is trusted;
+    - the public URL comes from the host name Azure gave the app;
     - the port is the Dockerfile's;
     - the health check is `/readyz`, and no warm-up path is set;
     - only the console and platform logs are sent.
   - **A deploy that writes a secret.** The same test refuses any Key Vault secret resource.
   - **An owner value committed under `infra/`.** gitleaks' no-GUID rule (PT-13).
-  - Deliberate breaks: 10, all caught:
+  - Deliberate breaks: 11, all caught:
     - the proxy setting dropped, or set to false;
     - the owner's id unset;
     - the health check on `/livez`;
@@ -1245,7 +1254,8 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - a secret created;
     - a default overridden;
     - a warm-up path on `/readyz`;
-    - a setting the core does not read.
+    - a setting the core does not read;
+    - the public URL guessed as `<app>.azurewebsites.net`.
 
 ### DRIFT-001-61: CP-17's review follow-up: what anonymous callers can make the Issuer store, bounded
 

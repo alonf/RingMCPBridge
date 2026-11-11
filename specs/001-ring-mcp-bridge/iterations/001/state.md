@@ -10,10 +10,10 @@
 ## Execution Summary
 
 - **T030, the core's Bicep, is done** (2026-11-11; DRIFT-001-62):
-  - `infra/main.bicep` and six modules: App Service B1 running the core's image, Azure SQL Basic (Entra-only, reachable from the core's subnet alone), Key Vault (no secret created), Blob (the account only), Log Analytics (30 days, capped at 0.15 GB a day) and the core's identity, in Israel Central.
+  - `infra/main.bicep` and six modules: App Service B1 running the core's image, Azure SQL Basic (Entra-only, reachable from the core's subnet alone), Key Vault (no secret created), Blob (the account only), Log Analytics (30 days, capped at 0.05 GB a day, at most about $5 a month) and the core's identity, in Israel Central.
   - Checked against Microsoft's docs: with one instance the health check on `/readyz` never takes the core out of rotation, and a switch-over waits on App Service's own ping, never on `/readyz`.
   - Nothing deployed: `az bicep build` only. About 1.5 SP (estimate) against 1, and $0. Deployed, about $23 a month as recorded.
-  - **For T031**: AcrPull on the registry for the core's identity, the core's database user, the owner's role to write the first key, and the deploy identity's allow-list (Key Vault Secrets User, Storage Blob Data Contributor).
+  - **For T031**: AcrPull on the registry for the core's identity, the core's database user, the identity as the Entra app's federated credential, the owner's role to write the first key, and the deploy identity's allow-list (Key Vault Secrets User, Storage Blob Data Contributor). These follow the first deploy, which creates the identity; DRIFT-001-62 gives the order.
 
 - **CP-17's review follow-up is fixed** (2026-11-11; DRIFT-001-61):
   - New agent registrations are limited per hour across the Issuer (`BRIDGE_REGISTRATIONS_PER_HOUR`, 10 by default); over it, 429 and a security event. A registration the owner never links ends after 7 days; the owner's consent keeps it.

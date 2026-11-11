@@ -34,7 +34,7 @@ param imageName string = 'ring-mcp-bridge'
 @description('The image tag to run, set by the deploy.')
 param imageTag string
 
-@description('The core\'s public origin, `https://<host>`. Empty uses `https://<app>.azurewebsites.net`.')
+@description('The core\'s public origin, `https://<host>`. Empty uses the host name Azure gives the app.')
 param publicUrl string = ''
 
 @description('The core\'s log level.')
@@ -76,7 +76,6 @@ param storageBlobDataContributorRoleId string
 // Globally unique names share one suffix, stable for this resource group.
 var suffix = take(uniqueString(resourceGroup().id), 6)
 var appName = '${namePrefix}-${suffix}'
-var effectivePublicUrl = empty(publicUrl) ? 'https://${appName}.azurewebsites.net' : publicUrl
 
 resource coreIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: '${namePrefix}-core'
@@ -144,7 +143,7 @@ module appService 'modules/app-service.bicep' = {
     registryName: registryName
     imageName: imageName
     imageTag: imageTag
-    publicUrl: effectivePublicUrl
+    publicUrl: publicUrl
     logLevel: logLevel
     sqlServerHostName: sql.outputs.serverHostName
     sqlDatabaseName: sql.outputs.databaseName
@@ -158,7 +157,7 @@ module appService 'modules/app-service.bicep' = {
 }
 
 @description('The core\'s public origin; the smoke test calls `/readyz` and `get_health` under it.')
-output publicUrl string = effectivePublicUrl
+output publicUrl string = appService.outputs.publicUrl
 
 @description('The web app\'s name, for the deploy and the runbook.')
 output appName string = appName
