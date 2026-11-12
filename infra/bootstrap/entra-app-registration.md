@@ -85,11 +85,24 @@ The SQL server's only admin is a security group that stays empty, except while y
 The agents that may link are a GitHub environment variable, `BRIDGE_AGENTS`, set as JSON (PT-18). Each entry has:
 
 - the agent's client ID: its metadata document's URL, or a name for an agent that registers itself;
-- its redirect URIs;
+- its redirect URIs. A loopback one (`http://localhost/...` or `http://127.0.0.1/...`) matches on any port, since an agent on your machine picks its port at each sign-in;
 - its scopes: `read` in iteration 001.
 
+The pilot's three agents (T033, DRIFT-001-65), from each agent's own metadata document, read 2026-11-12. claude.ai, Claude Desktop and mobile share one client, which may sign in as either of its two documents, so both are listed:
+
+```json
+[
+  {"client_id":"https://claude.ai/oauth/claude-code-client-metadata","platform":"Claude Code","redirect_uris":["http://localhost/callback","http://127.0.0.1/callback"],"scopes":["read"]},
+  {"client_id":"https://claude.ai/oauth/mcp-oauth-client-metadata","platform":"Claude","redirect_uris":["https://claude.ai/api/mcp/auth_callback"],"scopes":["read"]},
+  {"client_id":"https://claude.ai/oauth/mcp-oauth-client-metadata/confidential_client","platform":"Claude","redirect_uris":["https://claude.ai/api/mcp/auth_callback"],"scopes":["read"]},
+  {"client_id":"https://chatgpt.com/oauth/client.json","platform":"ChatGPT","redirect_uris":["https://chatgpt.com/connector_platform_oauth_redirect"],"scopes":["read"]}
+]
+```
+
+Save it as a file outside the repository, for example `agents.json`, then:
+
 ```powershell
-gh variable set BRIDGE_AGENTS --env production --repo '<owner>/<repo>' --body '[{"client_id":"<client-id>","redirect_uris":["<redirect-uri>"],"scopes":["read"]}]'
+Get-Content agents.json -Raw | gh variable set BRIDGE_AGENTS --env production --repo '<owner>/<repo>'
 ```
 
 An agent you leave out cannot link. Removing one later ends its links.

@@ -137,6 +137,16 @@ declare module "oidc-provider" {
     readonly adapter?: (model: string) => Adapter;
     readonly clients?: readonly ClientMetadata[];
     readonly clientDefaults?: Readonly<Record<string, unknown>>;
+    /** Runs on every client's metadata as it is read, and may change it in place. */
+    readonly extraClientMetadata?: {
+      readonly properties: readonly string[];
+      readonly validator: (
+        context: unknown,
+        key: string,
+        value: unknown,
+        metadata: Record<string, unknown>,
+      ) => void;
+    };
     readonly clientAuthMethods?: readonly string[];
     readonly clientBasedCORS?: (
       context: unknown,

@@ -3,7 +3,7 @@
 **Schema**: v2
 **Last Completed Task**: T032
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
-**In Progress**: T032 is done (DRIFT-001-64); next, T033 (the first agent trial and the soak), which the owner runs
+**In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
 **Updated**: 2026-11-11T03:10:00Z
 

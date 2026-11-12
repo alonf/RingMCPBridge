@@ -21,6 +21,7 @@ import type {
   ProviderContext,
   RefreshTokenLifetime,
 } from "oidc-provider";
+import { isLoopbackRedirect } from "./listed-agents.ts";
 import type { ListedAgents } from "./listed-agents.ts";
 import type { SigningKeys } from "./signing-keys.ts";
 
@@ -61,6 +62,24 @@ export function providerConfiguration(parts: ProviderParts): Configuration {
     clientAuthMethods: ["none", "private_key_jwt"],
     // Agents call the token endpoint from their servers, never from a page.
     clientBasedCORS: () => false,
+    // A client whose every redirect URI is a loopback one runs on the owner's machine: a native app,
+    // whose sign-in comes back on a port it picks each time. oidc-provider ignores that port only
+    // for a native client, and Claude Code's metadata document does not say it is one (T033).
+    extraClientMetadata: {
+      properties: ["application_type"],
+      validator: (_context, _key, _value, metadata) => {
+        const uris = metadata.redirect_uris;
+        if (
+          Array.isArray(uris) &&
+          uris.length > 0 &&
+          uris.every(
+            (uri) => typeof uri === "string" && isLoopbackRedirect(uri),
+          )
+        ) {
+          metadata.application_type = "native";
+        }
+      },
+    },
     clientDefaults: {
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],

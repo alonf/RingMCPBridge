@@ -81,6 +81,19 @@ const REGISTERING_AGENT: AgentSeed = {
   scopes: ["read"],
   redirect_uris: ["https://chat.example.test/oauth/callback"],
 };
+/**
+ * An agent on the owner's machine, shaped as Claude Code's own metadata document is (read
+ * 2026-11-12): portless loopback redirect URIs and no `application_type`, while its sign-in comes
+ * back on a port it picks each time (RFC 8252 section 7.3).
+ */
+const LOOPBACK_AGENT: AgentSeed = {
+  client_id: "https://cli.example.test/oauth/cli-client-metadata",
+  platform: "Loopback agent",
+  scopes: ["read"],
+  redirect_uris: ["http://localhost/callback", "http://127.0.0.1/callback"],
+};
+/** A grant claude.ai's and ChatGPT's documents list (read 2026-11-12), which the Issuer does not offer. */
+const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
 let signingKeys: readonly SigningKey[] = [];
 
@@ -228,7 +241,10 @@ async function startRig(
     clock,
     defaultBatteryThresholdPct: 20,
   });
-  await settings.seedAgents([DOCUMENT_AGENT, REGISTERING_AGENT], never());
+  await settings.seedAgents(
+    [DOCUMENT_AGENT, REGISTERING_AGENT, LOOPBACK_AGENT],
+    never(),
+  );
   const grants = new RacingGrants({ store: layer, clock });
 
   let route: (
@@ -796,6 +812,127 @@ describe("the Issuer", () => {
         textOf(REGISTERING_AGENT.redirect_uris[0]),
       );
       expect(tokens.scope).toBe("read");
+    });
+
+    it.each([
+      "http://127.0.0.1:54321/callback",
+      "http://localhost:54321/callback",
+    ])(
+      "links an agent on the owner's machine by its document, on the port its sign-in picked (%s)",
+      async (redirectUri) => {
+        rig.documents.set(LOOPBACK_AGENT.client_id, {
+          client_id: LOOPBACK_AGENT.client_id,
+          client_name: "Loopback agent",
+          client_uri: "https://cli.example.test",
+          redirect_uris: LOOPBACK_AGENT.redirect_uris,
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        });
+
+        const tokens = await link(rig, LOOPBACK_AGENT.client_id, redirectUri);
+
+        expect(tokens.scope).toBe("read");
+      },
+    );
+
+    it("links an agent whose document also lists a grant the Issuer does not offer, as claude.ai's does", async () => {
+      publishDocument(rig, {
+        client_uri: "https://agent.example.test",
+        grant_types: ["authorization_code", "refresh_token", JWT_BEARER],
+      });
+
+      const tokens = await link(
+        rig,
+        DOCUMENT_AGENT.client_id,
+        textOf(DOCUMENT_AGENT.redirect_uris[0]),
+      );
+
+      expect(tokens.scope).toBe("read");
+    });
+
+    it("takes a signed-assertion agent's document to the owner's sign-in, as ChatGPT's is", async () => {
+      publishDocument(rig, {
+        grant_types: ["authorization_code", "refresh_token", JWT_BEARER],
+        token_endpoint_auth_method: "private_key_jwt",
+        token_endpoint_auth_signing_alg: "RS256",
+        jwks_uri: "https://agent.example.test/oauth/jwks.json",
+      });
+
+      const response = await authorizeAs(
+        DOCUMENT_AGENT.client_id,
+        textOf(DOCUMENT_AGENT.redirect_uris[0]),
+      );
+
+      expect(response.status).toBe(303);
+      expect(response.headers.get("location")).toContain("/interaction/");
+    });
+
+    it("registers an agent on the owner's machine on the port its sign-in picked (DCR)", async () => {
+      const metadata = await metadataOf(rig);
+      const redirectUri = "http://localhost:54321/callback";
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- the DCR fallback is what this tests
+      const registered = await registerClient(rig.issuerUrl, {
+        metadata,
+        clientMetadata: {
+          client_name: "Loopback agent",
+          redirect_uris: [redirectUri],
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        },
+      });
+
+      const tokens = await link(rig, registered.client_id, redirectUri);
+
+      expect(tokens.scope).toBe("read");
+    });
+
+    it.each([
+      ["another path on the loopback", "http://127.0.0.1:54321/elsewhere"],
+      ["another host", "http://192.168.1.20:54321/callback"],
+    ])(
+      "ignores only the port of a loopback redirect URI: %s is refused",
+      async (_case, redirectUri) => {
+        rig.documents.set(LOOPBACK_AGENT.client_id, {
+          client_id: LOOPBACK_AGENT.client_id,
+          redirect_uris: LOOPBACK_AGENT.redirect_uris,
+          token_endpoint_auth_method: "none",
+        });
+        const metadata = await metadataOf(rig);
+
+        const response = await authorizeAs(
+          LOOPBACK_AGENT.client_id,
+          redirectUri,
+        );
+        const registration = await fetch(
+          textOf(metadata.registration_endpoint),
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              redirect_uris: [redirectUri],
+              token_endpoint_auth_method: "none",
+            }),
+          },
+        );
+
+        expect(response.status).toBe(400);
+        expect(await response.text()).toContain("invalid_redirect_uri");
+        expect(registration.status).toBe(400);
+        expect(rig.signInsStarted()).toBe(0);
+      },
+    );
+
+    it("keeps an exact match for a redirect URI that is not a loopback one, port included", async () => {
+      const response = await authorizeAs(
+        DOCUMENT_AGENT.client_id,
+        "https://agent.example.test:8443/oauth/callback",
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toContain("invalid_redirect_uri");
+      expect(rig.signInsStarted()).toBe(0);
     });
 
     it("ends a registered client when its agent is revoked", async () => {
