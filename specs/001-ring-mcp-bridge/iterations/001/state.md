@@ -5,9 +5,15 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-11T03:10:00Z
+**Updated**: 2026-11-13T00:30:00Z
 
 ## Execution Summary
+
+- **CP-19's review is signed off** (2026-11-13):
+  - One round (run-20261112-223556945-3034eaa2), about 12 minutes, $0 (estimate). It covered everything changed since CP-17's round: CP-17's follow-up, T030, T031, T032 and T033's loopback fix. Round budget: 2 of 4 used since the reset.
+  - It found nothing: the verdict is pass, current for the files as they were.
+
+- **T033 has started** (2026-11-13; DRIFT-001-65): Claude Code's sign-in, which comes back on a loopback port it picks each time, was refused by the Issuer and is fixed. The runbook's Part B lists the pilot's agents, from each agent's published document. The owner runs the bootstrap, the deploy and the trial.
 
 - **T032, the deploy workflow, is done** (2026-11-11; DRIFT-001-64):
   - `.github/workflows/deploy.yml`: Azure changes only when the owner starts it by hand (`preview`, `deploy`, `smoke`, and `image_tag` for a rollback), after CI passed on the commit. Pushes only build the Bicep, with no Azure access.
