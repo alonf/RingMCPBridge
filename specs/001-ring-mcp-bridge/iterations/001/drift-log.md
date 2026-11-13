@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 71
+**Total drift events**: 72
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,21 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-72: T033's Docker health check for the connector has no command in the image
+
+- **Detected**: 2026-11-13, implement, T033, while preparing the home connector's commands for the owner.
+- **Kind**: a gap between T033's steps and what is built: T033 step 2 names "the Docker health check", but nothing in the image answers one
+- **Observed**:
+  - The connector serves no port. `bridge/src/host/main.ts` has `setup` and `first-signing-key` besides the modes, but no command that reports the connector's health, and the Dockerfile has no `HEALTHCHECK`.
+  - A health check that only asks whether the process is alive would pass whatever the state of the home link. So none is given to the owner.
+  - The connector's image is public on ghcr.io. An anonymous pull token reads the core's tag, so the home server needs no token, unlike research.md's plan for a private repository.
+  - A dry run on the owner's PC used the exact settings and mounts against empty folders. The connector stopped with "The Secrets File key could not be read", which does not tell the owner to run the setup first. The setup refused to run without a terminal, as designed.
+- **Decided**: for now, nothing. The owner starts the connector with `unless-stopped` and log rotation, and reads the link's state on the admin page. A health command that reports the link's state, used by a `HEALTHCHECK`, is proposed as the next implement item. So is a missing key file that says to run the setup first.
+- **Requirement citation**: T033 step 2; PT-02.
+- **Resolution**: open. The setup, the connector's start and the enrollment do not wait on it. T033 step 2 is not complete until it is done.
+- **Carry-forward**: T033: the health command and `HEALTHCHECK`, and the clearer message on a missing key file, before T033 step 2 is ticked.
+- **Class closure**: open until the health command lands. Its test will run the image's health command against a connector with and without its link.
 
 ### DRIFT-001-71: The first deploy is up in Azure, but App Service could not pull the core's image: the registry's name in mixed case
 
