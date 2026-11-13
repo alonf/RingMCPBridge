@@ -87,7 +87,13 @@ function convert(source: string, destination: string) {
     ],
     { encoding: "utf8", timeout: RUN_TIMEOUT_MS },
   );
-  return { status: result.status, output: `${result.stdout}${result.stderr}` };
+  // PowerShell's error view wraps a long message at the console's width (80 on a CI runner),
+  // continuing it on lines that start with "|": join them back.
+  const output = `${result.stdout}${result.stderr}`.replace(
+    /\s*\r?\n\s*\|?[ \t]*/g,
+    " ",
+  );
+  return { status: result.status, output };
 }
 
 /** The fixture with some header bytes changed. */
