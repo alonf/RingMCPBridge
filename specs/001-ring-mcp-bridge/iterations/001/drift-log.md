@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 65
+**Total drift events**: 66
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,24 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-66: The owner's choice: an MIT LICENSE and a work-in-progress README now
+
+- **Detected**: 2026-11-13, implement, during T033, before the pilot.
+- **Kind**: the owner's choice, outside the tasks. Part of US7's README (iteration 004) is brought forward as a work-in-progress notice, and a LICENSE is added, which no task named
+- **Observed**: the owner is weighing making the repository public, mainly because Actions minutes on a private repository are nearly spent for the month. The repository had no README and no LICENSE, so a visitor would see only a file list and would have no right to reuse the code.
+- **Decided** (the owner, 2026-11-13):
+  - `LICENSE`: MIT, copied byte for byte from the owner's public `specrew` repository, so the two projects match.
+  - `README.md` says the project is a work in progress and not ready to use. It gives:
+    - each iteration's status, from plan.md's Iteration Map;
+    - how the two modes work, and the cost estimate;
+    - a notice that the project is not affiliated with Ring and uses its unofficial API;
+    - the commands for people who clone it, and where things are.
+  - It gives no steps for running it at home. US7's full README stays in iteration 004.
+- **Requirement citation**: US7 (in part, brought forward).
+- **Resolution**: written. About 0.25 SP (estimate) outside the iteration's tasks, and $0. Committed locally and pushed at the owner's word, since each push spends about 11 Actions minutes while the repository is private.
+- **Carry-forward**: iteration 004 (US7): the README for running each mode at home, once the pilot has proven the steps. Whether the repository goes public is the owner's decision; nothing here changes its visibility.
+- **Class closure**: no defect class. The README states only what the repository's records support, and Specrew CI's markdownlint checks it.
 
 ### DRIFT-001-65: T033: Claude Code refused on its sign-in's port, and the pilot's agent list
 

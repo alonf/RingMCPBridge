@@ -9,6 +9,8 @@
 
 ## Execution Summary
 
+- **A LICENSE and a work-in-progress README** (2026-11-13; DRIFT-001-66, the owner's choice): MIT, as in `specrew`. The README says the project is not ready to use yet and gives each iteration's status. The full README stays with US7 in iteration 004.
+
 - **CP-19's review is signed off** (2026-11-13):
   - One round (run-20261112-223556945-3034eaa2), about 12 minutes, $0 (estimate). It covered everything changed since CP-17's round: CP-17's follow-up, T030, T031, T032 and T033's loopback fix. Round budget: 2 of 4 used since the reset.
   - It found nothing: the verdict is pass, current for the files as they were.
