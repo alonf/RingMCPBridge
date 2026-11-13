@@ -1200,7 +1200,13 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Decided**: the Bicep lowercases the name in the image reference (`toLower(registryName)`), as the registry's login server is spelled. The test checks that both sides lowercase it.
 - **Requirement citation**: FR-029; T030, T032; PT-05.
 - **Resolution**: fixed. The deploy and core tests pass, and the Bicep builds with the `toLower`. A deliberate break, `toLower` removed, was caught. The next deploy changes only the image reference and restarts the core. About 0.25 SP (estimate) inside T033. The resources cost about $0.70 a day (estimate) from the first deploy.
-- **Carry-forward**: T033: deploy again, then the smoke test. A name the owner types with capitals elsewhere is safe: `az acr` looks a registry up without regard to case, and the deploy lowercases it.
+- **Deployed** (2026-11-13), on the commit with this fix:
+  - The preview changed the image reference and no SKU. The other changes it listed are what Azure reads back differently, such as defaults it fills in.
+  - The deploy's smoke test passed.
+  - `/readyz` answers ready: the database, the lease, the signing keys and the owner are all ok.
+  - `/mcp` answers 401 with its resource metadata. The discovery chain resolves to the issuer, with CIMD, registration and the `iss` parameter.
+  - The run's public log held none of the IDs.
+- **Carry-forward**: T033: the home connector, the owner's Ring login at home, and the first agent trials. A name the owner types with capitals elsewhere is safe: `az acr` looks a registry up without regard to case, and the deploy lowercases it.
 - **Class closure**: the login server is spelled in lowercase on both sides, and a test reads both. The exchange check, mixed case 401 and lowercase 200, is the way to tell this failure from a slow role grant.
 
 ### DRIFT-001-70: The deploy's GitHub sign-in refused: the repository presents its OIDC subject with immutable IDs
