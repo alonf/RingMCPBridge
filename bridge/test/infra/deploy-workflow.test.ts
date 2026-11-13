@@ -29,6 +29,10 @@ import type { Cleanups } from "../host/core-fixture.ts";
 
 const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const MAIN_BICEP = readFileSync(join(ROOT, "infra/main.bicep"), "utf8");
+const APP_SERVICE_BICEP = readFileSync(
+  join(ROOT, "infra/modules/app-service.bicep"),
+  "utf8",
+);
 const BOOTSTRAP = readFileSync(
   join(ROOT, "infra/bootstrap/bootstrap.ps1"),
   "utf8",
@@ -323,6 +327,14 @@ describe("the deploy workflow (.github/workflows/deploy.yml)", () => {
 
     expect(MAIN_BICEP).toContain(`param imageName string = '${String(image)}'`);
     expect(job("publish")).toContain('"$server/$IMAGE_NAME:$GITHUB_SHA"');
+    // One spelling of the login server, lowercase, on both sides: the registry's token exchange
+    // refuses another spelling of the same name, so App Service could not pull (DRIFT-001-71).
+    expect(job("publish")).toMatch(
+      /server="\$\{AZURE_REGISTRY_NAME,,\}\$\(az cloud show --query suffixes\.acrLoginServerEndpoint/,
+    );
+    expect(APP_SERVICE_BICEP).toMatch(
+      /linuxFxVersion: 'DOCKER\|\$\{toLower\(registryName\)\}\$\{environment\(\)\.suffixes\.acrLoginServer\}\/\$\{imageName\}:\$\{imageTag\}'/,
+    );
     expect(job("azure")).toContain(
       "IMAGE_TAG: ${{ inputs.image_tag || github.sha }}",
     );

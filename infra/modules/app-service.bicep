@@ -144,7 +144,9 @@ resource app 'Microsoft.Web/sites@2024-04-01' = {
     clientAffinityEnabled: false
     virtualNetworkSubnetId: appSubnetId
     siteConfig: {
-      linuxFxVersion: 'DOCKER|${registryName}${environment().suffixes.acrLoginServer}/${imageName}:${imageTag}'
+      // The login server in lowercase, as the registry spells it: its token exchange refuses another
+      // spelling of the same name (401), so App Service could not pull.
+      linuxFxVersion: 'DOCKER|${toLower(registryName)}${environment().suffixes.acrLoginServer}/${imageName}:${imageTag}'
       acrUseManagedIdentityCreds: true
       acrUserManagedIdentityID: identityClientId
       alwaysOn: true

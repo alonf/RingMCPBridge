@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 70
+**Total drift events**: 71
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,35 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-71: The first deploy is up in Azure, but App Service could not pull the core's image: the registry's name in mixed case
+
+- **Detected**: 2026-11-13, implement, T033, after the first deploy and the bootstrap's second stage, when the core answered 503 for over 10 minutes.
+- **Kind**: a defect in T030's Bicep, which T032's test missed: the Bicep and the deploy spelled the registry's login server differently
+- **Observed**:
+  - **The first deploy** (the Deploy workflow, `deploy`, on the commit with DRIFT-001-70) succeeded in every job. Each resource read back from Azure matches the plan, all in Israel Central:
+    - App Service plan B1 (Basic, capacity 1, Linux);
+    - SQL database Basic (5 DTU, 2 GB);
+    - storage Standard_LRS (StorageV2, HTTPS only, TLS 1.2);
+    - Key Vault A/standard (RBAC);
+    - Log Analytics PerGB2018 (30 days, 0.05 GB a day).
+
+    The SQL server's `master` database, which Azure creates and does not bill, is listed too. The deploy run's public log, 1,190 lines, held none of the IDs or the registry's name.
+  - **Part C** was done from the command line at the owner's word:
+    - the owner was added to the SQL break-glass group, and this PC's address was allowed;
+    - the four statements the bootstrap prints were run, guarded so a rerun is harmless; the core's identity is a database user in db_datareader, db_datawriter and db_ddladmin;
+    - the address rule and the membership were removed: 0 rules and 0 members left.
+  - **The bootstrap's second stage** completed: AcrPull, the Entra app's federated credential and redirect URI, Key Vault Secrets Officer, the restart, and the first signing key.
+  - **The pull failed.** App Service then failed to start the core with ACRTokenRetrievalFailure (401), and blocked the site for a growing interval after each cold start. The failures continued for 10 minutes after the AcrPull grant.
+  - The cause, found without changing anything:
+    - the owner's registry name has capital letters, and the Bicep put it into the image's host as written: `DOCKER|<Name>.azurecr.io/...`;
+    - the registry's token exchange (`/oauth2/exchange`) answers 401 for the mixed-case host and 200 for the lowercase one, with the same token;
+    - the deploy pushed to the lowercase host, as its comment says the Bicep does. The test "pushes the core's image where App Service pulls it from" compared only the image's name.
+- **Decided**: the Bicep lowercases the name in the image reference (`toLower(registryName)`), as the registry's login server is spelled. The test checks that both sides lowercase it.
+- **Requirement citation**: FR-029; T030, T032; PT-05.
+- **Resolution**: fixed. The deploy and core tests pass, and the Bicep builds with the `toLower`. A deliberate break, `toLower` removed, was caught. The next deploy changes only the image reference and restarts the core. About 0.25 SP (estimate) inside T033. The resources cost about $0.70 a day (estimate) from the first deploy.
+- **Carry-forward**: T033: deploy again, then the smoke test. A name the owner types with capitals elsewhere is safe: `az acr` looks a registry up without regard to case, and the deploy lowercases it.
+- **Class closure**: the login server is spelled in lowercase on both sides, and a test reads both. The exchange check, mixed case 401 and lowercase 200, is the way to tell this failure from a slow role grant.
 
 ### DRIFT-001-70: The deploy's GitHub sign-in refused: the repository presents its OIDC subject with immutable IDs
 
