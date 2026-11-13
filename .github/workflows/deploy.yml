@@ -15,6 +15,12 @@ name: Deploy
 # `image_tag` deploys an image already in the owner's registry instead of building one: the rollback.
 # Every run needs CI to have passed on the same commit.
 #
+# The repository is public, and so are its workflow logs. GitHub hides only secrets in a log, so the
+# owner's IDs and the registry's name are secrets of the `production` environment, read as
+# `secrets.*`; the resource group, the SQL group's name and the bridge's settings are variables
+# (DRIFT-001-68). Each job that reads the registry's name also hides it as the login server spells
+# it, in lowercase.
+#
 # Until this file is on main, GitHub shows no "Run workflow" button for it. Once it has run on a
 # push, it can be started on a branch with the GitHub CLI:
 #   gh workflow run deploy.yml --ref <branch> -f action=preview
@@ -142,16 +148,17 @@ jobs:
           docker buildx imagetools create --tag "$repository:$GITHUB_SHA" "$repository:$GITHUB_SHA-amd64" "$repository:$GITHUB_SHA-arm64"
       - uses: azure/login@v3
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       # The deploy identity holds AcrPush on the registry and nothing more, so no command here reads
       # the registry through Azure Resource Manager: `az acr login` falls back to the name and the
       # cloud's suffix, as the Bicep builds the login server.
       - name: The core's image into the owner's registry (amd64, as App Service runs it)
         env:
-          AZURE_REGISTRY_NAME: ${{ vars.AZURE_REGISTRY_NAME }}
+          AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
         run: |
+          echo "::add-mask::${AZURE_REGISTRY_NAME,,}"
           server="${AZURE_REGISTRY_NAME,,}$(az cloud show --query suffixes.acrLoginServerEndpoint --output tsv)"
           az acr login --name "$AZURE_REGISTRY_NAME"
           docker buildx imagetools create --tag "$server/$IMAGE_NAME:$GITHUB_SHA" "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE_NAME:$GITHUB_SHA-amd64"
@@ -172,18 +179,21 @@ jobs:
       id-token: write
     env:
       RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-      AZURE_REGISTRY_NAME: ${{ vars.AZURE_REGISTRY_NAME }}
+      AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
       IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
     steps:
+      # The what-if prints the image as the Bicep names it, with the login server in lowercase.
+      - name: Hide the registry's name in lowercase too
+        run: echo "::add-mask::${AZURE_REGISTRY_NAME,,}"
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
       - uses: azure/login@v3
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: The image to roll back to is in the registry
         if: inputs.image_tag != ''
         run: az acr repository show --name "$AZURE_REGISTRY_NAME" --image "$IMAGE_NAME:$IMAGE_TAG" --output none
@@ -195,10 +205,10 @@ jobs:
       - name: Write the parameters file
         if: inputs.action != 'smoke'
         env:
-          BRIDGE_ENTRA_CLIENT_ID: ${{ vars.BRIDGE_ENTRA_CLIENT_ID }}
-          BRIDGE_OWNER_OBJECT_ID: ${{ vars.BRIDGE_OWNER_OBJECT_ID }}
+          BRIDGE_ENTRA_CLIENT_ID: ${{ secrets.BRIDGE_ENTRA_CLIENT_ID }}
+          BRIDGE_OWNER_OBJECT_ID: ${{ secrets.BRIDGE_OWNER_OBJECT_ID }}
           SQL_ADMIN_GROUP_NAME: ${{ vars.SQL_ADMIN_GROUP_NAME }}
-          SQL_ADMIN_GROUP_OBJECT_ID: ${{ vars.SQL_ADMIN_GROUP_OBJECT_ID }}
+          SQL_ADMIN_GROUP_OBJECT_ID: ${{ secrets.SQL_ADMIN_GROUP_OBJECT_ID }}
           BRIDGE_AGENTS: ${{ vars.BRIDGE_AGENTS }}
           BRIDGE_REGISTRATIONS_PER_HOUR: ${{ vars.BRIDGE_REGISTRATIONS_PER_HOUR }}
           BRIDGE_LOG_LEVEL: ${{ vars.BRIDGE_LOG_LEVEL }}

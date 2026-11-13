@@ -1,6 +1,6 @@
 # The owner's runbook: Entra, SQL and the first deploy
 
-**Task**: T031 (PT-05, PT-06, DRIFT-001-39, DRIFT-001-62, DRIFT-001-63). You do these steps once, yourself, from your own PC. Nothing here goes into git: the IDs you note go into the GitHub environment as variables, never into a file in the repository.
+**Task**: T031 (PT-05, PT-06, DRIFT-001-39, DRIFT-001-62, DRIFT-001-63). You do these steps once, yourself, from your own PC. Nothing here goes into git: the IDs you note go into the GitHub environment, never into a file in the repository. The repository's workflow logs are public, and GitHub hides only secrets in them, so the bootstrap sets the IDs and your registry's name as secrets, and the resource group and the SQL group's name as variables.
 
 The agent never signs in to your Azure or Entra, and never runs the bootstrap with `-Apply`.
 

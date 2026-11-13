@@ -19,8 +19,11 @@ their tenant or their subscription; the values are typed when it runs.
      GitHub OIDC (the repository's -Environment), so no password or client secret exists.
   5. Give it its roles: Contributor on the resource group; role assignment on the resource group
      limited to the roles the Bicep assigns, to service principals only; AcrPush on the registry.
-  6. Set the GitHub environment's variables with gh: the subscription, tenant and client IDs, the
-     resource group and registry, and the Entra and SQL values from the runbook when given.
+  6. Set the GitHub environment with gh. The repository's workflow logs are public, and GitHub hides
+     only secrets in them, so the IDs and the registry's name are secrets: the subscription, tenant
+     and deploy client IDs, the registry, and the Entra app, owner and SQL group IDs from the
+     runbook. The resource group and the SQL group's name are variables. A secret cannot be read
+     back, so each run sets the secrets again; a variable already set to its value is left alone.
 
 -Stage after-deploy, after the first deploy, which creates the core's identity:
   7. Grant the core's identity AcrPull on the registry, so App Service can pull the image.
@@ -70,7 +73,7 @@ param(
     [ValidatePattern('^[A-Za-z0-9_.-]{1,64}$')]
     [string] $DeploymentName = 'ring-mcp-bridge-core',
 
-    # From the runbook (entra-app-registration.md); each is set as a GitHub variable when given.
+    # From the runbook (entra-app-registration.md); each is set in the GitHub environment when given.
     [string] $EntraAppClientId,
     [string] $OwnerObjectId,
     [string] $SqlAdminGroupName,
@@ -203,7 +206,7 @@ function Show-Plan {
         Write-Detail "Contributor on '$ResourceGroup';"
         Write-Detail "Role Based Access Control Administrator on '$ResourceGroup', limited to $($DelegatedRoles -join ', '), for service principals only;"
         Write-Detail "AcrPush on the registry '$RegistryName'."
-        Write-Step 6 "Set the variables of the GitHub environment '$Environment' in $GitHubRepo with gh."
+        Write-Step 6 "Set the secrets and variables of the GitHub environment '$Environment' in $GitHubRepo with gh."
     }
     else {
         Write-Step 7 "Grant the core's identity AcrPull on the registry '$RegistryName'."
@@ -256,7 +259,7 @@ function Invoke-BeforeDeploy {
         Write-Warning "The registry does not accept ARM-audience tokens, so App Service cannot pull with a managed identity. To allow them: az acr config authentication-as-arm update --registry $RegistryName --status enabled"
     }
 
-    Write-Step 6 'GitHub variables'
+    Write-Step 6 'The GitHub environment'
     & gh repo view $GitHubRepo --json name 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Detail "The GitHub repository $GitHubRepo was not found; skipped. Run this stage again once it exists."
@@ -274,26 +277,35 @@ function Invoke-BeforeDeploy {
         }
         Write-Detail "The environment '$Environment' created."
     }
-    $variables = [ordered]@{
-        AZURE_CLIENT_ID       = $identity.clientId
-        AZURE_TENANT_ID       = $subscription.tenantId
-        AZURE_SUBSCRIPTION_ID = $subscription.id
-        AZURE_RESOURCE_GROUP  = $ResourceGroup
-        AZURE_REGISTRY_NAME   = $RegistryName
-    }
-    $fromRunbook = [ordered]@{
+    # The repository's workflow logs are public, and GitHub hides only secrets in them.
+    $secrets = [ordered]@{
+        AZURE_CLIENT_ID           = $identity.clientId
+        AZURE_TENANT_ID           = $subscription.tenantId
+        AZURE_SUBSCRIPTION_ID     = $subscription.id
+        AZURE_REGISTRY_NAME       = $RegistryName
         BRIDGE_ENTRA_CLIENT_ID    = $EntraAppClientId
         BRIDGE_OWNER_OBJECT_ID    = $OwnerObjectId
-        SQL_ADMIN_GROUP_NAME      = $SqlAdminGroupName
         SQL_ADMIN_GROUP_OBJECT_ID = $SqlAdminGroupObjectId
     }
-    foreach ($name in $fromRunbook.Keys) {
-        if ($fromRunbook[$name]) {
-            $variables[$name] = $fromRunbook[$name]
+    $variables = [ordered]@{
+        AZURE_RESOURCE_GROUP = $ResourceGroup
+        SQL_ADMIN_GROUP_NAME = $SqlAdminGroupName
+    }
+    foreach ($values in @($secrets, $variables)) {
+        foreach ($name in @($values.Keys)) {
+            if (-not $values[$name]) {
+                Write-Detail "$name not given: pass it from the runbook, or set it in the environment yourself."
+                $values.Remove($name)
+            }
         }
-        else {
-            Write-Detail "$name not given: pass it from the runbook, or set it in the environment yourself."
+    }
+    # A secret cannot be read back, so it is set again, to the same value on a rerun.
+    foreach ($name in $secrets.Keys) {
+        & gh secret set $name --env $Environment --repo $GitHubRepo --body $secrets[$name] | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "The GitHub secret $name could not be set."
         }
+        Write-Detail "$name set, as a secret."
     }
     $present = @{}
     $listed = (& gh variable list --env $Environment --repo $GitHubRepo --json name,value) -join "`n"

@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 67
+**Total drift events**: 68
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,32 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-68: The deploy's IDs and the registry's name become GitHub secrets, since the repository's logs are public
+
+- **Detected**: 2026-11-13, implement, T033, at the owner's answer on the registry, before the bootstrap's first stage.
+- **Kind**: a change to T031's and T032's design (PT-06, PT-18 put the IDs in GitHub environment variables), made necessary by the owner's choice to make the repository public
+- **Observed**:
+  - A public repository's workflow logs are public too. GitHub prints each step's `with:` and `env:` values in its log, and hides only secrets.
+  - Read as variables, the deploy's IDs would have been printed for anyone to read: in `azure/login`'s inputs, in the parameters step, and in the what-if, which prints full resource IDs (`/subscriptions/<id>/...`) and the app settings. That covers the subscription, tenant and client IDs, the owner's object ID and the registry's name.
+  - No run has used the `production` environment yet, so none was printed.
+  - The owner, agreeing to reuse their existing registry (2026-11-13): its name "has to be in GitHub secret".
+- **Decided**:
+  - **Secrets** of the `production` environment: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_REGISTRY_NAME`, `BRIDGE_ENTRA_CLIENT_ID`, `BRIDGE_OWNER_OBJECT_ID` and `SQL_ADMIN_GROUP_OBJECT_ID`. The owner named the registry, and the agent extended it to the IDs, for the same reason.
+  - **Variables**, as before: `AZURE_RESOURCE_GROUP`, `SQL_ADMIN_GROUP_NAME`, `BRIDGE_AGENTS`, `BRIDGE_REGISTRATIONS_PER_HOUR` and `BRIDGE_LOG_LEVEL`. None identifies the owner.
+  - GitHub hides a secret only as it is written. The login server spells the registry's name in lowercase, so each job that reads it hides that spelling too, with `::add-mask::` from a shell variable. An expression there would print the value with the script.
+  - The bootstrap sets the secrets with `gh secret set`. A secret cannot be read back, so each run sets them again, to the same values. Variables are still compared first and left alone when already set.
+- **The owner's direction for other owners (PT-17)**:
+  - The owner (2026-11-13): those who need it must be able to deploy a registry of their own ("Open Source"), or a public image could be used ("Docker Hub, if it is OK to have it in the open").
+  - The agent's reading: the image holds only the public source and its production packages (`bridge/Dockerfile`, `.dockerignore`), so publishing it exposes nothing new. ghcr.io, where the deploy already pushes it for the home connector, would do the same with no new account, and is tied to the repository.
+  - PT-17 stays a decision for iteration 004's plan, and this records the owner's direction for it. This deploy reuses the owner's existing registry, as research.md decided.
+- **Requirement citation**: FR-029, FR-032; PT-05, PT-06, PT-17, PT-18; tasks.md's rule that no owner value goes into the repository.
+- **Resolution**: changed `.github/workflows/deploy.yml`, `infra/bootstrap/bootstrap.ps1`, the runbook, `scripts/deploy-parameters.mjs`'s message, and the tests in `bridge/test/infra/` (deploy-workflow and bootstrap). Checked: three deliberate breaks were each caught: the subscription read as a variable, the lowercase mask removed, and the owner's ID set as a variable. The infra tests pass, and PSScriptAnalyzer finds nothing. About 0.5 SP (estimate) inside T033, and $0 (secrets are free).
+- **Carry-forward**:
+  - T033: before the first deploy, the first preview's public log is searched for each ID and both spellings of the registry's name, with 0 expected.
+  - The core's managed identity, which the first deploy creates, has IDs that Azure generates. They are not secrets, and the same log check on a later run decides whether they need hiding too.
+  - Iteration 004: PT-17, with the owner's direction above.
+- **Class closure**: tests read the workflow and the bootstrap. The IDs and the registry's name are read only as secrets, the bootstrap sets exactly those as secrets, and each job that reads the registry hides its lowercase spelling before using it.
 
 ### DRIFT-001-67: hono and @hono/node-server patched before the first deploy
 

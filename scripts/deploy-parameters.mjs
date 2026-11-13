@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The deploy's parameters file (T032): each `infra/main.bicep` parameter the deploy sets, from the
-// GitHub environment's variables and the deploy's own values, written as an Azure deployment
+// GitHub environment's secrets and variables and the deploy's own values, written as an Azure deployment
 // parameters file. A file, not `--parameters name=value`: the Azure CLI reads a value that looks
 // like JSON as JSON, so the listed agents, a JSON array kept in a string parameter, would arrive as
 // an array and fail the parameter's type.
@@ -133,7 +133,7 @@ export function deploymentParameters(env) {
   }
   if (missing.length > 0) {
     throw new DeployParametersError(
-      `The deploy is missing ${missing.join(", ")}. The bootstrap sets the GitHub environment's variables (infra/bootstrap/bootstrap.ps1).`,
+      `The deploy is missing ${missing.join(", ")}. The bootstrap sets the GitHub environment's secrets and variables (infra/bootstrap/bootstrap.ps1).`,
     );
   }
   if (malformed.length > 0) {

@@ -5,7 +5,10 @@
 // - with -Apply on an empty subscription, it creates in the recorded order, with the GitHub OIDC
 //   subject for the environment and the role-assignment limit (roles looked up by name, service
 //   principals only);
-// - with -Apply where everything exists, it only reads;
+// - the IDs and the registry's name go into the GitHub environment as secrets, which GitHub hides in
+//   the repository's public logs; only the resource group and the SQL group's name are variables;
+// - with -Apply where everything exists, it only reads, besides setting the secrets again, which
+//   cannot be read back;
 // - after the first deploy, it grants AcrPull, makes the core's identity the Entra app's federated
 //   credential, adds the redirect URI, writes the first key through the node command, prints the
 //   T-SQL, and restarts the core only once the owner says the database user exists.
@@ -176,6 +179,20 @@ function index(calls: readonly string[], prefix: string): number {
   return calls.findIndex((call) => call.startsWith(prefix));
 }
 
+/** The names the run set with `gh <kind> set`, in order. */
+function setNames(calls: readonly string[], kind: "secret" | "variable") {
+  return calls
+    .filter((call) => call.startsWith(`gh ${kind} set `))
+    .map((call) => call.split(" ")[3]);
+}
+
+const RUNBOOK_VALUES = {
+  EntraAppClientId: randomUUID(),
+  OwnerObjectId: randomUUID(),
+  SqlAdminGroupName: "Example SQL admins",
+  SqlAdminGroupObjectId: randomUUID(),
+};
+
 // Each test starts PowerShell, which can take over Vitest's default 5 seconds on a CI runner.
 describe.runIf(HAS_PWSH)(
   "the owner's bootstrap",
@@ -206,7 +223,7 @@ describe.runIf(HAS_PWSH)(
         "az identity federated-credential create",
         "az role assignment create",
         "gh api --method PUT repos/example-owner/example-repo/environments/production",
-        "gh variable set AZURE_CLIENT_ID",
+        "gh secret set AZURE_CLIENT_ID",
       ].map((prefix) => index(calls, prefix));
       expect(order.every((at) => at >= 0)).toBe(true);
       expect([...order].sort((a, b) => a - b)).toEqual(order);
@@ -238,15 +255,60 @@ describe.runIf(HAS_PWSH)(
       }
       expect(condition.match(/\{'ServicePrincipal'\}/g)).toHaveLength(2);
       expect(limited).toContain("--condition-version 2.0");
-      expect(
-        calls.filter((call) => call.startsWith("gh variable set")),
-      ).toHaveLength(5);
+      expect(setNames(calls, "secret")).toEqual([
+        "AZURE_CLIENT_ID",
+        "AZURE_TENANT_ID",
+        "AZURE_SUBSCRIPTION_ID",
+        "AZURE_REGISTRY_NAME",
+      ]);
+      expect(setNames(calls, "variable")).toEqual(["AZURE_RESOURCE_GROUP"]);
       expect(output).toContain(
         "BRIDGE_ENTRA_CLIENT_ID not given: pass it from the runbook",
       );
     });
 
-    it("only reads where everything already exists", () => {
+    it("sets every ID and the registry's name as a secret, never as a variable", () => {
+      const id = ids();
+
+      const { calls, exitCode } = run(
+        { ...BEFORE, ...RUNBOOK_VALUES, Apply: true },
+        emptySubscription(id),
+      );
+
+      expect(exitCode).toBe(0);
+      expect(setNames(calls, "secret")).toEqual([
+        "AZURE_CLIENT_ID",
+        "AZURE_TENANT_ID",
+        "AZURE_SUBSCRIPTION_ID",
+        "AZURE_REGISTRY_NAME",
+        "BRIDGE_ENTRA_CLIENT_ID",
+        "BRIDGE_OWNER_OBJECT_ID",
+        "SQL_ADMIN_GROUP_OBJECT_ID",
+      ]);
+      expect(setNames(calls, "variable")).toEqual([
+        "AZURE_RESOURCE_GROUP",
+        "SQL_ADMIN_GROUP_NAME",
+      ]);
+      const variables = calls
+        .filter((call) => call.startsWith("gh variable set "))
+        .join(" ");
+      for (const value of [
+        id.subscription,
+        id.tenant,
+        id.deployClient,
+        REGISTRY,
+        RUNBOOK_VALUES.EntraAppClientId,
+        RUNBOOK_VALUES.OwnerObjectId,
+        RUNBOOK_VALUES.SqlAdminGroupObjectId,
+      ]) {
+        expect(variables).not.toContain(String(value));
+      }
+      expect(calls).toContain(
+        `gh secret set BRIDGE_OWNER_OBJECT_ID --env production --repo ${REPO} --body ${RUNBOOK_VALUES.OwnerObjectId}`,
+      );
+    });
+
+    it("only reads where everything already exists, besides setting the secrets again", () => {
       const id = ids();
       const existing: Rule[] = [
         ...signedIn(id),
@@ -279,11 +341,7 @@ describe.runIf(HAS_PWSH)(
           tool: "gh",
           match: "variable list *",
           output: json([
-            { name: "AZURE_CLIENT_ID", value: id.deployClient },
-            { name: "AZURE_TENANT_ID", value: id.tenant },
-            { name: "AZURE_SUBSCRIPTION_ID", value: id.subscription },
             { name: "AZURE_RESOURCE_GROUP", value: "rg-ring-mcp-bridge" },
-            { name: "AZURE_REGISTRY_NAME", value: REGISTRY },
           ]),
         },
       ];
@@ -297,6 +355,19 @@ describe.runIf(HAS_PWSH)(
         ),
       );
       expect(changes).toEqual([]);
+      // A secret cannot be read back: each is set again, to the value it already holds.
+      const secrets = calls.filter((call) => call.startsWith("gh secret set "));
+      expect(secrets).toEqual(
+        [
+          ["AZURE_CLIENT_ID", id.deployClient],
+          ["AZURE_TENANT_ID", id.tenant],
+          ["AZURE_SUBSCRIPTION_ID", id.subscription],
+          ["AZURE_REGISTRY_NAME", REGISTRY],
+        ].map(
+          ([name, value]) =>
+            `gh secret set ${String(name)} --env production --repo ${REPO} --body ${String(value)}`,
+        ),
+      );
     });
 
     it("stops before changing anything when the owner does not confirm the subscription", () => {

@@ -6,7 +6,8 @@
 // - The smoke test passes on a ready core, and names what is wrong otherwise.
 // - The workflow: pushes get no Azure access; Azure is reached only in jobs on the `production`
 //   environment, started by hand, after CI passed on the same commit; each image is smoke-tested
-//   before it is pushed; the role ids are looked up by name; one deploy runs at a time.
+//   before it is pushed; the role ids are looked up by name; one deploy runs at a time; the owner's
+//   IDs and the registry's name are read as secrets, which GitHub hides in the public logs.
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,6 +42,17 @@ const WORKFLOW = readFileSync(
   "utf8",
 ).replace(/\r\n/g, "\n");
 const PARAMETERS_SCRIPT = join(ROOT, "scripts/deploy-parameters.mjs");
+
+/** The values that identify the owner's Azure and Entra, kept out of the public logs (DRIFT-001-68). */
+const OWNER_SECRETS = [
+  "AZURE_CLIENT_ID",
+  "AZURE_TENANT_ID",
+  "AZURE_SUBSCRIPTION_ID",
+  "AZURE_REGISTRY_NAME",
+  "BRIDGE_ENTRA_CLIENT_ID",
+  "BRIDGE_OWNER_OBJECT_ID",
+  "SQL_ADMIN_GROUP_OBJECT_ID",
+];
 
 const cleanups: Cleanups = [];
 
@@ -244,7 +256,9 @@ describe("the deploy workflow (.github/workflows/deploy.yml)", () => {
 
     expect(bicep).toContain("if: github.event_name == 'push'");
     expect(bicep).toContain("az bicep build --file infra/main.bicep");
-    expect(bicep).not.toMatch(/azure\/login|id-token|environment:|vars\./);
+    expect(bicep).not.toMatch(
+      /azure\/login|id-token|environment:|vars\.|secrets\./,
+    );
     expect(WORKFLOW).not.toMatch(/pull_request_target/);
     expect(WORKFLOW).toMatch(/^permissions:\n {2}contents: read\n\n/m);
   });
@@ -261,7 +275,7 @@ describe("the deploy workflow (.github/workflows/deploy.yml)", () => {
     expect(job("azure")).toContain("needs.tested.result == 'success'");
 
     const azureJobs = [...jobs()].filter(([, text]) =>
-      /azure\/login|vars\./.test(text),
+      /azure\/login|vars\.|secrets\./.test(text),
     );
     expect(azureJobs.map(([name]) => name)).toEqual(["publish", "azure"]);
     for (const [name, text] of azureJobs) {
@@ -344,9 +358,11 @@ describe("the deploy workflow (.github/workflows/deploy.yml)", () => {
     expect(WORKFLOW).toMatch(/cancel-in-progress: false/);
   });
 
-  it("reads only variables the bootstrap or the runbook sets", () => {
+  it("reads only secrets and variables the bootstrap or the runbook sets", () => {
     const read = new Set(
-      [...WORKFLOW.matchAll(/vars\.(\w+)/g)].map((match) => match[1]),
+      [...WORKFLOW.matchAll(/(?:vars|secrets)\.(\w+)/g)].map(
+        (match) => match[1],
+      ),
     );
 
     for (const variable of read) {
@@ -356,5 +372,38 @@ describe("the deploy workflow (.github/workflows/deploy.yml)", () => {
         String(variable),
       ).toBe(true);
     }
+  });
+
+  it("keeps the owner's IDs and the registry's name out of the public logs, as secrets", () => {
+    const secrets = new Set(
+      [...WORKFLOW.matchAll(/secrets\.(\w+)/g)].map((match) => match[1]),
+    );
+    expect([...secrets].sort()).toEqual([...OWNER_SECRETS].sort());
+    for (const name of OWNER_SECRETS) {
+      expect(WORKFLOW, name).not.toContain(`vars.${name}`);
+    }
+    const bootstrapSecrets =
+      /\$secrets = \[ordered\]@\{\n([\s\S]*?)\n\s*\}/.exec(
+        BOOTSTRAP.replace(/\r\n/g, "\n"),
+      )?.[1] ?? "";
+    expect(
+      [...bootstrapSecrets.matchAll(/^\s*(\w+)\s*=/gm)].map(
+        (match) => match[1],
+      ),
+    ).toEqual(OWNER_SECRETS);
+  });
+
+  it("hides the registry's name in lowercase too, in each job that reads it, before its first use", () => {
+    const mask = 'echo "::add-mask::${AZURE_REGISTRY_NAME,,}"';
+    const publish = job("publish");
+    expect(publish.indexOf(mask)).toBeGreaterThan(0);
+    expect(publish.indexOf(mask)).toBeLessThan(
+      publish.indexOf('az acr login --name "$AZURE_REGISTRY_NAME"'),
+    );
+    const azure = job("azure");
+    expect(azure.indexOf(mask)).toBeGreaterThan(0);
+    expect(azure.indexOf(mask)).toBeLessThan(azure.indexOf("azure/login"));
+    // A value put into the script itself would be printed with the script.
+    expect(WORKFLOW).not.toMatch(/add-mask::\$\{\{/);
   });
 });
