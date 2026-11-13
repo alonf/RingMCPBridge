@@ -44,6 +44,8 @@ const FIXTURE_DISK_BYTES = 196_608;
 const FIXTURE_DISK_SHA256 =
   "91aef248a312274ce38ace8ee5d77707c0d2c828566613938b164b9aa962649a";
 const FOOTER_BYTES = 512;
+/** A terminal colour code: ESC [ ... m. */
+const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 const RUN_TIMEOUT_MS = 60_000;
 
 const HAS_PWSH =
@@ -87,12 +89,11 @@ function convert(source: string, destination: string) {
     ],
     { encoding: "utf8", timeout: RUN_TIMEOUT_MS },
   );
-  // PowerShell's error view wraps a long message at the console's width (80 on a CI runner),
-  // continuing it on lines that start with "|": join them back.
-  const output = `${result.stdout}${result.stderr}`.replace(
-    /\s*\r?\n\s*\|?[ \t]*/g,
-    " ",
-  );
+  // PowerShell's error view colours its lines and wraps a long message at the console's width (80
+  // on a CI runner), continuing it on lines that start with "|": drop the colours, join the lines.
+  const output = `${result.stdout}${result.stderr}`
+    .replace(ANSI_ESCAPE, "")
+    .replace(/\s*\r?\n\s*\|?[ \t]*/g, " ");
   return { status: result.status, output };
 }
 
