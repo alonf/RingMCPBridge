@@ -51,7 +51,7 @@ To try it with no Ring account, `npm run dev:all-in-one` starts mode A over stdi
 
 - `bridge/`: the bridge itself, with the core, the home connector, the all-in-one host and their tests.
 - `shim/`: a stdio relay that brings pushed events into Claude Code. It arrives in iteration 002.
-- `infra/`: the Bicep for the Azure core, and the owner's one-time bootstrap and runbook.
+- `infra/`: the Bicep for the Azure core, the owner's one-time bootstrap and runbook, and a script that creates the home connector's VM on Hyper-V.
 - `schemas/`: the JSON schemas of the tools' inputs, replies and errors.
 - `specs/001-ring-mcp-bridge/`: the specification (`spec.md`), the plan (`plan.md`), the tasks and the iteration records.
 - `research_notes/` and `reports/`: the research done before the design.

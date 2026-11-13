@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 72
+**Total drift events**: 73
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,44 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-73: The owner's request: a script that creates the home connector's VM on Hyper-V
+
+- **Detected**: 2026-11-13, implement, T033, at the owner's request before the home step.
+- **Kind**: the owner's request, outside the tasks: a script for R10's VM, which T033 step 2 left to the owner to build by hand
+- **Observed**:
+  - Hyper-V attaches only VHD and VHDX disks. Canonical publishes Ubuntu 24.04's cloud image in several forms, and none attaches to a Hyper-V VM as it is:
+    - qcow2 (`.img`), with no converter on Windows;
+    - a VMDK and an OVA;
+    - an Azure VHD, whose first boot waits for Azure's provisioning service;
+    - an archive of the root file system alone.
+  - The installer ISO's unattended install stops for a typed confirmation unless `autoinstall` is on the kernel command line, which needs a rebuilt ISO.
+- **Decided**:
+  - **The scripts.** `infra/home/new-connector-vm.ps1` prints its plan by default, and acts with `-Apply`. Beside it, `infra/home/convert-qcow2.ps1` converts the cloud image to a fixed VHD. The converter reads only what Ubuntu's image uses: qcow2 version 3 with zlib compression, and no incompatible feature, backing file, encryption or snapshot. It refuses anything else by name, and bounds-checks every offset.
+  - **No new dependency.** Both run on Windows PowerShell 5.1, which Windows Server 2025 ships. They use only Hyper-V's and Windows' own cmdlets and `curl.exe`.
+  - **The VM, as R10 sizes it:** Ubuntu 24.04 LTS, generation 2, Secure Boot with the Microsoft UEFI CA template, 2 vCPU, 2 GB of static memory, a 20 GB disk. Checkpoints are off, since the disk will hold the Ring token, and it starts and stops with the host.
+  - **The first boot.** cloud-init reads its settings from a small FAT32 disk labelled CIDATA. They set up:
+    - SSH sign-in with the owner's key only;
+    - `docker.io` and `linux-cloud-tools-virtual` from Ubuntu's archive;
+    - the connector's folders, owned by uid 1000;
+    - two commands, `ring-bridge-setup` and `ring-bridge-start`;
+    - a pull of the image, with the tag the core runs.
+  - **Never automated.** The script never runs the setup, which is the owner's Ring login, and never starts the connector. A failed run removes what it created and keeps the downloaded image.
+- **Requirement citation**: T033 step 2; research.md R10, PT-02; FR-032.
+- **Resolution**: written and checked. About 2 SP (estimate), and $0.
+  - **The converter, against qemu-img 9.0.2.** On the real cloud image (3.5 GiB, its SHA-256 checked against Canonical's SHA256SUMS), the output matched qemu-img's byte for byte under Windows PowerShell 5.1, in 20 s. qemu-img reads the result as a VHD identical to its own, and its disk is GPT with an EFI System partition.
+  - **The fixture.** A 12 KB qcow2, made with qemu-img and qemu-io, holds every kind of cluster: compressed, stored, zero-flagged, unallocated, and L2 tables that are absent. The tests check it byte for byte, check the footer, and check seven refusals.
+  - **The first-boot settings** pass cloud-init 26.2's schema check. The two commands were run in a container with a stand-in `docker`.
+  - **Tests.** 19, with stand-ins for Hyper-V, the Storage cmdlets and `curl.exe`. Seven deliberate breaks were each caught by their test. PSScriptAnalyzer finds nothing, under the PSGallery settings and 5.1's syntax.
+  - **Two defects found while testing, and fixed:**
+    - a local `$image` hid the `-Image` parameter, since PowerShell's names ignore case, so the VM would have pulled a Windows path;
+    - `Remove-Item` fails on a path with 8.3 short names (such as `C:\Users\ADMINI~1`) in both 5.1 and 7, so the scripts delete through .NET.
+  - **Not tried here: a real VM.** This PC is not elevated, so Hyper-V and the disk cmdlets ran only as stand-ins. The owner's first run is the first real boot.
+- **Carry-forward**:
+  - T033 step 2: the owner runs the script on the Hyper-V host.
+  - `docker.io` comes from Ubuntu's universe component (agent reading). Canonical delivers its own security fixes for universe through Ubuntu Pro's ESM Apps, which is free for personal use. The owner decides whether to attach it.
+  - The connector's health check (DRIFT-001-72) stays open.
+- **Class closure**: the converter is held to qemu-img's output, byte for byte, on a fixture with every kind of cluster. Tests against stand-ins hold the VM script's settings, order, refusals and clean-up. The first-boot settings' schema was checked once with cloud-init; that check is not in CI.
 
 ### DRIFT-001-72: T033's Docker health check for the connector has no command in the image
 
