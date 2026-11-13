@@ -16,7 +16,10 @@ their tenant or their subscription; the values are typed when it runs.
   2. Pick the subscription named -SubscriptionName (no default), and wait for the owner's "y".
   3. Create the resource group, in Israel Central by default.
   4. Create the deploy identity: a user-assigned managed identity with a federated credential for
-     GitHub OIDC (the repository's -Environment), so no password or client secret exists.
+     GitHub OIDC (the repository's -Environment), so no password or client secret exists. Its
+     subject is the one GitHub presents, read from the repository's OIDC setting with gh: it may
+     carry the owner's and the repository's immutable IDs (repo:<owner>@<id>/<repo>@<id>). A
+     credential with another subject is corrected.
   5. Give it its roles: Contributor on the resource group; role assignment on the resource group
      limited to the roles the Bicep assigns, to service principals only; AcrPush on the registry.
   6. Set the GitHub environment with gh. The repository's workflow logs are public, and GitHub hides
@@ -165,6 +168,25 @@ function Get-DelegationCondition {
     return "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})) OR ($write)) AND ((!(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})) OR ($delete))"
 }
 
+# The OIDC subject GitHub presents for the environment's jobs. A repository may use immutable
+# IDs in it (repo:<owner>@<id>/<repo>@<id>), which survive a rename; its OIDC setting gives the
+# prefix. A customized claim template is not supported.
+function Get-GitHubOidcSubject {
+    $text = (& gh api "repos/$GitHubRepo/actions/oidc/customization/sub") -join "`n"
+    if ($LASTEXITCODE -ne 0) {
+        throw "The OIDC setting of the GitHub repository $GitHubRepo could not be read with gh."
+    }
+    $setting = $text | ConvertFrom-Json
+    if (-not $setting.use_default) {
+        throw "The repository $GitHubRepo customizes its OIDC subject; the bootstrap supports only GitHub's default subject."
+    }
+    $prefix = "repo:$GitHubRepo"
+    if ($setting.PSObject.Properties['sub_claim_prefix'] -and $setting.sub_claim_prefix) {
+        $prefix = $setting.sub_claim_prefix
+    }
+    return "${prefix}:environment:$Environment"
+}
+
 function Confirm-Owner([string] $Question) {
     $answer = Read-Host "$Question Type y to go on"
     if ($answer -ne 'y') {
@@ -203,7 +225,7 @@ function Show-Plan {
         Write-Step 1 'Sign in with az login, in the browser, unless already signed in.'
         Write-Step 2 "Pick the subscription named '$SubscriptionName', and wait for your y."
         Write-Step 3 "Create the resource group '$ResourceGroup' in $Location, unless it exists."
-        Write-Step 4 "Create the deploy identity '$DeployIdentityName', with a federated credential for GitHub OIDC: repo:${GitHubRepo}:environment:$Environment."
+        Write-Step 4 "Create the deploy identity '$DeployIdentityName', with a federated credential for GitHub OIDC: repo:${GitHubRepo}:environment:$Environment, or the form with immutable IDs if the repository uses it (read with gh)."
         Write-Step 5 'Give it its roles, unless held:'
         Write-Detail "Contributor on '$ResourceGroup';"
         Write-Detail "Role Based Access Control Administrator on '$ResourceGroup', limited to $($DelegatedRoles -join ', '), for service principals only;"
@@ -242,13 +264,15 @@ function Invoke-BeforeDeploy {
         Write-Detail "'$DeployIdentityName' created."
     }
     $credentialName = "github-$Environment"
+    $subject = Get-GitHubOidcSubject
     $credential = Invoke-AzJson identity federated-credential list --identity-name $DeployIdentityName --resource-group $ResourceGroup --query "[?name=='$credentialName']" | Select-Object -First 1
-    if ($credential) {
-        Write-Detail "Its GitHub credential exists."
+    if ($credential -and $credential.subject -eq $subject) {
+        Write-Detail "Its GitHub credential exists: $subject."
     }
     else {
-        Invoke-AzQuiet identity federated-credential create --name $credentialName --identity-name $DeployIdentityName --resource-group $ResourceGroup --issuer $GitHubIssuer --subject "repo:${GitHubRepo}:environment:$Environment" --audiences $TokenExchangeAudience
-        Write-Detail "Its GitHub credential created: repo:${GitHubRepo}:environment:$Environment."
+        $verb = if ($credential) { 'update' } else { 'create' }
+        Invoke-AzQuiet identity federated-credential $verb --name $credentialName --identity-name $DeployIdentityName --resource-group $ResourceGroup --issuer $GitHubIssuer --subject $subject --audiences $TokenExchangeAudience
+        Write-Detail "Its GitHub credential $($verb)d: $subject."
     }
 
     Write-Step 5 'Its roles'

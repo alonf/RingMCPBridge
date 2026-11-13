@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 69
+**Total drift events**: 70
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,27 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-70: The deploy's GitHub sign-in refused: the repository presents its OIDC subject with immutable IDs
+
+- **Detected**: 2026-11-13, implement, T033, at the first preview run of the Deploy workflow.
+- **Kind**: a defect in T031's bootstrap: a wrong assumption about GitHub's OIDC subject, which its tests shared
+- **Observed**:
+  - `azure/login` failed with AADSTS700213, "No matching federated identity record found". GitHub presented the subject `repo:<owner>@<owner id>/<repo>@<repository id>:environment:production`. The bootstrap had registered `repo:<owner>/<repo>:environment:production`.
+  - The repository's OIDC setting (`GET repos/<owner>/<repo>/actions/oidc/customization/sub`) answers `use_default: true`, `use_immutable_subject: true`, and the `sub_claim_prefix` that GitHub uses. A subject with immutable IDs survives a rename of the account or the repository, and cannot be taken over by a later account with the same name. This repository, created this month, has it on.
+  - The run's public log hid every secret (`client-id: ***` and the others), and a search of it for each ID and both spellings of the registry's name found 0. That confirms DRIFT-001-68 in a real run.
+- **Decided**:
+  - The bootstrap reads the repository's OIDC setting with `gh` and registers `<sub_claim_prefix>:environment:<environment>`. Where there is no prefix, it uses `repo:<owner>/<repo>`.
+  - It corrects an existing credential whose subject differs (`az identity federated-credential update`), rather than skipping it because it exists.
+  - A customized claim template (`use_default: false`) stops the bootstrap before the credential, naming the cause, since the subject could then be anything.
+- **Requirement citation**: FR-029, FR-032; T031; PT-05.
+- **Resolution**:
+  - Fixed. Three new tests cover the form without IDs, correcting a wrong subject, and stopping on a customized template. The empty-subscription and rerun tests now expect the form with immutable IDs.
+  - Three deliberate breaks were caught: the prefix ignored (3 tests fail), a wrong subject kept (1), and a custom template accepted (1). The bootstrap's 11 tests pass, and PSScriptAnalyzer finds nothing.
+  - Rerun against the owner's subscription: the credential was updated to the subject GitHub presents, and nothing else changed.
+  - About 0.25 SP (estimate) inside T033, and $0.
+- **Carry-forward**: T033: the preview runs again on the commit with this fix.
+- **Class closure**: the bootstrap now registers the subject GitHub reports for the repository, rather than one it builds itself, and the tests feed it GitHub's answer. Any other subject GitHub may present later, through its setting, is followed without a change here.
 
 ### DRIFT-001-69: The bootstrap stopped at its first real run: an empty list from az
 

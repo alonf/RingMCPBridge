@@ -39,6 +39,10 @@ if (!HAS_PWSH && process.env.CI !== undefined) {
 const REPO = "example-owner/example-repo";
 const REGISTRY = "exampleregistry";
 const SUBSCRIPTION_NAME = "Example subscription";
+/** The subject prefix GitHub presents for a repository that uses immutable owner and repository IDs. */
+const IMMUTABLE_PREFIX = "repo:example-owner@1001/example-repo@2002";
+const IMMUTABLE_SUBJECT = `${IMMUTABLE_PREFIX}:environment:production`;
+const OIDC_SETTING = "api repos/*/actions/oidc/customization/sub";
 
 interface Rule {
   readonly tool: "az" | "gh" | "node";
@@ -173,6 +177,16 @@ function emptySubscription(id: Record<string, string>): Rule[] {
       output: json("enabled"),
     },
     { tool: "gh", match: "variable list *", output: "[]" },
+    // As GitHub answers for a repository that uses immutable IDs in its OIDC subject.
+    {
+      tool: "gh",
+      match: OIDC_SETTING,
+      output: json({
+        use_default: true,
+        use_immutable_subject: true,
+        sub_claim_prefix: IMMUTABLE_PREFIX,
+      }),
+    },
     // No environment yet: reading it fails.
     { tool: "gh", match: "api repos/*", exit: 1 },
   ];
@@ -234,9 +248,7 @@ describe.runIf(HAS_PWSH)(
       const credential = calls.find((call) =>
         call.startsWith("az identity federated-credential create"),
       );
-      expect(credential).toContain(
-        `--subject repo:${REPO}:environment:production`,
-      );
+      expect(credential).toContain(`--subject ${IMMUTABLE_SUBJECT}`);
       expect(credential).toContain("--audiences api://AzureADTokenExchange");
 
       const grants = calls.filter((call) =>
@@ -327,7 +339,18 @@ describe.runIf(HAS_PWSH)(
         {
           tool: "az",
           match: "identity federated-credential list *",
-          output: json([{ name: "github-production" }]),
+          output: json([
+            { name: "github-production", subject: IMMUTABLE_SUBJECT },
+          ]),
+        },
+        {
+          tool: "gh",
+          match: OIDC_SETTING,
+          output: json({
+            use_default: true,
+            use_immutable_subject: true,
+            sub_claim_prefix: IMMUTABLE_PREFIX,
+          }),
         },
         {
           tool: "az",
@@ -371,6 +394,77 @@ describe.runIf(HAS_PWSH)(
             `gh secret set ${String(name)} --env production --repo ${REPO} --body ${String(value)}`,
         ),
       );
+    });
+
+    it("uses the subject without IDs where the repository does not use immutable IDs", () => {
+      const id = ids();
+
+      const { calls, exitCode } = run({ ...BEFORE, Apply: true }, [
+        {
+          tool: "gh",
+          match: OIDC_SETTING,
+          output: json({ use_default: true }),
+        },
+        ...emptySubscription(id),
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(
+        calls.find((call) =>
+          call.startsWith("az identity federated-credential create"),
+        ),
+      ).toContain(`--subject repo:${REPO}:environment:production`);
+    });
+
+    it("corrects a GitHub credential whose subject is not the one GitHub presents", () => {
+      const id = ids();
+
+      const { calls, exitCode } = run({ ...BEFORE, Apply: true }, [
+        {
+          tool: "az",
+          match: "identity federated-credential list *",
+          output: json([
+            {
+              name: "github-production",
+              subject: `repo:${REPO}:environment:production`,
+            },
+          ]),
+        },
+        ...emptySubscription(id),
+      ]);
+
+      expect(exitCode).toBe(0);
+      const changes = calls.filter(
+        (call) =>
+          call.startsWith("az identity federated-credential ") &&
+          !call.includes(" list "),
+      );
+      expect(changes).toHaveLength(1);
+      expect(changes[0]).toContain(
+        "az identity federated-credential update --name github-production ",
+      );
+      expect(changes[0]).toContain(` --subject ${IMMUTABLE_SUBJECT} `);
+    });
+
+    it("stops before the GitHub credential where the repository customizes its OIDC subject", () => {
+      const id = ids();
+
+      const { calls, output, exitCode } = run({ ...BEFORE, Apply: true }, [
+        {
+          tool: "gh",
+          match: OIDC_SETTING,
+          output: json({ use_default: false, include_claim_keys: ["repo"] }),
+        },
+        ...emptySubscription(id),
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(output).toContain("customizes its OIDC subject");
+      expect(
+        calls.filter((call) =>
+          call.startsWith("az identity federated-credential create"),
+        ),
+      ).toEqual([]);
     });
 
     it("stops before changing anything when the owner does not confirm the subscription", () => {
