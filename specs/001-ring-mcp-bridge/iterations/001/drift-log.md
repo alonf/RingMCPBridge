@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 66
+**Total drift events**: 67
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,20 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-67: hono and @hono/node-server patched before the first deploy
+
+- **Detected**: 2026-11-13, implement, T033, at the owner's Step 0 (the tools check before the deploy).
+- **Kind**: a dependency update outside the tasks: two existing runtime pins moved to patch releases that fix published advisories. No new dependency
+- **Observed**: `npm audit` after `npm ci` listed moderate advisories in the core's HTTP layer:
+  - `hono` 4.13.14: middleware skipped by `mount()` and by RegExpRouter for some routes (GHSA-4m76-xfj5-7975, GHSA-h7mg-cq63-vhpq), `csrf()` and `validator('form')` gaps (GHSA-46wx-v44x-9hh2, GHSA-4h7h-rv7c-7m2v), and a `css` helper escape (GHSA-3gg2-335m-rxc6, low). All are fixed in 4.13.16;
+  - `@hono/node-server` 2.1.5: an `ECONNRESET` during an asynchronous WebSocket upgrade crashes the process (GHSA-qv5m-9pm6-hqp3), and a backslash in the path is read as a separator (GHSA-jpvv-r467-5p4w). Both are fixed in 2.1.6. The core accepts the connector over a WebSocket on the public internet, so the crash applies.
+  - The audit gate passed anyway, since it fails only on high or critical.
+- **Decided**: `hono` 4.13.16 and `@hono/node-server` 2.1.6, exact as the policy requires. These are the earliest fixed releases, published 11 and 12 days earlier, rather than this week's 4.13.18 and 2.1.8. The lockfile changes only these two packages. The policy's weekly grouped updates would have proposed the same.
+- **Requirement citation**: FR-029, FR-044; the implementation rules' supply-chain policy (I6 group C).
+- **Resolution**: updated and checked: the audit, license, type, lint, dependency and schema checks, the full suite with SQL Server, and the admin page's browser tests. About 0.25 SP (estimate) inside T033, and $0.
+- **Carry-forward**: the remaining moderate advisories are in development tools (eslint, typescript-eslint, Stryker), plus `ip` through `werift` (high, already in the audit exception list until ring-client-api ships werift 0.25). Dependabot's weekly updates cover them.
+- **Class closure**: no new class. The audit gate already fails on high or critical. Moderate advisories in runtime packages are caught by `npm audit` at the owner's Step 0 and by Dependabot alerts, now free on the public repository.
 
 ### DRIFT-001-66: The owner's choice: an MIT LICENSE and a work-in-progress README now
 

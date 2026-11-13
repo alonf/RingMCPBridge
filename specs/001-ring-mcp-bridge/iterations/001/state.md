@@ -9,6 +9,9 @@
 
 ## Execution Summary
 
+- **The core's HTTP layer patched before the first deploy** (2026-11-13; DRIFT-001-67): `hono` 4.13.16 and `@hono/node-server` 2.1.6 fix moderate advisories. One of them, a crash on a dropped WebSocket upgrade, applies to the connector's link. No new dependency.
+- **The repository is public** (2026-11-13, the owner's choice), so standard Actions runners are free. Workflows from outside contributors' pull requests now need approval.
+
 - **A LICENSE and a work-in-progress README** (2026-11-13; DRIFT-001-66, the owner's choice): MIT, as in `specrew`. The README says the project is not ready to use yet and gives each iteration's status. The full README stays with US7 in iteration 004.
 
 - **CP-19's review is signed off** (2026-11-13):
