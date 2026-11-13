@@ -300,8 +300,8 @@ function Write-SeedDisk([string] $Path, [string] $Settings, [string] $MountFolde
 }
 
 function Wait-Address {
-    $deadline = [DateTime]::UtcNow.AddMinutes($AddressWaitMinutes)
-    while ([DateTime]::UtcNow -lt $deadline) {
+    $polls = [int] ($AddressWaitMinutes * 60 / $AddressPollSeconds)
+    for ($poll = 0; $poll -lt $polls; $poll++) {
         $adapter = Get-VMNetworkAdapter -VMName $VMName
         $addresses = @($adapter.IPAddresses | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' })
         if ($addresses.Count -gt 0) {
@@ -427,7 +427,12 @@ function Invoke-Apply {
         Write-Host "  ssh $AdminUser@$address"
     }
     else {
-        Write-Host "No address after $AddressWaitMinutes minutes. Open the VM's console in Hyper-V Manager to see its first boot."
+        # Sign-in is by SSH key only, so the console cannot sign in; the router's list of DHCP leases
+        # shows the address by the adapter's MAC address, which Hyper-V knows without the guest tools.
+        $mac = [string] (Get-VMNetworkAdapter -VMName $VMName).MacAddress
+        $mac = ($mac -replace '(..)(?!$)', '$1-').ToUpperInvariant()
+        Write-Host "No address after $AddressWaitMinutes minutes. Look for the MAC address $mac in your router's DHCP leases."
+        Write-Host "Its console in Hyper-V Manager shows the first boot's progress. Then:"
         Write-Host "  ssh $AdminUser@<the VM's address>"
     }
     Write-Host '  cloud-init status --wait     # until the first boot is done; then sign in again, for the docker group'

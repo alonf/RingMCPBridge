@@ -382,6 +382,16 @@ describe.runIf(HAS_PWSH)(
       );
     });
 
+    it("names the adapter's MAC address when the VM reports no address", () => {
+      const { exitCode, output } = runVm(parameters({ Apply: true }), {
+        address: null,
+      });
+
+      expect(exitCode, output).toBe(0);
+      expect(output).toContain("Look for the MAC address 00-15-5D-0A-0B-0C");
+      expect(output).toContain("ssh bridge@<the VM's address>");
+    });
+
     it("tags the adapter with the VLAN when one is given", () => {
       const { calls, exitCode } = runVm(
         parameters({ Apply: true, VlanId: 30 }),

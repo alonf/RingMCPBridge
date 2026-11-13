@@ -95,7 +95,7 @@ function global:Get-VMNetworkAdapter {
     Write-Call 'Get-VMNetworkAdapter' $args
     $addresses = @()
     if ($HomeVmWorld.address) { $addresses = @('fe80::1', [string] $HomeVmWorld.address) }
-    return [pscustomobject] @{ IPAddresses = $addresses }
+    return [pscustomobject] @{ IPAddresses = $addresses; MacAddress = '00155D0A0B0C' }
 }
 function global:Start-Sleep { }
 
