@@ -9,6 +9,7 @@
 
 ## Execution Summary
 
+- **The bootstrap's first stage ran against the owner's subscription** (2026-11-13; DRIFT-001-69). It first stopped on an empty list from `az`, a defect its tests had missed. Once that was fixed, it created the resource group, the deploy identity and its roles, and the `production` environment with its secrets and variables.
 - **The deploy's IDs and the registry's name are GitHub secrets** (2026-11-13; DRIFT-001-68): the repository's logs are public now, and GitHub hides only secrets in them. This deploy reuses the owner's existing registry. The owner's direction on a registry for other owners is recorded for PT-17 (iteration 004).
 - **The core's HTTP layer patched before the first deploy** (2026-11-13; DRIFT-001-67): `hono` 4.13.16 and `@hono/node-server` 2.1.6 fix moderate advisories. One of them, a crash on a dropped WebSocket upgrade, applies to the connector's link. No new dependency.
 - **The repository is public** (2026-11-13, the owner's choice), so standard Actions runners are free. Workflows from outside contributors' pull requests now need approval.

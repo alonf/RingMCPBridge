@@ -151,6 +151,9 @@ function emptySubscription(id: Record<string, string>): Rule[] {
     ...signedIn(id),
     ...roleRules(id),
     { tool: "az", match: "group exists *", output: "false" },
+    // az answers a list with nothing in it as `[]`, as here, not with no output.
+    { tool: "az", match: "identity list *", output: "[]" },
+    { tool: "az", match: "identity federated-credential list *", output: "[]" },
     {
       tool: "az",
       match: "identity create *",
@@ -419,6 +422,11 @@ describe.runIf(HAS_PWSH)(
         { tool: "az", match: "acr show *", output: json("/registries/x") },
         {
           tool: "az",
+          match: "ad app federated-credential list *",
+          output: "[]",
+        },
+        {
+          tool: "az",
           match: "ad app show *",
           output: json(["https://elsewhere.example.test/callback"]),
         },
@@ -498,6 +506,11 @@ describe.runIf(HAS_PWSH)(
             sqlServerHostName: { value: "sql" },
             appName: { value: "app" },
           }),
+        },
+        {
+          tool: "az",
+          match: "ad app federated-credential list *",
+          output: "[]",
         },
         {
           tool: "az",

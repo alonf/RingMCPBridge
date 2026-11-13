@@ -101,7 +101,9 @@ function Write-Detail([string] $Text) {
     Write-Host "    $Text"
 }
 
-# az with JSON output: the parsed answer, $null for an empty one; a failure stops the script.
+# az with JSON output: the parsed answer, $null for an empty one; a failure stops the script. An
+# empty list comes back as nothing at all, so take a list's first item with Select-Object -First 1:
+# indexing nothing fails under strict mode.
 function Invoke-AzJson {
     param([Parameter(ValueFromRemainingArguments)] [string[]] $Arguments)
     $text = (& az @Arguments --only-show-errors --output json) -join "`n"
@@ -231,7 +233,7 @@ function Invoke-BeforeDeploy {
     $groupScope = "/subscriptions/$($subscription.id)/resourceGroups/$ResourceGroup"
 
     Write-Step 4 'Deploy identity'
-    $identity = @(Invoke-AzJson identity list --resource-group $ResourceGroup --query "[?name=='$DeployIdentityName']")[0]
+    $identity = Invoke-AzJson identity list --resource-group $ResourceGroup --query "[?name=='$DeployIdentityName']" | Select-Object -First 1
     if ($identity) {
         Write-Detail "'$DeployIdentityName' exists."
     }
@@ -240,7 +242,7 @@ function Invoke-BeforeDeploy {
         Write-Detail "'$DeployIdentityName' created."
     }
     $credentialName = "github-$Environment"
-    $credential = @(Invoke-AzJson identity federated-credential list --identity-name $DeployIdentityName --resource-group $ResourceGroup --query "[?name=='$credentialName']")[0]
+    $credential = Invoke-AzJson identity federated-credential list --identity-name $DeployIdentityName --resource-group $ResourceGroup --query "[?name=='$credentialName']" | Select-Object -First 1
     if ($credential) {
         Write-Detail "Its GitHub credential exists."
     }
@@ -349,7 +351,7 @@ function Invoke-AfterDeploy {
 
     Write-Step 8 'The Entra app'
     $credentialName = 'core-identity'
-    $credential = @(Invoke-AzJson ad app federated-credential list --id $EntraAppClientId --query "[?name=='$credentialName']")[0]
+    $credential = Invoke-AzJson ad app federated-credential list --id $EntraAppClientId --query "[?name=='$credentialName']" | Select-Object -First 1
     if ($credential) {
         Write-Detail 'The core identity is already its federated credential.'
     }

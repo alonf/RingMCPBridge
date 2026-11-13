@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 68
+**Total drift events**: 69
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,31 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-69: The bootstrap stopped at its first real run: an empty list from az
+
+- **Detected**: 2026-11-13, implement, T033, at the bootstrap's first stage run against the owner's subscription, at the owner's word.
+- **Kind**: a defect in T031's bootstrap that its tests missed
+- **Observed**:
+  - Step 4 stopped with "Index was outside the bounds of the array", after step 3 had created the resource group.
+  - Asked for a list with nothing in it, `az` prints `[]`. PowerShell turns that into no output at all, and `@(...)[0]` on no output fails under strict mode.
+  - The tests' stand-in for `az` answered such a list with no output, which `Invoke-AzJson` turns into `$null`. So `@($null)[0]` passed in the tests.
+  - The same pattern was in three places: the deploy identity, its GitHub credential, and the Entra app's federated credential (second stage).
+- **Decided**:
+  - Take a list's first item with `Select-Object -First 1`, which gives `$null` for no output.
+  - The stand-ins now answer these lists with `[]`, as `az` does.
+- **Requirement citation**: FR-029, FR-032; T031.
+- **Resolution**: fixed and checked:
+  - Two deliberate breaks were caught: the deploy identity indexed again (2 tests fail), and the Entra credential indexed again (2 tests fail).
+  - The bootstrap's tests pass, and PSScriptAnalyzer finds nothing.
+  - Rerun against the owner's subscription, the first stage completed:
+    - the deploy identity and its GitHub credential;
+    - Contributor, the limited role assignment and AcrPush;
+    - the `production` environment with 7 secrets and 2 variables.
+
+  `BRIDGE_AGENTS` was then set from the pilot's agent list (DRIFT-001-65). About 0.25 SP (estimate) inside T033, and $0.
+- **Carry-forward**: the second stage meets the Entra credential's list at T033's next step. It is covered by the same fix and tests.
+- **Class closure**: the stand-ins answer an empty list the way `az` does. Any new `@(...)[0]` on a list that can be empty now fails the empty-subscription or after-deploy tests, as both breaks showed.
 
 ### DRIFT-001-68: The deploy's IDs and the registry's name become GitHub secrets, since the repository's logs are public
 
