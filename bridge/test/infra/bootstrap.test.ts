@@ -176,283 +176,299 @@ function index(calls: readonly string[], prefix: string): number {
   return calls.findIndex((call) => call.startsWith(prefix));
 }
 
-describe.runIf(HAS_PWSH)("the owner's bootstrap", () => {
-  it("only prints its plan without -Apply, calling neither az nor gh", () => {
-    const { calls, output, exitCode } = run(BEFORE, []);
+// Each test starts PowerShell, which can take over Vitest's default 5 seconds on a CI runner.
+describe.runIf(HAS_PWSH)(
+  "the owner's bootstrap",
+  { timeout: RUN_TIMEOUT_MS },
+  () => {
+    it("only prints its plan without -Apply, calling neither az nor gh", () => {
+      const { calls, output, exitCode } = run(BEFORE, []);
 
-    expect(exitCode).toBe(0);
-    expect(calls).toEqual([]);
-    expect(output).toContain("Print only");
-    expect(output).toContain(`repo:${REPO}:environment:production`);
-  });
+      expect(exitCode).toBe(0);
+      expect(calls).toEqual([]);
+      expect(output).toContain("Print only");
+      expect(output).toContain(`repo:${REPO}:environment:production`);
+    });
 
-  it("creates everything in the recorded order on an empty subscription", () => {
-    const id = ids();
+    it("creates everything in the recorded order on an empty subscription", () => {
+      const id = ids();
 
-    const { calls, output, exitCode } = run(
-      { ...BEFORE, Apply: true },
-      emptySubscription(id),
-    );
+      const { calls, output, exitCode } = run(
+        { ...BEFORE, Apply: true },
+        emptySubscription(id),
+      );
 
-    expect(exitCode).toBe(0);
-    const order = [
-      "az account set",
-      "az group create --name rg-ring-mcp-bridge --location israelcentral",
-      "az identity create",
-      "az identity federated-credential create",
-      "az role assignment create",
-      "gh api --method PUT repos/example-owner/example-repo/environments/production",
-      "gh variable set AZURE_CLIENT_ID",
-    ].map((prefix) => index(calls, prefix));
-    expect(order.every((at) => at >= 0)).toBe(true);
-    expect([...order].sort((a, b) => a - b)).toEqual(order);
+      expect(exitCode).toBe(0);
+      const order = [
+        "az account set",
+        "az group create --name rg-ring-mcp-bridge --location israelcentral",
+        "az identity create",
+        "az identity federated-credential create",
+        "az role assignment create",
+        "gh api --method PUT repos/example-owner/example-repo/environments/production",
+        "gh variable set AZURE_CLIENT_ID",
+      ].map((prefix) => index(calls, prefix));
+      expect(order.every((at) => at >= 0)).toBe(true);
+      expect([...order].sort((a, b) => a - b)).toEqual(order);
 
-    const credential = calls.find((call) =>
-      call.startsWith("az identity federated-credential create"),
-    );
-    expect(credential).toContain(
-      `--subject repo:${REPO}:environment:production`,
-    );
-    expect(credential).toContain("--audiences api://AzureADTokenExchange");
+      const credential = calls.find((call) =>
+        call.startsWith("az identity federated-credential create"),
+      );
+      expect(credential).toContain(
+        `--subject repo:${REPO}:environment:production`,
+      );
+      expect(credential).toContain("--audiences api://AzureADTokenExchange");
 
-    const grants = calls.filter((call) =>
-      call.startsWith("az role assignment create"),
-    );
-    expect(grants).toHaveLength(3);
-    const limited = grants.find((call) => call.includes("--condition"));
-    for (const roleId of [
-      id.keyVaultSecretsUser,
-      id.keyVaultSecretsOfficer,
-      id.blobDataContributor,
-    ]) {
-      expect(limited).toContain(String(roleId));
-    }
-    // Only those three: no other role, and only for service principals.
-    const condition = limited?.split("--condition ")[1] ?? "";
-    for (const other of [id.contributor, id.roleAdministrator, id.acrPush]) {
-      expect(condition).not.toContain(String(other));
-    }
-    expect(condition.match(/\{'ServicePrincipal'\}/g)).toHaveLength(2);
-    expect(limited).toContain("--condition-version 2.0");
-    expect(
-      calls.filter((call) => call.startsWith("gh variable set")),
-    ).toHaveLength(5);
-    expect(output).toContain(
-      "BRIDGE_ENTRA_CLIENT_ID not given: pass it from the runbook",
-    );
-  });
+      const grants = calls.filter((call) =>
+        call.startsWith("az role assignment create"),
+      );
+      expect(grants).toHaveLength(3);
+      const limited = grants.find((call) => call.includes("--condition"));
+      for (const roleId of [
+        id.keyVaultSecretsUser,
+        id.keyVaultSecretsOfficer,
+        id.blobDataContributor,
+      ]) {
+        expect(limited).toContain(String(roleId));
+      }
+      // Only those three: no other role, and only for service principals.
+      const condition = limited?.split("--condition ")[1] ?? "";
+      for (const other of [id.contributor, id.roleAdministrator, id.acrPush]) {
+        expect(condition).not.toContain(String(other));
+      }
+      expect(condition.match(/\{'ServicePrincipal'\}/g)).toHaveLength(2);
+      expect(limited).toContain("--condition-version 2.0");
+      expect(
+        calls.filter((call) => call.startsWith("gh variable set")),
+      ).toHaveLength(5);
+      expect(output).toContain(
+        "BRIDGE_ENTRA_CLIENT_ID not given: pass it from the runbook",
+      );
+    });
 
-  it("only reads where everything already exists", () => {
-    const id = ids();
-    const existing: Rule[] = [
-      ...signedIn(id),
-      ...roleRules(id),
-      { tool: "az", match: "group exists *", output: "true" },
-      {
-        tool: "az",
-        match: "identity list *",
-        output: json([
-          { principalId: id.deployPrincipal, clientId: id.deployClient },
-        ]),
-      },
-      {
-        tool: "az",
-        match: "identity federated-credential list *",
-        output: json([{ name: "github-production" }]),
-      },
-      {
-        tool: "az",
-        match: "role assignment list *",
-        output: json("an-assignment"),
-      },
-      { tool: "az", match: "acr show *", output: json("/registries/x") },
-      {
-        tool: "az",
-        match: "acr config authentication-as-arm show *",
-        output: json("enabled"),
-      },
-      {
-        tool: "gh",
-        match: "variable list *",
-        output: json([
-          { name: "AZURE_CLIENT_ID", value: id.deployClient },
-          { name: "AZURE_TENANT_ID", value: id.tenant },
-          { name: "AZURE_SUBSCRIPTION_ID", value: id.subscription },
-          { name: "AZURE_RESOURCE_GROUP", value: "rg-ring-mcp-bridge" },
-          { name: "AZURE_REGISTRY_NAME", value: REGISTRY },
-        ]),
-      },
-    ];
+    it("only reads where everything already exists", () => {
+      const id = ids();
+      const existing: Rule[] = [
+        ...signedIn(id),
+        ...roleRules(id),
+        { tool: "az", match: "group exists *", output: "true" },
+        {
+          tool: "az",
+          match: "identity list *",
+          output: json([
+            { principalId: id.deployPrincipal, clientId: id.deployClient },
+          ]),
+        },
+        {
+          tool: "az",
+          match: "identity federated-credential list *",
+          output: json([{ name: "github-production" }]),
+        },
+        {
+          tool: "az",
+          match: "role assignment list *",
+          output: json("an-assignment"),
+        },
+        { tool: "az", match: "acr show *", output: json("/registries/x") },
+        {
+          tool: "az",
+          match: "acr config authentication-as-arm show *",
+          output: json("enabled"),
+        },
+        {
+          tool: "gh",
+          match: "variable list *",
+          output: json([
+            { name: "AZURE_CLIENT_ID", value: id.deployClient },
+            { name: "AZURE_TENANT_ID", value: id.tenant },
+            { name: "AZURE_SUBSCRIPTION_ID", value: id.subscription },
+            { name: "AZURE_RESOURCE_GROUP", value: "rg-ring-mcp-bridge" },
+            { name: "AZURE_REGISTRY_NAME", value: REGISTRY },
+          ]),
+        },
+      ];
 
-    const { calls, exitCode } = run({ ...BEFORE, Apply: true }, existing);
+      const { calls, exitCode } = run({ ...BEFORE, Apply: true }, existing);
 
-    expect(exitCode).toBe(0);
-    const changes = calls.filter((call) =>
-      /^(az \S+( \S+)? (create|update)|gh variable set|gh api --method PUT)/.test(
-        call,
-      ),
-    );
-    expect(changes).toEqual([]);
-  });
-
-  it("stops before changing anything when the owner does not confirm the subscription", () => {
-    const id = ids();
-
-    const { calls, exitCode } = run(
-      { ...BEFORE, Apply: true },
-      emptySubscription(id),
-      "n",
-    );
-
-    expect(exitCode).toBe(1);
-    expect(calls.filter((call) => /create|account set/.test(call))).toEqual([]);
-  });
-
-  it("stops when no subscription, or more than one, has the name", () => {
-    const id = ids();
-
-    const { calls, output, exitCode } = run({ ...BEFORE, Apply: true }, [
-      { tool: "az", match: "account list *", output: "[]" },
-      ...roleRules(id),
-    ]);
-
-    expect(exitCode).toBe(1);
-    expect(output).toContain("Expected one subscription named");
-    expect(calls.filter((call) => call.includes("create"))).toEqual([]);
-  });
-
-  it("after the first deploy, gives the core's identity what it needs, then restarts the core once the owner says so", () => {
-    const id = ids();
-    const publicUrl = "https://core.example.test";
-    const rules: Rule[] = [
-      ...signedIn(id),
-      ...roleRules(id),
-      {
-        tool: "az",
-        match: "deployment group show *",
-        output: json({
-          coreIdentityPrincipalId: { value: id.corePrincipal },
-          coreIdentityName: { value: "ringbridge-core" },
-          publicUrl: { value: publicUrl },
-          keyVaultName: { value: "ringbridge-kv-abc123" },
-          sqlServerHostName: { value: "ringbridge-sql.database.windows.net" },
-          appName: { value: "ringbridge-abc123" },
-        }),
-      },
-      { tool: "az", match: "acr show *", output: json("/registries/x") },
-      {
-        tool: "az",
-        match: "ad app show *",
-        output: json(["https://elsewhere.example.test/callback"]),
-      },
-      {
-        tool: "az",
-        match: "keyvault show *",
-        output: json({
-          id: "/vaults/ringbridge-kv-abc123",
-          uri: "https://ringbridge-kv-abc123.vault.azure.net/",
-        }),
-      },
-      { tool: "az", match: "ad signed-in-user show *", output: json(id.owner) },
-    ];
-
-    const { calls, output, exitCode } = run(
-      {
-        ...BEFORE,
-        Stage: "after-deploy",
-        EntraAppClientId: id.entraApp,
-        Apply: true,
-      },
-      rules,
-    );
-
-    expect(exitCode).toBe(0);
-    const grants = calls.filter((call) =>
-      call.startsWith("az role assignment create"),
-    );
-    expect(grants[0]).toContain(
-      `--assignee-object-id ${String(id.corePrincipal)}`,
-    );
-    expect(grants[1]).toContain(`--assignee-object-id ${String(id.owner)}`);
-    expect(grants[1]).toContain("--assignee-principal-type User");
-    expect(
-      calls.some((call) =>
-        call.startsWith(
-          `az ad app federated-credential create --id ${String(id.entraApp)} --parameters @`,
+      expect(exitCode).toBe(0);
+      const changes = calls.filter((call) =>
+        /^(az \S+( \S+)? (create|update)|gh variable set|gh api --method PUT)/.test(
+          call,
         ),
-      ),
-    ).toBe(true);
-    expect(calls.find((call) => call.startsWith("az ad app update"))).toContain(
-      `--web-redirect-uris https://elsewhere.example.test/callback ${publicUrl}/sign-in/return`,
-    );
-    const key = index(calls, "node ");
-    expect(calls[key]).toMatch(
-      /first-signing-key https:\/\/ringbridge-kv-abc123\.vault\.azure\.net$/,
-    );
-    expect(output).toContain(
-      "CREATE USER [ringbridge-core] FROM EXTERNAL PROVIDER;",
-    );
-    expect(output).toContain(
-      "ALTER ROLE db_ddladmin ADD MEMBER [ringbridge-core];",
-    );
-    // The key last: Key Vault takes minutes to honour the owner's new role.
-    expect(key).toBeGreaterThan(index(calls, "az webapp restart"));
-  });
+      );
+      expect(changes).toEqual([]);
+    });
 
-  it("does not restart the core until the owner says the database user exists", () => {
-    const id = ids();
-    const rules: Rule[] = [
-      ...signedIn(id),
-      ...roleRules(id),
-      {
-        tool: "az",
-        match: "deployment group show *",
-        output: json({
-          coreIdentityPrincipalId: { value: id.corePrincipal },
-          coreIdentityName: { value: "ringbridge-core" },
-          publicUrl: { value: "https://core.example.test" },
-          keyVaultName: { value: "kv" },
-          sqlServerHostName: { value: "sql" },
-          appName: { value: "app" },
-        }),
-      },
-      {
-        tool: "az",
-        match: "keyvault show *",
-        output: json({ id: "/vaults/kv", uri: "https://kv.vault.azure.net/" }),
-      },
-    ];
+    it("stops before changing anything when the owner does not confirm the subscription", () => {
+      const id = ids();
 
-    // The owner confirms the subscription and the database user.
-    const { calls } = run(
-      {
-        ...BEFORE,
-        Stage: "after-deploy",
-        EntraAppClientId: id.entraApp,
-        Apply: true,
-      },
-      rules,
-      "y",
-    );
-    expect(calls.some((call) => call.startsWith("az webapp restart"))).toBe(
-      true,
-    );
+      const { calls, exitCode } = run(
+        { ...BEFORE, Apply: true },
+        emptySubscription(id),
+        "n",
+      );
 
-    // The owner confirms the subscription, then says no at the database user.
-    const refused = run(
-      {
-        ...BEFORE,
-        Stage: "after-deploy",
-        EntraAppClientId: id.entraApp,
-        Apply: true,
-      },
-      rules,
-      "y,n",
-    );
-    expect(refused.output).toContain("Is the database user created?");
-    expect(
-      refused.calls.some((call) => call.startsWith("az webapp restart")),
-    ).toBe(false);
-    expect(refused.exitCode).toBe(1);
-  });
-});
+      expect(exitCode).toBe(1);
+      expect(calls.filter((call) => /create|account set/.test(call))).toEqual(
+        [],
+      );
+    });
+
+    it("stops when no subscription, or more than one, has the name", () => {
+      const id = ids();
+
+      const { calls, output, exitCode } = run({ ...BEFORE, Apply: true }, [
+        { tool: "az", match: "account list *", output: "[]" },
+        ...roleRules(id),
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(output).toContain("Expected one subscription named");
+      expect(calls.filter((call) => call.includes("create"))).toEqual([]);
+    });
+
+    it("after the first deploy, gives the core's identity what it needs, then restarts the core once the owner says so", () => {
+      const id = ids();
+      const publicUrl = "https://core.example.test";
+      const rules: Rule[] = [
+        ...signedIn(id),
+        ...roleRules(id),
+        {
+          tool: "az",
+          match: "deployment group show *",
+          output: json({
+            coreIdentityPrincipalId: { value: id.corePrincipal },
+            coreIdentityName: { value: "ringbridge-core" },
+            publicUrl: { value: publicUrl },
+            keyVaultName: { value: "ringbridge-kv-abc123" },
+            sqlServerHostName: { value: "ringbridge-sql.database.windows.net" },
+            appName: { value: "ringbridge-abc123" },
+          }),
+        },
+        { tool: "az", match: "acr show *", output: json("/registries/x") },
+        {
+          tool: "az",
+          match: "ad app show *",
+          output: json(["https://elsewhere.example.test/callback"]),
+        },
+        {
+          tool: "az",
+          match: "keyvault show *",
+          output: json({
+            id: "/vaults/ringbridge-kv-abc123",
+            uri: "https://ringbridge-kv-abc123.vault.azure.net/",
+          }),
+        },
+        {
+          tool: "az",
+          match: "ad signed-in-user show *",
+          output: json(id.owner),
+        },
+      ];
+
+      const { calls, output, exitCode } = run(
+        {
+          ...BEFORE,
+          Stage: "after-deploy",
+          EntraAppClientId: id.entraApp,
+          Apply: true,
+        },
+        rules,
+      );
+
+      expect(exitCode).toBe(0);
+      const grants = calls.filter((call) =>
+        call.startsWith("az role assignment create"),
+      );
+      expect(grants[0]).toContain(
+        `--assignee-object-id ${String(id.corePrincipal)}`,
+      );
+      expect(grants[1]).toContain(`--assignee-object-id ${String(id.owner)}`);
+      expect(grants[1]).toContain("--assignee-principal-type User");
+      expect(
+        calls.some((call) =>
+          call.startsWith(
+            `az ad app federated-credential create --id ${String(id.entraApp)} --parameters @`,
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        calls.find((call) => call.startsWith("az ad app update")),
+      ).toContain(
+        `--web-redirect-uris https://elsewhere.example.test/callback ${publicUrl}/sign-in/return`,
+      );
+      const key = index(calls, "node ");
+      expect(calls[key]).toMatch(
+        /first-signing-key https:\/\/ringbridge-kv-abc123\.vault\.azure\.net$/,
+      );
+      expect(output).toContain(
+        "CREATE USER [ringbridge-core] FROM EXTERNAL PROVIDER;",
+      );
+      expect(output).toContain(
+        "ALTER ROLE db_ddladmin ADD MEMBER [ringbridge-core];",
+      );
+      // The key last: Key Vault takes minutes to honour the owner's new role.
+      expect(key).toBeGreaterThan(index(calls, "az webapp restart"));
+    });
+
+    it("does not restart the core until the owner says the database user exists", () => {
+      const id = ids();
+      const rules: Rule[] = [
+        ...signedIn(id),
+        ...roleRules(id),
+        {
+          tool: "az",
+          match: "deployment group show *",
+          output: json({
+            coreIdentityPrincipalId: { value: id.corePrincipal },
+            coreIdentityName: { value: "ringbridge-core" },
+            publicUrl: { value: "https://core.example.test" },
+            keyVaultName: { value: "kv" },
+            sqlServerHostName: { value: "sql" },
+            appName: { value: "app" },
+          }),
+        },
+        {
+          tool: "az",
+          match: "keyvault show *",
+          output: json({
+            id: "/vaults/kv",
+            uri: "https://kv.vault.azure.net/",
+          }),
+        },
+      ];
+
+      // The owner confirms the subscription and the database user.
+      const { calls } = run(
+        {
+          ...BEFORE,
+          Stage: "after-deploy",
+          EntraAppClientId: id.entraApp,
+          Apply: true,
+        },
+        rules,
+        "y",
+      );
+      expect(calls.some((call) => call.startsWith("az webapp restart"))).toBe(
+        true,
+      );
+
+      // The owner confirms the subscription, then says no at the database user.
+      const refused = run(
+        {
+          ...BEFORE,
+          Stage: "after-deploy",
+          EntraAppClientId: id.entraApp,
+          Apply: true,
+        },
+        rules,
+        "y,n",
+      );
+      expect(refused.output).toContain("Is the database user created?");
+      expect(
+        refused.calls.some((call) => call.startsWith("az webapp restart")),
+      ).toBe(false);
+      expect(refused.exitCode).toBe(1);
+    });
+  },
+);
