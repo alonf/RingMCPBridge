@@ -5,9 +5,11 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T22:01:00Z
+**Updated**: 2026-11-14T22:12:00Z
 
 ## Execution Summary
+
+- **T033's agent trials are done** (2026-11-14 22:11 UTC): ChatGPT called `get_health` and `get_device` too, so ChatGPT and Claude Code have each called all four tools. claude.ai's own chat called the overview, the health and the device list, and all four went through its connector. Left in T033: the 7-day soak, to about 2026-11-21, then the clock and the month's bill.
 
 - **T033's stale check passed, and claude.ai's chat trial found a gap** (2026-11-14, about 21:19 to 21:25 UTC).
   - **The stale check:** with the connector stopped, replies past 2 minutes read `stale`, the link down, the last known state, and `stale_since` at the last heartbeat. Before 2 minutes they read `cached`, as designed.
