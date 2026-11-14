@@ -25,6 +25,8 @@ export interface RingClientDeviceData {
   readonly on?: boolean;
   readonly level?: number;
   readonly mode?: string;
+  /** The room in its hub's room list (`getRoomList`); absent when Ring gives it none. */
+  readonly roomId?: number;
 }
 
 /** An alarm device, such as a sensor, keypad or base station. */
@@ -109,6 +111,11 @@ export interface RingClientLocation {
   readonly onDevices: RingClientStream<readonly RingClientDevice[]>;
   /** Each hub's device list as Ring sends it, which tells a removed device (no replay). */
   readonly onDeviceList: RingClientStream<RingClientDeviceList>;
+  /**
+   * A hub's room list, as Ring sends it: untyped in the library, so read tolerantly. The library
+   * waits for Ring's answer with no limit of its own, so the caller bounds the wait.
+   */
+  getRoomList(assetId: string): Promise<unknown>;
 }
 
 /** The client: the owner's Ring account. */

@@ -153,10 +153,14 @@ export function locationEntry(
   };
 }
 
-/** An alarm device's entry, or `undefined` for an entry that is not a device or has no id. */
+/**
+ * An alarm device's entry, or `undefined` for an entry that is not a device or has no id. `room` is
+ * the name its hub's room list gives the device's room, when it gives one (room-lists.ts).
+ */
 export function deviceEntry(
   data: RingClientDeviceData,
   locationId: string,
+  room?: string,
 ): RingDevice | undefined {
   const type = deviceTypeOf(data.deviceType);
   if (type === undefined || data.zid === "") {
@@ -166,6 +170,7 @@ export function deviceEntry(
     device_id: data.zid,
     location_id: locationId,
     name: data.name,
+    ...(room === undefined || room === "" ? {} : { room }),
     type,
     ...powerOf(data),
     online:

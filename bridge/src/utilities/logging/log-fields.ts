@@ -31,6 +31,11 @@ export const LOG_FIELD_KINDS = {
   http_status: "measure",
   attempt: "measure",
   count: "measure",
+  /** Room lists (DRIFT-001-80): entries Ring listed, devices matched or not, hubs that did not answer. */
+  listed: "measure",
+  matched: "measure",
+  unmatched: "measure",
+  unanswered: "measure",
   seq: "measure",
   state_version: "measure",
   schema_version: "measure",

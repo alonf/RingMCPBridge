@@ -9,6 +9,7 @@ import {
   deviceTypeOf,
   locationEntry,
 } from "./ring-mapping.ts";
+import { readRoomList } from "./room-lists.ts";
 
 const LOCATION_ID = "loc-1";
 
@@ -224,6 +225,49 @@ describe("deviceEntry", () => {
         LOCATION_ID,
       ),
     ).toBeUndefined();
+  });
+
+  it("keeps the room its hub's list gives exactly, and leaves out a room with no name (DRIFT-001-80)", () => {
+    const contact = {
+      zid: "z-1",
+      name: "Front door",
+      deviceType: "sensor.contact",
+      roomId: 3,
+    };
+    expect(deviceEntry(contact, LOCATION_ID, " חדר שינה ")).toMatchObject({
+      room: " חדר שינה ",
+    });
+    expect(deviceEntry(contact, LOCATION_ID, "")).not.toHaveProperty("room");
+    expect(deviceEntry(contact, LOCATION_ID)).not.toHaveProperty("room");
+  });
+});
+
+describe("readRoomList (DRIFT-001-80)", () => {
+  it("reads rooms with an id and a name, skips anything else, and counts what Ring listed", () => {
+    const list = readRoomList([
+      { id: 1, name: "Kitchen", extra: true },
+      { id: "2", name: "מטבח" },
+      { id: "", name: "No id" },
+      { id: 3 },
+      "not a room",
+    ]);
+    expect(list).toEqual({
+      readable: true,
+      listed: 5,
+      rooms: new Map([
+        ["1", "Kitchen"],
+        ["2", "מטבח"],
+      ]),
+    });
+  });
+
+  it("takes an answer that is not a list as unreadable", () => {
+    expect(readRoomList({ rooms: [] })).toEqual({
+      readable: false,
+      listed: 0,
+      rooms: new Map(),
+    });
+    expect(readRoomList(undefined).readable).toBe(false);
   });
 });
 

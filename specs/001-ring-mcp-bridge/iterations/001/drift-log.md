@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 79
+**Total drift events**: 80
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1174,6 +1174,54 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
+### DRIFT-001-80: The owner's decision: the connector reads each hub's rooms, with a tolerant reader and a bounded wait
+
+- **Detected**: 2026-11-14, implement, T033. The owner's answer on DRIFT-001-79: "read rooms, no problem".
+- **Kind**: the owner's decision, taking up DRIFT-001-18's carry-forward. That entry waited for a reviewed, recorded payload of Ring's room list. This replaces that precondition with a tolerant reader checked on the live home, with counts logged and no Ring text.
+- **Observed**:
+  - ring-client-api 14.3.0 fetches a hub's room list over the live connection (`getRoomList(assetId)`, untyped), and each alarm device carries a `roomId`.
+  - **The library waits for the answer with no limit.** The adapter runs one library call at a time, and the next call waits for the last. So a hub that never answered would hold every later Ring call.
+  - The core already stores rooms, cuts them at 400 characters, and filters on them exactly. The tools contract already has `room`. So only the connector changes.
+- **Decided** (built):
+  - **When:** each full read of the home asks each hub that has alarm devices for its room list, through the gate. A full read happens when a session opens and when the device list changes.
+  - **The reader** (`room-lists.ts`): an entry is a room only with an id (a number, or a non-empty string) and a non-empty name. Anything else is skipped. An answer that is not a list is unreadable.
+  - **The wait is bounded:** `ROOM_LIST_WAIT_MS`, 10 s, a third of a call's deadline. A hub that does not answer ends its call as no answer, and that counts as no failure: a room list claims nothing about Ring. The hub is not asked again until the location's device list changes. The library keeps one listener per unanswered request (accepted: at most one per hub per device-list change).
+  - **Last known rooms:**
+    - A hub's rooms are replaced by a readable answer, even an empty one.
+    - No answer, or an unreadable one, keeps them.
+    - A device change carries its room. `device_state` is a full entry, so the room would otherwise be dropped from the stored device.
+  - **The log** (`ring_rooms_read`) carries counts only:
+    - `count`: rooms read;
+    - `listed`: entries Ring listed;
+    - `matched` and `unmatched`: devices with a `roomId` that a list names or does not;
+    - `unanswered`: hubs that did not answer.
+
+    These four fields join the logger's allow-list. Room names are never logged.
+- **Requirement citation**: FR-002 (rooms, and `list_devices`' room filter); FR-033 and FR-034 (Ring text untrusted and never logged); FR-026 (calls to Ring through the gate); DRIFT-001-18; DRIFT-001-79.
+- **Resolution**: built and tested.
+  - **Tests:** 6 adapter tests and 3 mapping and reader tests. Together they cover:
+    - rooms named exactly;
+    - a list that does not name the room, or is not a list;
+    - a hub that never answers: the read ends, Ring stays `ok`, the next call is not held, and the hub is asked again after a device-list change;
+    - rooms kept through an unreadable or failed answer, and cleared by an empty list;
+    - the room on a device change;
+    - counts logged, never names.
+  - **Four deliberate breaks, each caught:**
+    - the wait unbounded;
+    - a hub that does not answer counted as Ring unavailable;
+    - a change without its room;
+    - an unreadable answer replacing the rooms.
+  - Full suite: 1,231 tests pass, 126 skip without SQL Server.
+  - Cost: about 0.5 SP (estimate), $0. This is owner-directed work beyond T033's estimate, with iteration 001 at 42 of 42 SP, recorded for the retro.
+- **Carry-forward**:
+  - **To T033, after the VM's `IMAGE` update:**
+    - `list_devices` should show rooms.
+    - The owner runs `docker logs ring-bridge-connector | grep ring_rooms_read`.
+    - If `listed` is above 0 with `count` at 0, the reader's guess at the shape is wrong. The fallback is then DRIFT-001-18's route: a recorded, scrubbed payload, reviewed by the owner.
+    - If `unmatched` is above 0, the devices' room ids do not match the list's.
+  - **The image:** this ships in the same image as the owner's time zone setting (DRIFT-001-79), with one production deploy on the owner's OK.
+- **Class closure**: the room tests above, and the four deliberate breaks that each failed them.
+
 ### DRIFT-001-79: T033's Claude trials: both links read the home; the home's local time reads as UTC, rooms are still absent, and the README's Claude Code steps need a new session
 
 - **Detected**: 2026-11-14, implement, T033 step 3, about 18:40 UTC.
@@ -1197,7 +1245,10 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
       - Or defer rooms to a later iteration, with the contract saying the room is absent until then.
     - **One image for every change that needs one:** the link log (DRIFT-001-76), the time zone, rooms, and the siren type when the sirens return (DRIFT-001-78). That means one manual production deploy with the owner's OK, and one `IMAGE` update on the VM.
 - **Requirement citation**: FR-002 (rooms), FR-006 (local time), FR-005 (the link's health); DRIFT-001-18; DRIFT-001-33; DRIFT-001-75 (the README is corrected as T033 tries each agent); T033.
-- **Resolution**: the README corrected. The time zone and rooms are open for the owner's decision. Cost so far: about 0.25 SP (estimate), $0.
+- **The owner's answers** (2026-11-14):
+  - **The time zone:** the Ring app's location is correct and shows Israel time. The owner chose a setting on the admin page, with the browser's zone as the default. It is about 1 SP (estimate), not the connector setting's 0.25 SP.
+  - **Rooms:** "read rooms, no problem" (DRIFT-001-80).
+- **Resolution**: the README corrected. Rooms built (DRIFT-001-80); the time zone setting follows. Cost so far: about 0.25 SP (estimate), $0.
 - **Carry-forward**:
   - **To T033:**
     - the stale check, with a stop of 3 minutes or more;

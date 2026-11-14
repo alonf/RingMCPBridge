@@ -179,6 +179,18 @@ export interface FakeLocation extends RingClientLocation {
    * listed device it had gets the listed data again; a device the list leaves out stays.
    */
   sendDeviceList(devices: readonly FakeDevice[], hub?: string): void;
+  /**
+   * How each hub answers a room-list request, by hub; a hub not named answers with an empty list.
+   * A test sets an answer that never settles to model a hub that does not answer.
+   */
+  readonly roomListAnswers: Map<string, () => Promise<unknown>>;
+  /** The hubs asked for their room list, in order. */
+  readonly roomListRequests: string[];
+}
+
+/** A room-list answer that never comes, as from a hub that does not answer. */
+export function noAnswer(): Promise<never> {
+  return new Promise<never>(() => undefined);
 }
 
 function fakeLocation(
@@ -195,6 +207,8 @@ function fakeLocation(
   });
   const deviceListStream = new FakeRingStream<RingClientDeviceList>();
   const connectedStream = new FakeRingStream<boolean>({ value: false });
+  const roomListAnswers = new Map<string, () => Promise<unknown>>();
+  const roomListRequests: string[] = [];
   const sendDeviceList = (
     listed: readonly FakeDevice[],
     hub: string = FAKE_HUB,
@@ -238,6 +252,12 @@ function fakeLocation(
     onDeviceList: deviceListStream,
     deviceListStream,
     sendDeviceList,
+    roomListAnswers,
+    roomListRequests,
+    getRoomList: (hub) => {
+      roomListRequests.push(hub);
+      return roomListAnswers.get(hub)?.() ?? Promise.resolve([]);
+    },
   };
 }
 

@@ -1,24 +1,29 @@
 // The Ring Adapter over a fake ring-client-api (T013): mapping through the gate, failures in the
 // bridge's own words, the deadline, the lost session, token rotation, and watching for changes.
 // Since DRIFT-001-35, also how it notices Ring going away and coming back with no read running, and
-// since DRIFT-001-41, how it follows alarm devices added and removed in Ring.
+// since DRIFT-001-41, how it follows alarm devices added and removed in Ring; since DRIFT-001-80,
+// how it reads each hub's rooms.
 import { describe, expect, it } from "vitest";
 import { FakeClock } from "../../../utilities/clock/index.ts";
 import { Logger } from "../../../utilities/logging/index.ts";
 import type { Secret } from "../../../utilities/security/index.ts";
 import { RING_CALL_LIMITS, RingCallGate } from "./call-limits.ts";
 import {
+  RING_CALL_TIMEOUT_MS,
   RING_CONNECTION_GRACE_MS,
   RING_CONNECTION_STUCK_MS,
   RING_RECOVERY_PROBE_MS,
   RingApiAdapter,
+  ROOM_LIST_WAIT_MS,
 } from "./ring-api-adapter.ts";
 import {
   driveFakeClock,
   FAKE_DOORBELL,
+  FAKE_HUB,
   FAKE_RING_BODY,
   FakeRingClient,
   fakeDevice,
+  noAnswer,
   ringHttpError,
 } from "../../../../test/support/fake-ring-client.ts";
 import type {
@@ -960,5 +965,178 @@ describe("RingApiAdapter notices Ring going away and coming back", () => {
 
     expect(client.getProfileCalls).toBe(before.calls);
     expect(probeLines(lines)).toBe(before.lines);
+  });
+});
+
+// DRIFT-001-80: each alarm device's room comes from its hub's room list, which the library fetches
+// with no limit on its wait and does not type. The adapter bounds the wait, keeps what it knew, and
+// logs counts only.
+const KITCHEN = "מטבח";
+const KITCHEN_ID = 3;
+
+describe("RingApiAdapter reads rooms from each hub's room list", () => {
+  function rooms(): Setup & { readonly home: FakeLocation } {
+    const setUp = setup();
+    const home = setUp.client.locationsList[0];
+    if (home === undefined) {
+      throw new Error("The fake has no first location.");
+    }
+    setUp.client.contact.stream.emit({
+      ...setUp.client.contact.data,
+      roomId: KITCHEN_ID,
+    });
+    home.roomListAnswers.set(FAKE_HUB, () =>
+      Promise.resolve([{ id: KITCHEN_ID, name: KITCHEN }]),
+    );
+    return { ...setUp, home };
+  }
+
+  async function contactOf(setUp: Setup): Promise<RingDevice | undefined> {
+    const devices = await driveFakeClock(
+      setUp.clock,
+      setUp.adapter.devices("loc-1", never()),
+    );
+    return devices.find((device) => device.device_id === "z-contact");
+  }
+
+  function roomLines(lines: readonly string[]): Record<string, unknown>[] {
+    return lines
+      .filter((line) => line.includes('"ring_rooms_read"'))
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  it("names each alarm device's room exactly as Ring wrote it, and logs counts, never names", async () => {
+    const setUp = rooms();
+    setUp.home.roomListAnswers.set(FAKE_HUB, () =>
+      Promise.resolve([
+        { id: KITCHEN_ID, name: KITCHEN },
+        { id: "4", name: "Office" },
+        { name: "a room with no id" },
+        { id: 5, name: "" },
+      ]),
+    );
+
+    expect(await contactOf(setUp)).toMatchObject({ room: KITCHEN });
+    expect(roomLines(setUp.lines)).toEqual([
+      expect.objectContaining({
+        location_id: "loc-1",
+        count: 2,
+        listed: 4,
+        matched: 1,
+        unmatched: 0,
+        unanswered: 0,
+      }),
+    ]);
+    const log = setUp.lines.join("\n");
+    expect(log).not.toContain(KITCHEN);
+    expect(log).not.toContain("Office");
+  });
+
+  it("leaves the room out when the list does not name it, or is not a list, and the counts say so", async () => {
+    const setUp = rooms();
+    setUp.client.contact.stream.emit({
+      ...setUp.client.contact.data,
+      roomId: 9,
+    });
+    expect((await contactOf(setUp))?.room).toBeUndefined();
+
+    setUp.home.roomListAnswers.set(FAKE_HUB, () =>
+      Promise.resolve({ rooms: [{ id: 9, name: "Hall" }] }),
+    );
+    expect((await contactOf(setUp))?.room).toBeUndefined();
+    expect(roomLines(setUp.lines)).toEqual([
+      expect.objectContaining({
+        count: 1,
+        listed: 1,
+        matched: 0,
+        unmatched: 1,
+      }),
+      expect.objectContaining({
+        count: 0,
+        listed: 0,
+        matched: 0,
+        unmatched: 1,
+      }),
+    ]);
+  });
+
+  it("waits a bounded time for a hub that never answers: the read ends, Ring stays ok, and the next call is not held", async () => {
+    const setUp = rooms();
+    setUp.home.roomListAnswers.set(FAKE_HUB, noAnswer);
+    const started = setUp.clock.now();
+
+    expect((await contactOf(setUp))?.room).toBeUndefined();
+    const waited = setUp.clock.now() - started;
+    expect(waited).toBeGreaterThanOrEqual(ROOM_LIST_WAIT_MS);
+    expect(waited).toBeLessThan(RING_CALL_TIMEOUT_MS);
+    expect(setUp.adapter.sessionStatus()).toBe("ok");
+    expect(sessionChanges(setUp.changes)).toEqual([]);
+
+    // The next read is not held behind the unanswered request, and does not ask that hub again.
+    const again = setUp.clock.now();
+    expect(await contactOf(setUp)).toMatchObject({ device_id: "z-contact" });
+    expect(setUp.clock.now() - again).toBeLessThan(ROOM_LIST_WAIT_MS);
+    expect(setUp.home.roomListRequests).toEqual([FAKE_HUB]);
+    expect(roomLines(setUp.lines).at(-1)).toMatchObject({ unanswered: 1 });
+  });
+
+  it("asks a hub that did not answer again once the location's device list changes", async () => {
+    const setUp = rooms();
+    setUp.home.roomListAnswers.set(FAKE_HUB, noAnswer);
+    await contactOf(setUp);
+    setUp.home.roomListAnswers.set(FAKE_HUB, () =>
+      Promise.resolve([{ id: KITCHEN_ID, name: KITCHEN }]),
+    );
+
+    setUp.home.sendDeviceList([
+      setUp.client.contact,
+      setUp.client.panel,
+      motionSensor(),
+    ]);
+    expect(await contactOf(setUp)).toMatchObject({ room: KITCHEN });
+    expect(setUp.home.roomListRequests).toEqual([FAKE_HUB, FAKE_HUB]);
+  });
+
+  it("keeps a hub's rooms when a later answer is unreadable or fails, and takes an empty list as no rooms", async () => {
+    const setUp = rooms();
+    expect(await contactOf(setUp)).toMatchObject({ room: KITCHEN });
+
+    setUp.home.roomListAnswers.set(FAKE_HUB, () =>
+      Promise.resolve("not a list"),
+    );
+    expect(await contactOf(setUp)).toMatchObject({ room: KITCHEN });
+
+    setUp.home.roomListAnswers.set(FAKE_HUB, () => Promise.resolve([]));
+    expect((await contactOf(setUp))?.room).toBeUndefined();
+
+    setUp.home.roomListAnswers.set(FAKE_HUB, () =>
+      Promise.resolve([{ id: KITCHEN_ID, name: KITCHEN }]),
+    );
+    expect(await contactOf(setUp)).toMatchObject({ room: KITCHEN });
+    setUp.home.roomListAnswers.set(FAKE_HUB, () =>
+      Promise.reject(new Error(FAKE_RING_BODY)),
+    );
+    expect(await contactOf(setUp)).toMatchObject({ room: KITCHEN });
+    expect(setUp.adapter.sessionStatus()).toBe("ok");
+    expect(setUp.lines.join("\n")).not.toContain(FAKE_RING_BODY);
+  });
+
+  it("carries the device's room on its later changes, so a change never drops it", async () => {
+    const setUp = rooms();
+    expect(await contactOf(setUp)).toMatchObject({ room: KITCHEN });
+
+    setUp.client.contact.stream.emit({
+      ...setUp.client.contact.data,
+      faulted: true,
+    });
+    expect(deviceChangesOf(setUp.changes, "z-contact")).toEqual([
+      {
+        kind: "device",
+        device: expect.objectContaining({
+          state: { open: true },
+          room: KITCHEN,
+        }) as unknown,
+      },
+    ]);
   });
 });

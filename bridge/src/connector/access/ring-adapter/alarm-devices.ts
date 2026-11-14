@@ -22,8 +22,8 @@ interface Unsubscribe {
 
 /** What the watch reports. */
 export interface AlarmDeviceEvents {
-  /** A watched device's data changed. */
-  readonly changed: (data: RingClientDeviceData) => void;
+  /** A watched device's data changed; `assetId` is the hub whose list names it. */
+  readonly changed: (data: RingClientDeviceData, assetId: string) => void;
   /** A device was added or removed: the location must be read again. */
   readonly listChanged: () => void;
 }
@@ -118,7 +118,7 @@ export class AlarmDevices {
       id,
       device.onData.subscribe((data) => {
         if (seenCurrent) {
-          this.#events.changed(data);
+          this.#events.changed(data, device.assetId);
         }
         seenCurrent = true;
       }),

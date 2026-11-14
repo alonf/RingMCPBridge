@@ -21,6 +21,11 @@
 //   `ok`: a probe that gets through does not hide a connection still closed.
 // - A rotated refresh token is saved at once through `saveRefreshToken` (the Secrets File's
 //   update, wired by the Host).
+// - Rooms (DRIFT-001-80): each read asks each hub with alarm devices for its room list, which the
+//   library waits for with no limit. The adapter waits `ROOM_LIST_WAIT_MS`, well inside a call's
+//   deadline, so a hub that never answers frees the one library call and counts as no failure; it
+//   is not asked again until the location's device list changes. A hub that does not answer, or
+//   answers with no list, keeps the rooms it gave before; a device change carries its room too.
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
 import { Secret } from "../../../utilities/security/index.ts";
@@ -50,9 +55,15 @@ import type {
   RingSessionStatus,
   StopWatching,
 } from "./ring-port.ts";
+import { readRoomList } from "./room-lists.ts";
 
 /** How long one Ring call may take before it counts as Ring unavailable. */
 export const RING_CALL_TIMEOUT_MS = 30_000;
+/**
+ * How long a hub's room list is waited for [P]: a third of a call's deadline, so a hub that never
+ * answers ends its call before the deadline would count it as Ring unavailable.
+ */
+export const ROOM_LIST_WAIT_MS = RING_CALL_TIMEOUT_MS / 3;
 /**
  * How long a hub's live connection may stay closed before Ring counts as unavailable [P]: longer
  * than the library's routine reconnect of a second or two, and, with the 15 s heartbeat, well
@@ -71,6 +82,10 @@ export const RING_RECOVERY_PROBE_MS = RING_CALL_LIMITS.circuit.probeIntervalMs;
 const SECURITY_PANEL = "security-panel";
 /** A read the library answers from its own memory: `#call`'s `reachesRing` set to false. */
 const FROM_MEMORY = false;
+/** A room list's answer, or its absence, says nothing about Ring: `reachesRing` set to false. */
+const CLAIMS_NOTHING = false;
+/** A hub that did not answer its room-list request in time, or whose request failed. */
+const NO_ROOM_LIST = Symbol("no room list");
 const NO_ANSWER = "Ring did not answer in time.";
 const EARLIER_CALL_RUNNING =
   "Ring has not yet answered an earlier call, so no new call was made.";
@@ -104,6 +119,13 @@ interface CallBounds {
   readonly ended: boolean;
 }
 
+/** One read's room lists: entries Ring listed, rooms read, and hubs that did not answer. */
+interface RoomsRead {
+  readonly listed: number;
+  readonly read: number;
+  readonly unanswered: number;
+}
+
 function isDevice(entry: RingDevice | undefined): entry is RingDevice {
   return entry !== undefined;
 }
@@ -124,6 +146,10 @@ export class RingApiAdapter implements RingPort {
   #stuckReported = false;
   readonly #locations = new Map<string, RingClientLocation>();
   readonly #alarmDevices = new Map<string, AlarmDevices>();
+  // Each hub's rooms as last read, by room id; and the hubs not asked again until a device-list
+  // change, since they did not answer.
+  readonly #rooms = new Map<string, ReadonlyMap<string, string>>();
+  readonly #roomsUnanswered = new Set<string>();
   readonly #listeners = new Set<(change: RingChange) => void>();
   readonly #subscriptions: Unsubscribe[] = [];
   readonly #saving = new Set<Promise<void>>();
@@ -197,10 +223,19 @@ export class RingApiAdapter implements RingPort {
     const alarmDevices =
       this.#alarmDevices.get(locationId)?.current(listed) ?? listed;
     const cameras = await this.#currentCameras(location, signal);
+    const roomsRead = await this.#readRooms(location, alarmDevices, signal);
+    const entries = alarmDevices
+      .map((device: RingClientDevice) =>
+        deviceEntry(
+          device.data,
+          locationId,
+          this.#roomOf(device.assetId, device.data),
+        ),
+      )
+      .filter(isDevice);
+    this.#logRooms(locationId, alarmDevices, roomsRead);
     return [
-      ...alarmDevices
-        .map((device: RingClientDevice) => deviceEntry(device.data, locationId))
-        .filter(isDevice),
+      ...entries,
       ...cameras.map((camera) => cameraEntry(camera, locationId)),
     ];
   }
@@ -257,6 +292,118 @@ export class RingApiAdapter implements RingPort {
       }
     }
     return listed;
+  }
+
+  // Each hub with alarm devices is asked for its room list, one at a time through the gate, unless
+  // it did not answer before. A readable answer replaces the hub's rooms, even with none; no answer
+  // or an unreadable one keeps them.
+  async #readRooms(
+    location: RingClientLocation,
+    devices: readonly RingClientDevice[],
+    signal: AbortSignal,
+  ): Promise<RoomsRead> {
+    const counts = { listed: 0, read: 0, unanswered: 0 };
+    for (const hub of new Set(devices.map((device) => device.assetId))) {
+      const answer = this.#roomsUnanswered.has(hub)
+        ? NO_ROOM_LIST
+        : await this.#roomListOf(location, hub, signal);
+      if (answer === NO_ROOM_LIST) {
+        this.#roomsUnanswered.add(hub);
+        counts.unanswered += 1;
+        continue;
+      }
+      const list = readRoomList(answer);
+      counts.listed += list.listed;
+      counts.read += list.rooms.size;
+      if (list.readable) {
+        this.#rooms.set(hub, list.rooms);
+      }
+    }
+    return counts;
+  }
+
+  // A failure that counts as Ring unavailable has already been counted by `#call`: the read goes on
+  // with the rooms last read. A lost session and an abort end the read.
+  async #roomListOf(
+    location: RingClientLocation,
+    hub: string,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    try {
+      return await this.#call(
+        signal,
+        () => this.#boundedRoomList(location, hub),
+        CLAIMS_NOTHING,
+      );
+    } catch (error) {
+      if (
+        error instanceof RingAdapterError &&
+        error.kind === "ring_unavailable"
+      ) {
+        return NO_ROOM_LIST;
+      }
+      throw error;
+    }
+  }
+
+  // Ring's answer, or `NO_ROOM_LIST` once the wait is over or the library fails. It always settles,
+  // so the next library call never waits on a hub that does not answer.
+  #boundedRoomList(
+    location: RingClientLocation,
+    hub: string,
+  ): Promise<unknown> {
+    return new Promise((resolve) => {
+      const cancel = this.#clock.schedule(ROOM_LIST_WAIT_MS, () => {
+        resolve(NO_ROOM_LIST);
+      });
+      Promise.resolve()
+        .then(() => location.getRoomList(hub))
+        .then(
+          (answer) => {
+            cancel();
+            resolve(answer);
+          },
+          () => {
+            cancel();
+            resolve(NO_ROOM_LIST);
+          },
+        );
+    });
+  }
+
+  #roomOf(hub: string, data: RingClientDeviceData): string | undefined {
+    return data.roomId === undefined
+      ? undefined
+      : this.#rooms.get(hub)?.get(String(data.roomId));
+  }
+
+  // Counts only, never a room's name: enough to tell a list the reader could not read from a home
+  // with no rooms (`listed` against `count`), and a room id no list names (`unmatched`).
+  #logRooms(
+    locationId: string,
+    devices: readonly RingClientDevice[],
+    roomsRead: RoomsRead,
+  ): void {
+    let matched = 0;
+    let unmatched = 0;
+    for (const device of devices) {
+      if (device.data.roomId === undefined) {
+        continue;
+      }
+      if (this.#roomOf(device.assetId, device.data) === undefined) {
+        unmatched += 1;
+      } else {
+        matched += 1;
+      }
+    }
+    this.#logger.info("ring_rooms_read", {
+      location_id: locationId,
+      count: roomsRead.read,
+      listed: roomsRead.listed,
+      matched,
+      unmatched,
+      unanswered: roomsRead.unanswered,
+    });
   }
 
   // ring-client-api fetches the locations once and then answers from its memory, even while Ring
@@ -559,10 +706,12 @@ export class RingApiAdapter implements RingPort {
       this.#subscriptions.push(this.#watchConnection(location));
     }
     const alarmDevices = new AlarmDevices(location, {
-      changed: (data) => {
-        this.#deviceChanged(location, data);
+      changed: (data, hub) => {
+        this.#deviceChanged(location, data, hub);
       },
+      // A changed list may bring a hub back: every hub is asked for its rooms again.
       listChanged: () => {
+        this.#roomsUnanswered.clear();
         this.#emit({ kind: "device_list", location_id: location.id });
       },
     });
@@ -577,6 +726,7 @@ export class RingApiAdapter implements RingPort {
   #deviceChanged(
     location: RingClientLocation,
     data: RingClientDeviceData,
+    hub: string,
   ): void {
     if (data.deviceType === SECURITY_PANEL) {
       if (this.#profileId !== undefined) {
@@ -591,7 +741,7 @@ export class RingApiAdapter implements RingPort {
       }
       return;
     }
-    const device = deviceEntry(data, location.id);
+    const device = deviceEntry(data, location.id, this.#roomOf(hub, data));
     if (device !== undefined) {
       this.#emit({ kind: "device", device });
     }

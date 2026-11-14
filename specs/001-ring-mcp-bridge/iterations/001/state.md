@@ -5,9 +5,16 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T18:47:00Z
+**Updated**: 2026-11-14T19:24:00Z
 
 ## Execution Summary
+
+- **The connector reads each hub's rooms** (2026-11-14; DRIFT-001-80, the owner's decision).
+  - A tolerant reader takes entries with an id and a name.
+  - The wait is bounded at 10 s, so a hub that never answers holds no later Ring call and counts as no failure.
+  - The last known rooms are kept, and a device change carries its room. The log has counts only.
+  - Tests and four deliberate breaks cover it. The core is unchanged.
+  - Ships with the owner's time zone setting in one image. The live check after the VM update: rooms in `list_devices`, and the `ring_rooms_read` counts.
 
 - **T033's Claude trials** (2026-11-14, about 18:40 UTC; DRIFT-001-79). Claude Code and the owner's claude.ai connector both linked, and all four tools answered through each.
   - The home's local time reads as UTC: Ring's address time zone is empty or not an IANA name, and the recorded fallback applies.
