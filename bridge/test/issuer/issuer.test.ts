@@ -52,7 +52,10 @@ import {
   Secret,
   SecurityError,
 } from "../../src/utilities/security/index.ts";
-import type { OwnerSignIn } from "../../src/utilities/security/index.ts";
+import type {
+  OwnerSignIn,
+  SignInStartOptions,
+} from "../../src/utilities/security/index.ts";
 import { startCoreReads } from "../mcp-endpoint/core-fixture.ts";
 import {
   browse,
@@ -212,6 +215,8 @@ interface Rig {
   readonly logLines: string[];
   /** How many Entra sign-ins the Issuer has started. */
   signInsStarted(): number;
+  /** What each Entra sign-in the Issuer started asked for, in order. */
+  signInStarts(): readonly SignInStartOptions[];
   /** Makes the next sign-in fail to start with this error. */
   failNextSignIn(error: Error): void;
   close(): Promise<void>;
@@ -272,10 +277,12 @@ async function startRig(
     },
   );
   let signInsStarted = 0;
+  const signInStarts: SignInStartOptions[] = [];
   let nextFailure: Error | undefined;
   const ownerSignIn: OwnerSignIn = {
     begin: (startOptions, signal) => {
       signInsStarted += 1;
+      signInStarts.push({ ...startOptions });
       const failure = nextFailure;
       nextFailure = undefined;
       return failure === undefined
@@ -402,6 +409,7 @@ async function startRig(
     fetched,
     logLines,
     signInsStarted: () => signInsStarted,
+    signInStarts: () => signInStarts,
     failNextSignIn: (error) => {
       nextFailure = error;
     },
@@ -624,14 +632,17 @@ describe("the Issuer", () => {
     expect(tokens.scope).toBe("read");
   });
 
-  it("asks the owner to sign in for every link, even in a browser that linked before", async () => {
+  it("sends every link to the owner's Entra sign-in, even in a browser that linked before", async () => {
     const jars = new Map<string, Map<string, string>>();
     const redirectUri = textOf(DOCUMENT_AGENT.redirect_uris[0]);
     await link(rig, DOCUMENT_AGENT.client_id, redirectUri, "read", jars);
 
     await link(rig, DOCUMENT_AGENT.client_id, redirectUri, "read", jars);
 
-    expect(rig.signInsStarted()).toBe(2);
+    // The bridge reuses no session of its own, but it does not force new credentials: Entra may
+    // answer from the owner's open Microsoft session, with no screen. The owner's choice for
+    // read-only links (DRIFT-001-76); the admin and confirm pages do force them.
+    expect(rig.signInStarts()).toEqual([{ fresh: false }, { fresh: false }]);
   });
 
   it("finishes a sign-in only in the browser that started the link", async () => {

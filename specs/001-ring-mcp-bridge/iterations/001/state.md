@@ -5,11 +5,14 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T14:57:00Z
+**Updated**: 2026-11-14T16:18:00Z
 
 ## Execution Summary
 
-- **ChatGPT linked and read the home, with no sign-in screen** (2026-11-14; DRIFT-001-76, open). T033's first agent link worked: ChatGPT called `get_overview`. Entra completed the link silently from the owner's earlier admin-page session, because agent links do not force a fresh sign-in, contrary to DRIFT-001-39. The core also logs no completed link. The owner decides between making links fresh, with a log event, and keeping the current behaviour.
+- **ChatGPT linked and read the home, with no sign-in screen** (2026-11-14; DRIFT-001-76). T033's first agent link worked: ChatGPT called `get_overview`. Entra completed the link silently from the owner's earlier admin-page session, because agent links do not force a fresh sign-in, contrary to DRIFT-001-39.
+  - **The owner kept that behaviour** for read-only links. The contract, DRIFT-001-39 and the README now say so.
+  - An Issuer test holds it, and a deliberate break showed the test catches it. No new image.
+  - **Still open:** whether the core should log each completed link, which the owner was asked on its own. The choice is put to the owner again before a link can grant more than `read`.
 - **The README says how to connect ChatGPT and Claude** (2026-11-14; DRIFT-001-75, the owner's request). It has steps for ChatGPT, claude.ai (also Desktop and mobile) and Claude Code against a deployed core. It is checked against the live core's discovery documents, and no agent has tried it yet. The home connector is enrolled and linked, and T033's agent trials are next.
 - **The home connector's VM is up on the owner's Hyper-V host** (2026-11-14; DRIFT-001-74):
   - The script's first real run passed every check but one: Hyper-V's guest tools did not start, so Hyper-V never learned the VM's address. The cause was udev rules that arrive after the boot has made the devices.

@@ -36,7 +36,7 @@ The agent's server URL is `https://<core-host>/mcp`, where `<core-host>` is the 
 
 - **Only listed agents can link.** The list is the `BRIDGE_AGENTS` variable (see [the runbook's Part B](infra/bootstrap/entra-app-registration.md#part-b-the-listed-agents)). The list given there holds ChatGPT, Claude (claude.ai, Desktop and mobile) and Claude Code.
 - **Each agent is listed by its published client metadata document.** So when an agent asks how to identify itself, choose that document. An agent that registers itself instead is refused.
-- **Every link is your own sign-in.** The bridge sends you to your Microsoft Entra sign-in, and only the configured owner gets through.
+- **Every link is your own sign-in.** The bridge sends you to your Microsoft Entra sign-in, and only the configured owner gets through. If your browser is already signed in to Microsoft with that account, Entra may finish without showing you a screen.
 - **The tools are read-only.**
 
 > The owner's pilot (T033) is trying these steps now, agent by agent. This section is corrected as each agent is tried.
@@ -52,7 +52,7 @@ A description for the connector form:
 3. **Server URL**: `https://<core-host>/mcp`.
 4. **Authentication**: **OAuth**. If ChatGPT asks how to register, choose its client metadata document (CIMD).
 5. Accept the warning, then select **Create as a plugin**. Install it, and turn it on in a chat.
-6. When ChatGPT sends you to the bridge, sign in with your Entra account.
+6. When ChatGPT sends you to the bridge, sign in with your Entra account, if asked.
 
 ### Claude: claude.ai, Claude Desktop and Claude mobile
 
@@ -61,7 +61,7 @@ They share one connector, so add it once, on claude.ai.
 1. Go to **Customize > Connectors**, select **Add**, then **Add custom connector**. On a Team or Enterprise plan, an Owner adds it instead, under **Organization settings > Connectors**.
 2. Enter a name, such as `Ring home`, and the **MCP server URL**: `https://<core-host>/mcp`. Then select **Continue**.
 3. **Authentication**: **Sign in now**. **OAuth client**: **Use Claude's published identity**. Claude may mark these **Detected**.
-4. Select **Add**, then **Connect**, and sign in with your Entra account.
+4. Select **Add**, then **Connect**, and sign in with your Entra account, if asked.
 5. In a chat, turn it on under **+ > Connectors**.
 
 ### Claude Code
@@ -70,7 +70,7 @@ They share one connector, so add it once, on claude.ai.
 claude mcp add --transport http --scope user ring-home https://<core-host>/mcp
 ```
 
-In Claude Code, run `/mcp`, choose `ring-home` and authenticate. Your browser opens your Entra sign-in. From a shell, `claude mcp login ring-home` does the same.
+In Claude Code, run `/mcp`, choose `ring-home` and authenticate. Your browser opens your Entra sign-in, which may finish on its own. From a shell, `claude mcp login ring-home` does the same.
 
 ### Ending a link
 

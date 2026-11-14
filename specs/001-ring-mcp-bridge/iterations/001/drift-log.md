@@ -1185,21 +1185,24 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **The tests missed it.** They hold that the bridge reuses no session of its own. None checks what the Entra request asks for.
   - **Nothing records a link.** The Issuer logs only its sweeps, the registration limit and failed sign-ins. `mcp_tool_called` redacts the client id. So the core's log cannot say which agent linked, or when.
   - **What this means (agent reading).** While a Microsoft session is open in the owner's browser, opening a link's authorization URL completes a read-only grant with no step the owner sees, and nothing logs it. Whether someone else could obtain such a grant depends on how each agent binds its OAuth `state`, which was not checked. No attack is claimed.
-- **Decided**: open, the owner's decision. The options:
-  - **Recommended:**
-    - Agent links begin a fresh sign-in (`prompt=login` and the `auth_time` check, as the admin page does in production). The owner enters their credentials once per new link; refresh tokens carry each link for up to 90 days.
-    - The Issuer logs each completed link with the listed entry's platform, such as "ChatGPT".
-    - About 0.5 SP (estimate), $0.
-  - **Or:** keep it as it is. DRIFT-001-39, the contract and the README would then say that Entra may complete a link silently from an existing Microsoft session.
-- **Requirement citation**: FR-029; DRIFT-001-39; `contracts/web-endpoints.md` (the rule that every link is a fresh Entra sign-in); T033.
-- **Resolution**: open, waiting on the owner's decision.
+- **Options put to the owner**:
+  - **Recommended:** agent links force a fresh sign-in (`prompt=login` and the `auth_time` check, as the admin page does), and the Issuer logs each completed link with the listed entry's platform, such as "ChatGPT". About 0.5 SP (estimate), $0.
+  - **Or:** keep it as it is, and correct the records.
+- **Decided**: the owner kept it, 2026-11-14: "if already connected to Entra no need to ask me to sign in". Agent links do not force new credentials; Entra may complete one from the owner's open Microsoft session.
+  - The decision covers read-only links, the only kind in iteration 001.
+  - The link log was asked together with the fresh sign-in, and the answer covered only the sign-in. It is not built; it is put to the owner on its own.
+- **Requirement citation**: FR-029 (unchanged: it asks for the owner's organization sign-in, not a fresh one); DRIFT-001-39; `contracts/web-endpoints.md`; T033.
+- **Resolution**: records corrected to the code, which does not change:
+  - `contracts/web-endpoints.md`: the link rule now says each link goes to Entra and may complete with no screen, and names this entry.
+  - DRIFT-001-39's "each link is a fresh Entra sign-in" carries a note pointing here.
+  - The README says Entra may complete a link with no screen while the browser is signed in to Microsoft.
+  - No new image: `bridge/src` is unchanged, and the VM keeps its image.
+  - Cost: about 0.1 SP (estimate), $0.
 - **Carry-forward**:
-  - **If the fix ships:**
-    - It publishes a new image, so the core moves to it.
-    - The VM still names `146392a…` in `/etc/ring-bridge/bridge.env`. The owner updates `IMAGE` there, pulls the image and runs `ring-bridge-start`, with no new enrollment.
-    - ChatGPT's existing link keeps working until it is removed and added again.
-  - **The README:** its "Every link is your own sign-in" holds as written only with the fix.
-- **Class closure**: open. If the fix ships, a test would hold the link's sign-in as fresh, and a deliberate break would show that test catches it.
+  - **Accepted risk, unchecked:** whether someone else could obtain a silent link depends on how ChatGPT and Claude bind their OAuth `state`. That was not checked. The grant is read-only, only listed agents and their listed redirect URIs can link, and only the owner's Entra account gets through.
+  - **When a link can grant more than `read`** (iteration 003's control scopes): put this choice to the owner again before that link ships.
+  - **The link log**: still missing; it waits on the owner's answer. It would publish a new image, so the owner would update `IMAGE` on the VM. It can ride with the next change that ships an image anyway.
+- **Class closure**: the Issuer test that links twice in one browser now records what each Entra sign-in asked for, and holds both as `{ fresh: false }`. Before, it counted sign-ins only. A deliberate break, links begun with `fresh: true`, failed that test alone: the other 54 Issuer tests passed with it, because the Entra stand-in supplies `auth_time`. So until this test, nothing held either choice.
 
 ### DRIFT-001-75: The owner's request: the README's steps for connecting ChatGPT and Claude, ahead of iteration 004's README
 
@@ -2495,7 +2498,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - The owner also wants a second person they name to have access later, once that person has their own agent. That is a later feature; the check is one comparison, easy to widen to a list.
   - **Self-registering agents** (announced to the owner, no objection): a DCR registration is accepted only when every redirect URI it names is listed for one agent. That agent's listed client id is then only a name. The match is made again each time the client is used, so revoking or unlisting the agent ends the client.
   - **Client documents (CIMD)**: an agent is listed under its document's URL. The URL is checked before anything is fetched, so an unlisted one is never fetched, and every redirect URI the document names must be listed for it. oidc-provider implements CIMD draft-02. Whether that matches what ChatGPT and Claude publish is for spike S7, which has not run.
-  - **Every link asks the owner**: no grant is reused from the provider's browser session, so each link is a fresh Entra sign-in.
+  - **Every link asks the owner**: no grant is reused from the provider's browser session, so each link is a fresh Entra sign-in. (Corrected by DRIFT-001-76: each link goes to Entra, but the sign-in was never forced fresh, and Entra may complete it from the owner's Microsoft session. The owner kept that.)
   - **No client secrets**: the token endpoint takes `none` or `private_key_jwt` only, so no secret is issued or stored (SC4). If S7 shows an agent needs a secret, this is revisited.
   - **One resource, read only**: tokens are issued for the MCP endpoint alone (RFC 8707), with `read` only in iteration 001, even when an agent asks for more or is listed for more.
   - **Opaque access tokens**: the MCP endpoint checks each one against its stored grant, so a revocation takes effect at once. The signing keys then sign only ID tokens, when an agent asks for `openid`. PT-04's retirement timing (10 minutes plus the 1-hour access-token life) assumed signed access tokens; keeping it is harmless.
