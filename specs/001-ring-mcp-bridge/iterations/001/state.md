@@ -5,11 +5,15 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-13T00:30:00Z
+**Updated**: 2026-11-14T13:30:00Z
 
 ## Execution Summary
 
-- **A script creates the home connector's VM on Hyper-V** (2026-11-13; DRIFT-001-73, the owner's request): `infra/home/new-connector-vm.ps1` builds R10's VM, prepares Docker, the folders and two commands, and pulls the image. It leaves the setup, the owner's Ring login, to the owner. Its qcow2 converter matches qemu-img byte for byte. It has not yet run against a real VM.
+- **The home connector's VM is up on the owner's Hyper-V host** (2026-11-14; DRIFT-001-74):
+  - The script's first real run passed every check but one: Hyper-V's guest tools did not start, so Hyper-V never learned the VM's address. The cause was udev rules that arrive after the boot has made the devices.
+  - The first boot now replays the devices. The same lines fixed the real VM, which then rebooted cleanly onto its updated kernel.
+  - Next: the owner's Ring setup and the enrollment.
+- **A script creates the home connector's VM on Hyper-V** (2026-11-13; DRIFT-001-73, the owner's request): `infra/home/new-connector-vm.ps1` builds R10's VM, prepares Docker, the folders and two commands, and pulls the image. It leaves the setup, the owner's Ring login, to the owner. Its qcow2 converter matches qemu-img byte for byte. Its first real run is DRIFT-001-74.
 - **The core is deployed in Azure** (2026-11-13; DRIFT-001-71). Every resource's SKU and region was read back and matches the plan, and billing has started, at about $0.70 a day (estimate). Part C and the bootstrap's second stage are done. App Service could not pull the image while the registry's name was spelled with capitals. The Bicep now lowercases it, and with that redeployed the smoke test passed and `/readyz` answers ready. Next in T033: the home connector, then the first agent trials.
 - **The deploy's GitHub sign-in fixed** (2026-11-13; DRIFT-001-70). The first preview was refused because this repository presents its OIDC subject with immutable IDs. The bootstrap now reads the subject from the repository's OIDC setting, and has corrected the credential. The same run's public log hid every secret.
 - **The bootstrap's first stage ran against the owner's subscription** (2026-11-13; DRIFT-001-69). It first stopped on an empty list from `az`, a defect its tests had missed. Once that was fixed, it created the resource group, the deploy identity and its roles, and the `production` environment with its secrets and variables.

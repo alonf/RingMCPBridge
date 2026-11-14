@@ -8,7 +8,8 @@
 //   - print-only, the default, calls nothing;
 //   - with -Apply it checks, downloads and verifies, converts, writes the first-boot settings and
 //     creates the VM as recorded;
-//   - its first-boot settings never run the setup or start the connector;
+//   - its first-boot settings never run the setup or start the connector, and replay the Hyper-V
+//     devices to the guest tools' udev rules before starting their address daemon (DRIFT-001-74);
 //   - it refuses a taken name, a missing switch or a wrong hash before changing anything, and
 //     removes what it created when a later step fails.
 // PowerShell 7 ships on the CI runner; without `pwsh` these fail in CI and are skipped elsewhere.
@@ -380,6 +381,35 @@ describe.runIf(HAS_PWSH)(
       expect(metaData).toMatch(
         /^instance-id: ring-bridge-\d{14}\nlocal-hostname: ring-bridge\n$/,
       );
+    });
+
+    it("replays the Hyper-V devices to the guest tools' udev rules before starting their address daemon", () => {
+      const { exitCode, output, vmFolder } = runVm(parameters({ Apply: true }));
+
+      expect(exitCode, output).toBe(0);
+      const userData = readFileSync(
+        join(vmFolder, "first-boot", "user-data"),
+        "utf8",
+      );
+      const runcmd = userData.slice(userData.indexOf("runcmd:"));
+      // The rules come with the tools, after the boot made the devices: without the replay systemd
+      // has no unit for the KVP device, the daemon bound to it does not start, and Hyper-V never
+      // learns the VM's address (DRIFT-001-74).
+      const order = [
+        `apt-get install -y "linux-cloud-tools-$(uname -r)"`,
+        "  - [udevadm, control, --reload]\n",
+        "  - [udevadm, trigger, --action=add, --subsystem-match=misc]\n",
+        "  - [udevadm, settle]\n",
+        "  - [systemctl, enable, --now, hv-kvp-daemon.service]\n",
+      ].map((line) => runcmd.indexOf(line));
+      expect(
+        order.every((index) => index >= 0),
+        order.join(","),
+      ).toBe(true);
+      expect(
+        order.every((index, i) => i === 0 || index > order[i - 1]),
+        order.join(","),
+      ).toBe(true);
     });
 
     it("names the adapter's MAC address when the VM reports no address", () => {

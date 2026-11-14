@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 73
+**Total drift events**: 74
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,39 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-74: The VM script's first real run: Hyper-V's guest tools did not start, so Hyper-V never learned the VM's address
+
+- **Detected**: 2026-11-13, implement, T033 step 2. The run was on the owner's Windows Server 2025 Hyper-V host, by a Claude session there acting for the owner.
+- **Kind**: a defect in DRIFT-001-73's first-boot settings, found on the first real boot
+- **Observed**:
+  - **The run itself worked.** It exited 0 and did each step it describes. The first boot finished with no cloud-init errors.
+  - **The VM:**
+    - Docker 29.1.3 is installed, and the image has the tag the core runs.
+    - The connector's folders are owned by uid 1000, and the secrets folder is mode 700.
+    - The clock is synced.
+    - The core's `/livez` answered 200 from inside the VM.
+  - **On the host:** generation 2, Secure Boot with the Microsoft UEFI CA template, 2 vCPU and 2 GB of static memory. Checkpoints are off, and the VM starts and stops with the host.
+  - **The failure:** `hv-kvp-daemon` and `hv-vss-daemon` never started, failing with "Dependency failed". Hyper-V showed the Key-Value Pair Exchange as "No Contact". After 15 minutes the script printed the adapter's MAC address instead of an address, and the address was found from that MAC.
+  - **The cause.** Ubuntu's `linux-cloud-tools-common` ships udev rules (`60-hv-kvp-daemon.rules`, `60-hv-vss-daemon.rules`) that tag Hyper-V's devices for systemd. `hv-kvp-daemon.service` is bound to the KVP device's unit (`BindsTo=`). The rules arrive with the package during the first boot, after the boot has already made the devices, so udev never tagged them. On the VM, the device units were "inactive dead" placeholders, and the device carried no systemd tag.
+- **Decided**:
+  - **The first boot now replays the devices to the new rules.** After installing the tools for the running kernel, it runs `udevadm control --reload`, `udevadm trigger --action=add --subsystem-match=misc` and `udevadm settle`. Then `systemctl enable --now hv-kvp-daemon.service` runs as before.
+  - **No reboot at the end of the first boot.** It would cut an SSH session the owner opens on the printed address, and it would cover only the first kernel update.
+- **Requirement citation**: T033 step 2; research.md R10; FR-032; DRIFT-001-73.
+- **Resolution**: fixed and checked. Under 0.5 SP (estimate), and $0.
+  - **The fix, on the real VM.** It was run on the VM in the state the first boot left it, using the same lines:
+    - the devices were tagged (`TAGS=:systemd:`, `SYSTEMD_WANTS=hv-kvp-daemon.service`);
+    - the KVP and VSS units became "active plugged", and both daemons started;
+    - Hyper-V showed the Key-Value Pair Exchange as OK, and the adapter reported the VM's address.
+  - **One graceful reboot after that.** The VM came up on the kernel the first boot's upgrade installed. Both daemons and Docker were active. cloud-init stayed done and did not run again, the image was still there, and Hyper-V reported the address.
+  - **The `hv_fcopy` unit stays a placeholder.** Its device exists only when the host enables the Guest Service Interface, which the script leaves off (agent reading).
+  - **Tests.** A test holds the order: the tools, the reload, the trigger, the settle, then the daemon. Two deliberate breaks (no replay; the replay after the daemon) were each caught. The new settings pass cloud-init 26.2's schema check, and PSScriptAnalyzer finds nothing.
+  - **Not proven: a fresh first boot with the fix in its settings.** A throwaway VM on the same host would prove it, at $0 and about 25 minutes (estimate).
+- **Carry-forward**:
+  - **Backups (owner's decision, 2026-11-14).** R10's "keep the VM out of the host's backups" is the owner's: the owner chooses what is backed up.
+  - **Kernel updates (open).** The first boot's upgrade can install a new kernel, which runs only after a reboot. Ubuntu's automatic updates do not reboot. The owner decides whether the VM should reboot itself for them.
+  - **Next in T033:** the owner's `ring-bridge-setup` and `ring-bridge-start`, and the enrollment approval.
+- **Class closure**: a test holds the replay before the daemon starts. The fix's effect was observed on the real VM, in the state a first boot leaves. A first boot with the fix in its settings has not been observed.
 
 ### DRIFT-001-73: The owner's request: a script that creates the home connector's VM on Hyper-V
 

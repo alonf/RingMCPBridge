@@ -180,6 +180,11 @@ function Get-UserData([string] $Key) {
         'runcmd:'
         '  # The guest tools for the running kernel, so Hyper-V sees the address before any reboot.'
         '  - [sh, -c, ''apt-get install -y "linux-cloud-tools-$(uname -r)"'']'
+        '  # Their udev rules arrived after this boot made the Hyper-V devices, so systemd has no unit for'
+        '  # those devices, and hv-kvp-daemon, bound to its device, would not start: replay the devices.'
+        '  - [udevadm, control, --reload]'
+        '  - [udevadm, trigger, --action=add, --subsystem-match=misc]'
+        '  - [udevadm, settle]'
         '  - [systemctl, enable, --now, hv-kvp-daemon.service]'
         '  - [mkdir, -p, /srv/ring-bridge/data, /srv/ring-bridge/secrets]'
         "  - [chown, -R, '1000:1000', /srv/ring-bridge]"
