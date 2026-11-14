@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 75
+**Total drift events**: 76
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,33 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-76: ChatGPT linked with no sign-in screen: the link's Entra sign-in is not fresh, and nothing logs a link
+
+- **Detected**: 2026-11-14, implement, T033, at the first real agent link (ChatGPT). The owner asked why the link needed no login.
+- **Kind**: the code differs from the records: DRIFT-001-39 and `contracts/web-endpoints.md` say "every link asks the owner" and "each link is a fresh Entra sign-in"
+- **Observed**:
+  - **The link worked.** ChatGPT linked, and the core logged its first tool call (`get_overview`, ok). The owner saw no sign-in screen.
+  - **Why.** The Issuer begins the owner's Entra sign-in with `fresh: false`, so the request carries no `prompt=login`. The browser held an Entra session from the owner's admin-page sign-in 11 minutes earlier. Entra answered from that session, and the bridge checked the returned `oid` as usual.
+  - **Only some pages force a fresh sign-in.** The admin page and the confirm page do (`fresh: true`, with the `auth_time` check); agent links do not.
+  - **The tests missed it.** They hold that the bridge reuses no session of its own. None checks what the Entra request asks for.
+  - **Nothing records a link.** The Issuer logs only its sweeps, the registration limit and failed sign-ins. `mcp_tool_called` redacts the client id. So the core's log cannot say which agent linked, or when.
+  - **What this means (agent reading).** While a Microsoft session is open in the owner's browser, opening a link's authorization URL completes a read-only grant with no step the owner sees, and nothing logs it. Whether someone else could obtain such a grant depends on how each agent binds its OAuth `state`, which was not checked. No attack is claimed.
+- **Decided**: open, the owner's decision. The options:
+  - **Recommended:**
+    - Agent links begin a fresh sign-in (`prompt=login` and the `auth_time` check, as the admin page does in production). The owner enters their credentials once per new link; refresh tokens carry each link for up to 90 days.
+    - The Issuer logs each completed link with the listed entry's platform, such as "ChatGPT".
+    - About 0.5 SP (estimate), $0.
+  - **Or:** keep it as it is. DRIFT-001-39, the contract and the README would then say that Entra may complete a link silently from an existing Microsoft session.
+- **Requirement citation**: FR-029; DRIFT-001-39; `contracts/web-endpoints.md` (the rule that every link is a fresh Entra sign-in); T033.
+- **Resolution**: open, waiting on the owner's decision.
+- **Carry-forward**:
+  - **If the fix ships:**
+    - It publishes a new image, so the core moves to it.
+    - The VM still names `146392a…` in `/etc/ring-bridge/bridge.env`. The owner updates `IMAGE` there, pulls the image and runs `ring-bridge-start`, with no new enrollment.
+    - ChatGPT's existing link keeps working until it is removed and added again.
+  - **The README:** its "Every link is your own sign-in" holds as written only with the fix.
+- **Class closure**: open. If the fix ships, a test would hold the link's sign-in as fresh, and a deliberate break would show that test catches it.
 
 ### DRIFT-001-75: The owner's request: the README's steps for connecting ChatGPT and Claude, ahead of iteration 004's README
 
