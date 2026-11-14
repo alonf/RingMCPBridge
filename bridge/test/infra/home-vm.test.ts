@@ -393,8 +393,8 @@ describe.runIf(HAS_PWSH)(
       );
       const runcmd = userData.slice(userData.indexOf("runcmd:"));
       // The rules come with the tools, after the boot made the devices: without the replay systemd
-      // has no unit for the KVP device, the daemon bound to it does not start, and Hyper-V never
-      // learns the VM's address (DRIFT-001-74).
+      // never sees the KVP device, the daemon bound to it does not start, and Hyper-V never learns
+      // the VM's address (DRIFT-001-74).
       const order = [
         `apt-get install -y "linux-cloud-tools-$(uname -r)"`,
         "  - [udevadm, control, --reload]\n",
@@ -406,10 +406,7 @@ describe.runIf(HAS_PWSH)(
         order.every((index) => index >= 0),
         order.join(","),
       ).toBe(true);
-      expect(
-        order.every((index, i) => i === 0 || index > order[i - 1]),
-        order.join(","),
-      ).toBe(true);
+      expect(order).toEqual([...order].sort((a, b) => a - b));
     });
 
     it("names the adapter's MAC address when the VM reports no address", () => {
