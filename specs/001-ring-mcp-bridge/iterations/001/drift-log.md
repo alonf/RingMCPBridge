@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 81
+**Total drift events**: 82
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,34 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-82: claude.ai's model reads only a tool's text, which is a one-line summary: no alarm mode, no names (open, the owner's decision)
+
+- **Detected**: 2026-11-14, implement, T033, at the claude.ai chat trial and the stale check. The connector was stopped. Claude answered that it could not tell the alarm mode and that "the bridge didn't say which" device had a low battery. The same replies, read through Claude Code, held `alarm_mode` and the device's name and room.
+- **Kind**: a recorded design decision that the pilot shows wrong for one client. `contracts/errors.md` says: "A reply carries a one-line text summary as content, plus `structuredContent`" (IA §Reply). The MCP tools specification (2026-07-28, read 2026-11-14) says: "For backwards compatibility, a tool that returns structured content SHOULD also return the serialized JSON in a TextContent block."
+- **Observed**:
+  - **Claude's answer matched the text lines word for word:**
+    - the overview's: "The home as of … (stale): 0 open contacts, 0 with motion, 0 offline, 1 with a low battery";
+    - `list_devices`': "58 of 58 devices as of …".
+  - **Not every client reads the text:**
+    - Claude Code shows its model the structured data.
+    - ChatGPT reads it too: it named devices earlier, in DRIFT-001-78's check.
+    - claude.ai shows its model the text alone, and claude.ai's connector also serves Claude Desktop and mobile.
+  - **The stale check passed** (T033 step 4). Past 2 minutes, the replies read `freshness: stale` and `home_link` down, with the last known state and `stale_since` at the connector's last heartbeat. Claude read the staleness right from the text.
+- **Decided**: open, the owner's decision. The options:
+  - **Recommended:** each reply's text becomes the serialized JSON of its `structuredContent`, as the specification's SHOULD says, for both answers and errors.
+    - Every client's model then gets the whole answer.
+    - A client that hands its model both would see the data twice. Which clients do that is checked after the deploy.
+    - About 0.25 SP (estimate), $0. Only the core changes: one deploy with the owner's OK, and no VM step.
+  - **Or** keep the summary, and claude.ai, Desktop and mobile answer from counts alone.
+- **Requirement citation**: FR-001, FR-002, FR-005, FR-006 (what an agent learns from a reply); `contracts/errors.md` (the reply's content); the MCP tools specification, "Structured Content"; T033.
+- **Resolution**: open, waiting on the owner's decision.
+- **Carry-forward**: if the fix ships:
+  - correct `contracts/errors.md`;
+  - add a test that the text parses to the structured content;
+  - a deliberate break;
+  - after the deploy, ask claude.ai the same question again.
+- **Class closure**: open.
 
 ### DRIFT-001-81: The owner's decision: the home's time zone is set on the admin page, with the browser's zone as the default
 

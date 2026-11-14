@@ -5,9 +5,14 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T20:48:00Z
+**Updated**: 2026-11-14T21:26:00Z
 
 ## Execution Summary
+
+- **T033's stale check passed, and claude.ai's chat trial found a gap** (2026-11-14, about 21:19 to 21:25 UTC).
+  - **The stale check:** with the connector stopped, replies past 2 minutes read `stale`, the link down, the last known state, and `stale_since` at the last heartbeat. Before 2 minutes they read `cached`, as designed.
+  - **The gap (DRIFT-001-82, open):** claude.ai's model reads only a reply's text, a one-line summary, so it could not tell the alarm mode or the low-battery device. The MCP specification says a tool SHOULD also send the structured content serialized as JSON in its text.
+  - **Recommended:** the text becomes that JSON, about 0.25 SP, a core-only deploy. The owner decides.
 
 - **Deployed and live on the owner's home** (2026-11-14, about 20:40 to 20:48 UTC). Image `d8b6449`, run 43638325165, rollback `146392a`.
   - The core was ready after its lease moved.
