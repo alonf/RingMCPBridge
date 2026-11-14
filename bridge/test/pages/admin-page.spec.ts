@@ -311,6 +311,20 @@ test.describe("the home's time zone", () => {
     await checkFrame(page, testInfo);
   });
 
+  // Fonts differ between systems, so the longest zone names are made wider than any font would:
+  // the list must still shrink to the screen (a grid item keeps its content's width otherwise).
+  test("keeps the list within the screen, however wide its zone names render", async ({
+    page,
+  }, testInfo) => {
+    await open(page, "zone=utc");
+
+    await page.evaluate(
+      "document.getElementById('time-zone-choice').style.fontSize = '40px'",
+    );
+
+    await checkFrame(page, testInfo);
+  });
+
   test("with Ring's zone, the list starts at it, not at the browser's", async ({
     page,
   }, testInfo) => {

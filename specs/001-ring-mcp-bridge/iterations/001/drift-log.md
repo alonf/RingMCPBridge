@@ -1230,12 +1230,16 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - Inquiry ignoring the owner's choice;
     - Settings saving a zone Intl does not know;
     - the script not starting at the browser's zone.
+  - **Caught by CI, then fixed:** on Linux, where the fonts are wider, the zone list made the page scroll sideways at the folded phone's 360 px. It failed every check at that width, since each check asserts no sideways scroll. The Windows run had passed. The list was a grid item, so it kept its longest name's width. It now may shrink: `width: 100%; min-width: 0`.
+    - A new browser check makes the names wider than any font would, so it fails on any system.
+    - Removing the fix fails it at both phone widths.
+    - 132 browser checks pass.
   - Cost: about 1 SP (estimate), $0. This is owner-directed work beyond T033's estimate, recorded for the retro.
 - **Carry-forward**:
   - **To T033, after the deploy:** the owner opens the admin page, checks that the list shows Asia/Jerusalem, and saves. Every `as_of_local` should then read `+02:00`.
   - **To iteration 002:** events' local times (`event-intake.ts`) use the same rule.
   - **The image:** this ships with rooms (DRIFT-001-80) in one image, with one production deploy on the owner's OK.
-- **Class closure**: the tests above, and the three deliberate breaks that each failed them.
+- **Class closure**: the tests above, and the deliberate breaks that each failed them. For the width, the class is "a check that passes only with this system's fonts". The wide-name check closes it for the list.
 
 ### DRIFT-001-80: The owner's decision: the connector reads each hub's rooms, with a tolerant reader and a bounded wait
 

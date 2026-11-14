@@ -173,7 +173,10 @@ main { padding: 1rem; display: grid; gap: 1rem; align-content: start; min-width:
   text-transform: uppercase;
 }
 .field select {
-  min-height: 44px; max-width: 100%; padding: 0.5rem 0.75rem; border-radius: 10px;
+  /* A grid item keeps its content's width unless told it may shrink: a long zone name would
+     otherwise widen the page past a folded phone's screen. */
+  width: 100%; min-width: 0; max-width: 100%;
+  min-height: 44px; padding: 0.5rem 0.75rem; border-radius: 10px;
   border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit;
 }
 .hint { color: var(--muted); font-size: 0.9rem; margin: 0; }
