@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 77
+**Total drift events**: 78
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1174,6 +1174,33 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
+### DRIFT-001-78: The owner's two outdoor sirens are not named: the bridge has no siren type (open, to confirm)
+
+- **Detected**: 2026-11-14, implement, T033. The owner: two outdoor dome sirens are in the Ring app's device list, but the bridge does not report them.
+- **Kind**: a gap in the device mapping found in the pilot. Possibly a defect against FR-002, depending on the check below.
+- **Observed** (from the code; not yet confirmed on the live home):
+  - **Ring's names.** Ring reports an outdoor siren as `siren.outdoor-strobe` and an indoor one as `siren` (ring-mqtt's mapping, `alarm_and_device_control.md`).
+  - **Nothing drops them.** ring-client-api 14.3.0 keeps every device in each alarm hub's list, whatever its kind. The connector's mapping has no siren kind, so a siren becomes `other`, with no state beyond power, online and tamper.
+  - **Why the owner never saw them.** `get_overview` names a device only when it is offline, has a low battery, or is an open contact or active motion, so a healthy siren never appears there. `list_devices` would return it as `other`.
+  - **The log can't settle it.** The connector logs no device kinds.
+  - **Not checked from here on purpose.** A second Ring client on the owner's account, from the PC or the VM, would rotate the refresh token and break the connector's session.
+- **Decided**: open. First, the owner asks an agent for `list_devices` with type `other`, by name.
+  - **If the sirens are there:**
+    - Add a `siren` device type. Enumerations grow only additively (FR-046), and no database constraint holds the type.
+    - Map both siren kinds, and map any other kind that check shows as `other`.
+    - Add no siren state yet: the library does not type the field (`sirenStatus`), and no raw Ring data can show it. Power, online and tamper come as now. Whether a siren is sounding comes with iteration 002's events, whose alarm push has siren messages.
+    - About 0.25 to 0.5 SP (estimate), $0.
+    - The connector and the core both change, so a manual production deploy (the owner's OK), core first, then the owner updates `IMAGE` on the VM.
+    - It can ship with the link log (DRIFT-001-76) if the owner wants that, so the VM is updated once.
+  - **If they are not there:** the devices are lost before the mapping. Investigate with the owner, for example which hub they are paired to.
+- **Requirement citation**: FR-002, FR-046, FR-047 (the schemas in `schemas/`); `contracts/connector-link.md` (the core accepts versions N and N-1); T033.
+- **Resolution**: open, waiting on the owner's check.
+- **Carry-forward**:
+  - **Every list of device types changes together:** `shapes.ts`, `ring-port.ts`, `home-messages.ts`, `state-store.ts`, `summary-engine.ts`, `event-intake.ts`, `schemas/`, the tools contract and the data model.
+  - **The core deploys first.** A core without the type would refuse a connector's `siren`.
+  - **A rollback** to an older core could not read stored `siren` rows.
+- **Class closure**: open. A test maps each siren kind, with a deliberate break, once the type is added.
+
 ### DRIFT-001-77: The owner's needs for later iterations: snoozing a camera's motion alerts, and what the Ring plan gives media
 
 - **Detected**: 2026-11-14, implement, T033. The owner asked what is planned beyond iteration 001's reads, then answered three questions about it.
@@ -1184,11 +1211,12 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - **The bridge's own alerts to agents.** The bridge stops pushing that camera's motion events to agents for a set time, and still logs them. Ours to build; it sits next to FR-010's per-agent opt-ins (iteration 003).
   - **Video storage.** The owner's Ring plan includes video storage (about 30 days, from the owner's memory). So recorded event clips (FR-018) can be available, subject to the research's other conditions: E2EE off, and the recording ready.
   - **Video end-to-end encryption.** The owner does not know whether it is on for any camera, and agrees to turn it off if the bridge needs that. With E2EE on, Ring lists third-party integrations as unavailable.
-- **Decided**: nothing yet. These are inputs to iteration 002's design analysis and plan, where the owner decides the order and whether snooze joins the spec.
+- **Decided**: nothing is built. These are inputs to iteration 002's design analysis and plan, where the owner decides the order and whether snooze joins the spec.
+  - **The owner wants both snoozes** (2026-11-14: "both is possible"): the bridge's, as a candidate requirement, and Ring's own Motion Snooze, as a spike with no promised result.
 - **Requirement citation**: FR-010; FR-016 to FR-021 (media, iteration 003); FR-022 and the spec's non-goal "changing Ring settings (motion zones, schedules, notifications)"; `realtime_events_and_video.md` section 5 (clips need a plan with video storage).
 - **Resolution**: recorded for iteration 002's design analysis. $0.
 - **Carry-forward**:
-  - **To iteration 002's design analysis:** which snooze the owner means: Ring's, the bridge's, or both.
+  - **To iteration 002's design analysis:** both snoozes, the owner's answer.
     - The bridge's is a candidate requirement: a spec change, approved at that boundary.
     - Ring's writes a Ring setting, which the spec lists as a v1 non-goal, so the owner would lift that for snooze. A spike must first find the endpoint, with no promised outcome.
   - **To iteration 003's media design:** check each camera's E2EE (the device's `e2ee_enabled`) before relying on clips, and tell the owner which cameras to change. Also check Ring's newer default encryption (TAKE), whose effect on third-party video is unverified.
