@@ -1211,7 +1211,9 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - Cost: about 0.25 SP (estimate), $0. Only the core changes: one deploy, with the owner's OK given with the decision, and no VM step.
 - **Carry-forward**:
   - **After the deploy:** ask claude.ai the same question again. It should name the alarm mode and the low-battery device.
+    - **Done, 2026-11-14, after the core deploy of `60168e6` (run 43644344791):** with the connector still stopped, Claude in claude.ai named the alarm mode as last known, and the low-battery device with its room and level. It said the reading was stale, from 23:19 and about 40 minutes old.
   - **Also check Claude Code:** if it shows its model both views, record it, since the budget assumes one.
+    - **Done:** after the deploy, Claude Code still showed its model one copy, the structured reply.
 - **Class closure**: the test that the text is the structured reply as JSON, for every tool and error, with the deliberate break. A new client that reads only the text now gets the whole reply.
 
 ### DRIFT-001-81: The owner's decision: the home's time zone is set on the admin page, with the browser's zone as the default
