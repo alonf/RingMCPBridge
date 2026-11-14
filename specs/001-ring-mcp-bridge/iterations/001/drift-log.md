@@ -1174,7 +1174,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
-### DRIFT-001-82: claude.ai's model reads only a tool's text, which is a one-line summary: no alarm mode, no names (open, the owner's decision)
+### DRIFT-001-82: claude.ai's model reads only a tool's text, which was a one-line summary: no alarm mode, no names
 
 - **Detected**: 2026-11-14, implement, T033, at the claude.ai chat trial and the stale check. The connector was stopped. Claude answered that it could not tell the alarm mode and that "the bridge didn't say which" device had a low battery. The same replies, read through Claude Code, held `alarm_mode` and the device's name and room.
 - **Kind**: a recorded design decision that the pilot shows wrong for one client. `contracts/errors.md` says: "A reply carries a one-line text summary as content, plus `structuredContent`" (IA §Reply). The MCP tools specification (2026-07-28, read 2026-11-14) says: "For backwards compatibility, a tool that returns structured content SHOULD also return the serialized JSON in a TextContent block."
@@ -1187,20 +1187,32 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - ChatGPT reads it too: it named devices earlier, in DRIFT-001-78's check.
     - claude.ai shows its model the text alone, and claude.ai's connector also serves Claude Desktop and mobile.
   - **The stale check passed** (T033 step 4). Past 2 minutes, the replies read `freshness: stale` and `home_link` down, with the last known state and `stale_since` at the connector's last heartbeat. Claude read the staleness right from the text.
-- **Decided**: open, the owner's decision. The options:
+- **Decided**: the owner's yes, 2026-11-14: "Yes, do it". The options put to the owner:
   - **Recommended:** each reply's text becomes the serialized JSON of its `structuredContent`, as the specification's SHOULD says, for both answers and errors.
     - Every client's model then gets the whole answer.
     - A client that hands its model both would see the data twice. Which clients do that is checked after the deploy.
     - About 0.25 SP (estimate), $0. Only the core changes: one deploy with the owner's OK, and no VM step.
   - **Or** keep the summary, and claude.ai, Desktop and mobile answer from counts alone.
+  - **As built:**
+    - A reply's content is two text blocks: first the `structuredContent` serialized as JSON, then the one-line summary. A failure's are the envelope as JSON, then its message.
+    - The summary stays so that a client reading only the text still gets the whole home's counts in words when a list was cut.
+    - **The token budget is held for each view on its own:** the text blocks, or the structured reply. That is because each client seen hands its model one of the two:
+      - claude.ai the text;
+      - ChatGPT and Claude Code the structured reply.
+
+      A client that handed its model both would see the data twice; none seen does.
+    - **Ring's text now reaches the text too.** It already reached the models of the clients that read the structured reply. The tool descriptions and the schemas still mark it untrusted (FR-033).
 - **Requirement citation**: FR-001, FR-002, FR-005, FR-006 (what an agent learns from a reply); `contracts/errors.md` (the reply's content); the MCP tools specification, "Structured Content"; T033.
-- **Resolution**: open, waiting on the owner's decision.
-- **Carry-forward**: if the fix ships:
-  - correct `contracts/errors.md`;
-  - add a test that the text parses to the structured content;
-  - a deliberate break;
-  - after the deploy, ask claude.ai the same question again.
-- **Class closure**: open.
+- **Resolution**: built and tested.
+  - The endpoint's tests hold that the first text block parses to the structured reply, for every tool in both protocol eras and for every error code.
+  - The 100-device home's overview and device list fit 8,000 tokens in each view.
+  - A deliberate break, the summary sent in place of the JSON, failed 23 tests.
+  - `contracts/errors.md` and `contracts/mcp-tools.md` say so.
+  - Cost: about 0.25 SP (estimate), $0. Only the core changes: one deploy, with the owner's OK given with the decision, and no VM step.
+- **Carry-forward**:
+  - **After the deploy:** ask claude.ai the same question again. It should name the alarm mode and the low-battery device.
+  - **Also check Claude Code:** if it shows its model both views, record it, since the budget assumes one.
+- **Class closure**: the test that the text is the structured reply as JSON, for every tool and error, with the deliberate break. A new client that reads only the text now gets the whole reply.
 
 ### DRIFT-001-81: The owner's decision: the home's time zone is set on the admin page, with the browser's zone as the default
 

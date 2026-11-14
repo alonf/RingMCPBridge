@@ -71,7 +71,7 @@ The home in one reply: alarm mode, open contacts, active motion, offline devices
 | `counts` | object `{open_contacts, active_motion, offline_devices, low_batteries}`, whole numbers | [P] how many devices each list holds in the whole home; a list cut to the token budget is shorter than its count (CP-10 review, DRIFT-001-54) |
 | `health` | object, the `get_health` fields | FR-001 |
 
-The Summary engine keeps the reply within the token budget (CD map v3 Summary): a home too large for it gets its lists cut, while `counts` keeps the whole home's totals, and the text summary reports those totals and says when a list was cut. Errors: `INVALID_ARGUMENT`, `NOT_FOUND`, `RATE_LIMITED`, `TIMEOUT`, `BRIDGE_UNAVAILABLE`, `INTERNAL`.
+The Summary engine keeps the reply within the token budget (CD map v3 Summary): a home too large for it gets its lists cut, while `counts` keeps the whole home's totals, and the one-line summary after the reply's JSON (`errors.md`) reports those totals and says when a list was cut. Errors: `INVALID_ARGUMENT`, `NOT_FOUND`, `RATE_LIMITED`, `TIMEOUT`, `BRIDGE_UNAVAILABLE`, `INTERNAL`.
 
 ### `list_devices`
 

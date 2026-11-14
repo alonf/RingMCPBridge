@@ -6,7 +6,12 @@ This contract states the reply envelope, the error envelope and the error codes 
 
 ## Reply envelope (every successful tool call)
 
-A reply carries a one-line text summary as content, plus `structuredContent` that matches the tool's output schema (IA §Reply, error and event shapes).
+A reply carries `structuredContent` that matches the tool's output schema, and two text blocks as content (IA §Reply, error and event shapes; DRIFT-001-82):
+
+- first, the `structuredContent` serialized as JSON, as the MCP specification asks of a tool that returns structured content. Some clients, such as claude.ai, Claude Desktop and mobile, show their model the text alone;
+- then a one-line summary in the bridge's own words.
+
+A client hands its model one or the other, so the token budget holds for each.
 
 ```json
 {
@@ -34,7 +39,7 @@ A reply carries a one-line text summary as content, plus `structuredContent` tha
 
 ## Error envelope (a tool failure)
 
-A tool failure is a tool result with `isError: true` and this `structuredContent` (IA §Reply, error and event shapes):
+A tool failure is a tool result with `isError: true` and this `structuredContent` (IA §Reply, error and event shapes). Its text blocks are the envelope as JSON, then the error's message:
 
 ```json
 {

@@ -2,6 +2,11 @@
 // tool's contract, the Inquiry read behind it, and the one line of text an agent reads with the
 // structured reply.
 //
+// - **The text** (DRIFT-001-82): the structured reply serialized as JSON, as the MCP specification
+//   asks of a tool that returns structured content, then its one-line summary. claude.ai, Claude
+//   Desktop and mobile show their model the text alone, so the whole reply must be in it; the
+//   summary keeps the whole home's counts in words when a list was cut to fit.
+//
 // - **Inputs** are listed exactly as the Public Contract publishes them, but checked here, so a bad
 //   input gets the contract's `INVALID_ARGUMENT` envelope. The SDK's own check answers with text
 //   of its own, and offers no way to change that (DRIFT-001-42).
@@ -232,10 +237,21 @@ async function callTool(
   });
   return failure === undefined && "reply" in result
     ? {
-        content: [{ type: "text", text: result.summary }],
+        content: textContent(result.reply, result.summary),
         structuredContent: result.reply as Record<string, unknown>,
       }
     : errorResult(failure ?? internal(), options.clock);
+}
+
+// The structured reply serialized as JSON, then its line of words (DRIFT-001-82).
+function textContent(
+  structured: unknown,
+  line: string,
+): CallToolResult["content"] {
+  return [
+    { type: "text", text: JSON.stringify(structured) },
+    { type: "text", text: line },
+  ];
 }
 
 type Outcome =
@@ -380,7 +396,7 @@ function errorResult(failure: Failure, clock: Clock): CallToolResult {
   });
   return {
     isError: true,
-    content: [{ type: "text", text: failure.message }],
+    content: textContent(envelope, failure.message),
     structuredContent: envelope,
   };
 }

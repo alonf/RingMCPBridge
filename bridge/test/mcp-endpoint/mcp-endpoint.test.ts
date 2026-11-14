@@ -237,9 +237,21 @@ function argumentsFor(tool: string): Record<string, unknown> {
   return tool === "get_device" ? { device_id: HEBREW_DEVICE_ID } : {};
 }
 
+/** The reply's line of words: its second text block, after the JSON (DRIFT-001-82). */
 function textOf(result: CallToolResult): string {
+  const [, line] = result.content;
+  return line?.type === "text" ? line.text : "";
+}
+
+/** The reply's first text block, parsed: the structured content as JSON (DRIFT-001-82). */
+function jsonOf(result: CallToolResult): unknown {
   const [first] = result.content;
-  return first?.type === "text" ? first.text : "";
+  return first?.type === "text" ? JSON.parse(first.text) : undefined;
+}
+
+/** What a model is given: the text blocks alone, or the structured content alone. */
+function textView(result: CallToolResult): readonly unknown[] {
+  return result.content;
 }
 
 /** The error envelope a failed call carries, after checking it against the contract. */
@@ -247,6 +259,7 @@ function failureOf(result: CallToolResult, code: ErrorCode) {
   expect(result.isError).toBe(true);
   const envelope = errorEnvelope.parse(result.structuredContent);
   expect(envelope.error.code).toBe(code);
+  expect(jsonOf(result)).toEqual(result.structuredContent);
   expect(textOf(result)).toBe(envelope.error.message);
   seenCodes.add(envelope.error.code);
   return envelope.error;
@@ -303,7 +316,7 @@ describe.each(ERAS)("the MCP endpoint in the %s era", (era) => {
   });
 
   it.each(TOOL_CATALOG.map((tool) => [tool.name, tool] as const))(
-    "answers %s with a reply its contract accepts, and a line of text without Ring's",
+    "answers %s with a reply its contract accepts, in its text as JSON too, and a line of words without Ring's",
     async (name, tool) => {
       const result = await call(name, argumentsFor(name));
 
@@ -316,6 +329,8 @@ describe.each(ERAS)("the MCP endpoint in the %s era", (era) => {
         as_of: new Date(HOME_AS_OF).toISOString(),
         freshness: "cached",
       });
+      // claude.ai shows its model the text alone: the whole reply must be in it (DRIFT-001-82).
+      expect(jsonOf(result)).toEqual(result.structuredContent);
       expect(textOf(result)).toContain(reply.as_of);
       expect(textOf(result)).not.toContain(HEBREW_DEVICE_NAME);
       seenTools.add(`${era}:${name}`);
@@ -326,9 +341,17 @@ describe.each(ERAS)("the MCP endpoint in the %s era", (era) => {
     const overview = await call("get_overview", {});
     const list = await call("list_devices", {});
 
-    // The whole result: the structured reply, its line of text, and the era's own metadata.
-    expect(estimateTokens(overview)).toBeLessThanOrEqual(TOKEN_BUDGET);
-    expect(estimateTokens(list)).toBeLessThanOrEqual(TOKEN_BUDGET);
+    // What a model is given: the text blocks (the JSON and its line), or the structured reply. A
+    // client hands its model one of the two: claude.ai the text, ChatGPT and Claude Code the
+    // structured reply (DRIFT-001-82). Each must fit.
+    for (const result of [overview, list]) {
+      expect(estimateTokens(textView(result))).toBeLessThanOrEqual(
+        TOKEN_BUDGET,
+      );
+      expect(estimateTokens(result.structuredContent)).toBeLessThanOrEqual(
+        TOKEN_BUDGET,
+      );
+    }
     expect(list.structuredContent).toMatchObject({ data: { count: 100 } });
   });
 
