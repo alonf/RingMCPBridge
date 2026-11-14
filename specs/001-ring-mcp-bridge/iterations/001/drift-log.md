@@ -1237,6 +1237,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - Cost: about 1 SP (estimate), $0. This is owner-directed work beyond T033's estimate, recorded for the retro.
 - **Carry-forward**:
   - **To T033, after the deploy:** the owner opens the admin page, checks that the list shows Asia/Jerusalem, and saves. Every `as_of_local` should then read `+02:00`.
+    - **Done, 2026-11-14:** the core was deployed with image `d8b6449` (run 43638325165), and the owner saved the zone the card showed from the browser. At 20:48 UTC, `get_overview` and `get_health` read `as_of_local` with `+02:00`, and the overview's location names Asia/Jerusalem.
   - **To iteration 002:** events' local times (`event-intake.ts`) use the same rule.
   - **The image:** this ships with rooms (DRIFT-001-80) in one image, with one production deploy on the owner's OK.
     - **Rollback:** no migration. An older core ignores the `location_time_zones` row, and an older connector sends no rooms. So a rollback is a deploy with `image_tag` set to the image before.
@@ -1285,6 +1286,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - Cost: about 0.5 SP (estimate), $0. This is owner-directed work beyond T033's estimate, with iteration 001 at 42 of 42 SP, recorded for the retro.
 - **Carry-forward**:
   - **To T033, after the VM's `IMAGE` update:**
+    - **Done, 2026-11-14, about 20:46 UTC:** the owner updated the VM to `d8b6449` with a graceful stop, and no new enrollment was needed. All 13 motion detectors have a room, the room filter returns its room's devices, and the overview's device references name rooms. So the reader's guess at the shape was right, and the log counts were not needed.
     - `list_devices` should show rooms.
     - The owner runs `docker logs ring-bridge-connector | grep ring_rooms_read`.
     - If `listed` is above 0 with `count` at 0, the reader's guess at the shape is wrong. The fallback is then DRIFT-001-18's route: a recorded, scrubbed payload, reviewed by the owner.

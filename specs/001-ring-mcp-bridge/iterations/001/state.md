@@ -5,9 +5,16 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T20:28:00Z
+**Updated**: 2026-11-14T20:48:00Z
 
 ## Execution Summary
+
+- **Deployed and live on the owner's home** (2026-11-14, about 20:40 to 20:48 UTC). Image `d8b6449`, run 43638325165, rollback `146392a`.
+  - The core was ready after its lease moved.
+  - The owner updated the VM with a graceful stop, with no new enrollment.
+  - Rooms show on every motion detector, and the room filter works (DRIFT-001-80).
+  - After the owner saved Asia/Jerusalem, times read `+02:00` (DRIFT-001-81).
+  - The link log records the next agent link (DRIFT-001-76).
 
 - **The core logs each link the owner approves** (2026-11-14; DRIFT-001-76, the owner's yes). The line `issuer_link_approved` carries the agent's platform as a code, such as `chatgpt`, and `document` or `registered`, with no ids. Tested, with two deliberate breaks. It ships in the same image as rooms and the time zone. The owner said yes to the production deploy.
 
