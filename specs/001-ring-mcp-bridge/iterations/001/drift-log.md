@@ -1174,33 +1174,27 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
-### DRIFT-001-78: The owner's two outdoor dome sirens are missing from the bridge's device list (open)
+### DRIFT-001-78: The owner's two outdoor dome sirens were missing from the bridge's device list: Ring no longer lists them either
 
 - **Detected**: 2026-11-14, implement, T033. The owner: two outdoor dome sirens are in the Ring app's device list, but the bridge does not report them.
-- **Kind**: a defect against FR-002 found in the pilot: devices the owner's Ring app lists are missing. The cause is not yet found.
+- **Kind**: a suspected defect against FR-002, found in the pilot. Not a bridge defect: the bridge's list matched Ring's.
 - **Observed**:
-  - **The first guess, from the code, was wrong.** Ring reports an outdoor siren as `siren.outdoor-strobe` and a Z-Wave siren as `siren` (ring-mqtt's mapping, `alarm_and_device_control.md`). The bridge has no siren type, so a siren would arrive as `other`.
-  - **The owner's check** (2026-11-14, about 17:40 UTC): an agent's `list_devices` with type `other` returned six devices, three range extenders and three adapters, and neither siren. So the sirens are either under another type or never reach the core.
+  - **The first guess, from the code, was wrong.** Ring reports an outdoor siren as `siren.outdoor-strobe` and a Z-Wave siren as `siren` (ring-mqtt's mapping, `alarm_and_device_control.md`). The bridge has no siren type, so a siren would arrive as `other`. But an agent's `list_devices` with type `other` (2026-11-14, about 17:40 UTC) returned six devices, three range extenders and three adapters, and neither siren.
   - **What can drop a device before the core**, from the code:
     - ring-client-api 14.3.0 keeps every device in each alarm hub's list, whatever its kind.
     - The connector leaves out entries that are not devices (the alarm panel, access codes) and entries with no id.
     - It also leaves out a device that its hub's latest list no longer names (DRIFT-001-41).
     - The core takes an inventory whole, so it drops no single device.
-  - **The overview would not show them anyway.** `get_overview` names a device only when it is offline, has a low battery, or is an open contact or active motion.
-  - **The log can't settle it.** The connector logs no device kinds.
-  - **Not checked from here on purpose.** A second Ring client on the owner's account, from the PC or the VM, would rotate the refresh token and break the connector's session.
-- **Decided**: open. The next check tells the two remaining places apart, and doubles as T033's stale check (step 4):
-  - The owner stops the connector for 3 minutes and checks that replies come back stale. Then the owner starts it, and an agent calls `list_devices` with no filter at once, listing every device with its type.
-  - **The sirens present right after the start, then gone later:** the watch's removed-device rule left them out. That is the bridge's defect, fixed test-first.
-  - **The sirens absent even right after the start:** they are not in the hub lists the library reads. The owner then gives their model and the hub they are paired to, from the Ring app.
-  - **Either way, the full list is compared with the Ring app**, to find any other device that is missing.
-  - **If they come with a kind the bridge does not name:** a `siren` type is added, additively (FR-046). No database constraint holds the type. About 0.25 to 0.5 SP (estimate), $0. It needs a manual production deploy, with the owner's OK, then the owner updates `IMAGE` on the VM. It can ship with the link log (DRIFT-001-76).
-- **Requirement citation**: FR-002, FR-046, FR-047 (the schemas in `schemas/`); `contracts/connector-link.md` (the core accepts versions N and N-1); T033.
-- **Resolution**: open, waiting on the stop-and-start check.
+  - **The answer.** After the owner stopped and restarted the connector, the owner found the sirens gone from the Ring app too. The owner takes care of the devices in Ring.
+  - **Not checked from here on purpose.** A second Ring client on the owner's account would rotate the refresh token and break the connector's session.
+- **Decided**: no change to the bridge. The owner handles the sirens in Ring.
+- **Requirement citation**: FR-002; T033.
+- **Resolution**: closed, 2026-11-14. Cost: about 0.25 SP of diagnosis (estimate), $0.
 - **Carry-forward**:
-  - **A new type means every list of device types changes together:** `shapes.ts`, `ring-port.ts`, `home-messages.ts`, `state-store.ts`, `summary-engine.ts`, `event-intake.ts`, `schemas/`, the tools contract and the data model.
-  - **The core deploys first,** since a core without the type would refuse a connector's `siren`. A rollback to an older core could not read stored `siren` rows.
-- **Class closure**: open. A test of the cause found, with a deliberate break.
+  - **When the sirens are back in Ring:** check how they appear. They would come as `other`, since the bridge has no siren type. A `siren` type would then be added additively (FR-046). No database constraint holds the type. Every list of device types changes together: `shapes.ts`, `ring-port.ts`, `home-messages.ts`, `state-store.ts`, `summary-engine.ts`, `event-intake.ts`, `schemas/`, the tools contract and the data model. The core deploys first.
+  - **T033's stale check** was not observed in this stop: no read was made while the connector was stopped. It is repeated.
+  - **The connector logs no device kinds**, so a missing device can be diagnosed only through an agent's reads. Proposed for the connector's health command (DRIFT-001-72).
+- **Class closure**: NONE — no bridge defect. The diagnosis path (`list_devices` by type, then a restart) is recorded here for the next missing device.
 
 ### DRIFT-001-77: The owner's needs for later iterations: snoozing a camera's motion alerts, and what the Ring plan gives media
 

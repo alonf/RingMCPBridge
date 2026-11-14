@@ -5,11 +5,15 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T17:46:00Z
+**Updated**: 2026-11-14T18:07:00Z
 
 ## Execution Summary
 
-- **The owner's two outdoor dome sirens are missing from the device list** (2026-11-14; DRIFT-001-78, open). They are not under `other` either, so the first guess (no siren type) was wrong. Next: T033's stale check, stopping the connector for 3 minutes, then a full `list_devices` right after it starts again. That tells the watch's removed-device rule apart from devices the hub lists never carry.
+- **T033's checks the agent can run** (2026-11-14, about 18:00 UTC; the details are in the owner's pilot journal, outside the repository):
+  - **The core's health check** answers on `/readyz`, as DRIFT-001-62 decided. `/livez` and `/readyz` both answer 200, with the database, the lease, the signing keys and the owner all fine. Auto-heal is off, as that entry decided: App Service has one probe path, and it replaces an instance that stays unhealthy for an hour.
+  - **The bill**, from Cost Management, so far this month for the bridge's resource group: about $0.47 after about one day, mostly App Service and SQL. That points to well under the $30 ceiling (agent estimate from one day; the data can lag a day). The month's bill is checked at the soak's end.
+  - **Still open:** the stale check. The owner stopped and restarted the connector, but no read was made during the stop. Also the Claude trials, the soak (from 2026-11-14 to about 2026-11-21) and the clock check at its end.
+- **The owner's two outdoor dome sirens were missing from the device list** (2026-11-14; DRIFT-001-78, closed). Not a bridge defect: Ring no longer lists them either, and the owner takes care of them. When they are back, they would come as `other` until a `siren` type is added.
 - **The owner's needs for later iterations are recorded** (2026-11-14; DRIFT-001-77) for iteration 002's design analysis:
   - snoozing a camera's motion alerts, which no requirement covers. The owner wants both: the bridge's own alerts snoozed, and Ring's own Motion Snooze, which has no known API, as a spike;
   - the Ring plan includes video storage;
