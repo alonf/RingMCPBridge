@@ -5,9 +5,16 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T19:24:00Z
+**Updated**: 2026-11-14T19:47:00Z
 
 ## Execution Summary
+
+- **The home's time zone is set on the admin page** (2026-11-14; DRIFT-001-81, the owner's decision).
+  - The rule is the owner's choice, else Ring's IANA zone, else UTC. Every reply, the overview's location and the page's own times use it.
+  - A Time zone card lists every zone Intl knows. With only UTC in use, the page's script starts the list at the browser's zone.
+  - The form saves for the home's location, never one the form names.
+  - Tests in Settings, Inquiry and Web, 2 browser checks in 6 projects, and three deliberate breaks cover it.
+  - Ships with rooms in one image. After the deploy, the owner saves Asia/Jerusalem, and `as_of_local` should read `+02:00`.
 
 - **The connector reads each hub's rooms** (2026-11-14; DRIFT-001-80, the owner's decision).
   - A tolerant reader takes entries with an id and a name.

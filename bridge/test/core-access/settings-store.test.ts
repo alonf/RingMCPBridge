@@ -492,6 +492,64 @@ describeStoreMatrix("Settings", (store) => {
     await expect(settings.batteryThresholdPct(never())).resolves.toBe(0);
   });
 
+  // DRIFT-001-81: the owner's time zone per location, one row holding them all.
+  it("holds the owner's time zone for each location, keeping the others when one is set", async () => {
+    const { settings } = await setUp();
+    await expect(settings.locationTimeZones(never())).resolves.toEqual(
+      new Map(),
+    );
+
+    await settings.setLocationTimeZone("loc-1", "Asia/Jerusalem", never());
+    await settings.setLocationTimeZone("loc-2", "Europe/Athens", never());
+    await settings.setLocationTimeZone("loc-1", "Asia/Tokyo", never());
+
+    await expect(settings.locationTimeZones(never())).resolves.toEqual(
+      new Map([
+        ["loc-1", "Asia/Tokyo"],
+        ["loc-2", "Europe/Athens"],
+      ]),
+    );
+  });
+
+  it("refuses a time zone Intl does not know, or a location id it cannot store, changing nothing", async () => {
+    const { settings } = await setUp();
+    await settings.setLocationTimeZone("loc-1", "Asia/Jerusalem", never());
+
+    for (const [locationId, timeZone] of [
+      ["loc-1", "Mars/Olympus_Mons"],
+      ["loc-1", ""],
+      ["loc-1", `Asia/${"x".repeat(64)}`],
+      ["", "Asia/Tokyo"],
+      ["x".repeat(129), "Asia/Tokyo"],
+    ] as const) {
+      await expect(
+        settings.setLocationTimeZone(locationId, timeZone, never()),
+      ).rejects.toThrow(RangeError);
+    }
+    await expect(settings.locationTimeZones(never())).resolves.toEqual(
+      new Map([["loc-1", "Asia/Jerusalem"]]),
+    );
+  });
+
+  it("leaves out a stored time zone Intl does not know, so no reply uses it", async () => {
+    const { settings, layer } = await setUp();
+    await exec(
+      layer,
+      "INSERT INTO setting (name, value, updated_at) VALUES ('location_time_zones', @value, 0)",
+      {
+        value: JSON.stringify({
+          "loc-1": "Asia/Jerusalem",
+          "loc-2": "Mars/Olympus_Mons",
+          "loc-3": 7,
+        }),
+      },
+    );
+
+    await expect(settings.locationTimeZones(never())).resolves.toEqual(
+      new Map([["loc-1", "Asia/Jerusalem"]]),
+    );
+  });
+
   it("reports a row it did not write as failed, quoting nothing from it", async () => {
     const { settings, layer } = await setUp();
     const stored = "UNTRUSTED-ROW-TEXT";
@@ -515,12 +573,18 @@ describeStoreMatrix("Settings", (store) => {
       "INSERT INTO setting (name, value, updated_at) VALUES ('battery_threshold_pct', @value, 0)",
       { value: stored },
     );
+    await exec(
+      layer,
+      "INSERT INTO setting (name, value, updated_at) VALUES ('location_time_zones', @value, 0)",
+      { value: stored },
+    );
 
     for (const work of [
       () => settings.agent("a", never()),
       () => settings.connectorKey("k", never()),
       () => settings.connectorKey("bad-key", never()),
       () => settings.batteryThresholdPct(never()),
+      () => settings.locationTimeZones(never()),
     ]) {
       const error = await expectStoreError(work(), "failed");
       expect(error.cause).toBeUndefined();

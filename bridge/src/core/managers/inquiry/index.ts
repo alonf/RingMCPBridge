@@ -18,6 +18,7 @@ export type {
   Overview,
   OverviewRequest,
   OwnerHealth,
+  TimeZoneSource,
 } from "./inquiry-manager.ts";
 
 /** The error every use case throws: `invalid_argument`, `not_found`, `unavailable` or `failed`. */

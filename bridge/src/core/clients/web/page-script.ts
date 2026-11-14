@@ -1,11 +1,13 @@
 // The admin page's little script (T029; UX U1, U3), served at its own path: the page's policy allows
-// no inline script. Everything works without it; it adds two things:
+// no inline script. Everything works without it; it adds three things:
 // - **The theme switch** changes the theme in place, keeping what the owner typed, and remembers
 //   the choice in the theme cookie. Without the script, the switch posts a form instead.
 // - **The health poll**: every 15 s it fetches the Health section alone and puts it in place, so the
 //   Enroll section and what is typed there are never touched; Refresh polls at once. When the
 //   session has ended, it shows the signed-out notice the server sent and stops. Without the
 //   script, Refresh loads the whole page again.
+// - **The browser's time zone**: when the bridge has no usable time zone, the Time zone list starts
+//   at the browser's own, if the list has it (DRIFT-001-81). Without the script, it starts at UTC.
 
 /** How often the open page fetches the Health section again (FR-040; UX U3). */
 export const HEALTH_POLL_MS = 15_000;
@@ -37,6 +39,20 @@ export function pageScript(options: {
         input.value = next === "light" ? "dark" : "light";
       }
     });
+  }
+  var zoneChoice = document.querySelector("select[data-browser-default]");
+  if (zoneChoice) {
+    try {
+      var browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      for (var index = 0; index < zoneChoice.options.length; index += 1) {
+        if (zoneChoice.options[index].value === browserZone) {
+          zoneChoice.value = browserZone;
+          break;
+        }
+      }
+    } catch (error) {
+      /* The list keeps the zone in use. */
+    }
   }
   if (!document.getElementById("health") || document.body.getAttribute("data-signed-in") !== "yes") {
     return;

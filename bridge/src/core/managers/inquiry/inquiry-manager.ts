@@ -11,6 +11,9 @@
 // - **The store down** fails the read as `unavailable`, never with stale data (FR-006).
 // - **Owned locations only**: shared locations are off in 001 (FR-036), so a shared location and
 //   its devices are not found [P].
+// - **A location's time zone** is the one the owner chose on the admin page, else Ring's when it is
+//   an IANA zone Intl knows, else UTC (DRIFT-001-81). Every local time uses it, and the overview's
+//   location names it, so a reply never pairs one zone's name with another's offset.
 import {
   formatInTimeZone,
   formatUtc,
@@ -93,11 +96,18 @@ export interface InquiryReply<Data> {
   readonly data: Data;
 }
 
+/** Where a location's time zone came from: the owner's choice, Ring's, or the UTC fallback. */
+export type TimeZoneSource = "owner" | "ring" | "utc";
+
 /** The health as the admin page shows it (T029). */
 export interface OwnerHealth {
   readonly health: InquiryReply<Health>;
   /** The IANA time zone `health`'s local times are in. */
   readonly time_zone: string;
+  /** Where `time_zone` came from (DRIFT-001-81). */
+  readonly time_zone_source: TimeZoneSource;
+  /** The first owned location, whose time zone that is; absent until the home has reported one. */
+  readonly location_id?: string;
   /** The version the connector sent in its last hello; absent until one has linked. */
   readonly connector_version?: string;
 }
@@ -130,17 +140,19 @@ export class InquiryManager {
     request: OverviewRequest,
     signal: AbortSignal,
   ): Promise<InquiryReply<Overview>> {
-    const location = await this.#ownedLocation(request.location_id, signal);
-    const [devices, stored, thresholdPct] = await this.#guard(
+    const named = await this.#ownedLocation(request.location_id, signal);
+    const [devices, stored, thresholdPct, zones] = await this.#guard(
       signal,
       "The home could not be read.",
       () =>
         Promise.all([
-          this.#state.devices({ location_id: location.location_id }, signal),
+          this.#state.devices({ location_id: named.location_id }, signal),
           this.#state.health(signal),
           this.#settings.batteryThresholdPct(signal),
+          this.#settings.locationTimeZones(signal),
         ]),
     );
+    const location = { ...named, time_zone: zoneOf(named, zones).zone };
     const now = this.#clock.now();
     const health = this.#healthAsOf(stored, now);
     return reply(
@@ -160,7 +172,7 @@ export class InquiryManager {
     signal: AbortSignal,
   ): Promise<InquiryReply<DeviceList>> {
     const location = await this.#ownedLocation(request.location_id, signal);
-    const [devices, stored] = await this.#guard(
+    const [devices, stored, zones] = await this.#guard(
       signal,
       "The devices could not be read.",
       () =>
@@ -174,11 +186,12 @@ export class InquiryManager {
             signal,
           ),
           this.#state.health(signal),
+          this.#settings.locationTimeZones(signal),
         ]),
     );
     const now = this.#clock.now();
     return reply(
-      location.time_zone,
+      zoneOf(location, zones).zone,
       this.#healthAsOf(stored, now),
       now,
       deviceList(devices, DATA_BUDGET_TOKENS),
@@ -204,14 +217,18 @@ export class InquiryManager {
     if (device === undefined || location?.ownership !== "owned") {
       throw new InquiryError("not_found", "No device has that id.");
     }
-    const stored = await this.#guard(
+    const [stored, zones] = await this.#guard(
       signal,
       "The health could not be read.",
-      () => this.#state.health(signal),
+      () =>
+        Promise.all([
+          this.#state.health(signal),
+          this.#settings.locationTimeZones(signal),
+        ]),
     );
     const now = this.#clock.now();
     return reply(
-      location.time_zone,
+      zoneOf(location, zones).zone,
       this.#healthAsOf(stored, now),
       now,
       deviceDetail(device, location.location_id),
@@ -228,22 +245,28 @@ export class InquiryManager {
    * times are in, and the version the connector last reported, for "connector behind".
    */
   async getOwnerHealth(signal: AbortSignal): Promise<OwnerHealth> {
-    const [locations, stored] = await this.#guard(
+    const [locations, stored, zones] = await this.#guard(
       signal,
       "The health could not be read.",
       () =>
         Promise.all([
           this.#state.locations(signal),
           this.#state.health(signal),
+          this.#settings.locationTimeZones(signal),
         ]),
     );
     const now = this.#clock.now();
     const health = this.#healthAsOf(stored, now);
-    const named = locations.find(isOwned)?.time_zone ?? FALLBACK_TIME_ZONE;
-    const timeZone = isValidTimeZone(named) ? named : FALLBACK_TIME_ZONE;
+    const home = locations.find(isOwned);
+    const { zone, source } =
+      home === undefined
+        ? { zone: FALLBACK_TIME_ZONE, source: "utc" as const }
+        : zoneOf(home, zones);
     return {
-      health: reply(timeZone, health, now, healthData(health, now)),
-      time_zone: timeZone,
+      health: reply(zone, health, now, healthData(health, now)),
+      time_zone: zone,
+      time_zone_source: source,
+      ...(home === undefined ? {} : { location_id: home.location_id }),
       ...(stored?.connector_version === undefined
         ? {}
         : { connector_version: stored.connector_version }),
@@ -316,6 +339,21 @@ export class InquiryManager {
 
 function isOwned(location: LocationState): boolean {
   return location.ownership === "owned";
+}
+
+// The owner's choice first, then Ring's when Intl knows it, then UTC (DRIFT-001-81). Settings has
+// already left out any stored zone Intl does not know.
+function zoneOf(
+  location: LocationState,
+  zones: ReadonlyMap<string, string>,
+): { readonly zone: string; readonly source: TimeZoneSource } {
+  const chosen = zones.get(location.location_id);
+  if (chosen !== undefined) {
+    return { zone: chosen, source: "owner" };
+  }
+  return isValidTimeZone(location.time_zone)
+    ? { zone: location.time_zone, source: "ring" }
+    : { zone: FALLBACK_TIME_ZONE, source: "utc" };
 }
 
 // The reply around `data`: stale since the health says so, or since now for a home that never

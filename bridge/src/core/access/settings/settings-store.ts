@@ -4,11 +4,14 @@
 //   listing, and keeps the owner's revocation and the last-seen time of an agent still listed;
 // - `connector`: the home part's keys, `pending`, `active` or `revoked` (SC2). One request waits at
 //   a time, for 10 minutes (PT-32), and approving it revokes every older key (FR-032);
-// - `setting`: the global battery threshold (FR-001), or the configured default until it is set.
+// - `setting`: the global battery threshold (FR-001), or the configured default until it is set;
+//   and the time zone the owner chose for each location on the admin page (DRIFT-001-81), one row
+//   holding a map from location id to IANA zone, since a row's name is at most 128 characters.
 //
 // DTO fields that data-model.md or the link contract names keep those names; times are UTC
 // milliseconds since 1970, stored and in the DTOs (see ../README.md).
 import { z } from "zod";
+import { isValidTimeZone } from "../../../utilities/clock/index.ts";
 import type { Clock } from "../../../utilities/clock/index.ts";
 import {
   QueryLayerError,
@@ -40,6 +43,10 @@ const MAX_PERCENT = 100;
 const AGENT_SCOPES = ["read", "media", "control"] as const;
 const CONNECTOR_STATUSES = ["pending", "active", "revoked"] as const;
 const BATTERY_THRESHOLD = "battery_threshold_pct";
+const TIME_ZONES = "location_time_zones";
+/** The State store's limits on a location id and a time zone, kept the same here. */
+const MAX_LOCATION_ID_LENGTH = 128;
+const MAX_TIME_ZONE_LENGTH = 64;
 
 /** What an agent may be granted (FR-030, SC3). Iteration 001 grants `read` only: the Issuer's rule. */
 export type AgentScope = (typeof AGENT_SCOPES)[number];
@@ -187,6 +194,9 @@ const KEY_ID_ROW = z.object({ key_id: z.string() });
 const CLIENT_ID_ROW = z.object({ client_id: z.string() });
 const BATTERY_ROW = z.object({
   value: jsonText(z.number().int().min(0).max(MAX_PERCENT)),
+});
+const TIME_ZONES_ROW = z.object({
+  value: jsonText(z.record(z.string(), z.unknown())),
 });
 
 const NOT_ENROLLED: ConnectorKey = { kind: "not_enrolled" };
@@ -472,6 +482,58 @@ export class SettingsStore {
     );
   }
 
+  /**
+   * The time zone the owner chose for each location on the admin page (DRIFT-001-81), by location
+   * id. An entry that is not a time zone Intl knows is left out, so no reply is given in one.
+   */
+  async locationTimeZones(
+    signal: AbortSignal,
+  ): Promise<ReadonlyMap<string, string>> {
+    const row = await this.#guard(
+      signal,
+      "The time zones could not be read.",
+      () =>
+        this.#store.get(
+          statement(SELECT_SETTING, { name: TIME_ZONES }),
+          signal,
+        ),
+    );
+    return row === undefined
+      ? new Map()
+      : knownTimeZones(parseRow(TIME_ZONES_ROW, row, "setting").value);
+  }
+
+  /**
+   * Sets one location's time zone and keeps the others'. Throws `RangeError` for a location id that
+   * is not 1 to 128 characters long, or a time zone Intl does not know. Two owners' saves at the same
+   * moment could keep only one; the owner is one person, so that is accepted.
+   */
+  async setLocationTimeZone(
+    locationId: string,
+    timeZone: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    checkLength(locationId, MAX_LOCATION_ID_LENGTH, "location id");
+    checkTimeZone(timeZone);
+    const zones = new Map(await this.locationTimeZones(signal));
+    zones.set(locationId, timeZone);
+    await this.#guard(signal, "The time zone could not be saved.", () =>
+      this.#store.run(
+        upsertStatement(this.#store.dialect, {
+          table: "setting",
+          key: ["name"],
+          values: {
+            name: TIME_ZONES,
+            value: JSON.stringify(Object.fromEntries(zones)),
+            updated_at: this.#clock.now(),
+          },
+          onConflict: "update",
+        }),
+        signal,
+      ),
+    );
+  }
+
   // The Query layer's failures become this store's own; an abort, a `RangeError` and this
   // store's own errors pass through unchanged.
   async #guard<T>(
@@ -518,6 +580,26 @@ function checkLength(text: string, max: number, what: string): void {
       `A ${what} must be 1 to ${String(max)} characters long.`,
     );
   }
+}
+
+function checkTimeZone(timeZone: string): void {
+  if (timeZone.length > MAX_TIME_ZONE_LENGTH || !isValidTimeZone(timeZone)) {
+    throw new RangeError(
+      "A time zone is an IANA name that Intl knows, such as Asia/Jerusalem.",
+    );
+  }
+}
+
+function knownTimeZones(
+  stored: Readonly<Record<string, unknown>>,
+): ReadonlyMap<string, string> {
+  const zones = new Map<string, string>();
+  for (const [locationId, timeZone] of Object.entries(stored)) {
+    if (typeof timeZone === "string" && isValidTimeZone(timeZone)) {
+      zones.set(locationId, timeZone);
+    }
+  }
+  return zones;
 }
 
 function checkPercent(percent: number): void {

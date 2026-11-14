@@ -42,10 +42,19 @@ type HealthCase =
   | "behind"
   | "not_linked";
 
+/** The home's time zone (DRIFT-001-81): Ring's, none Ring gives, or the one the owner saved. */
+interface Zone {
+  readonly name: string;
+  readonly source: OwnerHealth["time_zone_source"];
+}
+
 interface Scenario {
   readonly web: Web;
   pending: ConnectorEnrollmentPending | undefined;
+  zone: Zone;
 }
+
+const HOME_ID = "dev-home";
 
 const clock = new SystemClock();
 const scenarios = new Map<string, Scenario>();
@@ -66,7 +75,11 @@ function healthData(health: HealthCase): OwnerHealth["health"]["data"] {
   };
 }
 
-function ownerHealth(health: HealthCase, read: number): OwnerHealth {
+function ownerHealth(
+  health: HealthCase,
+  read: number,
+  zone: Zone,
+): OwnerHealth {
   const asOf = new Date(FIRST_READ + read * SECOND_MS).toISOString();
   return {
     health: {
@@ -76,7 +89,9 @@ function ownerHealth(health: HealthCase, read: number): OwnerHealth {
       ...(health === "stale" ? { stale_since: SINCE } : {}),
       data: healthData(health),
     },
-    time_zone: "Asia/Jerusalem",
+    time_zone: zone.name,
+    time_zone_source: zone.source,
+    location_id: HOME_ID,
     ...(health === "not_linked"
       ? {}
       : { connector_version: health === "behind" ? "0.1.0" : CORE_VERSION }),
@@ -127,6 +142,10 @@ function newScenario(query: URLSearchParams): Scenario {
       query.get("request") === "waiting"
         ? waitingRequest("7Q4K-29XM")
         : undefined,
+    zone:
+      query.get("zone") === "utc"
+        ? { name: "UTC", source: "utc" }
+        : { name: "Asia/Jerusalem", source: "ring" },
     web: new Web(
       { publicUrl: BASE, coreVersion: CORE_VERSION },
       {
@@ -142,6 +161,10 @@ function newScenario(query: URLSearchParams): Scenario {
               revokedKeyIds: ["older-key-00001"],
             });
           },
+          setLocationTimeZone: (_locationId, timeZone) => {
+            scenario.zone = { name: timeZone, source: "owner" };
+            return Promise.resolve();
+          },
         },
         inquiry: {
           getOwnerHealth: () => {
@@ -150,7 +173,7 @@ function newScenario(query: URLSearchParams): Scenario {
               ? Promise.reject(
                   new InquiryError("unavailable", "The store is down."),
                 )
-              : Promise.resolve(ownerHealth(health, reads));
+              : Promise.resolve(ownerHealth(health, reads, scenario.zone));
           },
         },
         ownerSignIn: signIn(query.get("sign_in") === "stale"),

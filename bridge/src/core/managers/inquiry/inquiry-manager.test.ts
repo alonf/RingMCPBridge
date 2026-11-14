@@ -395,6 +395,57 @@ describe("the Inquiry manager: which location", () => {
   });
 });
 
+// DRIFT-001-81: the owner's choice first, then Ring's zone when Intl knows it, then UTC. In
+// November, Tokyo is UTC+9 and Jerusalem UTC+2, so the offsets tell the zones apart.
+const TOKYO_LOCAL = "2026-11-07T18:00:00.000+09:00";
+
+describe("the Inquiry manager: the location's time zone", () => {
+  it("uses the zone the owner chose over Ring's in every reply, and names it in the overview", async () => {
+    const test = await harness();
+    await test.settings.setLocationTimeZone("loc-1", "Asia/Tokyo", never);
+
+    const overview = await test.inquiry.getOverview({}, never);
+    const list = await test.inquiry.listDevices({}, never);
+    const device = await test.inquiry.getDevice({ device_id: "d-door" }, never);
+    const health = await test.inquiry.getHealth(never);
+    const owner = await test.inquiry.getOwnerHealth(never);
+
+    for (const reply of [overview, list, device, health]) {
+      expect(reply.as_of_local).toBe(TOKYO_LOCAL);
+    }
+    expect(overview.data.location.time_zone).toBe("Asia/Tokyo");
+    expect(owner).toMatchObject({
+      time_zone: "Asia/Tokyo",
+      time_zone_source: "owner",
+      location_id: "loc-1",
+    });
+  });
+
+  it("uses Ring's zone when the owner chose none, and UTC when Intl does not know Ring's, saying which", async () => {
+    const ring = await harness();
+    const unknown = await harness([
+      { ...HOME, time_zone: "Mars/Olympus_Mons" },
+    ]);
+    const before = await harness([], [], "never_reported");
+
+    expect(await ring.inquiry.getOwnerHealth(never)).toMatchObject({
+      time_zone: "Asia/Jerusalem",
+      time_zone_source: "ring",
+    });
+    expect(
+      (await unknown.inquiry.getOverview({}, never)).data.location.time_zone,
+    ).toBe("UTC");
+    expect(await unknown.inquiry.getOwnerHealth(never)).toMatchObject({
+      time_zone: "UTC",
+      time_zone_source: "utc",
+      location_id: "loc-1",
+    });
+    const none = await before.inquiry.getOwnerHealth(never);
+    expect(none).toMatchObject({ time_zone: "UTC", time_zone_source: "utc" });
+    expect(none).not.toHaveProperty("location_id");
+  });
+});
+
 describe("the Inquiry manager: freshness (FR-006, SC-005)", () => {
   it("marks the last known state stale since the home's last sign of life once it is silent for two minutes", async () => {
     const test = await harness();

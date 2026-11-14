@@ -2,7 +2,8 @@
 // sign-in bound to the browser, the session, the Health section in each state and its poll, and the
 // Enroll section's approval with every check: the sign-in's age either side of 5 minutes, the key
 // the page showed, the code typed, the lease, the store down. Forms from another site or without
-// the session's token change nothing. Markup from the home is shown as text.
+// the session's token change nothing. Markup from the home is shown as text. Since DRIFT-001-81,
+// the Time zone section: the zone in use and its source, and the owner's choice saved for the home.
 import { describe, expect, it } from "vitest";
 import { FakeClock } from "../../../utilities/clock/index.ts";
 import { Logger } from "../../../utilities/logging/index.ts";
@@ -34,6 +35,7 @@ const KEY_ID = "key-shown-000001";
 const NEWER_KEY_ID = "key-newer-000002";
 const CODE = "7Q4K-29XM";
 const SECOND_MS = 1_000;
+const HOME_ID = "loc-home";
 
 interface Fakes {
   readonly clock: FakeClock;
@@ -42,6 +44,9 @@ interface Fakes {
   readonly begun: SignInStartOptions[];
   readonly completed: PendingSignIn[];
   readonly approved: string[];
+  /** Each time zone saved, as `[location id, zone]`. */
+  readonly zonesSet: [string, string][];
+  zoneSave: () => Promise<void>;
   pending: ConnectorEnrollmentPending | undefined;
   approval: () => Promise<ConnectorEnrollmentApproval>;
   pendingRead: () => Promise<ConnectorEnrollmentPending | undefined>;
@@ -70,6 +75,8 @@ function ownerHealth(
       },
     },
     time_zone: "Asia/Jerusalem",
+    time_zone_source: "ring",
+    location_id: HOME_ID,
     ...(connectorVersion === null
       ? {}
       : { connector_version: connectorVersion }),
@@ -85,6 +92,8 @@ function setUp(): Fakes {
     begun: [],
     completed: [],
     approved: [],
+    zonesSet: [],
+    zoneSave: () => Promise.resolve(),
     pending: undefined,
     approval: () =>
       Promise.resolve({ kind: "approved", revokedKeyIds: ["key-older-00003"] }),
@@ -129,6 +138,10 @@ function setUp(): Fakes {
         approveEnrollment: (keyId) => {
           fakes.approved.push(keyId);
           return fakes.approval();
+        },
+        setLocationTimeZone: (locationId, timeZone) => {
+          fakes.zonesSet.push([locationId, timeZone]);
+          return fakes.zoneSave();
         },
       },
       inquiry: { getOwnerHealth: () => fakes.health() },
@@ -780,6 +793,7 @@ describe("the admin page's edges", () => {
         admin: {
           pendingEnrollment: () => Promise.resolve(undefined),
           approveEnrollment: () => Promise.resolve({ kind: "not_pending" }),
+          setLocationTimeZone: () => Promise.resolve(),
         },
         inquiry: { getOwnerHealth: () => Promise.resolve(ownerHealth()) },
         ownerSignIn: {
@@ -896,5 +910,139 @@ describe("the admin page's edges", () => {
 
     expect(approval.status).toBe(500);
     expect(read.status).toBe(500);
+  });
+});
+
+// DRIFT-001-81: the owner chooses the home's time zone; replies and the page use it.
+describe("the admin page's Time zone section", () => {
+  function zoneSection(page: string): string {
+    return /<section\s+id="time-zone"[\s\S]*?<\/section>/.exec(page)?.[0] ?? "";
+  }
+
+  function selected(section: string): string {
+    return /<option\s+value="([^"]+)"\s+selected/.exec(section)?.[1] ?? "none";
+  }
+
+  async function saveZone(
+    fakes: Fakes,
+    session: string,
+    timeZone: string,
+  ): Promise<string> {
+    const token = formToken(await pageOf(fakes, session));
+    const answer = await post(
+      fakes.web,
+      "/admin/time-zone",
+      { form_token: token, time_zone: timeZone },
+      { cookies: session },
+    );
+    expect(answer.status).toBe(303);
+    expect(answer.headers.get("location")).toBe("/admin#time-zone");
+    return noticeOn(await pageOf(fakes, session));
+  }
+
+  it("names the zone in use and where it came from, with every zone Intl knows to choose from", async () => {
+    const fakes = setUp();
+    const session = await signIn(fakes);
+
+    const section = zoneSection(await pageOf(fakes, session));
+
+    expect(section).toContain("<strong>Asia/Jerusalem</strong>, from Ring.");
+    expect(selected(section)).toBe("Asia/Jerusalem");
+    expect(section).not.toContain("data-browser-default");
+    const options = section.match(/<option/g) ?? [];
+    expect(options).toHaveLength(Intl.supportedValuesOf("timeZone").length);
+  });
+
+  it("with only UTC to use, says so and lets the page's script start at the browser's zone", async () => {
+    const fakes = setUp();
+    fakes.health = () =>
+      Promise.resolve({
+        ...ownerHealth(),
+        time_zone: "UTC",
+        time_zone_source: "utc",
+      });
+    const session = await signIn(fakes);
+
+    const section = zoneSection(await pageOf(fakes, session));
+
+    expect(section).toContain("Ring gives no time zone the bridge can use");
+    expect(section).toContain("data-browser-default");
+    expect(selected(section)).toBe("UTC");
+    const script = await (await get(fakes.web, "/admin/app.js")).text();
+    expect(script).toContain("select[data-browser-default]");
+    expect(script).toContain("resolvedOptions().timeZone");
+  });
+
+  it("saves the owner's choice for the home the page showed, never a location the form names", async () => {
+    const fakes = setUp();
+    const session = await signIn(fakes);
+    const token = formToken(await pageOf(fakes, session));
+
+    const answer = await post(
+      fakes.web,
+      "/admin/time-zone",
+      {
+        form_token: token,
+        time_zone: "Europe/Athens",
+        location_id: "elsewhere",
+      },
+      { cookies: session },
+    );
+    expect(answer.status).toBe(303);
+
+    expect(fakes.zonesSet).toEqual([[HOME_ID, "Europe/Athens"]]);
+    expect(noticeOn(await pageOf(fakes, session))).toBe(
+      "Saved. Times are now in Europe/Athens.",
+    );
+    expect(fakes.lines.join("\n")).toContain("web_time_zone_set");
+  });
+
+  it("saves nothing for a zone Intl does not know, or a home not reported yet", async () => {
+    const fakes = setUp();
+    const session = await signIn(fakes);
+
+    expect(await saveZone(fakes, session, "Mars/Olympus_Mons")).toContain(
+      "That is not a time zone the bridge knows.",
+    );
+    fakes.health = () => {
+      const home = ownerHealth();
+      return Promise.resolve({
+        health: home.health,
+        time_zone: home.time_zone,
+        time_zone_source: home.time_zone_source,
+      });
+    };
+    expect(await saveZone(fakes, session, "Asia/Jerusalem")).toContain(
+      "The home has not reported its location yet",
+    );
+    expect(fakes.zonesSet).toEqual([]);
+  });
+
+  it("says so when the database does not answer, and saves nothing from another site or without the token", async () => {
+    const fakes = setUp();
+    const session = await signIn(fakes);
+    fakes.zoneSave = () =>
+      Promise.reject(new AdminError("unavailable", "The store is down."));
+
+    expect(await saveZone(fakes, session, "Asia/Jerusalem")).toContain(
+      "the time zone was not saved",
+    );
+    fakes.zonesSet.length = 0;
+
+    const foreign = await post(
+      fakes.web,
+      "/admin/time-zone",
+      { form_token: formToken(await pageOf(fakes, session)), time_zone: "UTC" },
+      { cookies: session, origin: "https://evil.example.test" },
+    );
+    const tokenless = await post(
+      fakes.web,
+      "/admin/time-zone",
+      { form_token: "not-the-token", time_zone: "UTC" },
+      { cookies: session },
+    );
+    expect(foreign.status).toBe(403);
+    expect(tokenless.status).toBe(403);
+    expect(fakes.zonesSet).toEqual([]);
   });
 });

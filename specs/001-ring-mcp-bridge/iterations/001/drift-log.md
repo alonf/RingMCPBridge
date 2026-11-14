@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 80
+**Total drift events**: 81
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1174,6 +1174,69 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
+### DRIFT-001-81: The owner's decision: the home's time zone is set on the admin page, with the browser's zone as the default
+
+- **Detected**: 2026-11-14, implement, T033. The owner's answer on DRIFT-001-79: the Ring app's location is correct, and it shows times in Israel; "you can set the timezone in the app, taking the browser timezone as the default".
+- **Kind**: the owner's decision. It adds one setting to the admin page ahead of iteration 004's full admin page (FR-039). The contract changes are additive: one admin path, and a reply field's description. No tool input or output shape changes.
+- **Observed**: Ring's address time zone for the owner's location is empty or not an IANA name (DRIFT-001-79), though the Ring app shows Israel time. So the Ring app holds its zone somewhere the bridge does not read.
+- **Decided** (built):
+  - **The rule:** a location's time zone is the one the owner chose, else Ring's when Intl knows it, else UTC. One function in Inquiry applies it to:
+    - all four replies;
+    - the overview's `location.time_zone`;
+    - the admin page's own times, through the owner's health.
+  - **Storage:** one Settings `setting` row, `location_time_zones`, holding a map from location id to zone. A row's name is at most 128 characters, so there is no row per location.
+    - Intl checks a zone when it is saved and again when it is read; a stored entry Intl does not know is left out.
+    - An unknown zone, or a location id that is not 1 to 128 characters, is a `RangeError`.
+    - Two saves at the same moment could keep only one (accepted: the owner is one person).
+  - **Admin** sets it through Settings.
+  - **The admin page** gets a Time zone card:
+    - It names the zone in use and where it came from.
+    - A list of every zone Intl knows (`Intl.supportedValuesOf`) starts at the zone in use.
+    - When only UTC is in use, the page's script starts the list at the browser's own zone. A data attribute marks it, since the page's policy allows no inline script. Without the script, the list starts at UTC.
+  - **The form** (`/admin/time-zone`):
+    - It needs the page's origin, the session and its form token. It is not a risky action, so no fresh sign-in.
+    - Intl checks the zone again.
+    - It saves for the home's first owned location, which the bridge reads again then, never from the form.
+    - Its notices: saved, an unknown zone, no home yet, the database down.
+  - **The records:**
+    - the reply schema's `time_zone` description, regenerated in `schemas/`;
+    - `contracts/mcp-tools.md` Conventions;
+    - the route in `contracts/web-endpoints.md`;
+    - two rows in `data-model.md`.
+- **Requirement citation**: FR-006 (every reply in the location's time zone), FR-039 and FR-040 (the admin page), FR-046 and FR-047 (additive changes, the published schemas); DRIFT-001-79.
+- **Resolution**: built and tested.
+  - **Settings:** 3 tests, run against both databases in CI:
+    - zones held per location;
+    - an unknown zone or a bad location id refused, changing nothing;
+    - a stored zone Intl does not know left out.
+
+    An unreadable row is reported as failed.
+  - **Inquiry:** 2 tests:
+    - the owner's zone over Ring's, in all four replies and in the overview's name;
+    - Ring's zone, or UTC, with where it came from.
+  - **Web:** 5 tests:
+    - the card's content;
+    - the browser-default marker;
+    - the home's location used, never the form's;
+    - an unknown zone or no home saving nothing;
+    - the database down;
+    - a form from another site or without the token refused.
+  - **Browser:** 2 checks, in 6 projects (3 widths, dark and light):
+    - with only UTC, a browser in Tokyo gets Tokyo chosen, and saving names it;
+    - with Ring's zone, the list starts there.
+
+    All 126 browser checks pass.
+  - **Three deliberate breaks, each caught:**
+    - Inquiry ignoring the owner's choice;
+    - Settings saving a zone Intl does not know;
+    - the script not starting at the browser's zone.
+  - Cost: about 1 SP (estimate), $0. This is owner-directed work beyond T033's estimate, recorded for the retro.
+- **Carry-forward**:
+  - **To T033, after the deploy:** the owner opens the admin page, checks that the list shows Asia/Jerusalem, and saves. Every `as_of_local` should then read `+02:00`.
+  - **To iteration 002:** events' local times (`event-intake.ts`) use the same rule.
+  - **The image:** this ships with rooms (DRIFT-001-80) in one image, with one production deploy on the owner's OK.
+- **Class closure**: the tests above, and the three deliberate breaks that each failed them.
+
 ### DRIFT-001-80: The owner's decision: the connector reads each hub's rooms, with a tolerant reader and a bounded wait
 
 - **Detected**: 2026-11-14, implement, T033. The owner's answer on DRIFT-001-79: "read rooms, no problem".
@@ -1248,7 +1311,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **The owner's answers** (2026-11-14):
   - **The time zone:** the Ring app's location is correct and shows Israel time. The owner chose a setting on the admin page, with the browser's zone as the default. It is about 1 SP (estimate), not the connector setting's 0.25 SP.
   - **Rooms:** "read rooms, no problem" (DRIFT-001-80).
-- **Resolution**: the README corrected. Rooms built (DRIFT-001-80); the time zone setting follows. Cost so far: about 0.25 SP (estimate), $0.
+- **Resolution**: the README corrected. Rooms built (DRIFT-001-80); the time zone setting built (DRIFT-001-81). Cost so far: about 0.25 SP (estimate), $0.
 - **Carry-forward**:
   - **To T033:**
     - the stale check, with a stop of 3 minutes or more;

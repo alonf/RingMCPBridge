@@ -22,7 +22,11 @@ export type Notice =
   | { readonly kind: "sign_in_stale" }
   | { readonly kind: "not_serving" }
   | { readonly kind: "unavailable" }
-  | { readonly kind: "outcome_unknown" };
+  | { readonly kind: "outcome_unknown" }
+  | { readonly kind: "time_zone_saved"; readonly zone: string }
+  | { readonly kind: "time_zone_invalid" }
+  | { readonly kind: "time_zone_not_saved" }
+  | { readonly kind: "no_home" };
 
 /** A signed-in owner. */
 export interface OwnerSession {

@@ -82,6 +82,8 @@ export const deviceReference = z.object({
 export const locationSummary = z.object({
   location_id: locationId,
   name: ringText("The location name exactly as written in Ring."),
-  time_zone: ringText("The location's IANA time zone, as Ring reports it."),
+  time_zone: ringText(
+    "The location's IANA time zone, which every local time uses: the one the owner chose, else Ring's, else UTC.",
+  ),
   ownership,
 });

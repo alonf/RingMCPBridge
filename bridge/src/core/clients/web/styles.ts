@@ -172,6 +172,10 @@ main { padding: 1rem; display: grid; gap: 1rem; align-content: start; min-width:
   font: 600 1.2rem ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.field select {
+  min-height: 44px; max-width: 100%; padding: 0.5rem 0.75rem; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit;
+}
 .hint { color: var(--muted); font-size: 0.9rem; margin: 0; }
 .signed-out { max-width: 32rem; margin: 3rem auto; }
 .page-title { margin: 0; font-size: 1.35rem; }

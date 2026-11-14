@@ -20,6 +20,7 @@ function health(data: Partial<OwnerHealth["health"]["data"]>): OwnerHealth {
       },
     },
     time_zone: "Asia/Jerusalem",
+    time_zone_source: "ring",
     connector_version: "1.4.0",
   };
 }

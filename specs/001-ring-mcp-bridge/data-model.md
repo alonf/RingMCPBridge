@@ -117,7 +117,7 @@ Types:
 | `location_id` | string | primary key | DS ERD |
 | `name` | string, untrusted | [P] field | spec Key Entities |
 | `ownership` | enum `owned`, `shared` | [P] name; ERD "owned or shared" | DS ERD, FR-036 |
-| `time_zone` | string (IANA zone) | ERD `tz`; used for every `*_local` time | DS ERD, FR-006 |
+| `time_zone` | string (IANA zone) | ERD `tz`, as Ring reports it. Every `*_local` time uses the location's time zone: the one the owner chose on the admin page (Settings `setting`), else this one when Intl knows it, else UTC | DS ERD, FR-006, DRIFT-001-81 |
 | `alarm_mode` | enum `disarmed`, `home`, `away` | [P] name and values; IA D8 calls it "mode" | spec Key Entities, IA D8 |
 | `monitoring` | enum `on`, `off`, `unknown` | whether Ring exposes it is a pilot check; 003 (arm summary) | IA D8 step 3 |
 | `as_of` | timestamp | when the stored state was true | CD map v3 State |
@@ -539,6 +539,7 @@ Field names are [P]. The content is CD-A2's.
 |---|---|---|---|---|
 | Priority policy and push defaults | the FR-009 table | policy data (Settings or Config; CD5 allows either) | FR-009, CD5 | 002 |
 | Battery threshold, global | 20% | policy data | FR-001 (`low_batteries` in the overview), FR-007, RN §Sensor battery alerts | 001 |
+| A location's time zone, chosen by the owner on the admin page | none: Ring's when Intl knows it, else UTC | Settings `setting` (`location_time_zones`: one row, a map from location id to IANA zone) | FR-006, DRIFT-001-81 | 001 |
 | Battery threshold per device; the crossing alert and the digest that use it | the global value | policy data | FR-007 | 003 |
 | Late-event age limit | 2 minutes | policy data in Classify | CD-A4 | 002 |
 | Health thresholds | stale 2 min; out of band 10 min | Config | CD map (Health), OR3, CD5 | 001 (out of band: 002) |

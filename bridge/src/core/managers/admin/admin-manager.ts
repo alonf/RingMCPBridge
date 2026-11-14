@@ -92,6 +92,20 @@ export class AdminManager {
     );
   }
 
+  /**
+   * The owner sets a location's time zone on the admin page (DRIFT-001-81): replies and the page's
+   * own times use it in place of Ring's. Throws `RangeError` for a time zone Intl does not know.
+   */
+  async setLocationTimeZone(
+    locationId: string,
+    timeZone: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    await this.#guard(signal, "The time zone could not be saved.", () =>
+      this.#settings.setLocationTimeZone(locationId, timeZone, signal),
+    );
+  }
+
   // Settings' failures become Admin's own; an abort and anything else pass through unchanged.
   async #guard<T>(
     signal: AbortSignal,

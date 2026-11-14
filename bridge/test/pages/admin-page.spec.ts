@@ -288,3 +288,38 @@ test.describe("the admin page from the keyboard", () => {
     await expect(notice(page)).toContainText("Approved.");
   });
 });
+
+// DRIFT-001-81: the home's time zone, chosen on the page. The browser here is in Tokyo, so its zone
+// is told apart from Ring's (Jerusalem) and from UTC.
+test.describe("the home's time zone", () => {
+  test.use({ timezoneId: "Asia/Tokyo" });
+
+  test("with no zone Ring gives, the list starts at the browser's, and saving it names it", async ({
+    page,
+  }, testInfo) => {
+    await open(page, "zone=utc");
+    const choice = page.getByLabel("Home time zone");
+
+    await expect(choice).toHaveValue("Asia/Tokyo");
+    await page.getByRole("button", { name: "Save time zone" }).click();
+
+    await expect(notice(page)).toContainText(
+      "Saved. Times are now in Asia/Tokyo.",
+    );
+    await expect(page.locator("#time-zone")).toContainText("which you chose");
+    await expect(page.getByLabel("Home time zone")).toHaveValue("Asia/Tokyo");
+    await checkFrame(page, testInfo);
+  });
+
+  test("with Ring's zone, the list starts at it, not at the browser's", async ({
+    page,
+  }, testInfo) => {
+    await open(page, "health=ok");
+
+    await expect(page.getByLabel("Home time zone")).toHaveValue(
+      "Asia/Jerusalem",
+    );
+    await expect(page.locator("#time-zone")).toContainText("from Ring");
+    await checkFrame(page, testInfo);
+  });
+});

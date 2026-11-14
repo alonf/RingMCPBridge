@@ -3,6 +3,7 @@
 // enrollment code, the connector's version) is such a value, never raw markup. Every status shows
 // as a word and an icon, and every value with its time. English only.
 import { html } from "hono/html";
+import type { TimeZoneSource } from "../../managers/inquiry/index.ts";
 import type { HealthPanel, Banner, StatusRow, Tone } from "./health-panel.ts";
 import type { Notice } from "./owner-sessions.ts";
 import type { Theme } from "./styles.ts";
@@ -15,6 +16,7 @@ export interface PagePaths {
   readonly signIn: string;
   readonly signOut: string;
   readonly approve: string;
+  readonly timeZone: string;
   readonly theme: string;
   readonly stylesheet: string;
   readonly script: string;
@@ -42,6 +44,19 @@ export type EnrollPanel =
       readonly expiresAt: string;
       /** Whether the owner's sign-in is under 5 minutes old, so the form is shown. */
       readonly fresh: boolean;
+    };
+
+/** The Time zone section's content (DRIFT-001-81). */
+export type TimeZonePanel =
+  | { readonly kind: "unavailable" }
+  | { readonly kind: "no_home" }
+  | {
+      readonly kind: "ready";
+      /** The zone in use now, and where it came from. */
+      readonly zone: string;
+      readonly source: TimeZoneSource;
+      /** The zones the owner may choose, the one in use among them. */
+      readonly choices: readonly string[];
     };
 
 /** The longest confirmation the form takes: a code with room for spaces. */
@@ -105,7 +120,7 @@ const SIGN_IN_PROBLEMS: Readonly<
 
 const NOTICES: Readonly<
   Record<
-    Exclude<Notice["kind"], "approved">,
+    Exclude<Notice["kind"], "approved" | "time_zone_saved">,
     { readonly tone: Tone; readonly text: string }
   >
 > = {
@@ -132,6 +147,18 @@ const NOTICES: Readonly<
   outcome_unknown: {
     tone: "bad",
     text: "The bridge's database did not answer while approving. Reload the page to see whether the connector was approved.",
+  },
+  time_zone_invalid: {
+    tone: "bad",
+    text: "That is not a time zone the bridge knows. Nothing was saved. Choose one from the list.",
+  },
+  time_zone_not_saved: {
+    tone: "bad",
+    text: "The bridge's database did not answer, so the time zone was not saved. Try again in a moment.",
+  },
+  no_home: {
+    tone: "warn",
+    text: "The home has not reported its location yet, so there is no time zone to set. Try again once the connector links.",
   },
 };
 
@@ -169,6 +196,7 @@ export function adminPage(view: {
   readonly formToken: string;
   readonly health: HealthPanel;
   readonly enroll: EnrollPanel;
+  readonly timeZone: TimeZonePanel;
   readonly notice: Notice | undefined;
 }): Html {
   return frame({
@@ -187,6 +215,7 @@ export function adminPage(view: {
           ${view.notice === undefined ? "" : notice(view.notice)}
           ${healthSection(view.health, view.paths)}
           ${enrollSection(view.enroll, view.formToken, view.paths)}
+          ${timeZoneSection(view.timeZone, view.formToken, view.paths)}
         </main>
       </div>`,
   });
@@ -290,6 +319,7 @@ function navigation(paths: PagePaths, label: string): Html {
     <ul class="nav-list">
       <li><a href="${paths.page}#health">Health</a></li>
       <li><a href="${paths.page}#enroll">Enroll connector</a></li>
+      <li><a href="${paths.page}#time-zone">Time zone</a></li>
     </ul>
   </nav>`;
 }
@@ -373,7 +403,102 @@ function signInAgain(paths: PagePaths): Html {
     >`;
 }
 
+function timeZoneSection(
+  panel: TimeZonePanel,
+  formToken: string,
+  paths: PagePaths,
+): Html {
+  return html`<section
+    id="time-zone"
+    class="card"
+    aria-labelledby="time-zone-title"
+  >
+    <div class="card-head"><h2 id="time-zone-title">Time zone</h2></div>
+    ${timeZoneBody(panel, formToken, paths)}
+  </section>`;
+}
+
+function timeZoneBody(
+  panel: TimeZonePanel,
+  formToken: string,
+  paths: PagePaths,
+): Html {
+  switch (panel.kind) {
+    case "unavailable":
+      return message(
+        "bad",
+        "The time zone could not be read: the bridge's database did not answer. Reload the page in a moment.",
+      );
+    case "no_home":
+      return html`<p>
+        The home has not reported its location yet. Once the connector links,
+        choose its time zone here.
+      </p>`;
+    case "ready":
+      return html`${zoneInUse(panel.zone, panel.source)}
+      ${timeZoneForm(panel, formToken, paths)}`;
+  }
+}
+
+function zoneInUse(zone: string, source: TimeZoneSource): Html {
+  switch (source) {
+    case "owner":
+      return html`<p>
+        Times in agents' answers and on this page are in
+        <strong>${zone}</strong>, which you chose.
+      </p>`;
+    case "ring":
+      return html`<p>
+        Times in agents' answers and on this page are in
+        <strong>${zone}</strong>, from Ring. Choose another to use it instead.
+      </p>`;
+    case "utc":
+      return message(
+        "warn",
+        "Ring gives no time zone the bridge can use, so times are in UTC. Choose your home's time zone and save it.",
+      );
+  }
+}
+
+// With no zone but UTC's, the page's script starts the list at the browser's own zone.
+function timeZoneForm(
+  panel: Extract<TimeZonePanel, { readonly kind: "ready" }>,
+  formToken: string,
+  paths: PagePaths,
+): Html {
+  const browserDefault = panel.source === "utc";
+  return html`<form method="post" action="${paths.timeZone}">
+    <input type="hidden" name="form_token" value="${formToken}" />
+    <div class="field">
+      <label for="time-zone-choice">Home time zone</label>
+      <select
+        id="time-zone-choice"
+        name="time_zone"
+        aria-describedby="time-zone-hint"
+        ${browserDefault ? html` data-browser-default` : ""}
+      >
+        ${panel.choices.map(
+          (choice) =>
+            html`<option
+              value="${choice}"
+              ${choice === panel.zone ? html` selected` : ""}
+            >
+              ${choice}
+            </option>`,
+        )}
+      </select>
+    </div>
+    <p id="time-zone-hint" class="hint">
+      ${browserDefault ? "The list starts at your browser's time zone when the page can tell it." : "The list starts at the time zone in use."}
+    </p>
+    <button class="primary" type="submit">Save time zone</button>
+  </form>`;
+}
+
 function notice(shown: Notice): Html {
+  if (shown.kind === "time_zone_saved") {
+    return message("ok", `Saved. Times are now in ${shown.zone}.`, "status");
+  }
   if (shown.kind === "approved") {
     const revoked =
       shown.revoked === 0

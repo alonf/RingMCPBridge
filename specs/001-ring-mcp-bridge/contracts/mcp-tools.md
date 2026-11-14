@@ -14,6 +14,7 @@ The tool list is the public contract. It changes only additively, and a tool is 
   - inputs reject unknown fields [P].
 - **`location_id` when omitted [P]:** the owned location when there is exactly one; otherwise `INVALID_ARGUMENT`, with the location ids in `details`.
 - **Device references:** outputs use the event's device object `{id, name, room}` (IA D7). Inputs name a device `device_id` [P].
+- **The location's time zone [P] (DRIFT-001-81):** every `*_local` time is in the location's time zone. That is the zone the owner chose on the admin page, else Ring's when it is an IANA zone Intl knows, else UTC. The overview's `location.time_zone` names the same zone.
 - **A camera's status time [P] (DRIFT-001-41):** the bridge reads a camera's or doorbell's battery and online status from Ring only from time to time, at an inventory, while other devices are kept current through Ring's live connection. So wherever a camera's or doorbell's battery or online status is given, an optional `as_of` says when Ring last reported it, and it can be older than the reply's own `as_of`. Other devices carry none: the reply's `as_of` covers them.
 - **Untrusted content (FR-033, IA §Rules 5, AC B13):**
   - every Ring-sourced string (location and device names, rooms, event summaries, Ring history text, Ring's own kind names) and every image is untrusted data;
@@ -61,7 +62,7 @@ The home in one reply: alarm mode, open contacts, active motion, offline devices
 
 | Output `data` field | Type | Notes |
 |---|---|---|
-| `location` | object `{location_id, name, time_zone, ownership}` | `name` untrusted |
+| `location` | object `{location_id, name, time_zone, ownership}` | `name` untrusted; `time_zone` as in Conventions |
 | `alarm_mode` | enum `disarmed`, `home`, `away` [P values] | |
 | `open_contacts` | list of device references | |
 | `active_motion` | list of `{device, last_motion_at}` | [P] |

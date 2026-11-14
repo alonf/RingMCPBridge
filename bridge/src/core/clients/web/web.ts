@@ -9,6 +9,9 @@
 //   and the request's code typed again, compared without dashes, spaces or case [P]. It approves the
 //   key the page showed: if a newer request replaced it, nothing is approved. A core instance
 //   without the lease approves nothing.
+// - **The home's time zone** (DRIFT-001-81): the owner chooses it from the zones Intl knows, checked
+//   again when the form arrives. It is saved for the home's first owned location, found again then,
+//   never taken from the form. It is not a risky action: a session and its form token are enough.
 // - **The page's policy**: no inline script or style, no framing, nothing cached, no referrer.
 // - **Failures** become page states, in words the bridge wrote: the store down is a banner, never an
 //   error page. Each is logged once, here.
@@ -17,6 +20,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { Context } from "hono";
 import { z } from "zod";
+import { isValidTimeZone } from "../../../utilities/clock/index.ts";
 import type { Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
 import { SecurityError } from "../../../utilities/security/index.ts";
@@ -28,7 +32,10 @@ import type {
 import { AdminError } from "../../managers/admin/index.ts";
 import type { AdminManager } from "../../managers/admin/index.ts";
 import { InquiryError } from "../../managers/inquiry/index.ts";
-import type { InquiryManager } from "../../managers/inquiry/index.ts";
+import type {
+  InquiryManager,
+  OwnerHealth,
+} from "../../managers/inquiry/index.ts";
 import { AdminSignIns } from "./admin-sign-ins.ts";
 import type { Section } from "./admin-sign-ins.ts";
 import {
@@ -51,7 +58,12 @@ import {
   signedOutHealth,
   signInPage,
 } from "./pages.ts";
-import type { EnrollPanel, PagePaths, SignInProblem } from "./pages.ts";
+import type {
+  EnrollPanel,
+  PagePaths,
+  SignInProblem,
+  TimeZonePanel,
+} from "./pages.ts";
 import { STYLESHEET } from "./styles.ts";
 import type { Theme } from "./styles.ts";
 
@@ -65,6 +77,7 @@ export const ADMIN_PATHS: PagePaths = {
   signIn: `${ADMIN_PATH}/sign-in`,
   signOut: `${ADMIN_PATH}/sign-out`,
   approve: `${ADMIN_PATH}/enroll/approve`,
+  timeZone: `${ADMIN_PATH}/time-zone`,
   theme: `${ADMIN_PATH}/theme`,
   stylesheet: `${ADMIN_PATH}/app.css`,
   script: `${ADMIN_PATH}/app.js`,
@@ -86,6 +99,10 @@ const THEME_COOKIE_MAX_AGE_S = 365 * 24 * 60 * 60;
 const BINDING_BYTES = 32;
 const KEY_ID_MAX_LENGTH = 64;
 const FORM_TOKEN_MAX_LENGTH = 64;
+/** The longest time zone taken: the State store's limit. */
+const TIME_ZONE_MAX_LENGTH = 64;
+/** The zones the owner may choose: every IANA zone this runtime's Intl knows. */
+const TIME_ZONE_CHOICES: readonly string[] = Intl.supportedValuesOf("timeZone");
 /** The largest form body taken [P]: the forms hold a few short fields. */
 const FORM_BODY_LIMIT_BYTES = 4 * 1024;
 
@@ -126,6 +143,10 @@ const APPROVE_FORM = z.object({
 const SESSION_FORM = z.object({
   form_token: z.string().min(1).max(FORM_TOKEN_MAX_LENGTH),
 });
+const TIME_ZONE_FORM = z.object({
+  form_token: z.string().min(1).max(FORM_TOKEN_MAX_LENGTH),
+  time_zone: z.string().min(1).max(TIME_ZONE_MAX_LENGTH),
+});
 const THEME_FORM = z.object({ theme: z.enum(["dark", "light"]) });
 const SIGN_IN_PROBLEMS: ReadonlySet<string> = new Set<SignInProblem>([
   "refused",
@@ -147,7 +168,10 @@ export interface WebSettings {
 
 /** What Web is wired with. */
 export interface WebDependencies {
-  readonly admin: Pick<AdminManager, "pendingEnrollment" | "approveEnrollment">;
+  readonly admin: Pick<
+    AdminManager,
+    "pendingEnrollment" | "approveEnrollment" | "setLocationTimeZone"
+  >;
   readonly inquiry: Pick<InquiryManager, "getOwnerHealth">;
   readonly ownerSignIn: OwnerSignIn;
   /** Whether this core instance holds the lease: without it, nothing is approved. */
@@ -204,6 +228,7 @@ export class Web {
     app.get(HEALTH_PATH, (context) => this.#health(context));
     for (const path of [
       ADMIN_PATHS.approve,
+      ADMIN_PATHS.timeZone,
       ADMIN_PATHS.signOut,
       ADMIN_PATHS.theme,
     ]) {
@@ -220,6 +245,7 @@ export class Web {
       );
     }
     app.post(ADMIN_PATHS.approve, (context) => this.#approve(context));
+    app.post(ADMIN_PATHS.timeZone, (context) => this.#setTimeZone(context));
     app.post(ADMIN_PATHS.signOut, (context) => this.#signOut(context));
     app.post(ADMIN_PATHS.theme, (context) => this.#theme(context));
     app.get(ADMIN_PATHS.stylesheet, (context) =>
@@ -266,7 +292,7 @@ export class Web {
         }),
       );
     }
-    const { panel, timeZone } = await this.#readHealth();
+    const { panel, timeZone, zonePanel } = await this.#readHealth();
     const enroll = await this.#readEnrollment(session, timeZone);
     return context.html(
       adminPage({
@@ -275,6 +301,7 @@ export class Web {
         formToken: session.formToken,
         health: panel,
         enroll,
+        timeZone: zonePanel,
         notice: this.#sessions.takeNotice(session.id),
       }),
     );
@@ -453,6 +480,62 @@ export class Web {
     return { kind: notice };
   }
 
+  async #setTimeZone(context: WebContext): Promise<Response> {
+    const session = await this.#sessionForm(context, TIME_ZONE_FORM);
+    if (session instanceof Response) {
+      return session;
+    }
+    const notice = await this.#timeZoneChange(session.form.time_zone);
+    this.#sessions.tell(session.session.id, notice);
+    return context.redirect(`${ADMIN_PATH}#time-zone`, HTTP_SEE_OTHER);
+  }
+
+  // The zone is checked before anything is read or saved. The home is the one the page showed,
+  // found again now.
+  async #timeZoneChange(timeZone: string): Promise<Notice> {
+    if (!isValidTimeZone(timeZone)) {
+      return { kind: "time_zone_invalid" };
+    }
+    try {
+      const { location_id: locationId } =
+        await this.#dependencies.inquiry.getOwnerHealth(
+          AbortSignal.timeout(MANAGER_TIMEOUT_MS),
+        );
+      if (locationId === undefined) {
+        return { kind: "no_home" };
+      }
+      await this.#dependencies.admin.setLocationTimeZone(
+        locationId,
+        timeZone,
+        AbortSignal.timeout(MANAGER_TIMEOUT_MS),
+      );
+      this.#logger.info("web_time_zone_set", { location_id: locationId });
+      return { kind: "time_zone_saved", zone: timeZone };
+    } catch (error) {
+      return this.#timeZoneNotSaved(error);
+    }
+  }
+
+  #timeZoneNotSaved(error: unknown): Notice {
+    if (error instanceof RangeError) {
+      return { kind: "time_zone_invalid" };
+    }
+    if (!(
+      error instanceof InquiryError ||
+      error instanceof AdminError ||
+      isTimeout(error)
+    )) {
+      throw error;
+    }
+    this.#logger.warn("web_time_zone_not_set", {
+      error_code:
+        error instanceof InquiryError || error instanceof AdminError
+          ? error.kind
+          : "timeout",
+    });
+    return { kind: "time_zone_not_saved" };
+  }
+
   async #signOut(context: WebContext): Promise<Response> {
     const session = await this.#sessionForm(context, SESSION_FORM);
     if (session instanceof Response) {
@@ -544,7 +627,11 @@ export class Web {
   }
 
   // The store down is the panel's own state, never an error page.
-  async #readHealth(): Promise<{ panel: HealthPanel; timeZone: string }> {
+  async #readHealth(): Promise<{
+    panel: HealthPanel;
+    timeZone: string;
+    zonePanel: TimeZonePanel;
+  }> {
     try {
       const read = await this.#dependencies.inquiry.getOwnerHealth(
         AbortSignal.timeout(MANAGER_TIMEOUT_MS),
@@ -552,6 +639,7 @@ export class Web {
       return {
         panel: healthPanel(read, this.#settings.coreVersion),
         timeZone: read.time_zone,
+        zonePanel: timeZonePanel(read),
       };
     } catch (error) {
       if (!(error instanceof InquiryError || isTimeout(error))) {
@@ -560,7 +648,11 @@ export class Web {
       this.#logger.warn("web_health_not_read", {
         error_code: error instanceof InquiryError ? error.kind : "timeout",
       });
-      return { panel: UNREADABLE_PANEL, timeZone: "UTC" };
+      return {
+        panel: UNREADABLE_PANEL,
+        timeZone: "UTC",
+        zonePanel: { kind: "unavailable" },
+      };
     }
   }
 
@@ -592,6 +684,21 @@ export class Web {
       return { kind: "unavailable" };
     }
   }
+}
+
+// The zone in use is always among the choices, even one Intl names differently from its list.
+function timeZonePanel(read: OwnerHealth): TimeZonePanel {
+  if (read.location_id === undefined) {
+    return { kind: "no_home" };
+  }
+  return {
+    kind: "ready",
+    zone: read.time_zone,
+    source: read.time_zone_source,
+    choices: TIME_ZONE_CHOICES.includes(read.time_zone)
+      ? TIME_ZONE_CHOICES
+      : [read.time_zone, ...TIME_ZONE_CHOICES],
+  };
 }
 
 function themeOf(context: WebContext): Theme {
