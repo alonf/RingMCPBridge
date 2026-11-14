@@ -1,0 +1,63 @@
+{
+  "name": "ring-mcp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An MCP bridge that lets AI agents read a Ring home through a home connector and an Azure core.",
+  "type": "module",
+  "workspaces": [
+    "bridge",
+    "shim"
+  ],
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^24.11 || ^26",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": ">=10.9",
+      "onFail": "error"
+    }
+  },
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks || exit 0",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint --max-warnings 0 .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "dev:all-in-one": "node bridge/dev/all-in-one-scenario.ts",
+    "test:coverage": "vitest run --coverage",
+    "test:pages": "playwright test",
+    "schemas:check": "vitest run bridge/test/contract",
+    "schemas:generate": "vitest run bridge/test/contract/public-contract.test.ts --update",
+    "secrets:scan": "node scripts/run-gitleaks.mjs git --redact --no-banner --config .gitleaks.toml"
+  },
+  "overrides": {
+    "werift-common": "0.0.3",
+    "werift-dtls": "0.5.8",
+    "werift-ice": "0.2.3",
+    "werift-rtp": {
+      ".": "0.8.9",
+      "mediabunny": "1.62.1"
+    },
+    "werift-sctp": "0.0.11"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/vitest-runner": "10.1.1",
+    "@types/node": "26.6.6",
+    "@types/ws": "8.18.2",
+    "@vitest/coverage-v8": "5.0.5",
+    "dependency-cruiser": "18.7.0",
+    "eslint": "10.14.0",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

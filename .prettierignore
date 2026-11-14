@@ -1,0 +1,30 @@
+# Prettier formats the code and its config. Markdown is checked by markdownlint.
+**/*.md
+package-lock.json
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+reports/
+research_notes/
+specs/
+schemas/
+scripts/internal/
+
+# Specrew, Spec Kit and agent-host files are managed by their tools
+.agents/
+.claude/
+.copilot/
+.cursor/
+.specify/
+.specrew/
+.squad/
+.vscode/
+.github/agents/
+.github/prompts/
+.github/skills/
+.github/workflows/specrew-*.yml
+.github/workflows/squad-*.yml
+.github/workflows/sync-squad-labels.yml
+.markdownlint.json

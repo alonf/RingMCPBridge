@@ -1,0 +1,31 @@
+# gitleaks 8.30.1 configuration (T003): the default rules plus the project's no-GUID rule.
+title = "ring-mcp-bridge"
+
+[extend]
+useDefault = true
+
+# Files written by Specrew, Spec Kit, Squad and the agent hosts. They hold commit hashes and
+# crossing IDs (false "generic-api-key" matches) and skill docs with example keys.
+[allowlist]
+description = "Tool-managed lifecycle and agent-host files"
+paths = [
+  '''^\.squad/''',
+  '''^\.specrew/''',
+  '''^\.specify/''',
+  '''^\.claude/''',
+  '''^\.agents/''',
+  '''^\.copilot/''',
+  '''^\.cursor/''',
+  '''^\.github/(agents|prompts|skills)/''',
+  '''^scripts/internal/''',
+  '''^package-lock\.json$''',
+]
+
+# Owner values (subscription, tenant, client and object IDs) never enter the repository.
+# Role IDs are looked up by name at run time, so infrastructure and source code hold no GUID.
+[[rules]]
+id = "no-guid"
+description = "A GUID in infrastructure, scripts, source or workflows; owner values live outside the repository"
+regex = '''(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'''
+path = '''^(infra/|bridge/src/|shim/src/|scripts/[^/]+$|\.github/workflows/(ci|deploy|weekly)\.yml$)'''
+keywords = ["-"]

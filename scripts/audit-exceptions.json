@@ -1,0 +1,10 @@
+[
+  {
+    "advisory": "GHSA-2p57-rm9w-gvfp",
+    "package": "ip",
+    "via": "werift 0.22.4 through ring-client-api 14.3.0",
+    "reason": "No fixed ip release; werift is used only for Ring live media inside the home connector",
+    "until": "ring-client-api ships werift 0.25",
+    "recorded": "implementation-rules.yml project.supply-chain-policy"
+  }
+]

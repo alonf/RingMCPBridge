@@ -1,0 +1,110 @@
+schema_version: "1.0"
+schema: "v1"
+
+extension:
+  id: specrew-speckit
+  name: "Specrew Spec Kit Extension"
+  version: "0.40.0"
+  description: "Spec Kit extension providing governance artifacts, templates, and validation for Specrew"
+
+requires:
+  speckit_version: ">=0.12.9"
+
+provides:
+  commands:
+    - name: speckit.specrew-speckit.before-specify
+      file: commands/speckit.specrew-speckit.before-specify.md
+      description: "Run the Specrew design workshop before producing a spec"
+    - name: speckit.specrew-speckit.before-plan
+      file: commands/speckit.specrew-speckit.before-plan.md
+      description: "Validate requirement readiness before planning"
+    - name: speckit.specrew-speckit.after-tasks
+      file: commands/speckit.specrew-speckit.after-tasks.md
+      description: "Verify task-to-requirement traceability after task generation"
+    - name: speckit.specrew-speckit.before-implement
+      file: commands/speckit.specrew-speckit.before-implement.md
+      description: "Validate execution readiness before implementation"
+    - name: speckit.specrew-speckit.sync-specify
+      file: commands/speckit.specrew-speckit.sync-specify.md
+      description: "Persist session-state metadata after specification"
+    - name: speckit.specrew-speckit.sync-clarify
+      file: commands/speckit.specrew-speckit.sync-clarify.md
+      description: "Persist session-state metadata after clarification"
+    - name: speckit.specrew-speckit.sync-plan
+      file: commands/speckit.specrew-speckit.sync-plan.md
+      description: "Persist session-state metadata after planning"
+    - name: speckit.specrew-speckit.sync-tasks
+      file: commands/speckit.specrew-speckit.sync-tasks.md
+      description: "Persist session-state metadata after task generation"
+    - name: speckit.specrew-speckit.sync-review-signoff
+      file: commands/speckit.specrew-speckit.sync-review-signoff.md
+      description: "Persist session-state metadata after review-signoff (Proposal 090)"
+    - name: speckit.specrew-speckit.sync-retro
+      file: commands/speckit.specrew-speckit.sync-retro.md
+      description: "Persist session-state metadata after retro (Proposal 090)"
+    - name: speckit.specrew-speckit.sync-iteration-closeout
+      file: commands/speckit.specrew-speckit.sync-iteration-closeout.md
+      description: "Persist session-state metadata after iteration-closeout (Proposal 090)"
+    - name: speckit.specrew-speckit.sync-feature-closeout
+      file: commands/speckit.specrew-speckit.sync-feature-closeout.md
+      description: "Persist session-state metadata after feature-closeout (Proposal 090)"
+
+  # Feature 054: lifecycle-adjacent Spec Kit commands surfaced (or deferred) by this slice.
+  # Placement strings here are the authoritative source the discovery surfaces must match.
+  lifecycle_adjacent_commands:
+    - name: speckit.checklist
+      placement: before-plan
+      status: surfaced
+      requires: "a substantive spec ready for planning review"
+      surface_summary: "Requirements-quality aid surfaced before planning: improves clarity, completeness, consistency, and edge-case coverage. Recommended for substantive feature work; optional for low-risk slices."
+    - name: speckit.analyze
+      placement: before-implement
+      status: surfaced
+      requires: "spec.md, plan.md, and a complete tasks.md produced by /speckit.tasks"
+      surface_summary: "Additive cross-artifact consistency and quality review across spec/plan/tasks, surfaced only after tasks.md is complete. Complements Specrew governance; it does not replace it. If encountered before tasks.md exists, return at before-implement."
+    - name: speckit.taskstoissues
+      placement: deferred
+      status: deferred
+      requires: "explicit later re-scope only"
+      surface_summary: "Known but deferred for Feature 054. Not part of the default lifecycle in this slice."
+
+hooks:
+  before_specify:
+    command: speckit.specrew-speckit.before-specify
+    optional: false
+    description: "Route the specify entry through the Specrew design workshop"
+  before_plan:
+    command: speckit.specrew-speckit.before-plan
+    optional: false
+    description: "Validate spec readiness before planning"
+  after_tasks:
+    command: speckit.specrew-speckit.after-tasks
+    optional: false
+    description: "Verify task traceability after task generation"
+  before_implement:
+    command: speckit.specrew-speckit.before-implement
+    optional: false
+    description: "Validate execution readiness before implementation"
+
+tags:
+  - governance
+  - specrew
+  - squad-native
+
+config:
+  defaults:
+    governance_mode: "standard"
+    drift_detection:
+      enabled: true
+      mode: "batch"
+    capacity:
+      default_unit: "story_points"
+      default_per_iteration: 20
+      overcommit_threshold: 1.0
+    traceability:
+      require_fr_mapping: true
+      require_us_mapping: true
+      orphan_tasks_allowed: false
+    versions:
+      min_speckit: "0.12.9"
+      min_squad: "0.11.0"

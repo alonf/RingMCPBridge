@@ -1,0 +1,47 @@
+{
+  "schema": "v1",
+  "boundary_events": [
+    {
+      "commit": "a847e72db8343481a9a622ca73e2ece91d7e7483",
+      "boundary": "specify",
+      "response_text": "",
+      "handoff_present": false,
+      "recorded_at": "2026-11-01T19:46:50Z"
+    },
+    {
+      "commit": "ae40fa10981259acab40787c0b60e38366a1cdde",
+      "boundary": "clarify",
+      "response_text": "",
+      "handoff_present": false,
+      "recorded_at": "2026-11-01T20:18:17Z"
+    },
+    {
+      "commit": "f212103fee178c774931444d196300dbb2457eb3",
+      "boundary": "plan",
+      "response_text": "",
+      "handoff_present": false,
+      "recorded_at": "2026-11-02T17:28:31Z"
+    },
+    {
+      "commit": "7176fc828eecc4ce489c57ca17a3263ebe704581",
+      "boundary": "plan",
+      "response_text": "",
+      "handoff_present": false,
+      "recorded_at": "2026-11-02T18:59:20Z"
+    },
+    {
+      "commit": "ca6734d7d94fab99de218fc6473a5069211a6d94",
+      "boundary": "tasks",
+      "response_text": "",
+      "handoff_present": false,
+      "recorded_at": "2026-11-02T21:01:39Z"
+    },
+    {
+      "commit": "5d509013e45423209d7b52d3a5b99e970fe080da",
+      "boundary": "before-implement",
+      "response_text": "",
+      "handoff_present": false,
+      "recorded_at": "2026-11-02T23:56:47Z"
+    }
+  ]
+}

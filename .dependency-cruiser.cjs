@@ -1,0 +1,160 @@
+// dependency-cruiser 18.7.0 rules (T004; code-implementation I5.3, CD4; design constraints in plan.md).
+// Run: npx depcruise bridge shim --config .dependency-cruiser.cjs
+/** @type {import('dependency-cruiser').IConfiguration} */
+module.exports = {
+  forbidden: [
+    {
+      name: "connector-reaches-no-cloud-libraries",
+      comment:
+        "From the connector's wiring and the Setup CLI's (T028), no import path reaches the Azure libraries, oidc-provider or the SQL Server driver (I5.3).",
+      severity: "error",
+      from: { path: "^bridge/src/host/(connector|setup)\\.ts$" },
+      to: {
+        path: "node_modules/(@azure/|oidc-provider/|mssql/|tedious/)",
+        reachable: true,
+      },
+    },
+    {
+      name: "all-in-one-reaches-no-cloud-libraries",
+      comment:
+        "From mode A's wiring and its dev script, no import path reaches the Azure libraries, oidc-provider or the SQL Server driver: mode A runs on the owner's machine alone (FR-045, DRIFT-001-25).",
+      severity: "error",
+      from: {
+        path: "^bridge/(src/host/all-in-one|dev/all-in-one-scenario)\\.ts$",
+      },
+      to: {
+        path: "node_modules/(@azure/|oidc-provider/|mssql/|tedious/)",
+        reachable: true,
+      },
+    },
+    {
+      name: "core-reaches-no-ring-libraries",
+      comment:
+        "From the core's wiring, no import path reaches the Ring libraries or werift: Ring is reached only from home (S2, I5.3).",
+      severity: "error",
+      from: { path: "^bridge/src/host/core\\.ts$" },
+      to: {
+        path: "node_modules/(ring-client-api/|werift|@eneris/push-receiver/)",
+        reachable: true,
+      },
+    },
+    {
+      name: "ring-library-only-in-ring-adapter",
+      comment:
+        "ring-client-api is imported only inside the Ring Adapter, so the Ring boundary stays swappable (S1, CD4).",
+      severity: "error",
+      from: {
+        pathNot: "^bridge/src/connector/access/(ring-adapter|live-media)/",
+      },
+      to: { path: "node_modules/(ring-client-api|werift)" },
+    },
+    {
+      name: "ws-only-in-link-transport",
+      comment:
+        "ws is imported only inside the Link transport, so the WSS carrier stays in one utility (CD X2, T015).",
+      severity: "error",
+      from: { pathNot: "^bridge/src/utilities/link-transport/" },
+      to: { path: "node_modules/ws/" },
+    },
+    {
+      name: "link-transport-knows-no-bridge-components",
+      comment:
+        "The Link transport imports nothing from the core, the connector, the Host or the Public Contract: it knows frame kinds, versions and order, never a Ring or bridge word (CD X2, T015).",
+      severity: "error",
+      from: { path: "^bridge/src/utilities/link-transport/" },
+      to: { path: "^bridge/src/(core|connector|host|contract)/" },
+    },
+    {
+      name: "component-only-through-index",
+      comment:
+        "Another component is imported only through its index.ts, or, for the link messages a receiver declares, its messages/index.ts (CD4, amended at T016); implementations are imported only by the Host wiring and the tests.",
+      severity: "error",
+      from: {
+        path: "^(bridge/src/(?:core|connector)/[^/]+/[^/]+)/",
+      },
+      to: {
+        path: "^bridge/src/(?:core|connector)/[^/]+/[^/]+/",
+        pathNot: [
+          "^$1/",
+          "^bridge/src/(?:core|connector)/[^/]+/[^/]+/(?:messages/)?index\\.ts$",
+        ],
+      },
+    },
+    {
+      name: "utility-only-through-index",
+      comment:
+        "A utility is imported only through its index.ts from outside its folder (CD4).",
+      severity: "error",
+      from: {
+        path: "^bridge/src/",
+        pathNot: "^bridge/src/(host/|utilities/)",
+      },
+      to: {
+        path: "^bridge/src/utilities/[^/]+/",
+        pathNot: "/index\\.ts$",
+      },
+    },
+    {
+      name: "utility-to-utility-only-through-index",
+      comment: "Utilities use each other only through index.ts (CD4).",
+      severity: "error",
+      from: { path: "^(bridge/src/utilities/[^/]+)/" },
+      to: {
+        path: "^bridge/src/utilities/[^/]+/",
+        pathNot: ["^$1/", "/index\\.ts$"],
+      },
+    },
+    {
+      name: "shim-imports-nothing-from-bridge",
+      comment:
+        "The shim talks to the bridge over MCP and shares no code with it (I5.1).",
+      severity: "error",
+      from: { path: "^shim/" },
+      to: { path: "^bridge/" },
+    },
+    {
+      name: "public-contract-only-in-mcp-endpoint-and-delivery",
+      comment:
+        "Only MCP Endpoint (and Delivery, from iteration 002) import the Public Contract (CD4 Q1).",
+      severity: "error",
+      from: {
+        path: "^bridge/src/",
+        pathNot:
+          "^bridge/src/(contract/|core/clients/(mcp-endpoint|delivery)/)",
+      },
+      to: { path: "^bridge/src/contract/" },
+    },
+    {
+      name: "no-circular",
+      comment: "No import cycles.",
+      severity: "error",
+      from: {},
+      to: { circular: true },
+    },
+    {
+      name: "not-to-unresolvable",
+      comment: "Every import resolves.",
+      severity: "error",
+      from: {},
+      to: { couldNotResolve: true },
+    },
+  ],
+  options: {
+    doNotFollow: { path: "node_modules" },
+    // The project's own build and coverage output only: a package in node_modules that ships from
+    // a dist/ folder (the Azure libraries do) must stay in the graph, or the rules about what the
+    // wiring reaches could never see it (T027).
+    exclude: { path: "^((bridge|shim)/)?(dist|coverage)/" },
+    tsPreCompilationDeps: true,
+    tsConfig: { fileName: "tsconfig.json" },
+    enhancedResolveOptions: {
+      exportsFields: ["exports"],
+      conditionNames: ["import", "require", "node", "default", "types"],
+      mainFields: ["module", "main", "types", "typings"],
+      extensions: [".ts", ".js", ".mjs", ".cjs", ".d.ts"],
+    },
+    reporterOptions: {
+      text: { highlightFocused: true },
+    },
+  },
+};

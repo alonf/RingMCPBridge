@@ -1,0 +1,26 @@
+[
+  {
+    "package": "@shinyoshiaki/jspack",
+    "version": "0.0.6",
+    "licence": "none declared; upstream birchroad/node-jspack is BSD-3-Clause",
+    "via": "werift 0.22.4 through ring-client-api 14.3.0",
+    "reason": "A republish of birchroad/node-jspack, whose repository carries a BSD-3-Clause LICENSE (research.md PT-10)",
+    "reviewed": "2026-11-06, DRIFT-001-17"
+  },
+  {
+    "package": "ffmpeg-for-homebridge",
+    "version": "2.2.2",
+    "licence": "none declared; the source says All rights reserved",
+    "via": "@homebridge/camera-utils 3.0.0 through ring-client-api 14.3.0",
+    "reason": "The owner accepted it if it raises no security issue (2026-11-06). Its only risk, the install script's unverified ffmpeg download, never runs: CI and the image install with --ignore-scripts. The bridge passes the system ffmpeg to ring-client-api by path, so a downloaded binary would not be used either (PT-10)",
+    "reviewed": "2026-11-06, DRIFT-001-17"
+  },
+  {
+    "package": "mediabunny",
+    "version": "1.62.1",
+    "licence": "MPL-2.0",
+    "via": "werift-rtp 0.8.9 through werift 0.22.4 and ring-client-api 14.3.0",
+    "reason": "MPL-2.0 is file-level copyleft and allowed for development only. It is used unmodified, only by Ring live media (iteration 003), so the obligation is to keep its notices and source available, which the npm package does. The owner accepted it and the pin to 1.62.1 (2026-11-06)",
+    "reviewed": "2026-11-06, DRIFT-001-17"
+  }
+]

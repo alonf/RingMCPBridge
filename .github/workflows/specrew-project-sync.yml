@@ -1,0 +1,37 @@
+name: Specrew Project Sync
+
+# The push trigger is off in this repository (T004, DRIFT-001-07): the job calls
+# .github/scripts/sync-specrew-board.ps1, which exists only in Specrew's own repository.
+# A Specrew update may restore the trigger: re-check this file after each update.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  repository-projects: write
+
+jobs:
+  sync-board:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      SPECREW_PROJECT_TOKEN: ${{ secrets.SPECREW_PROJECT_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Sync GitHub Issues and Project board
+        shell: pwsh
+        run: |
+          if ($env:SPECREW_PROJECT_TOKEN) {
+            $env:GH_TOKEN = $env:SPECREW_PROJECT_TOKEN
+          }
+          else {
+            $env:GH_TOKEN = $env:GITHUB_TOKEN
+          }
+
+          .\.github\scripts\sync-specrew-board.ps1 `
+            -Repository "${{ github.repository }}" `
+            -ProjectOwner "alonf" `
+            -ProjectNumber 10

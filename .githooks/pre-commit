@@ -1,0 +1,9 @@
+#!/bin/sh
+# Pre-commit checks (T003): lint, the format check, and the secret scan of what is staged.
+# Enabled once per clone with `git config core.hooksPath .githooks` (quickstart Step 2); installs
+# run with --ignore-scripts, so npm prepare does not set it.
+set -e
+
+npx --no-install eslint --max-warnings 0 .
+npx --no-install prettier --check .
+node scripts/run-gitleaks.mjs git --pre-commit --staged --redact --no-banner --config .gitleaks.toml

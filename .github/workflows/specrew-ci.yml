@@ -1,0 +1,57 @@
+name: Specrew CI
+
+# Adapted for this repository (T004, DRIFT-001-07). Specrew installed this workflow from its own
+# repository, where it called ./extensions/... and tests/integration/*.ps1, which do not exist here.
+# A Specrew update may restore the original: re-check this file after each update.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  specrew-governance:
+    name: specrew-governance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install markdownlint-cli
+        run: npm install -g markdownlint-cli
+
+      - name: Lint Markdown files
+        # The research notes, the reports and the closed workshop records predate this check.
+        run: markdownlint '**/*.md' --ignore node_modules --ignore .squad --ignore .specify --ignore research_notes --ignore reports --ignore 'specs/*/workshop/**' --ignore scripts/internal
+
+      - name: Lint the project's own PowerShell scripts
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          $scriptFiles = Get-ChildItem -Path . -Filter *.ps1 -Recurse -File |
+                         Where-Object { $_.FullName -notmatch '[\\/](\.git|\.squad|\.specify|\.specrew|\.claude|\.agents|\.copilot|\.cursor|node_modules)[\\/]|[\\/]scripts[\\/]internal[\\/]' }
+          if ($scriptFiles.Count -gt 0) {
+            $results = $scriptFiles | ForEach-Object {
+              Invoke-ScriptAnalyzer -Path $_.FullName -Settings PSGallery
+            }
+            if ($results) {
+              $results | Format-Table -AutoSize
+              exit 1
+            }
+          }
+          else {
+            Write-Host 'No project PowerShell scripts found to lint'
+          }
+
+      - name: Validate iteration governance
+        shell: pwsh
+        run: ./.specify/extensions/specrew-speckit/scripts/validate-governance.ps1 -ProjectPath .

@@ -1,0 +1,28 @@
+# Local stand-ins for the integration tests (T010, I4): SQL Server 2022 and Azurite (Blob storage,
+# first used in iteration 003). CI runs the same two as services (.github/workflows/ci.yml).
+# The SA password is never written here; it comes from your environment.
+#
+#   export TEST_MSSQL_PASSWORD='<a password that meets SQL Server's complexity rule>'
+#   docker compose up -d
+#   export TEST_MSSQL_HOST=127.0.0.1 TEST_MSSQL_PORT=14330
+#   npm test
+#   docker compose down
+#
+# Both listen on 127.0.0.1 only, on ports chosen to stay clear of other local projects.
+name: ringmcp-test
+
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${TEST_MSSQL_PASSWORD:?Set TEST_MSSQL_PASSWORD before starting the test SQL Server.}
+    ports:
+      - "127.0.0.1:${TEST_MSSQL_PORT:-14330}:1433"
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000
+    ports:
+      - "127.0.0.1:${TEST_AZURITE_BLOB_PORT:-10010}:10000"

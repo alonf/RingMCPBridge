@@ -1,0 +1,3 @@
+# Reviewed findings (gitleaks fingerprint per line).
+# Ring's public Firebase app key, quoted from ring-client-api's open-source code in the research notes; not an owner secret.
+8c3e5e51213eee49b6b274844397a76cca3dc274:research_notes/Ring MCP bridge research/realtime_events_and_video.md:gcp-api-key:21

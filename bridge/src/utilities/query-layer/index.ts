@@ -1,0 +1,43 @@
+// Query layer utility (CP-03, T007): one way to run SQL on SQLite and on SQL Server. The only
+// entry point (CD4). The SQL Server half (tsql.ts, tsql-managed-identity.live.ts) is not exported
+// here: only the core's wiring imports it, so the connector never reaches mssql (I5.3).
+
+/** The seam types: dialects, values, statements, and the session a transaction's work receives. */
+export type {
+  SqlDialect,
+  SqlParams,
+  SqlRow,
+  SqlSession,
+  SqlStatement,
+  SqlValue,
+} from "./sql-types.ts";
+
+/**
+ * The Query layer: `all`, `get` and `run` as single units of work, and `transaction`, each with
+ * one retry on a passing failure. The Host wires one per database.
+ */
+export { QueryLayer, RETRY_PAUSE_MS } from "./query-layer.ts";
+export type { QueryLayerOptions } from "./query-layer.ts";
+
+/** The SQLite Query layer, for the connector's outbox and for mode A. */
+export { openSqliteQueryLayer } from "./sqlite.ts";
+
+/** The utility's error: `store_down` (managers answer `BRIDGE_UNAVAILABLE`), `constraint_violated` or `statement_failed`. */
+export { QueryLayerError } from "./query-layer-error.ts";
+export type { QueryLayerErrorKind } from "./query-layer-error.ts";
+
+/** The two statements written once per dialect: insert-or-update and keyset paging. */
+export { keysetPageStatement, upsertStatement } from "./statements.ts";
+export type { KeysetPageSpec, UpsertSpec } from "./statements.ts";
+
+/**
+ * Forward-only, additive migrations, which the Host runs at start (DS5), and the core's schema:
+ * Azure SQL in mode H, one SQLite file in mode A.
+ */
+export { CORE_MIGRATIONS } from "./migrations/core-migrations.ts";
+export {
+  MIGRATION_LOCK_WAIT_MS,
+  runMigrations,
+} from "./migrations/run-migrations.ts";
+export type { MigrationOptions } from "./migrations/run-migrations.ts";
+export type { Migration, MigrationReport } from "./migrations/migration.ts";
