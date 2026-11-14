@@ -1592,7 +1592,10 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **Three deliberate breaks, each caught:** the writer stopped, the 2-minute rule removed, and the command opening the outbox.
   - **The image smoke test** now runs `health` in the connector's mode and another, and checks that the image declares the `HEALTHCHECK`. It passed on an image built locally.
   - Cost: about 1 SP (estimate), $0. This is beyond T033's estimate, recorded for the retro.
-- **Resolution**: built and tested. T033 step 2 is complete once the VM runs the new image and `docker ps` shows the connector `(healthy)`.
+- **Resolution**: built, tested and live. T033 step 2 is complete.
+  - The core was deployed with `747c4b0` (run 43652307408).
+  - The owner moved the VM to that image with a graceful stop. `docker ps` showed the connector `Up 2 minutes (healthy)`, and the `health` command printed "Healthy: link up since 2026-11-14T23:32:17.850Z, Ring session ok."
+  - The owner also added the graceful stop to the VM's own `ring-bridge-start`, ahead of its `docker rm -f`.
 - **Carry-forward**: T033: the health command and `HEALTHCHECK`, and the clearer message on a missing key file, before T033 step 2 is ticked.
 - **Class closure**: the host test runs a real connector with and without its link, the command runs as Docker runs it, and the smoke test checks the declared `HEALTHCHECK` in the built image.
 

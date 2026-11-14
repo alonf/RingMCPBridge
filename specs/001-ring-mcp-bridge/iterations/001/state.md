@@ -5,7 +5,7 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T22:57:00Z
+**Updated**: 2026-11-14T23:35:00Z
 
 ## Execution Summary
 
@@ -14,7 +14,7 @@
   - It is unhealthy when the file is stale, when the link has been down 2 minutes or more, or when the Ring session is lost.
   - A missing key now says to run the setup first, and new VMs' `ring-bridge-start` stops the connector gracefully before removing it.
   - Tested, with deliberate breaks; the image's smoke test passed locally.
-  - Needs a deploy and the VM's `IMAGE` update. Then `docker ps` shows `(healthy)` and step 2 is complete.
+  - **Live** (2026-11-14 about 23:34 UTC): `747c4b0` was deployed, and the VM was updated with a graceful stop. `docker ps` shows `(healthy)`, and the owner's `ring-bridge-start` now stops gracefully too. **T033 step 2 is complete.** Only the soak is left in T033, to about 2026-11-21, then the clock and the month's bill.
 
 - **T033's agent trials are done** (2026-11-14 22:11 UTC): ChatGPT called `get_health` and `get_device` too, so ChatGPT and Claude Code have each called all four tools. claude.ai's own chat called the overview, the health and the device list, and all four went through its connector. Left in T033: the 7-day soak, to about 2026-11-21, then the clock and the month's bill.
 
