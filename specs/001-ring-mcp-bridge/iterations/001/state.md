@@ -5,10 +5,14 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T16:18:00Z
+**Updated**: 2026-11-14T17:16:00Z
 
 ## Execution Summary
 
+- **The owner's needs for later iterations are recorded** (2026-11-14; DRIFT-001-77) for iteration 002's design analysis:
+  - snoozing a camera's motion alerts, which no requirement covers. Ring's own Motion Snooze has no known API; the bridge's own alerts can be snoozed;
+  - the Ring plan includes video storage;
+  - whether any camera has video E2EE is unknown, and the owner agrees to turn it off if needed.
 - **ChatGPT linked and read the home, with no sign-in screen** (2026-11-14; DRIFT-001-76). T033's first agent link worked: ChatGPT called `get_overview`. Entra completed the link silently from the owner's earlier admin-page session, because agent links do not force a fresh sign-in, contrary to DRIFT-001-39.
   - **The owner kept that behaviour** for read-only links. The contract, DRIFT-001-39 and the README now say so.
   - An Issuer test holds it, and a deliberate break showed the test catches it. No new image.

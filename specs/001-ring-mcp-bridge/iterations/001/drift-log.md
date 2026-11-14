@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 76
+**Total drift events**: 77
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,26 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-77: The owner's needs for later iterations: snoozing a camera's motion alerts, and what the Ring plan gives media
+
+- **Detected**: 2026-11-14, implement, T033. The owner asked what is planned beyond iteration 001's reads, then answered three questions about it.
+- **Kind**: the owner's request, outside iteration 001. One new need that no requirement covers (snooze), and two facts that iteration 003's media design depends on. Nothing is built now.
+- **Observed**:
+  - **Snooze.** The owner wants to snooze a camera's motion ("detection") alerts. No FR covers it. It has two readings, not yet settled with the owner:
+    - **Ring's own Motion Snooze**, the Ring app's. Ring's support page, read through a search summary, says it stops only the Ring app's motion alerts, not an Alexa device's; the camera still detects motion. ring-client-api 14.3.0, the installed version, reads `motion_snooze` but has no setter. The research found no community code that writes it (`alarm_and_device_control.md`), and a search on 2026-11-14 found no documented endpoint. Feasibility unknown.
+    - **The bridge's own alerts to agents.** The bridge stops pushing that camera's motion events to agents for a set time, and still logs them. Ours to build; it sits next to FR-010's per-agent opt-ins (iteration 003).
+  - **Video storage.** The owner's Ring plan includes video storage (about 30 days, from the owner's memory). So recorded event clips (FR-018) can be available, subject to the research's other conditions: E2EE off, and the recording ready.
+  - **Video end-to-end encryption.** The owner does not know whether it is on for any camera, and agrees to turn it off if the bridge needs that. With E2EE on, Ring lists third-party integrations as unavailable.
+- **Decided**: nothing yet. These are inputs to iteration 002's design analysis and plan, where the owner decides the order and whether snooze joins the spec.
+- **Requirement citation**: FR-010; FR-016 to FR-021 (media, iteration 003); FR-022 and the spec's non-goal "changing Ring settings (motion zones, schedules, notifications)"; `realtime_events_and_video.md` section 5 (clips need a plan with video storage).
+- **Resolution**: recorded for iteration 002's design analysis. $0.
+- **Carry-forward**:
+  - **To iteration 002's design analysis:** which snooze the owner means: Ring's, the bridge's, or both.
+    - The bridge's is a candidate requirement: a spec change, approved at that boundary.
+    - Ring's writes a Ring setting, which the spec lists as a v1 non-goal, so the owner would lift that for snooze. A spike must first find the endpoint, with no promised outcome.
+  - **To iteration 003's media design:** check each camera's E2EE (the device's `e2ee_enabled`) before relying on clips, and tell the owner which cameras to change. Also check Ring's newer default encryption (TAKE), whose effect on third-party video is unverified.
+- **Class closure**: NONE — a request recorded, not a defect.
 
 ### DRIFT-001-76: ChatGPT linked with no sign-in screen: the link's Entra sign-in is not fresh, and nothing logs a link
 
