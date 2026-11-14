@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 74
+**Total drift events**: 75
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,35 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-75: The owner's request: the README's steps for connecting ChatGPT and Claude, ahead of iteration 004's README
+
+- **Detected**: 2026-11-14, implement, T033, at the owner's request, before the first agent trial.
+- **Kind**: the owner's request, outside the tasks. It brings forward part of US7's README (iteration 004), the part that connects cloud agents to a deployed core.
+- **Observed**:
+  - The README said the bridge had not run against a real Ring account or a real Azure deployment. Both are now true for the owner's pilot: the core is deployed (DRIFT-001-71), and the home connector is enrolled and linked (DRIFT-001-74).
+  - The README had no steps for connecting an agent.
+- **Decided**:
+  - **A "Connect an agent" section**, for mode H, with steps for:
+    - ChatGPT;
+    - claude.ai (shared with Claude Desktop and mobile);
+    - Claude Code;
+    - ending a link.
+  - **Each agent's client metadata document as its identity.** `BRIDGE_AGENTS` lists each agent by that document, so the steps choose it, and they say that self-registration is refused.
+  - **A description for the connector form**, worded from the four tools' own descriptions.
+  - **No owner specifics.** The core's host is written `<core-host>`.
+  - **The pilot's state.** The README's status line and its work-in-progress note now describe it.
+- **Requirement citation**: US7 acceptance scenario 5 (iteration 004); T033; plan.md's iteration table; FR-029.
+- **Resolution**: written. Under 0.5 SP (estimate), and $0.
+  - **Sources.** The menu labels come from OpenAI's and Anthropic's current help pages (read 2026-11-14), and Claude Code's MCP documentation.
+  - **Checked against the deployed core.**
+    - The MCP endpoint answers 401 with `resource_metadata` pointing to its protected-resource metadata.
+    - The authorization server advertises `client_id_metadata_document_supported: true`, PKCE S256 and `none` client authentication.
+    - The production `BRIDGE_AGENTS` holds the four entries the runbook lists.
+    - ChatGPT's metadata document answers 200.
+  - **Not yet tried with any agent.** The section says so, and it is corrected as T033 tries each agent.
+- **Carry-forward**: T033's agent trials correct this section. Iteration 004's README (US7) takes it over, with the full home setup.
+- **Class closure**: the section is checked against the live core's discovery documents and the listed agents. Each agent's steps are confirmed only when T033 tries them.
 
 ### DRIFT-001-74: The VM script's first real run: Hyper-V's guest tools did not start, so Hyper-V never learned the VM's address
 
