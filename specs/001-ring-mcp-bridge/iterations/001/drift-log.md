@@ -1285,6 +1285,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - **Rollback:** no migration. An older core ignores the `location_time_zones` row, and an older connector sends no rooms. So a rollback is a deploy with `image_tag` set to the image before.
     - **The VM's update stops the connector gracefully first** (`docker stop -t 30`). `ring-bridge-start` removes the running container with `docker rm -f`, a kill with no grace. That could cut short the save of a token Ring has just rotated, and then the owner logs in to Ring again and the soak restarts.
     - **Carry-forward to the VM script** (`infra/home/new-connector-vm.ps1`): `ring-bridge-start` should stop the container before it removes it. That helps only new VMs: an existing VM keeps the script its first boot wrote.
+      - **Done, 2026-11-15:** `ring-bridge-start` now runs `docker stop -t 30` before `docker rm -f`. The VM test checks the order, and removing the stop fails it. The owner's VM can take the same line by hand.
 - **Class closure**: the tests above, and the deliberate breaks that each failed them. For the width, the class is "a check that passes only with this system's fonts". The wide-name check closes it for the list.
 
 ### DRIFT-001-80: The owner's decision: the connector reads each hub's rooms, with a tolerant reader and a bounded wait
@@ -1568,9 +1569,32 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - A dry run on the owner's PC used the exact settings and mounts against empty folders. The connector stopped with "The Secrets File key could not be read", which does not tell the owner to run the setup first. The setup refused to run without a terminal, as designed.
 - **Decided**: for now, nothing. The owner starts the connector with `unless-stopped` and log rotation, and reads the link's state on the admin page. A health command that reports the link's state, used by a `HEALTHCHECK`, is proposed as the next implement item. So is a missing key file that says to run the setup first.
 - **Requirement citation**: T033 step 2; PT-02.
-- **Resolution**: open. The setup, the connector's start and the enrollment do not wait on it. T033 step 2 is not complete until it is done.
+- **Built** (2026-11-15, after the owner's "continue"):
+  - **The health file:** the connector writes `connector-health.json` in its data folder: at start, every 15 s, and on stop with the link down. It holds codes and times only (the link, since when, the Ring session), and each write replaces it whole.
+  - **The link is up** while a session with the core is open, which is when its link is in the slot.
+  - **The `health` command** (`main.ts health`) reads that file and nothing else: no outbox, Secrets File or Ring, so it runs beside the connector.
+    - **Unhealthy when:**
+      - the file is over 60 s old;
+      - the link has been down 2 minutes or more, the core's own rule;
+      - the Ring session is lost.
+    - Ring unavailable is shown but stays healthy: that is Ring's outage, and the core reports it.
+    - In any mode but the connector's, it checks nothing and passes. So the core in App Service, mode A and the setup run the same image unaffected.
+  - **The image** declares `HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3` running that command.
+    - Docker restarts a container when it exits, not when it is unhealthy. So this is a status for `docker ps` and `docker inspect`, not a repair.
+  - **A missing key** now says "The Secrets File key is missing. Run the setup first". A key that exists but cannot be read keeps "could not be read".
+  - **Tests:**
+    - the rule's cases: fresh and stale files, the link down either side of 2 minutes, the Ring session lost and unavailable, no file, broken JSON, another shape;
+    - the writer, on a fake clock;
+    - the command's exit codes;
+    - a real core and connector: the link up is healthy, and the core stopped turns the link down, unhealthy at 2 minutes;
+    - the command run as Docker runs it, beside a connector holding its outbox, and passing in another mode;
+    - the missing key's message.
+  - **Three deliberate breaks, each caught:** the writer stopped, the 2-minute rule removed, and the command opening the outbox.
+  - **The image smoke test** now runs `health` in the connector's mode and another, and checks that the image declares the `HEALTHCHECK`. It passed on an image built locally.
+  - Cost: about 1 SP (estimate), $0. This is beyond T033's estimate, recorded for the retro.
+- **Resolution**: built and tested. T033 step 2 is complete once the VM runs the new image and `docker ps` shows the connector `(healthy)`.
 - **Carry-forward**: T033: the health command and `HEALTHCHECK`, and the clearer message on a missing key file, before T033 step 2 is ticked.
-- **Class closure**: open until the health command lands. Its test will run the image's health command against a connector with and without its link.
+- **Class closure**: the host test runs a real connector with and without its link, the command runs as Docker runs it, and the smoke test checks the declared `HEALTHCHECK` in the built image.
 
 ### DRIFT-001-71: The first deploy is up in Azure, but App Service could not pull the core's image: the registry's name in mixed case
 

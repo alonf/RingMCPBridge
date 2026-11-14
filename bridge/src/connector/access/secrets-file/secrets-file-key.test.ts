@@ -64,4 +64,14 @@ describe("the Secrets File key", () => {
       SecretsFileError,
     );
   });
+
+  // DRIFT-001-72: a key that is not there yet means the setup has not run.
+  it("says to run the setup first when the key is missing, and only then", async () => {
+    expect(await expectUnusable(readSecretsFileKey(keyPath))).toContain(
+      "Run the setup first",
+    );
+    expect(await expectUnusable(readSecretsFileKey(folder))).toContain(
+      "could not be read",
+    );
+  });
 });

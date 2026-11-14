@@ -25,5 +25,9 @@ USER node
 
 # Mode H's core listens here (BRIDGE_PORT); the connector and mode A serve no port.
 EXPOSE 8080
+# The connector's health, read from its health file (DRIFT-001-72). In every other mode the command
+# passes. Docker shows the result; it restarts a container only when the container exits.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD ["node", "--disable-warning=ExperimentalWarning", "bridge/src/host/main.ts", "health"]
 # node:sqlite is still marked experimental in Node 24; its warning would only add noise to the log.
 ENTRYPOINT ["node", "--disable-warning=ExperimentalWarning", "bridge/src/host/main.ts"]

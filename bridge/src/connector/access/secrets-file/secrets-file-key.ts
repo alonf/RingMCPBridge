@@ -7,6 +7,10 @@ import { SecretsFileError } from "./secrets-file-error.ts";
 const KEY_BYTES = 32;
 const KEY_TEXT = /^[A-Za-z0-9_-]{43}$/;
 
+function isMissing(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
 /** The key as the Docker secret holds it: base64url text with a newline. */
 export function encodeSecretsFileKey(key: Uint8Array): string {
   if (key.byteLength !== KEY_BYTES) {
@@ -28,9 +32,12 @@ export async function readSecretsFileKey(keyPath: string): Promise<Uint8Array> {
   try {
     text = await readFile(keyPath, "utf8");
   } catch (error) {
+    // A key that is not there yet means the setup has not run (DRIFT-001-72).
     throw new SecretsFileError(
       "key_unusable",
-      "The Secrets File key could not be read.",
+      isMissing(error)
+        ? "The Secrets File key is missing. Run the setup first: it writes the key and the Secrets File."
+        : "The Secrets File key could not be read.",
       { cause: error },
     );
   }

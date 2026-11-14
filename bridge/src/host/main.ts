@@ -15,6 +15,8 @@
 //   run mode's settings are read: it needs only the data folder and the key's path.
 // - **`first-signing-key <vault-url>`** writes the Issuer's first key to Key Vault as the owner
 //   (T031): the bootstrap runs it on the owner's PC, never in the image.
+// - **`health`** answers the image's HEALTHCHECK from the connector's health file, reading only
+//   `BRIDGE_MODE` and `BRIDGE_DATA_DIR`; in any other mode it passes (DRIFT-001-72).
 import { SystemClock } from "../utilities/clock/index.ts";
 import { ConfigError, loadSettings } from "../utilities/config/index.ts";
 import type { Settings } from "../utilities/config/index.ts";
@@ -26,6 +28,11 @@ const EXIT_FAILURE = 1;
 /** Something running that can be stopped. */
 interface Running {
   stop(): Promise<void>;
+}
+
+if (process.argv[2] === "health") {
+  const { runHealthCommand } = await import("./connector-health.ts");
+  process.exit(await runHealthCommand(process.env, process.stdout));
 }
 
 if (process.argv[2] === "setup") {

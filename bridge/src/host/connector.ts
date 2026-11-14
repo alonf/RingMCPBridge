@@ -7,7 +7,9 @@
 //   work ends the process, and its service restarts it (DRIFT-001-35).
 // - **Health**: the connector serves no HTTP in iteration 001. Its link and Ring status reach the
 //   core in each heartbeat, so `get_health` and the admin page show them, and its log says when
-//   the link fails (`core_link_failed`). Its service restarts it when it exits (DRIFT-001-51).
+//   the link fails (`core_link_failed`). Its service restarts it when it exits (DRIFT-001-51). It
+//   also writes them to a health file in its data folder, which the image's `health` command reads
+//   for Docker's HEALTHCHECK (connector-health.ts, DRIFT-001-72).
 // - **One home part per data folder**: the outbox is opened first and holds its file, so a second
 //   connector, or mode A, on the same folder stops before it reaches Ring or the core (CP-10 and
 //   CP-06 reviews). It is let go last, once Ring is closed and its token saved.
@@ -22,6 +24,7 @@ import type { Clock } from "../utilities/clock/index.ts";
 import type { Settings } from "../utilities/config/index.ts";
 import { dialLink } from "../utilities/link-transport/index.ts";
 import type { Logger } from "../utilities/logging/index.ts";
+import { HealthWriter } from "./connector-health.ts";
 import { assembleHome } from "./home-assembly.ts";
 import type { LocalHome } from "./home-assembly.ts";
 import { openHomeOutbox } from "./home-files.ts";
@@ -37,6 +40,8 @@ export interface ConnectorParts {
   /** Opens the home side; `onConnectionStuck` is the owner's (y). */
   readonly openHome: (onConnectionStuck: () => void) => Promise<LocalHome>;
   readonly connectorVersion: string;
+  /** How often the health file is written; its default unless a test shortens it (DRIFT-001-72). */
+  readonly healthWriteIntervalMs?: number;
   /** Hears that the connector cannot go on: the caller ends the process, and its service restarts it. */
   readonly onFatal: (error: unknown) => void;
 }
@@ -91,11 +96,25 @@ export async function startConnector(
     clock,
     logger,
   });
+  const health = new HealthWriter({
+    dataDir: homeSettings.dataDir,
+    clock,
+    logger,
+    sources: {
+      linkUp: () => homeSide.linkUp(),
+      ringSession: () => home.ring.sessionStatus(),
+    },
+    ...(parts.healthWriteIntervalMs === undefined
+      ? {}
+      : { intervalMs: parts.healthWriteIntervalMs }),
+  });
   homeSide.start();
+  health.start();
   logger.info("bridge_started", { mode: "connector" });
   return {
     stop: async () => {
       await homeSide.stop();
+      await health.stop();
       await home.close();
       await outbox.close();
       logger.info("bridge_stopped", { mode: "connector" });

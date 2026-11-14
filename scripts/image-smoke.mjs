@@ -1,7 +1,9 @@
 // Smoke test of the bridge image (T027): each mode starts, loads its wiring and its libraries, and
 // stops at the first thing it lacks, with exit code 1 and a clear reason. Nothing reaches Ring,
 // Azure or Entra: every mode is given just enough to start and then fail on purpose. The `setup`
-// command (T028) loads the Setup CLI and Ring's sign-in, then refuses to run without a terminal.
+// command (T028) loads the Setup CLI and Ring's sign-in, then refuses to run without a terminal. The
+// `health` command (DRIFT-001-72), which the image's HEALTHCHECK runs, answers in each mode, and the
+// image declares that HEALTHCHECK.
 //
 //   node scripts/image-smoke.mjs <image>
 import { spawnSync } from "node:child_process";
@@ -46,14 +48,14 @@ const CASES = [
     expect: '"kind":"store_down"',
   },
   {
-    name: "the connector: stops on its missing Secrets File key",
+    name: "the connector: stops on its missing Secrets File key, saying to run the setup first",
     env: {
       BRIDGE_MODE: "connector",
       BRIDGE_CORE_URL: "wss://bridge.example.test/link",
       BRIDGE_DATA_DIR: "/data",
       BRIDGE_SECRETS_KEY_FILE: "/run/secrets/missing",
     },
-    expect: '"kind":"key_unusable"',
+    expect: "Run the setup first",
   },
   {
     name: "mode A: takes its lease, loads Ring's library, and stops on the missing Secrets File",
@@ -72,6 +74,19 @@ const CASES = [
     env: { BRIDGE_DATA_DIR: "/data", BRIDGE_SECRETS_KEY_FILE: "/tmp/k" },
     args: ["setup"],
     expect: "The setup needs a terminal",
+  },
+  {
+    name: "health in the connector: reads its health file, and with none is unhealthy",
+    env: { BRIDGE_MODE: "connector", BRIDGE_DATA_DIR: "/data" },
+    args: ["health"],
+    expect: "No readable health file",
+  },
+  {
+    name: "health in another mode: checks nothing, and passes",
+    env: { BRIDGE_MODE: "core" },
+    args: ["health"],
+    expect: "Not checked in this mode",
+    status: 0,
   },
 ];
 
@@ -101,12 +116,31 @@ for (const smoke of CASES) {
   const output = `${result.stdout}${result.stderr}`;
   const stdoutClean = smoke.logOnStderrOnly !== true || result.stdout === "";
   const passed =
-    result.status === 1 && output.includes(smoke.expect) && stdoutClean;
+    result.status === (smoke.status ?? 1) &&
+    output.includes(smoke.expect) &&
+    stdoutClean;
   failed += passed ? 0 : 1;
   console.log(`${passed ? "ok  " : "FAIL"}  ${smoke.name}`);
   if (!passed) {
     console.log(`      exit ${String(result.status)}; output:\n${output}`);
   }
+}
+// The image declares the connector's HEALTHCHECK, which runs the `health` command.
+const declared = spawnSync(
+  "docker",
+  ["image", "inspect", "--format", "{{json .Config.Healthcheck}}", image],
+  { encoding: "utf8", timeout: 120_000 },
+);
+const healthCheck =
+  declared.status === 0 &&
+  declared.stdout.includes('"health"') &&
+  declared.stdout.includes("bridge/src/host/main.ts");
+failed += healthCheck ? 0 : 1;
+console.log(
+  `${healthCheck ? "ok  " : "FAIL"}  the image declares the HEALTHCHECK that runs \`health\``,
+);
+if (!healthCheck) {
+  console.log(`      found: ${declared.stdout.trim()}`);
 }
 // The image holds what it runs and nothing else: no tests, no dev script, no dev dependencies.
 const contents = spawnSync(

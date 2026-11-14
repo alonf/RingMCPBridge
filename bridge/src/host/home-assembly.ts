@@ -40,6 +40,8 @@ export interface HomeAssembly {
   readonly ingest: Ingest;
   /** Starts Ingest, then the link, then the scheduler. */
   start(): void;
+  /** Whether a session with the core is open: its link is in the slot (DRIFT-001-72). */
+  linkUp(): boolean;
   /** Stops them: the scheduler's new ticks, then the link, then the work still running. */
   stop(): Promise<void>;
 }
@@ -72,6 +74,7 @@ export function assembleHome(options: HomeAssemblyOptions): HomeAssembly {
       coreLink.start();
       scheduler.start();
     },
+    linkUp: () => slot.current !== undefined,
     // The scheduler stops taking new ticks at once, but a tick already running may wait on a send
     // that a pushed-back connection never takes. Closing the link settles that send, so the link
     // closes before the tick is waited for (CP-10 review).

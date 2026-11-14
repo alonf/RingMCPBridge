@@ -409,6 +409,29 @@ describe.runIf(HAS_PWSH)(
       expect(order).toEqual([...order].sort((a, b) => a - b));
     });
 
+    // A kill could cut short the save of a Ring token just rotated, and the owner would log in to
+    // Ring again (DRIFT-001-81's carry-forward).
+    it("stops the connector gracefully before it removes the container, when the connector starts again", () => {
+      const { exitCode, output, vmFolder } = runVm(parameters({ Apply: true }));
+
+      expect(exitCode, output).toBe(0);
+      const userData = readFileSync(
+        join(vmFolder, "first-boot", "user-data"),
+        "utf8",
+      );
+      const start = userData.slice(
+        userData.indexOf("path: /usr/local/bin/ring-bridge-start"),
+      );
+      const stop = start.indexOf(
+        "docker stop -t 30 ring-bridge-connector >/dev/null 2>&1 || true\n",
+      );
+      const remove = start.indexOf(
+        "docker rm -f ring-bridge-connector >/dev/null 2>&1 || true\n",
+      );
+      expect(stop, start).toBeGreaterThan(0);
+      expect(remove).toBeGreaterThan(stop);
+    });
+
     it("names the adapter's MAC address when the VM reports no address", () => {
       const { exitCode, output } = runVm(parameters({ Apply: true }), {
         address: null,

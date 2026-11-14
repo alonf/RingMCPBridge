@@ -169,6 +169,8 @@ function Get-UserData([string] $Key) {
         '        echo "Run ring-bridge-setup first." >&2'
         '        exit 1'
         '      fi'
+        '      # A graceful stop first, so a Ring token just rotated is saved before the container goes.'
+        '      docker stop -t 30 ring-bridge-connector >/dev/null 2>&1 || true'
         '      docker rm -f ring-bridge-connector >/dev/null 2>&1 || true'
         '      docker run -d --name ring-bridge-connector --restart unless-stopped \'
         '        --log-opt max-size=10m --log-opt max-file=3 \'
