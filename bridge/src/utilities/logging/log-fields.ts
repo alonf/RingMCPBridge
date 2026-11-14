@@ -24,6 +24,8 @@ export const LOG_FIELD_KINDS = {
   enrollment_code: "identifier",
   key_id: "identifier",
   tool: "code",
+  /** A listed agent's platform as a code, such as `chatgpt` (DRIFT-001-76). */
+  agent: "code",
   message_type: "code",
   kind: "code",
   outcome: "code",

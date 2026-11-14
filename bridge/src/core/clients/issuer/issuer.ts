@@ -23,6 +23,11 @@
 // is up is removed once the Issuer serves, then every hour. An authorization in flight (an
 // interaction, a session, a pushed request) already ends within 10 minutes.
 //
+// Each link the owner approves is logged (`issuer_link_approved`, DRIFT-001-76's open half, the
+// owner's yes on 2026-11-14): the listed agent's platform as a code, such as `chatgpt`, and whether
+// the agent named itself by its metadata document or registered itself. The owner kept silent
+// Entra sign-ins, so this line is the record that a link was made. No client id or owner id is in it.
+//
 // Access tokens are opaque, so the MCP Endpoint asks the Issuer about each one (T024): it must be
 // stored and unexpired, for the one resource, under a grant still in force for the same owner and
 // client, and its agent must still be listed. A revocation takes effect on the next call.
@@ -470,10 +475,12 @@ export class Issuer {
         grant.addOIDCScope(scope);
       }
     }
-    return {
-      login: { accountId: owner.subject },
-      consent: { grantId: await grant.save() },
-    };
+    const grantId = await grant.save();
+    this.#dependencies.logger.info("issuer_link_approved", {
+      agent: platformCode(agent.platform),
+      kind: documentAgent === undefined ? "registered" : "document",
+    });
+    return { login: { accountId: owner.subject }, consent: { grantId } };
   }
 
   // The token as the provider holds it, its grant as its own introspection checks it, and its agent
@@ -581,6 +588,28 @@ export class Issuer {
 }
 
 // A token is for the one resource it names: the MCP endpoint (RFC 8707).
+/** The longest code the logger keeps, and the longest part of one (redaction.ts). */
+const MAX_AGENT_CODE_LENGTH = 64;
+const MAX_AGENT_CODE_PART_LENGTH = 20;
+
+/**
+ * A listed agent's platform as a log code: lower case, each run of other characters one dash, such
+ * as `ChatGPT` to `chatgpt` and `Claude Code` to `claude-code`; `unnamed` for none. The platform is
+ * the deployment's own configuration, not Ring's text.
+ */
+export function platformCode(platform: string | undefined): string {
+  const code = (platform ?? "")
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, "-")
+    .replaceAll(/^-+|-+$/g, "")
+    .split("-")
+    .map((part) => part.slice(0, MAX_AGENT_CODE_PART_LENGTH))
+    .join("-")
+    .slice(0, MAX_AGENT_CODE_LENGTH)
+    .replace(/-+$/, "");
+  return code === "" ? "unnamed" : code;
+}
+
 function isOnlyFor(
   audience: string | readonly string[] | undefined,
   resource: string,

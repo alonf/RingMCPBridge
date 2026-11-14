@@ -5,9 +5,11 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T19:47:00Z
+**Updated**: 2026-11-14T20:28:00Z
 
 ## Execution Summary
+
+- **The core logs each link the owner approves** (2026-11-14; DRIFT-001-76, the owner's yes). The line `issuer_link_approved` carries the agent's platform as a code, such as `chatgpt`, and `document` or `registered`, with no ids. Tested, with two deliberate breaks. It ships in the same image as rooms and the time zone. The owner said yes to the production deploy.
 
 - **The home's time zone is set on the admin page** (2026-11-14; DRIFT-001-81, the owner's decision).
   - The rule is the owner's choice, else Ring's IANA zone, else UTC. Every reply, the overview's location and the page's own times use it.

@@ -33,6 +33,7 @@ import {
   Issuer,
   IssuerError,
   parseSigningKeys,
+  platformCode,
   signingKeyDocument,
   SWEEP_INTERVAL_MS,
 } from "../../src/core/clients/issuer/index.ts";
@@ -467,6 +468,13 @@ interface Authorized {
 }
 
 /** Links an agent: the authorization, the owner's sign-in, and the code exchange. */
+/** The `issuer_link_approved` lines, parsed. */
+function linkApprovals(lines: readonly string[]): Record<string, unknown>[] {
+  return lines
+    .filter((line) => line.includes('"issuer_link_approved"'))
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
 async function link(
   rig: Rig,
   clientId: string,
@@ -675,6 +683,28 @@ describe("the Issuer", () => {
     expect(reply.get("error")).toBe("access_denied");
   });
 
+  // DRIFT-001-76: the owner kept silent Entra sign-ins, so the log records each link approved.
+  it("logs each link the owner approves: the agent's platform and how it named itself, no ids", async () => {
+    await link(
+      rig,
+      DOCUMENT_AGENT.client_id,
+      textOf(DOCUMENT_AGENT.redirect_uris[0]),
+    );
+
+    const approvals = linkApprovals(rig.logLines);
+    expect(approvals).toEqual([
+      expect.objectContaining({
+        level: "info",
+        agent: "document-agent",
+        kind: "document",
+      }),
+    ]);
+    const line = JSON.stringify(approvals[0]);
+    expect(line).not.toContain(DOCUMENT_AGENT.client_id);
+    expect(line).not.toContain(rig.standIn.owner.subject);
+    expect(line).not.toContain(rig.standIn.owner.objectId);
+  });
+
   it("refuses someone else from the owner's tenant: the agent is told access_denied", async () => {
     rig.standIn.signInNext(rig.standIn.stranger);
     const metadata = await metadataOf(rig);
@@ -691,6 +721,7 @@ describe("the Issuer", () => {
 
     expect(reply.get("error")).toBe("access_denied");
     expect(reply.has("code")).toBe(false);
+    expect(linkApprovals(rig.logLines)).toEqual([]);
   });
 
   describe("clients", () => {
@@ -823,6 +854,12 @@ describe("the Issuer", () => {
         textOf(REGISTERING_AGENT.redirect_uris[0]),
       );
       expect(tokens.scope).toBe("read");
+      expect(linkApprovals(rig.logLines)).toEqual([
+        expect.objectContaining({
+          agent: "registering-agent",
+          kind: "registered",
+        }),
+      ]);
     });
 
     it.each([
@@ -1822,5 +1859,31 @@ describe("the Issuer behind a proxy", () => {
     expect(trusted.every((cookie) => cookie.includes("; secure"))).toBe(true);
     expect(untrusted.some((cookie) => cookie.includes("; secure"))).toBe(false);
     expect(direct.some((cookie) => cookie.includes("; secure"))).toBe(false);
+  });
+});
+
+describe("platformCode (DRIFT-001-76)", () => {
+  it("turns a listed agent's platform into a code the logger keeps", () => {
+    const lines: string[] = [];
+    const logger = new Logger({
+      sink: (line) => lines.push(line),
+      now: () => 0,
+      minLevel: "info",
+    });
+    const named = [
+      ["ChatGPT", "chatgpt"],
+      ["Claude Code", "claude-code"],
+      ["Claude (claude.ai, Desktop)", "claude-claude-ai-desktop"],
+      [undefined, "unnamed"],
+      ["  --  ", "unnamed"],
+      ["קלוד", "unnamed"],
+      ["A".repeat(30), "a".repeat(20)],
+    ] as const;
+
+    for (const [platform, code] of named) {
+      expect(platformCode(platform)).toBe(code);
+      logger.info("issuer_link_approved", { agent: platformCode(platform) });
+    }
+    expect(lines.join("\n")).not.toContain("redacted");
   });
 });

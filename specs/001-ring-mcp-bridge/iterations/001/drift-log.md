@@ -1387,7 +1387,19 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **Or:** keep it as it is, and correct the records.
 - **Decided**: the owner kept it, 2026-11-14: "if already connected to Entra no need to ask me to sign in". Agent links do not force new credentials; Entra may complete one from the owner's open Microsoft session.
   - The decision covers read-only links, the only kind in iteration 001.
-  - The link log was asked together with the fresh sign-in, and the answer covered only the sign-in. It is not built; it is put to the owner on its own.
+  - The link log was asked together with the fresh sign-in, and the answer covered only the sign-in, so it was put to the owner on its own.
+  - **The link log: the owner's yes**, 2026-11-14, to ship it with rooms and the time zone. Built:
+    - **What and when:** the Issuer logs `issuer_link_approved` once the owner's consent is saved.
+    - **What it says:**
+      - `agent`: the listed agent's platform as a code, such as `chatgpt` or `claude-code`, from the deployment's `BRIDGE_AGENTS`;
+      - `kind`: `document` for an agent that named itself by its metadata document (CIMD), or `registered`.
+    - **What it leaves out:** no client id and no owner id. The new `agent` field joins the logger's allow-list. A part of the code over 20 characters is cut, so the logger never redacts it.
+    - **Tests:**
+      - the line for a document agent, with no ids;
+      - the line for a self-registered agent;
+      - no line for a refused sign-in;
+      - the code for each platform, kept by the logger.
+    - **Two deliberate breaks, each caught:** the line removed, and the platform logged as written.
 - **Requirement citation**: FR-029 (unchanged: it asks for the owner's organization sign-in, not a fresh one); DRIFT-001-39; `contracts/web-endpoints.md`; T033.
 - **Resolution**: records corrected to the code, which does not change:
   - `contracts/web-endpoints.md`: the link rule now says each link goes to Entra and may complete with no screen, and names this entry.
@@ -1398,7 +1410,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
 - **Carry-forward**:
   - **Accepted risk, unchecked:** whether someone else could obtain a silent link depends on how ChatGPT and Claude bind their OAuth `state`. That was not checked. The grant is read-only, only listed agents and their listed redirect URIs can link, and only the owner's Entra account gets through.
   - **When a link can grant more than `read`** (iteration 003's control scopes): put this choice to the owner again before that link ships.
-  - **The link log**: still missing; it waits on the owner's answer. It would publish a new image, so the owner would update `IMAGE` on the VM. It can ride with the next change that ships an image anyway.
+  - **The link log**: built (above). It ships with rooms and the time zone in one image. After the deploy, the next agent link shows in the core's log, with its platform and `kind`. That also answers whether ChatGPT used its metadata document (CIMD).
 - **Class closure**: the Issuer test that links twice in one browser now records what each Entra sign-in asked for, and holds both as `{ fresh: false }`. Before, it counted sign-ins only. A deliberate break, links begun with `fresh: true`, failed that test alone: the other 54 Issuer tests passed with it, because the Entra stand-in supplies `auth_time`. So until this test, nothing held either choice.
 
 ### DRIFT-001-75: The owner's request: the README's steps for connecting ChatGPT and Claude, ahead of iteration 004's README
