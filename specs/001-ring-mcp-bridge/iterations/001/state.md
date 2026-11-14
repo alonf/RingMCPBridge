@@ -5,10 +5,23 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T18:07:00Z
+**Updated**: 2026-11-14T18:47:00Z
 
 ## Execution Summary
 
+- **T033's Claude trials** (2026-11-14, about 18:40 UTC; DRIFT-001-79). Claude Code and the owner's claude.ai connector both linked, and all four tools answered through each.
+  - The home's local time reads as UTC: Ring's address time zone is empty or not an IANA name, and the recorded fallback applies.
+  - No device has a room, as iteration 001 recorded. ring-client-api has a room list to read.
+  - The owner decides both: a configured time zone or a check in the Ring app; rooms read now or deferred. Every change that needs an image ships in one: the link log, the time zone, rooms, and the siren type later.
+  - The README's Claude Code steps now say to start a new session.
+  - A short restart keeps the link `up`, by the 2-minute rule. So the stale check needs a stop of 3 minutes or more.
+  - **Still to do in T033:**
+    - the stale check;
+    - ChatGPT's `get_health` and `get_device`;
+    - a trial from claude.ai's own chat;
+    - the owner's check of the answers against the Ring app;
+    - the soak, to about 2026-11-21.
+  - A Specrew tool rewrote this file again at the session's resume, with a false not-started state. The rewrite was saved outside the repository and not committed.
 - **T033's checks the agent can run** (2026-11-14, about 18:00 UTC; the details are in the owner's pilot journal, outside the repository):
   - **The core's health check** answers on `/readyz`, as DRIFT-001-62 decided. `/livez` and `/readyz` both answer 200, with the database, the lease, the signing keys and the owner all fine. Auto-heal is off, as that entry decided: App Service has one probe path, and it replaces an instance that stays unhealthy for an hour.
   - **The bill**, from Cost Management, so far this month for the bridge's resource group: about $0.47 after about one day, mostly App Service and SQL. That points to well under the $30 ceiling (agent estimate from one day; the data can lag a day). The month's bill is checked at the soak's end.

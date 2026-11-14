@@ -70,7 +70,9 @@ They share one connector, so add it once, on claude.ai.
 claude mcp add --transport http --scope user ring-home https://<core-host>/mcp
 ```
 
-In Claude Code, run `/mcp`, choose `ring-home` and authenticate. Your browser opens your Entra sign-in, which may finish on its own. From a shell, `claude mcp login ring-home` does the same.
+Then start a new Claude Code session: one already running doesn't see the new server. Run `/mcp`, choose `ring-home` and authenticate. Your browser opens your Entra sign-in, which may finish on its own. From a shell, `claude mcp login ring-home` does the same.
+
+If you added the connector on claude.ai, Claude Code signed in with the same account may list it already, as a claude.ai connector. Either one works.
 
 ### Ending a link
 

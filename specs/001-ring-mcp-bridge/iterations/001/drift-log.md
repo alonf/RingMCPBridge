@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 78
+**Total drift events**: 79
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1174,6 +1174,39 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
+### DRIFT-001-79: T033's Claude trials: both links read the home; the home's local time reads as UTC, rooms are still absent, and the README's Claude Code steps need a new session
+
+- **Detected**: 2026-11-14, implement, T033 step 3, about 18:40 UTC.
+- **Kind**: pilot results. Three findings against recorded decisions that now matter on the real home, and one README correction. Nothing in the code changes now.
+- **Observed**:
+  - **Claude Code linked.** The owner added the server, and its sign-in worked from a new session. All four tools answered (`get_overview`, `list_devices`, `get_device`, `get_health`), each with `as_of`, `as_of_local` and `freshness`.
+  - **claude.ai linked.** The owner's claude.ai connector showed in Claude Code as a claude.ai connector, and all four tools answered through it, with the same data. These calls went through claude.ai's connector from Claude Code, not from claude.ai's chat.
+  - **The home's local time reads as UTC.** The location's `time_zone` is `UTC`, and every `as_of_local` reads `+00:00`, for a home in Israel. That follows the recorded fallback (DRIFT-001-18: a time zone that is not an IANA name becomes UTC). The image's Node has full ICU, so an IANA name such as `Asia/Jerusalem` would have been kept. So Ring's address time zone for this location is empty or not an IANA name; which one is unknown, since the bridge logs no Ring text. Each agent has to correct the local time itself, against FR-006.
+  - **No device has a room.** As recorded: iteration 001 reads no rooms (DRIFT-001-18, carried to the pilot). So `list_devices`' `room` filter matches nothing. ring-client-api 14.3.0 has a source: `getRoomList(assetId)`, untyped, and a `roomId` on each alarm device.
+  - **A short restart keeps the link `up`.** The owner's stop and start at about 17:54 left `home_link` up since 14:38, and the Ring session `ok` since then. As designed: the link counts as down only after 2 minutes with no sign of life (the Health engine), and a status's `since` is kept while it holds. So the stale check needs a stop of 3 minutes or more, as T033 says.
+  - **The low-battery list** names a motion detector at 20% that Ring does not flag as low. As recorded: at or below the threshold counts (DRIFT-001-33).
+  - **The README's Claude Code steps.** A Claude Code session started before `claude mcp add` does not see the new server, so `/mcp` there does not offer it. A new session does.
+- **Decided**:
+  - **The README** says to start a new Claude Code session after adding the server, and that a connector added on claude.ai can show in Claude Code under the same account.
+  - **Put to the owner:**
+    - **The time zone:**
+      - The owner checks that the location's address in the Ring app is complete. This is a check, not a promised fix.
+      - Or the connector takes a configured time zone when Ring's is not an IANA name. About 0.25 SP (estimate), $0.
+    - **Rooms:**
+      - Read Ring's room list, with a tolerant reader and only counts logged, checked on the live home. About 0.5 SP (estimate), $0.
+      - Or defer rooms to a later iteration, with the contract saying the room is absent until then.
+    - **One image for every change that needs one:** the link log (DRIFT-001-76), the time zone, rooms, and the siren type when the sirens return (DRIFT-001-78). That means one manual production deploy with the owner's OK, and one `IMAGE` update on the VM.
+- **Requirement citation**: FR-002 (rooms), FR-006 (local time), FR-005 (the link's health); DRIFT-001-18; DRIFT-001-33; DRIFT-001-75 (the README is corrected as T033 tries each agent); T033.
+- **Resolution**: the README corrected. The time zone and rooms are open for the owner's decision. Cost so far: about 0.25 SP (estimate), $0.
+- **Carry-forward**:
+  - **To T033:**
+    - the stale check, with a stop of 3 minutes or more;
+    - ChatGPT's `get_health` and `get_device`;
+    - a trial from claude.ai's own chat;
+    - the owner's check that the answers match the Ring app.
+  - **To the review:** if rooms stay unread, the `room` filter is a known gap against FR-002.
+- **Class closure**: NONE — pilot results against recorded decisions. The README's step is checked by the trial itself.
+
 ### DRIFT-001-78: The owner's two outdoor dome sirens were missing from the bridge's device list: Ring no longer lists them either
 
 - **Detected**: 2026-11-14, implement, T033. The owner: two outdoor dome sirens are in the Ring app's device list, but the bridge does not report them.
@@ -1184,7 +1217,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - ring-client-api 14.3.0 keeps every device in each alarm hub's list, whatever its kind.
     - The connector leaves out entries that are not devices (the alarm panel, access codes) and entries with no id.
     - It also leaves out a device that its hub's latest list no longer names (DRIFT-001-41).
-    - The core takes an inventory whole, so it drops no single device.
+    - The core leaves out a single entry only when its id is over 128 characters or its time zone over 64 (DRIFT-001-31), which did not apply here.
   - **The answer.** After the owner stopped and restarted the connector, the owner found the sirens gone from the Ring app too. The owner takes care of the devices in Ring.
   - **Not checked from here on purpose.** A second Ring client on the owner's account would rotate the refresh token and break the connector's session.
 - **Decided**: no change to the bridge. The owner handles the sirens in Ring.
