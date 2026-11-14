@@ -1174,32 +1174,33 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
-### DRIFT-001-78: The owner's two outdoor sirens are not named: the bridge has no siren type (open, to confirm)
+### DRIFT-001-78: The owner's two outdoor dome sirens are missing from the bridge's device list (open)
 
 - **Detected**: 2026-11-14, implement, T033. The owner: two outdoor dome sirens are in the Ring app's device list, but the bridge does not report them.
-- **Kind**: a gap in the device mapping found in the pilot. Possibly a defect against FR-002, depending on the check below.
-- **Observed** (from the code; not yet confirmed on the live home):
-  - **Ring's names.** Ring reports an outdoor siren as `siren.outdoor-strobe` and an indoor one as `siren` (ring-mqtt's mapping, `alarm_and_device_control.md`).
-  - **Nothing drops them.** ring-client-api 14.3.0 keeps every device in each alarm hub's list, whatever its kind. The connector's mapping has no siren kind, so a siren becomes `other`, with no state beyond power, online and tamper.
-  - **Why the owner never saw them.** `get_overview` names a device only when it is offline, has a low battery, or is an open contact or active motion, so a healthy siren never appears there. `list_devices` would return it as `other`.
+- **Kind**: a defect against FR-002 found in the pilot: devices the owner's Ring app lists are missing. The cause is not yet found.
+- **Observed**:
+  - **The first guess, from the code, was wrong.** Ring reports an outdoor siren as `siren.outdoor-strobe` and a Z-Wave siren as `siren` (ring-mqtt's mapping, `alarm_and_device_control.md`). The bridge has no siren type, so a siren would arrive as `other`.
+  - **The owner's check** (2026-11-14, about 17:40 UTC): an agent's `list_devices` with type `other` returned six devices, three range extenders and three adapters, and neither siren. So the sirens are either under another type or never reach the core.
+  - **What can drop a device before the core**, from the code:
+    - ring-client-api 14.3.0 keeps every device in each alarm hub's list, whatever its kind.
+    - The connector leaves out entries that are not devices (the alarm panel, access codes) and entries with no id.
+    - It also leaves out a device that its hub's latest list no longer names (DRIFT-001-41).
+    - The core takes an inventory whole, so it drops no single device.
+  - **The overview would not show them anyway.** `get_overview` names a device only when it is offline, has a low battery, or is an open contact or active motion.
   - **The log can't settle it.** The connector logs no device kinds.
   - **Not checked from here on purpose.** A second Ring client on the owner's account, from the PC or the VM, would rotate the refresh token and break the connector's session.
-- **Decided**: open. First, the owner asks an agent for `list_devices` with type `other`, by name.
-  - **If the sirens are there:**
-    - Add a `siren` device type. Enumerations grow only additively (FR-046), and no database constraint holds the type.
-    - Map both siren kinds, and map any other kind that check shows as `other`.
-    - Add no siren state yet: the library does not type the field (`sirenStatus`), and no raw Ring data can show it. Power, online and tamper come as now. Whether a siren is sounding comes with iteration 002's events, whose alarm push has siren messages.
-    - About 0.25 to 0.5 SP (estimate), $0.
-    - The connector and the core both change, so a manual production deploy (the owner's OK), core first, then the owner updates `IMAGE` on the VM.
-    - It can ship with the link log (DRIFT-001-76) if the owner wants that, so the VM is updated once.
-  - **If they are not there:** the devices are lost before the mapping. Investigate with the owner, for example which hub they are paired to.
+- **Decided**: open. The next check tells the two remaining places apart, and doubles as T033's stale check (step 4):
+  - The owner stops the connector for 3 minutes and checks that replies come back stale. Then the owner starts it, and an agent calls `list_devices` with no filter at once, listing every device with its type.
+  - **The sirens present right after the start, then gone later:** the watch's removed-device rule left them out. That is the bridge's defect, fixed test-first.
+  - **The sirens absent even right after the start:** they are not in the hub lists the library reads. The owner then gives their model and the hub they are paired to, from the Ring app.
+  - **Either way, the full list is compared with the Ring app**, to find any other device that is missing.
+  - **If they come with a kind the bridge does not name:** a `siren` type is added, additively (FR-046). No database constraint holds the type. About 0.25 to 0.5 SP (estimate), $0. It needs a manual production deploy, with the owner's OK, then the owner updates `IMAGE` on the VM. It can ship with the link log (DRIFT-001-76).
 - **Requirement citation**: FR-002, FR-046, FR-047 (the schemas in `schemas/`); `contracts/connector-link.md` (the core accepts versions N and N-1); T033.
-- **Resolution**: open, waiting on the owner's check.
+- **Resolution**: open, waiting on the stop-and-start check.
 - **Carry-forward**:
-  - **Every list of device types changes together:** `shapes.ts`, `ring-port.ts`, `home-messages.ts`, `state-store.ts`, `summary-engine.ts`, `event-intake.ts`, `schemas/`, the tools contract and the data model.
-  - **The core deploys first.** A core without the type would refuse a connector's `siren`.
-  - **A rollback** to an older core could not read stored `siren` rows.
-- **Class closure**: open. A test maps each siren kind, with a deliberate break, once the type is added.
+  - **A new type means every list of device types changes together:** `shapes.ts`, `ring-port.ts`, `home-messages.ts`, `state-store.ts`, `summary-engine.ts`, `event-intake.ts`, `schemas/`, the tools contract and the data model.
+  - **The core deploys first,** since a core without the type would refuse a connector's `siren`. A rollback to an older core could not read stored `siren` rows.
+- **Class closure**: open. A test of the cause found, with a deliberate break.
 
 ### DRIFT-001-77: The owner's needs for later iterations: snoozing a camera's motion alerts, and what the Ring plan gives media
 

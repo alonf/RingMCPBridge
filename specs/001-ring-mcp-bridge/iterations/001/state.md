@@ -5,11 +5,11 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T17:32:00Z
+**Updated**: 2026-11-14T17:46:00Z
 
 ## Execution Summary
 
-- **The owner's two outdoor sirens are not named** (2026-11-14; DRIFT-001-78, open). The bridge has no siren type, so the code reads them as `other`, and a healthy `other` device never appears in the overview. The owner checks `list_devices` with type `other`; if they are there, a `siren` type follows, with a deploy and a VM image update.
+- **The owner's two outdoor dome sirens are missing from the device list** (2026-11-14; DRIFT-001-78, open). They are not under `other` either, so the first guess (no siren type) was wrong. Next: T033's stale check, stopping the connector for 3 minutes, then a full `list_devices` right after it starts again. That tells the watch's removed-device rule apart from devices the hub lists never carry.
 - **The owner's needs for later iterations are recorded** (2026-11-14; DRIFT-001-77) for iteration 002's design analysis:
   - snoozing a camera's motion alerts, which no requirement covers. The owner wants both: the bridge's own alerts snoozed, and Ring's own Motion Snooze, which has no known API, as a spike;
   - the Ring plan includes video storage;
