@@ -1239,6 +1239,9 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - **To T033, after the deploy:** the owner opens the admin page, checks that the list shows Asia/Jerusalem, and saves. Every `as_of_local` should then read `+02:00`.
   - **To iteration 002:** events' local times (`event-intake.ts`) use the same rule.
   - **The image:** this ships with rooms (DRIFT-001-80) in one image, with one production deploy on the owner's OK.
+    - **Rollback:** no migration. An older core ignores the `location_time_zones` row, and an older connector sends no rooms. So a rollback is a deploy with `image_tag` set to the image before.
+    - **The VM's update stops the connector gracefully first** (`docker stop -t 30`). `ring-bridge-start` removes the running container with `docker rm -f`, a kill with no grace. That could cut short the save of a token Ring has just rotated, and then the owner logs in to Ring again and the soak restarts.
+    - **Carry-forward to the VM script** (`infra/home/new-connector-vm.ps1`): `ring-bridge-start` should stop the container before it removes it. That helps only new VMs: an existing VM keeps the script its first boot wrote.
 - **Class closure**: the tests above, and the deliberate breaks that each failed them. For the width, the class is "a check that passes only with this system's fonts". The wide-name check closes it for the list.
 
 ### DRIFT-001-80: The owner's decision: the connector reads each hub's rooms, with a tolerant reader and a bounded wait
