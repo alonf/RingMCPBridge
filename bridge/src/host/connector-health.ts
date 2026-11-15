@@ -163,6 +163,11 @@ export class HealthWriter {
     });
   }
 
+  /** Resolves once every write queued so far has landed, or failed and been logged. */
+  async settled(): Promise<void> {
+    await this.#writing;
+  }
+
   /** Stops the writes, and writes once more with the link down. */
   async stop(): Promise<void> {
     this.#cancel?.();

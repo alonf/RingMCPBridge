@@ -3,7 +3,7 @@
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeClock } from "../utilities/clock/index.ts";
 import { Logger } from "../utilities/logging/index.ts";
 import {
@@ -163,31 +163,28 @@ describe("the health writer", () => {
     const sources = { up: false, ring: "ok" as const };
     const { clock, health } = writer(sources);
 
+    // Each check waits for the writes to land, then reads: a read beside a rename could fail it on
+    // Windows, while the connector runs on Linux.
     health.start();
-    await vi.waitFor(async () => {
-      expect(await written()).toEqual({
-        written_at: new Date(START).toISOString(),
-        link: "down",
-        link_since: new Date(START).toISOString(),
-        ring_session: "ok",
-      });
+    await health.settled();
+    expect(await written()).toEqual({
+      written_at: new Date(START).toISOString(),
+      link: "down",
+      link_since: new Date(START).toISOString(),
+      ring_session: "ok",
     });
 
     sources.up = true;
     await clock.advance(HEALTH_WRITE_INTERVAL_MS);
+    await health.settled();
     const upAt = new Date(START + HEALTH_WRITE_INTERVAL_MS).toISOString();
-    await vi.waitFor(async () => {
-      expect(await written()).toMatchObject({ link: "up", link_since: upAt });
-    });
+    expect(await written()).toMatchObject({ link: "up", link_since: upAt });
     await clock.advance(HEALTH_WRITE_INTERVAL_MS);
-    await vi.waitFor(async () => {
-      expect(await written()).toMatchObject({
-        written_at: new Date(
-          START + 2 * HEALTH_WRITE_INTERVAL_MS,
-        ).toISOString(),
-        link: "up",
-        link_since: upAt,
-      });
+    await health.settled();
+    expect(await written()).toMatchObject({
+      written_at: new Date(START + 2 * HEALTH_WRITE_INTERVAL_MS).toISOString(),
+      link: "up",
+      link_since: upAt,
     });
 
     await health.stop();
@@ -197,6 +194,7 @@ describe("the health writer", () => {
     });
     expect(await readdir(folder)).toEqual([HEALTH_FILE_NAME]);
     await clock.advance(HEALTH_WRITE_INTERVAL_MS);
+    await health.settled();
     expect((await written())?.written_at).toBe(
       new Date(START + 2 * HEALTH_WRITE_INTERVAL_MS).toISOString(),
     );
