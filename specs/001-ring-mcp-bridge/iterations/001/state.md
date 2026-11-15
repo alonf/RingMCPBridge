@@ -1,13 +1,17 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T034
-**Tasks Remaining**: T033, T035, T036 (3 tasks, 5 story_points)
-**In Progress**: T033 (the 7-day soak only, to about 2026-11-21); T035 (the review evidence)
+**Last Completed Task**: T033
+**Tasks Remaining**: T035, T036 (2 tasks, 4 story_points)
+**In Progress**: T035 (the review evidence)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-15T01:52:00Z
+**Updated**: 2026-11-15T02:04:00Z
 
 ## Execution Summary
+
+- **The owner's decisions before the review stop** (2026-11-15; DRIFT-001-85; `.squad/decisions.md` DEC-001-01 and DEC-001-02).
+  - **T033 is done.** Its agent trials, the stale check and the Docker health check are complete. SC-003's 7-day soak, SC-011's bill for the month and the clock check are carried into iteration 002, around 2026-11-21.
+  - **FR-007 now says "at or below"**, as the bridge does.
 
 - **T035, the review evidence, is under way** (2026-11-15; DRIFT-001-84; the owner's direction to go on while the soak runs).
   - **Done:**

@@ -22,17 +22,17 @@
 
 ## Summary
 
-**Total drift events**: 84
-**Resolution rate**: 100% resolved or decided. 83 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
+**Total drift events**: 85
+**Resolution rate**: 100% resolved or decided. 84 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
 **Specification drift** (T035's drift check, 2026-11-15): three items against the spec, each decided or for the owner's decision:
 
-- **DRIFT-001-33:** the overview counts a battery at or below the threshold as low, where FR-007 says "below". Minor, and for the owner at the review boundary: FR-007 says "at or below" (recommended, as the owner saw a sensor at 20% listed), or the code changes to "below".
+- **DRIFT-001-33:** the overview counted a battery at or below the threshold as low, where FR-007 said "below". The owner chose "at or below", and the spec now says so (DRIFT-001-85, DEC-001-02).
 - **DRIFT-001-81:** the admin page's time zone setting is beyond FR-039's list. It is the owner's decision; FR-039 gains it when the spec is next revised.
 - **DRIFT-001-82:** a reply's text content (`contracts/errors.md`) changed from a one-line summary to the reply as JSON, then that summary. Owner-approved, as the MCP specification asks. The tool list and the published schemas are unchanged (FR-046).
 
 Before 2026-11-08: three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec.
 **Recorded deferrals, not drift:** FR-005's push reception and last event come with events in iteration 002 (`contracts/mcp-tools.md`).
-**Not yet met in iteration 001** (T033, for the owner at the review boundary):
+**Carried into iteration 002, with the owner's approval** (DRIFT-001-85, DEC-001-01):
 
 - SC-003, the 7-day Ring-session soak, running from 2026-11-14 to about 2026-11-21;
 - SC-011, the month's bill;
@@ -1185,6 +1185,23 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-85: The owner's decisions before the review stop: the soak carried into iteration 002, and FR-007 says "at or below"
+
+- **Detected**: 2026-11-15, implement, T035. The iteration plan could not enter `reviewing` while CP-21a (T033) was in progress, since the validator requires every task in a terminal state. T033's 7-day soak runs to about 2026-11-21. The drift check also found FR-007 saying "below" where the bridge counts "at or below" (DRIFT-001-33).
+- **Kind**: two decisions put to the owner. One defers part of a task's checks to iteration 002; the other updates the spec to the delivered behaviour.
+- **Decided** (the owner, 2026-11-15, "1. a" and "2. a"):
+  - **The soak and the month's checks are carried into iteration 002** (`.squad/decisions.md` DEC-001-01).
+    - CP-21a closes now with its agent trials, the stale check and the Docker health check done.
+    - SC-003's soak, SC-011's bill for the month and the clock check are checked around 2026-11-21.
+    - If the soak fails, its fix is iteration 002's first item.
+  - **FR-007 says "at or below"** (DEC-001-02), as the bridge does and as the owner saw: a sensor at exactly 20% listed as low.
+    - `spec.md`'s FR-007 and US1's fifth scenario read "drops to or below".
+    - `quickstart.md`'s US1 AS5 row reads "at or below 20%".
+- **Requirement citation**: SC-003, SC-011, FR-007, US1 AS5; T033; DRIFT-001-33.
+- **Resolution**: spec-updated (FR-007), and deferred with the owner's approval (SC-003, SC-011, the clock check). T033 and CP-21a are done.
+- **Carry-forward**: to iteration 002: SC-003's result at about 2026-11-21, SC-011's bill for November, the clock check on the VM and the core.
+- **Class closure**: NONE — a decision, not a defect. The deferral is visible in the review's Gap Ledger and in DEC-001-01.
 
 ### DRIFT-001-84: T035's review evidence: the mechanical checks' 26 findings, one of them real, and what T035 changed besides records
 

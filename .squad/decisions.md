@@ -2,7 +2,22 @@
 
 ## Active Decisions
 
-No decisions recorded yet.
+### DEC-001-01: SC-003, SC-011 and the clock check carried into iteration 002 (2026-11-15)
+
+- **Feature**: 001-ring-mcp-bridge, iteration 001
+- **Decision**: CP-21a (T033) closes with its agent trials, the stale check and the Docker health check done.
+  - SC-003's 7-day Ring-session soak (running since 2026-11-14) is carried into iteration 002 and checked around 2026-11-21.
+  - So are SC-011's bill for the month and the clock check.
+  - If the soak fails, its fix is iteration 002's first item.
+- **Approved by**: the owner, typed reply "1. a" to the choice put in the conversation on 2026-11-15
+- **Record**: DRIFT-001-85
+
+### DEC-001-02: FR-007 reads "at or below" the battery threshold (2026-11-15)
+
+- **Feature**: 001-ring-mcp-bridge
+- **Decision**: the spec's FR-007 and US1's fifth scenario count a battery at or below the threshold (default 20%) as low, as the bridge does (DRIFT-001-33). They no longer say "below".
+- **Approved by**: the owner, typed reply "2. a" to the choice put in the conversation on 2026-11-15
+- **Record**: DRIFT-001-85
 
 ## Governance
 

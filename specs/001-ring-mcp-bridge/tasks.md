@@ -488,7 +488,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - **Rollback:** redeploy the previous image.
 
   (Trace: FR-044, FR-029, FR-001; CP-19)
-- [ ] T033 [US1] [assigned_to: Implementer] [effort: 1] The first agent trial and the soak, with the owner. The owner performs every sign-in and the Ring login.
+- [x] T033 [US1] [assigned_to: Implementer] [effort: 1] The first agent trial and the soak, with the owner. The owner performs every sign-in and the Ring login.
   1. Deploy to the owner's subscription.
   2. On the home VM, run the Setup CLI. Start the connector with `unless-stopped`, the Docker health check and log rotation (PT-02). Approve its code on the admin page.
   3. Connect Claude Code, claude.ai and ChatGPT through Entra. From each, call `get_overview`, `list_devices`, `get_device` and `get_health`.

@@ -40,7 +40,7 @@ An agent asks the bridge what is going on at home and gets one honest, compact a
 2. **Given** the connection to Ring has been lost for 3 minutes, **When** an agent asks for any state, **Then** the reply returns the last known state, marked stale with the time it became stale, and never presents it as current.
 3. **Given** a device named in Hebrew, **When** an agent lists devices, **Then** the name is returned as written, together with its type, room, battery level, power mode and online status.
 4. **Given** motion sensors that fired while the alarm was disarmed, **When** an agent asks for motion in the last 15 minutes, **Then** it receives the recorded motion, the rooms active now and an occupancy summary.
-5. **Given** a sensor battery that drops below the configured threshold (default 20%), **When** the level is read, **Then** one battery alert is raised for that crossing, and the sensor appears in the periodic battery digest.
+5. **Given** a sensor battery that drops to or below the configured threshold (default 20%), **When** the level is read, **Then** one battery alert is raised for that crossing, and the sensor appears in the periodic battery digest.
 
 ---
 
@@ -194,7 +194,7 @@ The author is a shared user on other people's Ring locations. Optionally, the br
 - **FR-004**: The system MUST return Ring's history for a device or a location over a time range, including the bridge's own control entries.
 - **FR-005**: The system MUST report its own health: the home link, the Ring session, push reception, the last event received, and since when data has been stale.
 - **FR-006**: Every reply MUST state when its data was true, in UTC and in the location's time zone, and its freshness (live, cached or stale, with the time it became stale). Reads MUST return the last known state marked stale when the home link is down, and MUST fail with a retryable "bridge unavailable" error when the bridge's own store is down.
-- **FR-007**: The system MUST raise a sensor battery alert when a level drops below a configurable threshold (default 20%, set globally and per device) or when Ring flags the battery as low, once per device per crossing, and MUST send a periodic battery digest.
+- **FR-007**: The system MUST raise a sensor battery alert when a level drops to or below a configurable threshold (default 20%, set globally and per device) or when Ring flags the battery as low, once per device per crossing, and MUST send a periodic battery digest.
 
 **Events**
 
