@@ -17,11 +17,10 @@ import type {
 } from "../../src/utilities/query-layer/index.ts";
 
 /**
- * The newest migration version in the last release. No release exists yet, so the upgrade starts
- * from an empty database. Raise this at each release, and seed that release's rows before the
- * upgrade.
+ * The newest migration version in the last release: 5, deployed in the pilot (T033). Raise this at
+ * each release, and seed that release's rows before the upgrade (`RELEASED_ROWS`).
  */
-export const PREVIOUS_RELEASE_SCHEMA_VERSION = 0;
+export const PREVIOUS_RELEASE_SCHEMA_VERSION = 5;
 
 const APPLIED_AT = Date.UTC(2026, 10, 5, 9, 0, 0);
 const AS_OF = Date.UTC(2026, 10, 5, 8, 30, 0, 250);
@@ -148,11 +147,28 @@ const DEVICE = {
   state_version: 12,
 };
 
+/** A motion sensor in motion, as the release at schema 5 stored it: no `motion_since` yet. */
+const MOVING_SENSOR = {
+  ...DEVICE,
+  device_id: "device-2",
+  name: "Hall",
+  kind: "motion",
+  state: '{"motion":true}',
+  state_version: 14,
+};
+
+/** Rows the previous release stored, in table order, seeded before the upgrade. */
+const RELEASED_ROWS: readonly (readonly [string, SqlParams])[] = [
+  ["location", LOCATION],
+  ["device", DEVICE],
+  ["device", MOVING_SENSOR],
+];
+
 /** Per table: a row with every column set, then the same key with every nullable column NULL. */
 const ROWS: Readonly<Record<string, readonly [SqlParams, SqlParams]>> = {
   location: [LOCATION, { ...LOCATION, alarm_mode: null }],
   device: [
-    DEVICE,
+    { ...DEVICE, motion_since: LATER },
     {
       device_id: "device-1",
       location_id: LOCATION.location_id,
@@ -166,6 +182,7 @@ const ROWS: Readonly<Record<string, readonly [SqlParams, SqlParams]>> = {
       state: "{}",
       as_of: AS_OF,
       state_version: 13,
+      motion_since: null,
     },
   ],
   health_snapshot: [
@@ -354,6 +371,9 @@ export function describeMigrationsContract(
         (migration) => migration.version <= PREVIOUS_RELEASE_SCHEMA_VERSION,
       );
       await migrate(layer, previous);
+      for (const [table, row] of RELEASED_ROWS) {
+        await layer.run(insert(table, row), never());
+      }
 
       const report = await migrate(layer);
 
@@ -368,6 +388,25 @@ export function describeMigrationsContract(
           version: migration.version,
           name: migration.name,
           applied_at: APPLIED_AT,
+        })),
+      );
+      // The released rows are kept as they were; a sensor already in motion has no time yet, and
+      // its next report starts it (migration 6, DRIFT-001-86).
+      await expect(
+        layer.all(
+          sql(
+            "SELECT device_id, kind, state, as_of, state_version, motion_since FROM device ORDER BY device_id",
+          ),
+          never(),
+        ),
+      ).resolves.toEqual(
+        [DEVICE, MOVING_SENSOR].map((row) => ({
+          device_id: row.device_id,
+          kind: row.kind,
+          state: row.state,
+          as_of: row.as_of,
+          state_version: row.state_version,
+          motion_since: null,
         })),
       );
     });

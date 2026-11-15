@@ -2,7 +2,7 @@
   "schemaVersion": "v1",
   "featureRef": "specs/001-ring-mcp-bridge/spec.md",
   "iterationRef": "specs/001-ring-mcp-bridge/iterations/001",
-  "generatedAt": "2026-11-15T01:47:19Z",
+  "generatedAt": "2026-11-15T11:34:46Z",
   "generator": {
     "name": "specrew-mechanical-checks",
     "version": "0.40.0"
