@@ -23,6 +23,7 @@ import {
   FAKE_RING_BODY,
   FakeRingClient,
   fakeDevice,
+  hubSession,
   noAnswer,
   ringHttpError,
 } from "../../../../test/support/fake-ring-client.ts";
@@ -813,11 +814,15 @@ describe("RingApiAdapter notices Ring going away and coming back", () => {
     const { clock, client, adapter } = setup();
     await driveFakeClock(clock, adapter.locations(never()));
 
-    expect(client.locationsList[0]?.connectedStream.listeners).toBe(1);
+    // The connection's own watch, and the hubs' (DRIFT-001-86).
+    expect(client.locationsList[0]?.connectedStream.listeners).toBe(2);
+    expect(client.locationsList[0]?.sessionInfoStream.listeners).toBe(1);
     expect(client.locationsList[1]?.connectedStream.listeners).toBe(0);
+    expect(client.locationsList[1]?.sessionInfoStream.listeners).toBe(0);
 
     adapter.close();
     expect(client.locationsList[0]?.connectedStream.listeners).toBe(0);
+    expect(client.locationsList[0]?.sessionInfoStream.listeners).toBe(0);
   });
 
   it("asks Ring at most once a minute while calls fail, and says ok when it answers, with no read", async () => {
@@ -965,6 +970,161 @@ describe("RingApiAdapter notices Ring going away and coming back", () => {
 
     expect(client.getProfileCalls).toBe(before.calls);
     expect(probeLines(lines)).toBe(before.lines);
+  });
+});
+
+// DRIFT-001-86 (a review of f3884bb): Ring's live connection can stay open while a hub behind it is
+// offline. The hub then sends nothing, and the data it last sent read as current: Ring `ok`, and a
+// door online and closed from the old picture. A hub Ring says is not online now counts Ring
+// unavailable past the grace, which makes the core's replies stale, until its device list comes
+// again after it is back.
+describe("RingApiAdapter counts a hub Ring says is offline", () => {
+  async function watching(
+    onConnectionStuck?: () => void,
+  ): Promise<Setup & { readonly home: FakeLocation }> {
+    const ready = setup(undefined, onConnectionStuck);
+    await driveFakeClock(ready.clock, ready.adapter.locations(never()));
+    const home = ready.client.locationsList[0];
+    if (home === undefined) {
+      throw new Error("The fake has no first location.");
+    }
+    home.connectedStream.emit(true);
+    return { ...ready, home };
+  }
+
+  async function offlinePastGrace(
+    clock: FakeClock,
+    home: FakeLocation,
+    status = "unknown",
+  ): Promise<void> {
+    home.sessionInfoStream.emit([hubSession(status)]);
+    await pass(clock, RING_CONNECTION_GRACE_MS);
+  }
+
+  it("counts Ring unavailable once a hub stays offline past the grace, with the live connection open", async () => {
+    const { clock, adapter, changes, home, lines } = await watching();
+
+    home.sessionInfoStream.emit([hubSession("unknown")]);
+    await pass(clock, RING_CONNECTION_GRACE_MS - STEP_MS);
+    expect(adapter.sessionStatus()).toBe("ok");
+    await pass(clock, STEP_MS);
+
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    expect(sessionChanges(changes)).toEqual([
+      { kind: "session", status: "unavailable" },
+    ]);
+    expect(lines.join("\n")).toContain("ring_hub_offline");
+    expect(lines.join("\n")).toContain('"kind":"offline"');
+    expect(lines.join("\n")).not.toContain(FAKE_HUB);
+  });
+
+  it("stays unavailable once the hub is back until its device list comes again, then is ok", async () => {
+    const { clock, client, adapter, changes, home, lines } = await watching();
+    await offlinePastGrace(clock, home);
+
+    home.sessionInfoStream.emit([hubSession("online")]);
+    await pass(clock, 2 * RING_CONNECTION_GRACE_MS);
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    home.sendDeviceList([client.contact, client.panel]);
+
+    expect(adapter.sessionStatus()).toBe("ok");
+    expect(sessionChanges(changes)).toEqual([
+      { kind: "session", status: "unavailable" },
+      { kind: "session", status: "ok" },
+    ]);
+    expect(lines.join("\n")).toContain("ring_hub_back");
+  });
+
+  it("does not take another hub's list, or a list that names no device, as the hub's", async () => {
+    const { clock, client, adapter, home } = await watching();
+    await offlinePastGrace(clock, home);
+    home.sessionInfoStream.emit([hubSession("online")]);
+
+    home.sendDeviceList([client.contact], "hub-2");
+    home.sendDeviceList([]);
+
+    expect(adapter.sessionStatus()).toBe("unavailable");
+  });
+
+  it("counts a hub on its cellular backup the same, and logs which it is", async () => {
+    const { clock, adapter, home, lines } = await watching();
+
+    await offlinePastGrace(clock, home, "cell-backup");
+
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    expect(lines.join("\n")).toContain('"kind":"cell_backup"');
+  });
+
+  it("ignores a hub offline for less than the grace", async () => {
+    const { clock, adapter, changes, home } = await watching();
+
+    home.sessionInfoStream.emit([hubSession("unknown")]);
+    await pass(clock, RING_CONNECTION_GRACE_MS / 2);
+    home.sessionInfoStream.emit([hubSession("online")]);
+    await pass(clock, 2 * RING_CONNECTION_GRACE_MS);
+
+    expect(adapter.sessionStatus()).toBe("ok");
+    expect(sessionChanges(changes)).toEqual([]);
+  });
+
+  it("ignores the session of an asset the live connection does not serve, and every session before it connects", async () => {
+    const { clock, adapter, home } = await watching();
+
+    home.sessionInfoStream.emit([hubSession("unknown", "hub-other")]);
+    await pass(clock, 2 * RING_CONNECTION_GRACE_MS);
+    expect(adapter.sessionStatus()).toBe("ok");
+    home.assets = undefined;
+    home.sessionInfoStream.emit([hubSession("unknown")]);
+    await pass(clock, 2 * RING_CONNECTION_GRACE_MS);
+
+    expect(adapter.sessionStatus()).toBe("ok");
+  });
+
+  it("goes back to offline at once when a hub that was back goes offline before its list came", async () => {
+    const { clock, client, adapter, home } = await watching();
+    await offlinePastGrace(clock, home);
+    home.sessionInfoStream.emit([hubSession("online")]);
+
+    home.sessionInfoStream.emit([hubSession("unknown")]);
+    home.sendDeviceList([client.contact, client.panel]);
+
+    expect(adapter.sessionStatus()).toBe("unavailable");
+  });
+
+  it("after the live connection reopens, waits for an offline hub's list, which the library asks for then", async () => {
+    const { clock, client, adapter, home } = await watching();
+    await offlinePastGrace(clock, home);
+
+    home.connectedStream.emit(false);
+    home.connectedStream.emit(true);
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    home.sendDeviceList([client.contact, client.panel]);
+
+    expect(adapter.sessionStatus()).toBe("ok");
+  });
+
+  it("never reports an offline hub as a stuck connection, which a restart would not mend", async () => {
+    let reports = 0;
+    const { clock, adapter, home } = await watching(() => {
+      reports += 1;
+    });
+
+    await offlinePastGrace(clock, home);
+    await pass(clock, 2 * RING_CONNECTION_STUCK_MS);
+
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    expect(reports).toBe(0);
+  });
+
+  it("stops following the hubs' sessions on close", async () => {
+    const { clock, adapter, home } = await watching();
+    home.sessionInfoStream.emit([hubSession("unknown")]);
+
+    adapter.close();
+    await pass(clock, 2 * RING_CONNECTION_GRACE_MS);
+
+    expect(home.sessionInfoStream.listeners).toBe(0);
+    expect(adapter.sessionStatus()).toBe("ok");
   });
 });
 

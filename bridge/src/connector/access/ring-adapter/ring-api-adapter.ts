@@ -30,6 +30,7 @@ import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
 import { Secret } from "../../../utilities/security/index.ts";
 import { AlarmDevices } from "./alarm-devices.ts";
+import { HubSessions } from "./hub-sessions.ts";
 import { RING_CALL_LIMITS } from "./call-limits.ts";
 import type { RingCallGate } from "./call-limits.ts";
 import { RingAdapterError } from "./ring-adapter-error.ts";
@@ -153,10 +154,11 @@ export class RingApiAdapter implements RingPort {
   readonly #listeners = new Set<(change: RingChange) => void>();
   readonly #subscriptions: Unsubscribe[] = [];
   readonly #saving = new Set<Promise<void>>();
-  // The status's inputs: calls failing, the hubs whose connection stayed closed past the grace, and
-  // a lost session, which is final.
+  // The status's inputs: calls failing, the hubs whose connection stayed closed past the grace, the
+  // hubs Ring says are offline (DRIFT-001-86), and a lost session, which is final.
   #callsFailing = false;
   readonly #connectionsClosed = new Set<string>();
+  readonly #hubSessions = new Map<string, HubSessions>();
   #lost = false;
   #status: RingSessionStatus = "ok";
   #cancelProbe: Cancel | undefined;
@@ -586,7 +588,9 @@ export class RingApiAdapter implements RingPort {
   #updateStatus(): void {
     const status: RingSessionStatus = this.#lost
       ? "lost"
-      : this.#callsFailing || this.#connectionsClosed.size > 0
+      : this.#callsFailing ||
+          this.#connectionsClosed.size > 0 ||
+          this.#hubsCounting()
         ? "unavailable"
         : "ok";
     this.#followStuck();
@@ -595,6 +599,11 @@ export class RingApiAdapter implements RingPort {
     }
     this.#status = status;
     this.#emit({ kind: "session", status });
+  }
+
+  // An offline hub is not a stuck connection (`#followStuck`): a restart would not bring it back.
+  #hubsCounting(): boolean {
+    return [...this.#hubSessions.values()].some((hubs) => hubs.counting);
   }
 
   #scheduleProbe(): void {
@@ -704,6 +713,20 @@ export class RingApiAdapter implements RingPort {
     this.#locations.set(location.id, location);
     if (location.hasHubs) {
       this.#subscriptions.push(this.#watchConnection(location));
+      const hubs = new HubSessions(location, {
+        clock: this.#clock,
+        graceMs: this.#graceMs,
+        logger: this.#logger,
+        changed: () => {
+          this.#updateStatus();
+        },
+      });
+      this.#hubSessions.set(location.id, hubs);
+      this.#subscriptions.push({
+        unsubscribe: () => {
+          hubs.stop();
+        },
+      });
     }
     const alarmDevices = new AlarmDevices(location, {
       changed: (data, hub) => {

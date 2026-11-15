@@ -85,6 +85,20 @@ export interface RingClientLocationDetails {
   readonly address: { readonly timezone: string };
 }
 
+/**
+ * A hub's session as Ring reports it on the live connection: `online`, or not (`unknown` when the
+ * hub is offline, `cell-backup` on its cellular backup; any other word is taken as not online).
+ */
+export interface RingClientAssetSession {
+  readonly assetUuid: string;
+  readonly connectionStatus: string;
+}
+
+/** A hub (Ring's asset) the location's live connection serves, as its ticket lists it. */
+export interface RingClientAsset {
+  readonly uuid: string;
+}
+
 /** One location. */
 export interface RingClientLocation {
   readonly id: string;
@@ -100,6 +114,16 @@ export interface RingClientLocation {
    * starts `false`, before the first connection, and goes `false` while the library reconnects.
    */
   readonly onConnected: RingClientStream<boolean>;
+  /**
+   * The hubs the live connection serves: set by the library as it connects, absent before. A
+   * session for any other asset is ignored, as the library ignores it.
+   */
+  readonly assets?: readonly RingClientAsset[] | undefined;
+  /**
+   * The sessions of the location's hubs, each time Ring reports them (no replay). The live
+   * connection can stay open while a hub behind it is offline (DRIFT-001-86).
+   */
+  readonly onSessionInfo: RingClientStream<readonly RingClientAssetSession[]>;
   readonly cameras: readonly RingClientCamera[];
   getDevices(): Promise<readonly RingClientDevice[]>;
   /** `none`, `some` or `all`. */

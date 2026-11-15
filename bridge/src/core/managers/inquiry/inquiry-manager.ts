@@ -14,6 +14,9 @@
 // - **A location's time zone** is the one the owner chose on the admin page, else Ring's when it is
 //   an IANA zone Intl knows, else UTC (DRIFT-001-81). Every local time uses it, and the overview's
 //   location names it, so a reply never pairs one zone's name with another's offset.
+// - **The health is read before the data** (DRIFT-001-86). State holds no snapshot of both, so a
+//   home that came back between two reads would lend its fresh health to data read before it. Read
+//   in this order, the data is at least as new as the health says; at worst a fresh read is `stale`.
 import {
   formatInTimeZone,
   formatUtc,
@@ -140,17 +143,21 @@ export class InquiryManager {
     request: OverviewRequest,
     signal: AbortSignal,
   ): Promise<InquiryReply<Overview>> {
-    const named = await this.#ownedLocation(request.location_id, signal);
-    const [devices, stored, thresholdPct, zones] = await this.#guard(
+    const [stored, thresholdPct, zones] = await this.#guard(
       signal,
       "The home could not be read.",
       () =>
         Promise.all([
-          this.#state.devices({ location_id: named.location_id }, signal),
           this.#state.health(signal),
           this.#settings.batteryThresholdPct(signal),
           this.#settings.locationTimeZones(signal),
         ]),
+    );
+    const named = await this.#ownedLocation(request.location_id, signal);
+    const devices = await this.#guard(
+      signal,
+      "The home could not be read.",
+      () => this.#state.devices({ location_id: named.location_id }, signal),
     );
     const location = { ...named, time_zone: zoneOf(named, zones).zone };
     const now = this.#clock.now();
@@ -171,23 +178,28 @@ export class InquiryManager {
     request: DeviceListRequest,
     signal: AbortSignal,
   ): Promise<InquiryReply<DeviceList>> {
-    const location = await this.#ownedLocation(request.location_id, signal);
-    const [devices, stored, zones] = await this.#guard(
+    const [stored, zones] = await this.#guard(
       signal,
       "The devices could not be read.",
       () =>
         Promise.all([
-          this.#state.devices(
-            {
-              location_id: location.location_id,
-              ...(request.type === undefined ? {} : { type: request.type }),
-              ...(request.room === undefined ? {} : { room: request.room }),
-            },
-            signal,
-          ),
           this.#state.health(signal),
           this.#settings.locationTimeZones(signal),
         ]),
+    );
+    const location = await this.#ownedLocation(request.location_id, signal);
+    const devices = await this.#guard(
+      signal,
+      "The devices could not be read.",
+      () =>
+        this.#state.devices(
+          {
+            location_id: location.location_id,
+            ...(request.type === undefined ? {} : { type: request.type }),
+            ...(request.room === undefined ? {} : { room: request.room }),
+          },
+          signal,
+        ),
     );
     const now = this.#clock.now();
     return reply(
@@ -203,6 +215,15 @@ export class InquiryManager {
     request: DeviceRequest,
     signal: AbortSignal,
   ): Promise<InquiryReply<DeviceDetail>> {
+    const [stored, zones] = await this.#guard(
+      signal,
+      "The health could not be read.",
+      () =>
+        Promise.all([
+          this.#state.health(signal),
+          this.#settings.locationTimeZones(signal),
+        ]),
+    );
     const device = await this.#guard(
       signal,
       "The device could not be read.",
@@ -217,15 +238,6 @@ export class InquiryManager {
     if (device === undefined || location?.ownership !== "owned") {
       throw new InquiryError("not_found", "No device has that id.");
     }
-    const [stored, zones] = await this.#guard(
-      signal,
-      "The health could not be read.",
-      () =>
-        Promise.all([
-          this.#state.health(signal),
-          this.#settings.locationTimeZones(signal),
-        ]),
-    );
     const now = this.#clock.now();
     return reply(
       zoneOf(location, zones).zone,

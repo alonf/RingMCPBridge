@@ -514,6 +514,92 @@ describe("the Inquiry manager: freshness (FR-006, SC-005)", () => {
   });
 });
 
+// DRIFT-001-86 (a review of f3884bb): State's data and its health were read apart. A home that came
+// back between the two reads lent its fresh health to data read before it: an old door and alarm
+// mode in a `cached` reply, while the store already held the new ones. The health is now read
+// first, so the data is never older than the reply says.
+describe("the Inquiry manager: one picture per reply", () => {
+  type DataRead = "locations" | "devices" | "device";
+
+  // State, where the home comes back, with new data and fresh health, just after `trigger` reads
+  // and before it answers. A health read that starts after the trigger's waits for the return, as a
+  // read reaching the store a moment later would see it; one that starts before reads at once.
+  function comingBack(state: StateStore, trigger: DataRead): StateStore {
+    let back: Promise<void> | undefined;
+    const comeBack = async (): Promise<void> => {
+      await state.applyInventory(
+        {
+          snapshot_version: 3,
+          locations: [{ ...HOME, alarm_mode: "away", state_version: 4 }],
+          devices: [{ ...DOOR, state: { open: false }, state_version: 5 }],
+        },
+        never,
+      );
+      await state.saveHealth(UP, never);
+    };
+    return new Proxy(state, {
+      get(target, property) {
+        if (property === trigger) {
+          return async (...args: unknown[]) => {
+            const method = Reflect.get(target, property, target) as (
+              ...args: unknown[]
+            ) => Promise<unknown>;
+            const read = method.apply(target, args);
+            back ??= read.then(comeBack);
+            await back;
+            return read;
+          };
+        }
+        if (property === "health") {
+          return async (signal: AbortSignal) => {
+            await back;
+            return target.health(signal);
+          };
+        }
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === "function"
+          ? (value as (...args: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    });
+  }
+
+  async function replyOf(
+    tool: "getOverview" | "listDevices" | "getDevice",
+    trigger: DataRead,
+  ): Promise<{ readonly freshness: string }> {
+    const test = await harness([HOME], [DOOR], "never_reported");
+    const inquiry = new InquiryManager({
+      state: comingBack(test.state, trigger),
+      settings: test.settings,
+      clock: test.clock,
+      homeOfflineAfterMs: OFFLINE_AFTER_MS,
+    });
+    switch (tool) {
+      case "getOverview":
+        return inquiry.getOverview({}, never);
+      case "listDevices":
+        return inquiry.listDevices({}, never);
+      case "getDevice":
+        return inquiry.getDevice({ device_id: DOOR.device_id }, never);
+    }
+  }
+
+  it.each([
+    ["getOverview", "locations"],
+    ["getOverview", "devices"],
+    ["listDevices", "devices"],
+    ["getDevice", "device"],
+  ] as const)(
+    "%s calls data read before the home came back (in %s) stale, never cached",
+    async (tool, trigger) => {
+      const reply = await replyOf(tool, trigger);
+
+      expect(reply.freshness).toBe("stale");
+    },
+  );
+});
+
 describe("the Inquiry manager: the store down (FR-006)", () => {
   it("fails every read as unavailable, never with stale data", async () => {
     const test = await harness();

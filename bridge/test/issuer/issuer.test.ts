@@ -1052,6 +1052,37 @@ describe("the Issuer", () => {
       return registered.client_id;
     }
 
+    // DRIFT-001-86 (a review of f3884bb): a registration naming a `sector_identifier_uri` had the
+    // provider fetch it while validating the metadata, before the listing and the hour's limit were
+    // checked. No agent needs one (subjects are public), so it is refused, and nothing is fetched.
+    it.each([
+      ["an unlisted", "https://attacker.example.test/callback"],
+      ["a listed", textOf(REGISTERING_AGENT.redirect_uris[0])],
+    ])(
+      "refuses %s registration naming a sector_identifier_uri, without fetching it or counting it",
+      async (_which, redirectUri) => {
+        const sector = "https://attacker.example.test/sector.json";
+        rig.documents.set(sector, [redirectUri]);
+
+        const response = await fetch(`${rig.issuerUrl}/reg`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            redirect_uris: [redirectUri],
+            token_endpoint_auth_method: "none",
+            sector_identifier_uri: sector,
+          }),
+        });
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({
+          error: "invalid_client_metadata",
+        });
+        expect(rig.fetched).toEqual([]);
+        expect(await storedClients()).toBe(0);
+      },
+    );
+
     it("stores at most the hour's limit of repeated registrations, and removes those never linked after 7 days", async () => {
       const listed = textOf(REGISTERING_AGENT.redirect_uris[0]);
       const statuses: number[] = [];

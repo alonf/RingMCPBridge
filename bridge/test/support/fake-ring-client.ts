@@ -3,6 +3,8 @@
 import type { FakeClock } from "../../src/utilities/clock/index.ts";
 import type {
   RingClient,
+  RingClientAsset,
+  RingClientAssetSession,
   RingClientCamera,
   RingClientCameraData,
   RingClientDevice,
@@ -173,6 +175,10 @@ export interface FakeLocation extends RingClientLocation {
   readonly deviceListStream: FakeRingStream<RingClientDeviceList>;
   /** The live connection, as the library's `BehaviorSubject`: `false` until a test opens it. */
   readonly connectedStream: FakeRingStream<boolean>;
+  /** The hubs the live connection serves; replaceable, as the library sets them on connecting. */
+  assets: readonly RingClientAsset[] | undefined;
+  /** Ring's report of the hubs' sessions, with no replay. */
+  readonly sessionInfoStream: FakeRingStream<readonly RingClientAssetSession[]>;
   /**
    * Ring sends a hub's full device list, as on a (re)connect, and the library takes it in as
    * ring-client-api does: a device it did not have is added, and the list emitted when it grew; a
@@ -186,6 +192,14 @@ export interface FakeLocation extends RingClientLocation {
   readonly roomListAnswers: Map<string, () => Promise<unknown>>;
   /** The hubs asked for their room list, in order. */
   readonly roomListRequests: string[];
+}
+
+/** One hub's session, as Ring reports it: `online`, `unknown` (offline) or `cell-backup`. */
+export function hubSession(
+  connectionStatus: string,
+  hub: string = FAKE_HUB,
+): RingClientAssetSession {
+  return { assetUuid: hub, connectionStatus };
 }
 
 /** A room-list answer that never comes, as from a hub that does not answer. */
@@ -207,6 +221,9 @@ function fakeLocation(
   });
   const deviceListStream = new FakeRingStream<RingClientDeviceList>();
   const connectedStream = new FakeRingStream<boolean>({ value: false });
+  const sessionInfoStream = new FakeRingStream<
+    readonly RingClientAssetSession[]
+  >();
   const roomListAnswers = new Map<string, () => Promise<unknown>>();
   const roomListRequests: string[] = [];
   const sendDeviceList = (
@@ -244,6 +261,9 @@ function fakeLocation(
     hasHubs: options.alarm,
     onConnected: connectedStream,
     connectedStream,
+    assets: options.alarm ? [{ uuid: FAKE_HUB }] : undefined,
+    onSessionInfo: sessionInfoStream,
+    sessionInfoStream,
     cameras: [new FakeCamera(FAKE_DOORBELL)],
     getDevices: () => Promise.resolve(devices),
     getAlarmMode: () => Promise.resolve("some"),

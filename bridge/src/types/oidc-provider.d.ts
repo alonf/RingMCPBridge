@@ -162,6 +162,8 @@ declare module "oidc-provider" {
     readonly conformIdTokenClaims?: boolean;
     readonly features?: Features;
     readonly fetch?: (url: string, options: RequestInit) => Promise<Response>;
+    /** The largest answer read for each purpose, in bytes (`jwks_uri`, `sector_identifier_uri`). */
+    readonly fetchResponseBodyLimits?: Readonly<Record<string, number>>;
     readonly interactions?: {
       readonly url: (context: unknown, interaction: { uid: string }) => string;
     };

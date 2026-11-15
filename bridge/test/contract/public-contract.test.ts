@@ -37,6 +37,9 @@ const PLANNED_INPUTS = fileURLToPath(
 const BOOTSTRAP = process.env.SCHEMAS_BOOTSTRAP === "1";
 const BASE_DIRECTORY = process.env.SCHEMAS_BASE_DIRECTORY;
 
+const LAST_MOTION_DESCRIPTION =
+  "When the home last heard from the sensor while it reported motion, in UTC. Any report moves it, a battery level too: it is not when the motion began.";
+
 /** Fields whose text the bridge writes itself: ids and its own error text. */
 const BRIDGE_TEXT: ReadonlySet<string> = new Set([
   "id",
@@ -191,6 +194,17 @@ describe("the tool inputs", () => {
         withoutDescriptions(schema),
       );
     }
+  });
+});
+
+// DRIFT-001-86 (a review of f3884bb): `last_motion_at` is the time of the sensor's latest report
+// while it reported motion. Any report moves it, a battery level too, so the field says so rather
+// than promise the motion's own time, which comes with the event history.
+describe("what a reply's times say", () => {
+  it("says get_overview's last_motion_at is the sensor's latest report of motion, not when the motion began", () => {
+    expect(
+      dataField("get_overview", "active_motion.last_motion_at")?.description,
+    ).toBe(LAST_MOTION_DESCRIPTION);
   });
 });
 

@@ -95,7 +95,11 @@ export const overviewData = z.object({
     .array(
       z.object({
         device: deviceReference,
-        last_motion_at: utcTime("The last motion, in UTC."),
+        // DRIFT-001-86: the latest report while motion was reported; the motion's own time comes
+        // with the event history.
+        last_motion_at: utcTime(
+          "When the home last heard from the sensor while it reported motion, in UTC. Any report moves it, a battery level too: it is not when the motion began.",
+        ),
       }),
     )
     .meta({ description: "Motion sensors that saw motion recently." }),

@@ -7,6 +7,7 @@ import { TerminalConsole } from "./index.ts";
 
 const PASSWORD = " pass-SECRET-0001 ";
 const CTRL_C = "\u0003";
+const UP_ARROW = "\u001b[A";
 
 interface Terminal {
   readonly input: PassThrough;
@@ -64,6 +65,23 @@ describe("the terminal console", () => {
     // What follows is shown again.
     test.console.say("Signing in to Ring...");
     expect(test.shown()).toContain("Signing in to Ring...\n");
+  });
+
+  // The co-review's finding (round 30): readline kept each answer in its history, so the Up arrow at
+  // the next visible question brought the password back on screen.
+  it("never brings the hidden answer back at a later question", async () => {
+    const test = terminal();
+    const password = test.console.ask("Ring password (not shown): ", {
+      hidden: true,
+    });
+    test.input.write(`${PASSWORD}\r`);
+    await password;
+
+    const code = test.console.ask("Two-factor code: ");
+    test.input.write(`${UP_ARROW}\r`);
+
+    await expect(code).resolves.toBe("");
+    expect(test.shown()).not.toContain(PASSWORD.trim());
   });
 
   it("hands Ctrl+C to onInterrupt", async () => {

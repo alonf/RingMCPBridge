@@ -22,13 +22,14 @@
 
 ## Summary
 
-**Total drift events**: 85
-**Resolution rate**: 100% resolved or decided. 84 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
-**Specification drift** (T035's drift check, 2026-11-15): three items against the spec, each decided or for the owner's decision:
+**Total drift events**: 87
+**Resolution rate**: 100% resolved or decided. 86 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
+**Specification drift** (T035's drift check, 2026-11-15, and the review of f3884bb): four items against the spec, each decided or for the owner's decision:
 
 - **DRIFT-001-33:** the overview counted a battery at or below the threshold as low, where FR-007 said "below". The owner chose "at or below", and the spec now says so (DRIFT-001-85, DEC-001-02).
 - **DRIFT-001-81:** the admin page's time zone setting is beyond FR-039's list. It is the owner's decision; FR-039 gains it when the spec is next revised.
 - **DRIFT-001-82:** a reply's text content (`contracts/errors.md`) changed from a one-line summary to the reply as JSON, then that summary. Owner-approved, as the MCP specification asks. The tool list and the published schemas are unchanged (FR-046).
+- **DRIFT-001-86:** `last_motion_at` promised the motion's own time, which any report moved. Its description now says what it is, and the motion's own time is for the owner: now, or with iteration 002's events.
 
 Before 2026-11-08: three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec.
 **Recorded deferrals, not drift:** FR-005's push reception and last event come with events in iteration 002 (`contracts/mcp-tools.md`).
@@ -1185,6 +1186,53 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-87: The co-review's round on f3884bb: the Setup CLI's history kept the hidden Ring password
+
+- **Detected**: 2026-11-15, implement, the co-review round the owner approved before the review stop (`cmp-001-ring-mcp-bridge-i001`, round 30, `run-20261115-023134114-f9311a97`, codex). One minor finding, none blocking sign-off.
+- **Kind**: defect, minor: a secret shown on screen.
+- **Observed**: the terminal console's readline kept every answer in its history, the password included. Its echo was muted only while the password was typed, so the Up arrow at the next visible question (the two-factor code) showed the whole password, to anyone watching the screen or recording it.
+- **Requirement citation**: FR-032 (the Ring session's secrets stay in the Secrets File); T028; `workshop/security-compliance.md` (secrets never shown or logged).
+- **Resolution**: fixed, test-first. The console keeps no history (`historySize: 0`). A new test types a hidden password, then presses Up at the next question: before the fix the answer was the password, after it is empty and the password is never shown. Ships with the next connector image.
+- **Carry-forward**: none.
+- **Class closure**: the terminal test, which fails if any answer can be recalled at a later question; with no history kept, no answer can be.
+
+### DRIFT-001-86: A review of f3884bb: a hub offline read as current, a registration fetched before its checks, a reply mixing two reads, and a motion time that any report moved
+
+- **Detected**: 2026-11-15, implement, T036. The owner relayed an independent review of `f3884bb`, made offline against the source with synthetic Ring events (1,191 tests passed in that run, 131 skipped). It reported four findings and no physical failure. Each was checked against the code and reproduced here by a test that failed before its fix.
+- **Kind**: three defects, one of them on the registration boundary, and one contract wording gap.
+- **Observed and decided**:
+  1. **A hub offline read as current.**
+     - **What happened:** the Ring Adapter watched only the live connection (`onConnected`), not Ring's report of each hub's session (`SessionInfo`). The connection can stay open while a hub behind it is offline. The hub then sends nothing, so Ring stayed `ok`, and a door read online and closed from the last picture.
+     - **The fix** (`hub-sessions.ts`): a hub Ring says is not `online` counts Ring `unavailable` once it stays so past the 30 s grace. The core's existing rule then makes every reply stale (FR-006).
+       - It goes on counting once the hub is back, until its device list comes again: the library asks for the list then, and the list brings the hub's devices up to date.
+       - It is never a stuck connection, since a restart would not bring a hub back.
+       - A session of an asset the live connection does not serve is ignored, as the library ignores it.
+       - When the connection reopens, a counted hub waits for its list again.
+       - The log has `ring_hub_offline` with `offline` or `cell_backup`, and `ring_hub_back`; no hub id.
+     - **The owner's choice:** a hub on its cellular backup counts as offline by default (the conservative reading). It may count as current instead.
+  2. **A registration fetched before its checks.**
+     - **What happened:** a self-registration naming a `sector_identifier_uri` had oidc-provider 9.13.3 fetch that URL while it checked the metadata (`Client.validate`, `sectorValidate`). That ran before the Issuer's listing and the hour's limit (`grants-adapter.ts`), so an unlisted caller with no token could make the core fetch a URL of its choosing. The provider reads `jwks_uri` and `sector_identifier_uri` answers with no size limit by default.
+     - **Already in place:** the provider gives each fetch a 2.5 s timeout and refuses special-use addresses (`fetch_request.js`), and the bridge's fetch passes both through. The review did not establish internal-network access, and neither did this check.
+     - **The fix:**
+       - `sector_identifier_uri` is refused in the metadata validator, which runs before that fetch. No agent needs one, since subjects are public.
+       - Every answer has a finite limit: the metadata document 5 KB, `jwks_uri` 16 KB, `sector_identifier_uri` 5 KB (`bounded-fetch.ts`).
+       - At most 4 fetches for clients run at once; one more is refused without fetching.
+  3. **A reply mixing two reads.** Inquiry read State's data and its health apart: in parallel, and in `get_device` the device first. A home that came back between the reads lent its fresh health to data read before: an old door and alarm mode in a `cached` reply. State holds no snapshot of both, so the health is now read first, then the data. The data is then at least as new as the reply says; at worst a fresh read says `stale`. The read latency budget still passes.
+  4. **A motion time any report moved.** `get_overview`'s `last_motion_at` is the sensor's `as_of`, its latest report. A battery report while the sensor still reports motion moves it, so the field claimed a motion that did not happen then.
+     - **For now:** the field's description says what it is: the latest report while motion was reported, not when the motion began. Only the description changed in `schemas/`, which FR-046 allows.
+     - **The owner's choice:** track the motion's own time now, or with iteration 002's event history.
+- **Requirement citation**: FR-006 and SC-005 (a reply never shows old data as current); FR-029, FR-030 and the security design's T11 (what callers with no token can make the Issuer do; CP-17's review); FR-001 and FR-046 (the overview's fields; the contract changes only by adding); T013, T021, T023, T036.
+- **Resolution**:
+  - Items 1 to 3 are fixed, test-first:
+    - the hub: 10 adapter tests, 7 of which failed before;
+    - the registration: 2 Issuer tests (an unlisted registration fetched its URL; a listed one was stored with it) and 4 unit tests;
+    - the read order: 4 Inquiry tests, one per read that could come first.
+  - Item 4: the description, pinned by a contract test that failed before.
+  - The whole suite: 1,280 tests pass, lint, types, format and dependency rules clean.
+  - Deploys: items 1 and 5 (DRIFT-001-87) ship in the next connector image, items 2 to 4 in the next core deploy, each with the owner's OK.
+- **Carry-forward**: the owner's two choices above (the cellular backup, the motion's own time). To iteration 002: FR-005's last event and the event history give motion its own time.
+- **Class closure**: the hub tests fail if a hub Ring calls offline leaves Ring `ok`, or if one back online counts as current before its list. The registration's refusal runs before any fetch the provider makes while checking metadata; the limits test fails if any purpose is unbounded, and every provider fetch goes through the bound. The four read-order tests fail if a tool reads its data before the health, and the contract test pins `last_motion_at`'s description. For the motion's own time: NONE - it is a feature, which comes with the events.
 
 ### DRIFT-001-85: The owner's decisions before the review stop: the soak carried into iteration 002, and FR-007 says "at or below"
 

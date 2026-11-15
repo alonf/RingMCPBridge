@@ -1,6 +1,6 @@
 // The Setup CLI's console over a terminal (T028): Node's readline, with the echo of a hidden
-// answer (the password) swallowed. Ctrl+C hands over to `onInterrupt`, and the input ending
-// before an answer rejects the question.
+// answer (the password) swallowed and no history kept. Ctrl+C hands over to `onInterrupt`, and the
+// input ending before an answer rejects the question.
 import { createInterface } from "node:readline";
 import type { Interface } from "node:readline";
 import { Writable } from "node:stream";
@@ -54,6 +54,8 @@ export class TerminalConsole implements SetupConsole {
       input: options.input,
       output: this.#echo,
       terminal: true,
+      // No history: the Up arrow at a later question would bring the password back on screen.
+      historySize: 0,
     });
     this.#lines.on("SIGINT", options.onInterrupt);
     this.#lines.on("close", () => {

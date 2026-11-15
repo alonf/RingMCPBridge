@@ -21,6 +21,7 @@ import type {
   ProviderContext,
   RefreshTokenLifetime,
 } from "oidc-provider";
+import { FETCH_LIMITS } from "./bounded-fetch.ts";
 import { isLoopbackRedirect } from "./listed-agents.ts";
 import type { ListedAgents } from "./listed-agents.ts";
 import type { SigningKeys } from "./signing-keys.ts";
@@ -49,7 +50,7 @@ export interface ProviderParts {
   readonly keys: SigningKeys;
   readonly agents: ListedAgents;
   readonly adapter: (model: string) => Adapter;
-  /** Fetches a client ID metadata document. */
+  /** Fetches a client ID metadata document or a client's `jwks_uri`, bounded (bounded-fetch.ts). */
   readonly fetch: (url: string, options: RequestInit) => Promise<Response>;
   /** A signal for one of the hooks' reads: the Issuer's lifetime, with a timeout. */
   readonly signal: () => AbortSignal;
@@ -65,9 +66,18 @@ export function providerConfiguration(parts: ProviderParts): Configuration {
     // A client whose every redirect URI is a loopback one runs on the owner's machine: a native app,
     // whose sign-in comes back on a port it picks each time. oidc-provider ignores that port only
     // for a native client, and Claude Code's metadata document does not say it is one (T033).
+    //
+    // A `sector_identifier_uri` is refused (DRIFT-001-86): the provider fetches it while it checks
+    // the metadata, before a registration's listing and the hour's limit are checked, and no agent
+    // needs one, since subjects are public. This check runs before that fetch.
     extraClientMetadata: {
       properties: ["application_type"],
       validator: (_context, _key, _value, metadata) => {
+        if (metadata.sector_identifier_uri !== undefined) {
+          throw new errors.InvalidClientMetadata(
+            "sector_identifier_uri is not supported",
+          );
+        }
         const uris = metadata.redirect_uris;
         if (
           Array.isArray(uris) &&
@@ -138,6 +148,9 @@ export function providerConfiguration(parts: ProviderParts): Configuration {
         },
       },
     },
+    // Every answer fetched for a client is bounded (DRIFT-001-86); `jwks_uri` and
+    // `sector_identifier_uri` are unbounded by default.
+    fetchResponseBodyLimits: { ...FETCH_LIMITS },
     fetch: parts.fetch,
     findAccount: (_context, subject) => Promise.resolve(ownerAccount(subject)),
     interactions: {

@@ -54,6 +54,7 @@ import type { AgentListing } from "./listed-agents.ts";
 import { PendingSignIns } from "./pending-sign-ins.ts";
 import { providerConfiguration } from "./provider-configuration.ts";
 import { RegistrationLimit } from "./registration-limit.ts";
+import { boundedFetch, ISSUER_FETCHES_IN_FLIGHT } from "./bounded-fetch.ts";
 import { parseSigningKeys } from "./signing-keys.ts";
 
 const HTTP_SEE_OTHER = 303;
@@ -202,7 +203,7 @@ export class Issuer {
           admitRegistration: () => this.#admitRegistration(),
           lifetime: this.#lifetime.signal,
         }),
-        fetch: this.#dependencies.fetch,
+        fetch: boundedFetch(this.#dependencies.fetch, ISSUER_FETCHES_IN_FLIGHT),
         signal: () =>
           AbortSignal.any([
             this.#lifetime.signal,
