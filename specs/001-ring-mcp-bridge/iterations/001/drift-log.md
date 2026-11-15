@@ -23,7 +23,7 @@
 ## Summary
 
 **Total drift events**: 90
-**Resolution rate**: 89 of 90 resolved or decided; DRIFT-001-90's second item waits for the owner's decision. 88 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). T036's entries, DRIFT-001-86 to DRIFT-001-89, were reviewed in the rounds that followed, the last of them clean on `0431bcf`. Each entry lists its carry-forwards to later iterations.
+**Resolution rate**: 89 of 90 resolved or decided; DRIFT-001-90's third item waits for the owner's decision. 88 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). T036's entries, DRIFT-001-86 to DRIFT-001-89, were reviewed in the rounds that followed, the last of them clean on `0431bcf`. Each entry lists its carry-forwards to later iterations.
 **Specification drift** (T035's drift check, 2026-11-15, and the review of f3884bb): four items against the spec, each decided or for the owner's decision:
 
 - **DRIFT-001-33:** the overview counted a battery at or below the threshold as low, where FR-007 said "below". The owner chose "at or below", and the spec now says so (DRIFT-001-85, DEC-001-02).
@@ -1187,19 +1187,21 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
-### DRIFT-001-90: Specrew CI on a79514a: a shallow checkout, and a derived review block CI cannot reproduce
+### DRIFT-001-90: Specrew CI on a79514a: a shallow checkout, a derived review block CI could not reproduce, and a reviewed snapshot only the owner's machine holds
 
 - **Detected**: 2026-11-15, implement, on the review-signoff records (`a79514a`). Specrew CI failed; CI and Specrew Work Kind passed.
 - **Kind**: a CI configuration defect, and governed tooling output that differs between the owner's machine and CI. No code changed.
 - **Observed**:
   1. Once every task is done, the governance check compares the iteration's baseline commit with HEAD. The workflow's checkout was shallow, so CI had no baseline and found the diff empty: "iteration artifacts declare 19 completed task(s) but git diff ... is empty".
-  2. On the owner's machine, the validator requires `review.md` to carry the derived independent-review block, since it observed this session writing the record. It derives the block from the review store there (`.specrew/review/authority/`). The store is not in git, by the owner's rule, so CI derives a different block (one line, not four) and refuses the record's.
+  2. On the owner's machine, the validator requires `review.md` to carry the derived independent-review block, since it observed this session writing the record. It derives the block from the review store there (`.specrew/review/authority/`). The store was not in git, by the owner's rule, so CI derived a different block (one line, not four) and refused the record's. The review's own preflight, which validates a clean copy of the committed files, refused round 34's first attempt for the same reason (`run-20261115-165131823-6500e0a8`; no round used).
+  3. With the store committed and `review.md` resting on round 34 (`7839197`), CI refuses the evidence marker: the round reviewed a snapshot tree (`d1d7e8f2`) that leaves out Specrew's own scripts and includes the untracked `tasks-progress.yml`. That tree belongs to no commit, so only the owner's machine holds it, and a clone cannot check whether source changed since. The validator on the owner's machine passes.
 - **Requirement citation**: FR-047 (the gates run in CI on every commit); T004 (the adapted workflow, DRIFT-001-07); T035 (the review-signoff evidence).
 - **Resolution**:
   1. Fixed: the checkout fetches the whole history (`fetch-depth: 0` in `.github/workflows/specrew-ci.yml`), noted in the file's header.
-  2. human-decision, pending: whether the review store goes into git. Its files hold the owner's name as the approver and the owner's home folder paths, so it stays out until the owner decides.
-- **Carry-forward**: item 2, to the owner's decision. If Specrew CI is required on the pull request to main, the feature's closeout depends on it.
-- **Class closure**: item 1: the workflow keeps the full history, and its header says why, beside the warning to re-check it after each Specrew update. Item 2: NONE - the derivation is Specrew-owned machinery; the owner's decision settles this instance.
+  2. human-decision, decided: the owner, 2026-11-15, "if it is only my name (Already know), and the path, which is very standard, then I do not see a problem to add it to git". A scan of the store's 554 files found only those two: no subscription, tenant, email, GUID, address, room or device name. A clean checkout failed validation without the store and passed with it. Committed in `411f4c5`; CI's derived block has matched since `7839197`, and round 34's preflight passed.
+  3. human-decision, pending: put to the owner with the review sign-off. Specrew CI stays red on this check while the reviewed snapshot is only on the owner's machine. `main` has no branch protection, so it does not block the merge; pushing the snapshot under a ref would publish `tasks-progress.yml`, which the owner's rule keeps out, and would be needed again after every round.
+- **Carry-forward**: item 3, to the owner's decision at the review sign-off.
+- **Class closure**: item 1: the workflow keeps the full history, and its header says why, beside the warning to re-check it after each Specrew update. Item 2: the store is committed, and each new round's files are scanned before they are. Item 3: NONE - the review snapshot is Specrew-owned machinery; the owner's decision settles this instance.
 
 ### DRIFT-001-89: The co-review's round 4 on 5f6d8d9: data read as current just after a Ring reconnect, and mode A never recovered a stuck connection
 
