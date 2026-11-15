@@ -1,18 +1,19 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T032
-**Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
+**Last Completed Task**: T034
+**Tasks Remaining**: T033, T035, T036 (3 tasks, 5 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-15T00:30:00Z
+**Updated**: 2026-11-15T01:15:00Z
 
 ## Execution Summary
 
 - **CP-21a's co-review of the pilot's changes** (2026-11-15; DRIFT-001-83; T034). The owner approved the round, and an allowance reset.
   - **The round:** codex, 11 minutes, $0. It found one note: the VM script's rollback could delete an `-os.vhd` that predated the run. That is fixed test-first.
   - The first launch failed on codex's npm wrapper script and used no round. It ran with codex's own program first on that process's PATH.
-  - **Waiting on the owner's choice:** another round, stop the review here (sign-off), or abandon.
+  - **Signed off** (partial, the owner's approval): the only change since the reviewed files is the fix of the round's own finding, and later reviews cover it. **T034 is complete:** every group has had its co-review, the pilot's changes included.
+  - **The owner's direction:** go on to the next iteration. Iteration 001's close comes first: T035 (the review evidence), T036, the review boundary, the retro and the closeout. The 7-day soak runs on and is carried forward.
 
 - **The connector reports its health to Docker** (2026-11-15; DRIFT-001-72, T033 step 2).
   - It writes a health file every 15 s, which the image's `health` command reads for the `HEALTHCHECK`.

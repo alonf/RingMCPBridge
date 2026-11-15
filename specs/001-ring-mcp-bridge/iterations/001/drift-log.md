@@ -1191,7 +1191,10 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - All 25 VM-script tests pass.
   - The VM already running is not affected: the script runs only when a VM is created.
   - Cost: under 0.25 SP (estimate), $0.
-- **Carry-forward**: Specrew asks the owner whether to run another round, to stop the review here (sign-off on the files as they are), or to abandon the campaign.
+- **Carry-forward**: Specrew asked the owner whether to run another round, stop the review here, or abandon the campaign.
+  - **The owner's decision**, 2026-11-15: stop the review here and go on to the next iteration: "later reviews will also check the latest changes".
+  - **The sign-off at first refused:** its result covered the files before the fix, so it could not vouch for the tree as it now was (`latest-result-not-current`).
+  - **The owner then approved a partial sign-off:** "the only change since the reviewed files is cef1144, the test-first fix of the review's own finding, and later reviews will cover it". Specrew checked the files as they are, saved the notes as follow-ups, and completed the review sign-off.
 - **Class closure**: the test of a disk already at each name, including the intermediate one, which failed before the fix.
 
 ### DRIFT-001-82: claude.ai's model reads only a tool's text, which was a one-line summary: no alarm mode, no names
