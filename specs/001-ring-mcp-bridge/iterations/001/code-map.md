@@ -7,7 +7,7 @@
 
 > **⚠️ Review Evidence Warning** _(Form-vs-Meaning Gap Detected)_
 >
-> This iteration's task tracking declares **19 completed task(s)**, but the git diff against baseline `ae40fa10981259acab40787c0b60e38366a1cdde` contains **393 file(s)**.
+> This iteration's task tracking declares **19 completed task(s)**, but the git diff against baseline `ae40fa10981259acab40787c0b60e38366a1cdde` contains **402 file(s)**.
 >
 > **Severity**: WARNING
 > **Implication**: Review evidence may be incomplete or misleading.
@@ -40,7 +40,7 @@
 | .github/workflows/admin-page.yml | 44 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | .github/workflows/ci.yml | 118 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | .github/workflows/deploy.yml | 246 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
-| .github/workflows/specrew-ci.yml | 18 | 123 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| .github/workflows/specrew-ci.yml | 22 | 123 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | .github/workflows/specrew-confidence-lane.yml | 3 | 2 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | .github/workflows/specrew-project-sync.yml | 3 | 11 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | .github/workflows/weekly.yml | 33 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
@@ -52,7 +52,7 @@
 | .prettierrc.json | 1 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | .specrew/handoff-evidence.json | 35 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | .specrew/iteration-config.yml | 1 | 1 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
-| .squad/decisions.md | 145 | 1 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| .squad/decisions.md | 178 | 1 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | .squad/events/lifecycle-events.jsonl | 6 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | .squad/identity/now.md | 5 | 5 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | CLAUDE.md | 2 | 1 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
@@ -401,11 +401,16 @@
 | specs/001-ring-mcp-bridge/contracts/mcp-tools.md | 343 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/contracts/mechanical-findings.schema.json | 77 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/contracts/web-endpoints.md | 105 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/current-architecture.md | 15 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/data-model.md | 730 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/gates/design-analysis-001.md | 59 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/implementation-rules.yml | 49 | 1 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/code-map.md | 1545 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/coverage-evidence.md | 67 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/dashboard.md | 38 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/dependency-report.md | 483 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/iterations/001/design-analysis.md | 340 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
-| specs/001-ring-mcp-bridge/iterations/001/drift-log.md | 3119 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/drift-log.md | 3133 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/iterations/001/lens-applicability.json | 51 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/iterations/001/plan.md | 124 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/iterations/001/quality/hardening-gate.md | 58 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
@@ -413,8 +418,12 @@
 | specs/001-ring-mcp-bridge/iterations/001/quality/lenses/security-baseline.md | 51 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/iterations/001/quality/lenses/test-integrity.md | 51 | 0 | CP-01, CP-04, CP-11a, CP-RV | Implementer |
 | specs/001-ring-mcp-bridge/iterations/001/quality/mechanical-findings.json | 506 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
-| specs/001-ring-mcp-bridge/iterations/001/quality/quality-evidence.md | 109 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
-| specs/001-ring-mcp-bridge/iterations/001/state.md | 721 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/quality/quality-evidence.md | 115 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/review-diagrams.md | 624 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/review.md | 94 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/reviewer-index.md | 158 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/security-surface.md | 207 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
+| specs/001-ring-mcp-bridge/iterations/001/state.md | 726 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/plan.md | 368 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/quickstart.md | 326 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
 | specs/001-ring-mcp-bridge/research.md | 928 | 0 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RW | Implementer |
@@ -1535,10 +1544,13 @@
 - schemas/tool-replies.schema.json (828 changed lines)
 - specs/001-ring-mcp-bridge/contracts/mcp-tools.md (343 changed lines)
 - specs/001-ring-mcp-bridge/data-model.md (730 changed lines)
+- specs/001-ring-mcp-bridge/iterations/001/code-map.md (1545 changed lines)
+- specs/001-ring-mcp-bridge/iterations/001/dependency-report.md (483 changed lines)
 - specs/001-ring-mcp-bridge/iterations/001/design-analysis.md (340 changed lines)
-- specs/001-ring-mcp-bridge/iterations/001/drift-log.md (3119 changed lines)
+- specs/001-ring-mcp-bridge/iterations/001/drift-log.md (3133 changed lines)
 - specs/001-ring-mcp-bridge/iterations/001/quality/mechanical-findings.json (506 changed lines)
-- specs/001-ring-mcp-bridge/iterations/001/state.md (721 changed lines)
+- specs/001-ring-mcp-bridge/iterations/001/review-diagrams.md (624 changed lines)
+- specs/001-ring-mcp-bridge/iterations/001/state.md (726 changed lines)
 - specs/001-ring-mcp-bridge/plan.md (368 changed lines)
 - specs/001-ring-mcp-bridge/quickstart.md (326 changed lines)
 - specs/001-ring-mcp-bridge/research.md (928 changed lines)

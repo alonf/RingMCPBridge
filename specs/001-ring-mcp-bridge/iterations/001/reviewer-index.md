@@ -6,14 +6,14 @@
 
 ## Summary
 
-- Header: feature=001-ring-mcp-bridge | iteration=001 | branch=001-ring-mcp-bridge | commit_range=ae40fa10981259acab40787c0b60e38366a1cdde..0431bcf0fbbde3b0ea6ef77b7826ec9aa3e35841
+- Header: feature=001-ring-mcp-bridge | iteration=001 | branch=001-ring-mcp-bridge | commit_range=ae40fa10981259acab40787c0b60e38366a1cdde..fa291a7f981c8aace3d6a9abdd8aa43eda6d54ab
 - Verdict: accepted
 - Requirements: covered=FR-046, FR-047, FR-034, FR-006, FR-044, FR-029, FR-001, FR-033, FR-048, FR-032, FR-026, FR-042, FR-005, FR-002, FR-030, FR-040 | not_covered=(none)
-- Code Surface: files=393 | hotspots=87 | test_to_code=117:188
+- Code Surface: files=402 | hotspots=90 | test_to_code=117:188
 - Dependencies: changed=14 | new_to_project=14 | vulnerability=6
 - Coverage: kind=qualitative | signal=not_executed
 - Operational Signals: escalations=0 | routing_fallbacks=0
-- Drift: 89/0 resolved
+- Drift: 90/0 resolved
 - Reviewer Index: specs\001-ring-mcp-bridge\iterations\001\reviewer-index.md
 - Implementation Briefing: (unavailable)
 - Local Open Hints: specs\001-ring-mcp-bridge\iterations\001\reviewer-index.md; specs\001-ring-mcp-bridge\iterations\001\review-diagrams.md; specs\001-ring-mcp-bridge\current-architecture.md
@@ -124,30 +124,33 @@
 - Hotspot: schemas/tool-replies.schema.json (828 changed lines)
 - Hotspot: specs/001-ring-mcp-bridge/contracts/mcp-tools.md (343 changed lines)
 - Hotspot: specs/001-ring-mcp-bridge/data-model.md (730 changed lines)
+- Hotspot: specs/001-ring-mcp-bridge/iterations/001/code-map.md (1545 changed lines)
+- Hotspot: specs/001-ring-mcp-bridge/iterations/001/dependency-report.md (483 changed lines)
 - Hotspot: specs/001-ring-mcp-bridge/iterations/001/design-analysis.md (340 changed lines)
-- Hotspot: specs/001-ring-mcp-bridge/iterations/001/drift-log.md (3119 changed lines)
+- Hotspot: specs/001-ring-mcp-bridge/iterations/001/drift-log.md (3133 changed lines)
 - Hotspot: specs/001-ring-mcp-bridge/iterations/001/quality/mechanical-findings.json (506 changed lines)
-- Hotspot: specs/001-ring-mcp-bridge/iterations/001/state.md (721 changed lines)
+- Hotspot: specs/001-ring-mcp-bridge/iterations/001/review-diagrams.md (624 changed lines)
+- Hotspot: specs/001-ring-mcp-bridge/iterations/001/state.md (726 changed lines)
 - Hotspot: specs/001-ring-mcp-bridge/plan.md (368 changed lines)
 - Hotspot: specs/001-ring-mcp-bridge/quickstart.md (326 changed lines)
 - Hotspot: specs/001-ring-mcp-bridge/research.md (928 changed lines)
 - Hotspot: specs/001-ring-mcp-bridge/tasks.md (659 changed lines)
-- Unknown license: @types/node
-- Unknown license: dependency-cruiser
-- Unknown license: vitest
-- Unknown license: @stryker-mutator/core
-- Unknown license: eslint-config-prettier
 - Unknown license: typescript-eslint
-- Unknown license: @playwright/test
-- Unknown license: @types/ws
-- Unknown license: @stryker-mutator/vitest-runner
-- Unknown license: @vitest/coverage-v8
-- Unknown license: eslint
-- Unknown license: vite
 - Unknown license: prettier
+- Unknown license: @playwright/test
+- Unknown license: dependency-cruiser
+- Unknown license: @types/ws
 - Unknown license: typescript
+- Unknown license: @stryker-mutator/core
+- Unknown license: @vitest/coverage-v8
+- Unknown license: @types/node
+- Unknown license: vitest
+- Unknown license: @stryker-mutator/vitest-runner
+- Unknown license: eslint
+- Unknown license: eslint-config-prettier
+- Unknown license: vite
 - Coverage execution: not_executed
-- Unresolved drift remains: 89
+- Unresolved drift remains: 90
 - Gap concern: SC-003 (the 7-day Ring-session soak, running since 2026-11-14): deferred to iteration 002, checked around 2026-11-21, with the owner's approval. Defer entry `rmb-i001-sc003-soak-deferred` in `.squad\decisions.md` (DEC-001-01, DRIFT-001-85).
 - Gap concern: SC-011 (the bill for the month against the $30 ceiling): deferred to iteration 002 with the owner's approval. Defer entry `rmb-i001-sc011-bill-deferred` in `.squad\decisions.md` (DEC-001-01). So far about $0.47 for the first day.
 - Gap concern: The clock check on the VM and the core, at the soak's end: deferred to iteration 002 with the owner's approval. Defer entry `rmb-i001-clock-check-deferred` in `.squad\decisions.md` (DEC-001-01).
@@ -155,4 +158,4 @@
 
 ## Replay Digest
 
-SPECREW_REVIEW schema=v1 iter=001 feature=001-ring-mcp-bridge verdict=accepted tasks=19/19 reqs=19 files=393 new_deps=14 vuln=6 cov=not_executed escalations=0 drift=89/0 index=specs\001-ring-mcp-bridge\iterations\001\reviewer-index.md
+SPECREW_REVIEW schema=v1 iter=001 feature=001-ring-mcp-bridge verdict=accepted tasks=19/19 reqs=19 files=402 new_deps=14 vuln=6 cov=not_executed escalations=0 drift=90/0 index=specs\001-ring-mcp-bridge\iterations\001\reviewer-index.md

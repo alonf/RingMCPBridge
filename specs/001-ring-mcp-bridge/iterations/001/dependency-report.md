@@ -6,7 +6,7 @@
 
 > **⚠️ Review Evidence Warning** _(Form-vs-Meaning Gap Detected)_
 >
-> This iteration's task tracking declares **19 completed task(s)**, but the git diff against baseline `ae40fa10981259acab40787c0b60e38366a1cdde` contains **393 file(s)**.
+> This iteration's task tracking declares **19 completed task(s)**, but the git diff against baseline `ae40fa10981259acab40787c0b60e38366a1cdde` contains **402 file(s)**.
 >
 > **Severity**: WARNING
 > **Implication**: Review evidence may be incomplete or misleading.
@@ -32,37 +32,37 @@
 
 | Ecosystem | Package | Prior Version | New Version | Change Type | License | Owning Task |
 | --------- | ------- | ------------- | ----------- | ----------- | ------- | ----------- |
-| npm | @types/node | none | 26.6.6 | added | unknown | CP-01 |
-| npm | dependency-cruiser | none | 18.7.0 | added | unknown | CP-01 |
-| npm | vitest | none | 5.0.5 | added | unknown | CP-01 |
-| npm | @stryker-mutator/core | none | 10.1.1 | added | unknown | CP-01 |
-| npm | eslint-config-prettier | none | 10.1.8 | added | unknown | CP-01 |
 | npm | typescript-eslint | none | 8.72.1 | added | unknown | CP-01 |
-| npm | @playwright/test | none | 1.64.1 | added | unknown | CP-01 |
-| npm | @types/ws | none | 8.18.2 | added | unknown | CP-01 |
-| npm | @stryker-mutator/vitest-runner | none | 10.1.1 | added | unknown | CP-01 |
-| npm | @vitest/coverage-v8 | none | 5.0.5 | added | unknown | CP-01 |
-| npm | eslint | none | 10.14.0 | added | unknown | CP-01 |
-| npm | vite | none | 8.3.5 | added | unknown | CP-01 |
 | npm | prettier | none | 3.9.10 | added | unknown | CP-01 |
+| npm | @playwright/test | none | 1.64.1 | added | unknown | CP-01 |
+| npm | dependency-cruiser | none | 18.7.0 | added | unknown | CP-01 |
+| npm | @types/ws | none | 8.18.2 | added | unknown | CP-01 |
 | npm | typescript | none | 6.0.3 | added | unknown | CP-01 |
+| npm | @stryker-mutator/core | none | 10.1.1 | added | unknown | CP-01 |
+| npm | @vitest/coverage-v8 | none | 5.0.5 | added | unknown | CP-01 |
+| npm | @types/node | none | 26.6.6 | added | unknown | CP-01 |
+| npm | vitest | none | 5.0.5 | added | unknown | CP-01 |
+| npm | @stryker-mutator/vitest-runner | none | 10.1.1 | added | unknown | CP-01 |
+| npm | eslint | none | 10.14.0 | added | unknown | CP-01 |
+| npm | eslint-config-prettier | none | 10.1.8 | added | unknown | CP-01 |
+| npm | vite | none | 8.3.5 | added | unknown | CP-01 |
 
 ## New-to-Project
 
-- @types/node
-- dependency-cruiser
-- vitest
-- @stryker-mutator/core
-- eslint-config-prettier
 - typescript-eslint
-- @playwright/test
-- @types/ws
-- @stryker-mutator/vitest-runner
-- @vitest/coverage-v8
-- eslint
-- vite
 - prettier
+- @playwright/test
+- dependency-cruiser
+- @types/ws
 - typescript
+- @stryker-mutator/core
+- @vitest/coverage-v8
+- @types/node
+- vitest
+- @stryker-mutator/vitest-runner
+- eslint
+- eslint-config-prettier
+- vite
 
 ## Vulnerability Scan
 
