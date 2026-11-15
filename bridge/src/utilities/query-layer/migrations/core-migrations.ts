@@ -5,6 +5,7 @@ import { CONNECTOR_ENROLLMENT_CODE } from "./0002-connector-enrollment-code.ts";
 import { ONE_PENDING_ENROLLMENT } from "./0003-one-pending-enrollment.ts";
 import { STATE_SOURCE } from "./0004-state-source.ts";
 import { SNAPSHOT_ORDER } from "./0005-snapshot-order.ts";
+import { MOTION_SINCE } from "./0006-motion-since.ts";
 import type { Migration } from "./migration.ts";
 
 export const CORE_MIGRATIONS: readonly Migration[] = [
@@ -13,4 +14,5 @@ export const CORE_MIGRATIONS: readonly Migration[] = [
   ONE_PENDING_ENROLLMENT,
   STATE_SOURCE,
   SNAPSHOT_ORDER,
+  MOTION_SINCE,
 ];

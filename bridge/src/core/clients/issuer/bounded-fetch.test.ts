@@ -53,7 +53,9 @@ describe("the Issuer's fetch", () => {
     expect(inner.calls).toHaveLength(ISSUER_FETCHES_IN_FLIGHT);
 
     inner.release();
-    await Promise.all(running);
+    await Promise.all(
+      (await Promise.all(running)).map((response) => response.text()),
+    );
     const after = fetch(URL_A, {});
     inner.release();
     await expect(after).resolves.toBeInstanceOf(Response);
@@ -75,6 +77,129 @@ describe("the Issuer's fetch", () => {
 
     await expect(fetch(URL_A, {})).resolves.toBeInstanceOf(Response);
     expect(seen[0]?.signal).toBe(signal);
+  });
+});
+
+// A fetch whose replies come with their headers at once and their bodies still open, as a server
+// that sends its headers and then trickles the body (co-review round 3, run-20261115-093504126).
+interface Streaming {
+  readonly bodies: ReadableStreamDefaultController<Uint8Array>[];
+  readonly fetch: (url: string, options: RequestInit) => Promise<Response>;
+}
+
+function streaming(status = 200): Streaming {
+  const bodies: ReadableStreamDefaultController<Uint8Array>[] = [];
+  return {
+    bodies,
+    fetch: () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start: (controller) => {
+              bodies.push(controller);
+              controller.enqueue(new TextEncoder().encode("{"));
+            },
+          }),
+          { status },
+        ),
+      ),
+  };
+}
+
+async function fill(
+  fetch: (url: string, options: RequestInit) => Promise<Response>,
+  signal?: AbortSignal,
+): Promise<Response[]> {
+  return Promise.all(
+    Array.from({ length: ISSUER_FETCHES_IN_FLIGHT }, () =>
+      fetch(URL_A, signal === undefined ? {} : { signal }),
+    ),
+  );
+}
+
+describe("the Issuer's fetch, while a body is still coming", () => {
+  it("holds a fetch's place until its body ends, so a trickled body still counts", async () => {
+    const inner = streaming();
+    const fetch = boundedFetch(inner.fetch, ISSUER_FETCHES_IN_FLIGHT);
+    const responses = await fill(fetch);
+
+    await expect(fetch(URL_A, {})).rejects.toThrow(
+      "Too many fetches for clients at once.",
+    );
+
+    const [first] = responses;
+    const reading = first?.text();
+    inner.bodies[0]?.enqueue(new TextEncoder().encode("}"));
+    inner.bodies[0]?.close();
+    await expect(reading).resolves.toBe("{}");
+    await expect(fetch(URL_A, {})).resolves.toBeInstanceOf(Response);
+  });
+
+  it("frees the place when the reader cancels the body, as the provider does past its size limit", async () => {
+    const fetch = boundedFetch(streaming().fetch, ISSUER_FETCHES_IN_FLIGHT);
+    const responses = await fill(fetch);
+
+    await responses[0]?.body?.cancel();
+
+    await expect(fetch(URL_A, {})).resolves.toBeInstanceOf(Response);
+  });
+
+  it("frees the place when the body fails", async () => {
+    const inner = streaming();
+    const fetch = boundedFetch(inner.fetch, ISSUER_FETCHES_IN_FLIGHT);
+    const responses = await fill(fetch);
+
+    const reading = responses[0]?.text();
+    inner.bodies[0]?.error(new Error("connection reset"));
+    await expect(reading).rejects.toThrow("connection reset");
+
+    await expect(fetch(URL_A, {})).resolves.toBeInstanceOf(Response);
+  });
+
+  it("frees the place when the request's signal aborts, for a reply the provider drops unread", async () => {
+    // The provider refuses a metadata document's 404 without reading its body; its 2.5 s timeout
+    // then ends the request. Without this, four such replies would refuse every later fetch.
+    const fetch = boundedFetch(streaming(404).fetch, ISSUER_FETCHES_IN_FLIGHT);
+    const timeout = new AbortController();
+    await fill(fetch, timeout.signal);
+
+    timeout.abort(new Error("The operation was aborted due to timeout"));
+
+    await expect(fetch(URL_A, {})).resolves.toBeInstanceOf(Response);
+  });
+
+  it("frees the place at once for a reply with no body, and keeps the status and headers", async () => {
+    const fetch = boundedFetch(
+      () =>
+        Promise.resolve(
+          new Response(null, { status: 304, headers: { etag: '"a"' } }),
+        ),
+      1,
+    );
+
+    const response = await fetch(URL_A, {});
+    expect(response.status).toBe(304);
+    expect(response.headers.get("etag")).toBe('"a"');
+    await expect(fetch(URL_A, {})).resolves.toBeInstanceOf(Response);
+  });
+
+  it("passes the body's bytes, status and headers through unchanged", async () => {
+    const fetch = boundedFetch(
+      () =>
+        Promise.resolve(
+          new Response('{"keys":[]}', {
+            status: 200,
+            headers: { "cache-control": "max-age=60" },
+          }),
+        ),
+      1,
+    );
+
+    const response = await fetch(URL_A, {});
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("max-age=60");
+    await expect(response.text()).resolves.toBe('{"keys":[]}');
   });
 });
 

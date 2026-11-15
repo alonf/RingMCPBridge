@@ -62,6 +62,42 @@ const SIREN: DeviceState = {
   state_version: 3,
 };
 
+// DRIFT-001-86: the motion's own time. A report while the motion lasts, a battery level too,
+// moves `as_of` but not `motion_since`.
+const MINUTE = 60_000;
+const SENSOR: DeviceState = {
+  device_id: "d-hall",
+  location_id: "loc-1",
+  name: "Hall motion",
+  type: "motion",
+  battery_pct: 90,
+  power_mode: "battery",
+  online: true,
+  state: { motion: false },
+  as_of: AS_OF,
+  state_version: 2,
+};
+
+function sensorAt(
+  version: number,
+  minutes: number,
+  fields: Partial<DeviceState> = {},
+): DeviceState {
+  return {
+    ...SENSOR,
+    state_version: version,
+    as_of: AS_OF + minutes * MINUTE,
+    ...fields,
+  };
+}
+
+const MOVING = { state: { motion: true } } as const;
+const STILL = { state: { motion: false } } as const;
+
+async function motionSince(state: StateStore): Promise<number | undefined> {
+  return (await state.device(SENSOR.device_id, never()))?.motion_since;
+}
+
 function never(): AbortSignal {
   return new AbortController().signal;
 }
@@ -430,6 +466,112 @@ describeStoreMatrix("State", (store) => {
     await expect(
       state.claimVersions("k".repeat(129), AS_OF, never()),
     ).rejects.toThrow(RangeError);
+  });
+
+  it("keeps when a motion began while it lasts: a later report, a battery level too, does not move it", async () => {
+    const { state } = await setUp();
+    await state.applyInventory(snapshot(0, [HOME], [SENSOR]), never());
+    await expect(motionSince(state)).resolves.toBeUndefined();
+
+    await state.applyDevice(sensorAt(3, 1, MOVING), never());
+    await expect(motionSince(state)).resolves.toBe(AS_OF + MINUTE);
+
+    // The review's case: a battery report five minutes later, the sensor still reporting motion.
+    await state.applyDevice(
+      sensorAt(4, 6, { ...MOVING, battery_pct: 85 }),
+      never(),
+    );
+    const held = await state.device(SENSOR.device_id, never());
+    expect(held?.motion_since).toBe(AS_OF + MINUTE);
+    expect(held?.as_of).toBe(AS_OF + 6 * MINUTE);
+    expect(held?.battery_pct).toBe(85);
+
+    await state.applyDevice(sensorAt(5, 8, STILL), never());
+    await expect(motionSince(state)).resolves.toBeUndefined();
+
+    await state.applyDevice(sensorAt(6, 20, MOVING), never());
+    await expect(motionSince(state)).resolves.toBe(AS_OF + 20 * MINUTE);
+  });
+
+  it("leaves when a motion began alone for an older change it drops", async () => {
+    const { state } = await setUp();
+    await state.applyInventory(
+      snapshot(0, [HOME], [sensorAt(5, 0, MOVING)]),
+      never(),
+    );
+
+    await expect(
+      state.applyDevice(sensorAt(4, 3, STILL), never()),
+    ).resolves.toBe("older");
+    await expect(
+      state.applyDevice(sensorAt(5, 4, MOVING), never()),
+    ).resolves.toBe("older");
+
+    await expect(motionSince(state)).resolves.toBe(AS_OF);
+  });
+
+  it("keeps when a motion began across a newer inventory that still reports it, as after a reconnect", async () => {
+    const { state } = await setUp();
+    await state.applyInventory(
+      snapshot(0, [HOME], [sensorAt(2, 0, MOVING)]),
+      never(),
+    );
+    await expect(motionSince(state)).resolves.toBe(AS_OF);
+
+    await state.applyInventory(
+      snapshot(10, [HOME], [sensorAt(12, 5, MOVING)]),
+      never(),
+    );
+    const held = await state.device(SENSOR.device_id, never());
+    expect(held?.motion_since).toBe(AS_OF);
+    expect(held?.as_of).toBe(AS_OF + 5 * MINUTE);
+
+    await state.applyInventory(
+      snapshot(20, [HOME], [sensorAt(22, 7, STILL)]),
+      never(),
+    );
+    await expect(motionSince(state)).resolves.toBeUndefined();
+
+    await state.applyInventory(
+      snapshot(30, [HOME], [sensorAt(32, 9, MOVING)]),
+      never(),
+    );
+    await expect(motionSince(state)).resolves.toBe(AS_OF + 9 * MINUTE);
+  });
+
+  it("starts the motion's time at the next report for a sensor in motion stored before migration 6", async () => {
+    const { state, layer } = await setUp();
+    await state.applyInventory(
+      snapshot(0, [HOME], [sensorAt(2, 0, MOVING)]),
+      never(),
+    );
+    await layer.run(
+      { sql: "UPDATE device SET motion_since = NULL", params: {} },
+      never(),
+    );
+    await expect(motionSince(state)).resolves.toBeUndefined();
+
+    await state.applyDevice(sensorAt(3, 4, MOVING), never());
+    await expect(motionSince(state)).resolves.toBe(AS_OF + 4 * MINUTE);
+
+    await state.applyDevice(sensorAt(4, 9, MOVING), never());
+    await expect(motionSince(state)).resolves.toBe(AS_OF + 4 * MINUTE);
+  });
+
+  it("keeps no motion time for a device that is not a motion sensor", async () => {
+    const { state } = await setUp();
+    const odd: DeviceState = {
+      ...DOOR,
+      state: { open: true, motion: true },
+    };
+    await state.applyInventory(snapshot(0, [HOME], [odd]), never());
+    await expect(state.device(DOOR.device_id, never())).resolves.toEqual(odd);
+
+    const changed = { ...odd, state_version: 3 };
+    await state.applyDevice(changed, never());
+    await expect(state.device(DOOR.device_id, never())).resolves.toEqual(
+      changed,
+    );
   });
 
   it("reports a change for a device it does not hold, changing nothing", async () => {

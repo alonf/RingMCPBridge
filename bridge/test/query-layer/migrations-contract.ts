@@ -58,6 +58,7 @@ const EXPECTED_TABLES: Readonly<
     ["state", true],
     ["as_of", true],
     ["state_version", true],
+    ["motion_since", false],
   ],
   health_snapshot: [
     ["snapshot_id", true],

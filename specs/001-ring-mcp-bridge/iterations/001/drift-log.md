@@ -22,14 +22,14 @@
 
 ## Summary
 
-**Total drift events**: 87
-**Resolution rate**: 100% resolved or decided. 86 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
+**Total drift events**: 88
+**Resolution rate**: 100% resolved or decided. 87 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
 **Specification drift** (T035's drift check, 2026-11-15, and the review of f3884bb): four items against the spec, each decided or for the owner's decision:
 
 - **DRIFT-001-33:** the overview counted a battery at or below the threshold as low, where FR-007 said "below". The owner chose "at or below", and the spec now says so (DRIFT-001-85, DEC-001-02).
 - **DRIFT-001-81:** the admin page's time zone setting is beyond FR-039's list. It is the owner's decision; FR-039 gains it when the spec is next revised.
 - **DRIFT-001-82:** a reply's text content (`contracts/errors.md`) changed from a one-line summary to the reply as JSON, then that summary. Owner-approved, as the MCP specification asks. The tool list and the published schemas are unchanged (FR-046).
-- **DRIFT-001-86:** `last_motion_at` promised the motion's own time, which any report moved. Its description now says what it is, and the motion's own time is for the owner: now, or with iteration 002's events.
+- **DRIFT-001-86:** `last_motion_at` promised the motion's own time, which any report moved. The owner chose to fix it now: State keeps when each motion began (migration 6), and the description says so.
 
 Before 2026-11-08: three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec.
 **Recorded deferrals, not drift:** FR-005's push reception and last event come with events in iteration 002 (`contracts/mcp-tools.md`).
@@ -1187,6 +1187,19 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
+### DRIFT-001-88: The co-review's round 3 on 31df5a7: the Issuer's fetch limit freed a place when the headers came, not the body
+
+- **Detected**: 2026-11-15, implement, co-review round 3 of the campaign `cmp-001-ring-mcp-bridge-i001` (`run-20261115-093504126-c3048dda`, codex), on `31df5a7`, which the owner approved. One minor finding, none blocking sign-off.
+- **Kind**: defect, minor: a bound weaker than DRIFT-001-86 said.
+- **Observed**: `boundedFetch` freed a fetch's place as soon as `fetch` resolved, which is when the headers arrive. The provider reads the body after that. A server that sends its headers at once and then trickles the body could have more than 4 downloads running. Each was still bounded by the provider's 2.5 s timeout and the size limits.
+- **Requirement citation**: FR-029, FR-030 and the security design's T11 (what callers with no token can make the Issuer do); DRIFT-001-86; T036.
+- **Resolution**: fixed, test-first.
+  - A fetch holds its place until its body ends, fails or is cancelled. It is also freed when the request's signal aborts, since the provider drops some replies unread (a metadata document's 404) and its 2.5 s timeout then ends the request. A reply with no body frees it at once. The reply goes on with the same status, headers and bytes.
+  - 6 new tests. The trickled body's test failed before the fix. A deliberate break of each way a place is freed (end, failure, cancel, abort, no body) was caught by its test. The old test of the limit now reads its bodies.
+  - Also: the image entry-point test (`first-signing-key.test.ts`) failed once in the coverage run, at 5.7 s against the runner's 5 s default, while its spawn may take 60 s. It passed alone and on the rerun. It now has the spawn's limit (TST-006).
+- **Carry-forward**: none.
+- **Class closure**: the bounded fetch's tests fail if a place is freed before the body is done, or is not freed when the body ends, fails or is cancelled, or when its request aborts.
+
 ### DRIFT-001-87: The co-review's round on f3884bb: the Setup CLI's history kept the hidden Ring password
 
 - **Detected**: 2026-11-15, implement, the co-review round the owner approved before the review stop (`cmp-001-ring-mcp-bridge-i001`, round 30, `run-20261115-023134114-f9311a97`, codex). One minor finding, none blocking sign-off.
@@ -1211,7 +1224,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
        - When the connection reopens, a counted hub waits for its list again.
        - The log has `ring_hub_offline` with `offline` or `cell_backup`, and `ring_hub_back`; no hub id.
        - The ids match: the library itself matches a hub's list by its `src` against the hub's `uuid`, the id its session report carries (`location.js`, ring-client-api 14.3.0).
-     - **The owner's choice:** a hub on its cellular backup counts as offline by default (the conservative reading). It may count as current instead.
+     - **The owner's choice** (2026-11-15): a hub on its cellular backup counts as offline, the conservative reading.
   2. **A registration fetched before its checks.**
      - **What happened:** a self-registration naming a `sector_identifier_uri` had oidc-provider 9.13.3 fetch that URL while it checked the metadata (`Client.validate`, `sectorValidate`). That ran before the Issuer's listing and the hour's limit (`grants-adapter.ts`), so an unlisted caller with no token could make the core fetch a URL of its choosing. The provider reads `jwks_uri` and `sector_identifier_uri` answers with no size limit by default.
      - **Already in place:** the provider gives each fetch a 2.5 s timeout and refuses special-use addresses (`fetch_request.js`), and the bridge's fetch passes both through. The review did not establish internal-network access, and neither did this check.
@@ -1221,19 +1234,22 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
        - At most 4 fetches for clients run at once; one more is refused without fetching.
   3. **A reply mixing two reads.** Inquiry read State's data and its health apart: in parallel, and in `get_device` the device first. A home that came back between the reads lent its fresh health to data read before: an old door and alarm mode in a `cached` reply. State holds no snapshot of both, so the health is now read first, then the data. The data is then at least as new as the reply says; at worst a fresh read says `stale`. The read latency budget still passes.
   4. **A motion time any report moved.** `get_overview`'s `last_motion_at` is the sensor's `as_of`, the home's latest read of it. A battery report while the sensor still reports motion moves it, as does a re-read, so the field claimed a motion that did not happen then.
-     - **For now:** the field's description says what it is: the home's latest read while motion was reported, not when the motion began. Only the description changed in `schemas/`, which FR-046 allows.
-     - **The owner's choice:** track the motion's own time now, or with iteration 002's event history.
+     - **At first:** the field's description said what it was: the home's latest read while motion was reported (`31df5a7`).
+     - **The owner's choice** (2026-11-15): track the motion's own time now, in the last co-review round.
+     - **The fix** (migration 6): State keeps `motion_since` for a motion sensor. An entry going from clear to motion sets it to that entry's `as_of`; an entry still in motion keeps it; one out of motion clears it. It is worked out in the statement that stores the entry, from the stored value, so a dropped older entry never touches it, and an inventory after a reconnect does not move it. The overview's `last_motion_at` is `motion_since`.
+     - **What it cannot know:** a motion already under way at the bridge's first reading of a sensor starts at that reading, and the description says so. A sensor already in motion when migration 6 runs has no time until its next report, so the overview gives its latest report until then: once, for minutes, at the deploy. A migration only adds (DS5), so it fills in nothing.
+     - The link and the connector are unchanged, and `schemas/` changed only in the field's description, which FR-046 allows.
 - **Requirement citation**: FR-006 and SC-005 (a reply never shows old data as current); FR-029, FR-030 and the security design's T11 (what callers with no token can make the Issuer do; CP-17's review); FR-001 and FR-046 (the overview's fields; the contract changes only by adding); T013, T021, T023, T036.
 - **Resolution**:
   - Items 1 to 3 are fixed, test-first:
     - the hub: 10 adapter tests, 7 of which failed before;
     - the registration: 2 Issuer tests (an unlisted registration fetched its URL; a listed one was stored with it) and 4 unit tests;
     - the read order: 4 Inquiry tests, one per read that could come first.
-  - Item 4: the description, pinned by a contract test that failed before.
-  - The whole suite: 1,280 tests pass, lint, types, format and dependency rules clean.
+  - Item 4, test-first: 5 State tests on both databases (a later report, a battery level too; an older entry; an inventory after a reconnect; a row from before the column; a device that is not a motion sensor), a Summary test, and the review's own case through `get_overview`: a battery report five minutes later leaves `last_motion_at` at the motion's first report. Each failed before the fix, except the test for a device that is not a motion sensor, which guards the rule's edge. A deliberate break of each part of the rule was caught. The contract test pins the description.
+  - The whole suite: 1,293 tests pass (134 skip without SQL Server), lint, types, format and dependency rules clean.
   - Deploys: items 1 and 5 (DRIFT-001-87) ship in the next connector image, items 2 to 4 in the next core deploy, each with the owner's OK.
-- **Carry-forward**: the owner's two choices above (the cellular backup, the motion's own time). To iteration 002: FR-005's last event and the event history give motion its own time.
-- **Class closure**: the hub tests fail if a hub Ring calls offline leaves Ring `ok`, or if one back online counts as current before its list. The registration's refusal runs before any fetch the provider makes while checking metadata; the limits test fails if any purpose is unbounded, and every provider fetch goes through the bound. The four read-order tests fail if a tool reads its data before the health, and the contract test pins `last_motion_at`'s description. For the motion's own time: NONE - it is a feature, which comes with the events.
+- **Carry-forward**: none; the owner made both choices. FR-005's last event and the event history stay with iteration 002, as planned.
+- **Class closure**: the hub tests fail if a hub Ring calls offline leaves Ring `ok`, or if one back online counts as current before its list. The registration's refusal runs before any fetch the provider makes while checking metadata; the limits test fails if any purpose is unbounded, and every provider fetch goes through the bound. The four read-order tests fail if a tool reads its data before the health, and the contract test pins `last_motion_at`'s description. The motion's time is worked out in the statement that stores each entry, and the State tests fail if a later report, an older entry or an inventory after a reconnect moves it.
 
 ### DRIFT-001-85: The owner's decisions before the review stop: the soak carried into iteration 002, and FR-007 says "at or below"
 

@@ -38,7 +38,7 @@ const BOOTSTRAP = process.env.SCHEMAS_BOOTSTRAP === "1";
 const BASE_DIRECTORY = process.env.SCHEMAS_BASE_DIRECTORY;
 
 const LAST_MOTION_DESCRIPTION =
-  "When the home last read the sensor while it reported motion, in UTC. Any later report or read moves it, a battery level too: it is not when the motion began.";
+  "When the home first reported this motion, in UTC. Later reports while the motion lasts, a battery level too, do not move it. It can be later than the motion's start when the motion was already under way at the bridge's first reading of the sensor.";
 
 /** Fields whose text the bridge writes itself: ids and its own error text. */
 const BRIDGE_TEXT: ReadonlySet<string> = new Set([

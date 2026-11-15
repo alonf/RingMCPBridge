@@ -119,6 +119,34 @@ describe("the Summary engine: the overview", () => {
 
     expect(data).not.toHaveProperty("alarm_mode");
   });
+
+  it("gives when the motion began, not the sensor's latest report (DRIFT-001-86)", () => {
+    const began = SEEN - 5 * 60_000;
+    const devices = [
+      device("d-moving", "motion", {
+        state: { motion: true },
+        motion_since: began,
+      }),
+      device("d-unknown", "motion", { state: { motion: true } }),
+    ];
+
+    const data = overview(
+      { location: HOME, devices, health: UP, now: NOW },
+      { batteryThresholdPct: THRESHOLD, budgetTokens: DATA_BUDGET_TOKENS },
+    );
+
+    expect(data.active_motion).toEqual([
+      {
+        device: { id: "d-moving", name: "Device d-moving" },
+        last_motion_at: formatUtc(began),
+      },
+      {
+        // No time of its own yet (stored before State kept one): its latest report.
+        device: { id: "d-unknown", name: "Device d-unknown" },
+        last_motion_at: formatUtc(SEEN),
+      },
+    ]);
+  });
 });
 
 describe("the Summary engine: the health", () => {

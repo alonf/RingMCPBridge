@@ -332,6 +332,33 @@ describe("the Inquiry manager: a camera's status has its own time (CP-16 review 
   });
 });
 
+describe("the Inquiry manager: a motion's own time (DRIFT-001-86)", () => {
+  it("keeps `last_motion_at` at the motion's first report when a battery report comes five minutes later", async () => {
+    const moving = { ...MOTION, state: { motion: true } };
+    const test = await harness([HOME], [DOOR, moving]);
+    const later = START + 5 * 60_000;
+
+    await expect(
+      test.state.applyDevice(
+        { ...moving, battery_pct: 14, as_of: later, state_version: 3 },
+        never,
+      ),
+    ).resolves.toBe("applied");
+    const home = await test.inquiry.getOverview({}, never);
+
+    expect(home.data.active_motion).toEqual([
+      {
+        device: { id: "d-motion", name: "Device d-motion", room: "סלון" },
+        last_motion_at: formatUtc(START),
+      },
+    ]);
+    expect(home.data.low_batteries).toContainEqual({
+      device: { id: "d-motion", name: "Device d-motion", room: "סלון" },
+      battery_pct: 14,
+    });
+  });
+});
+
 describe("the Inquiry manager: which location", () => {
   const other: LocationState = { ...HOME, location_id: "loc-2", name: "דירה" };
   const shared: LocationState = {

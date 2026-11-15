@@ -15,6 +15,7 @@ export type {
   InventorySnapshot,
   LocationState,
   StateStoreOptions,
+  StoredDevice,
   VersionsClaim,
 } from "./state-store.ts";
 

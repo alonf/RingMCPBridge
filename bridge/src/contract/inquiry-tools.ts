@@ -95,10 +95,9 @@ export const overviewData = z.object({
     .array(
       z.object({
         device: deviceReference,
-        // DRIFT-001-86: the latest report while motion was reported; the motion's own time comes
-        // with the event history.
+        // DRIFT-001-86: when the home first reported this motion (State's `motion_since`).
         last_motion_at: utcTime(
-          "When the home last read the sensor while it reported motion, in UTC. Any later report or read moves it, a battery level too: it is not when the motion began.",
+          "When the home first reported this motion, in UTC. Later reports while the motion lasts, a battery level too, do not move it. It can be later than the motion's start when the motion was already under way at the bridge's first reading of the sensor.",
         ),
       }),
     )

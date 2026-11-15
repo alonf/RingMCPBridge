@@ -23,6 +23,11 @@
 // - **The same input is accepted on both dialects.** An id over the column's size, or a time zone
 //   over 64 characters, leaves that entry out, counted; a name or room over 400 characters is cut
 //   to fit. One odd entry never stops the rest of an inventory from being stored (T019).
+// - **When a motion began** (`motion_since`, migration 6, DRIFT-001-86). A motion sensor's entry
+//   going from clear to motion sets it to that entry's `as_of`; an entry still in motion keeps it;
+//   one out of motion clears it. It is worked out in the statement that stores the entry, from the
+//   stored value, so a dropped older entry never touches it, and a later report (a battery level,
+//   an inventory after a reconnect) does not move it. A sensor first seen in motion starts it then.
 // - **Field names** are the contract's; a device's `type` is stored in the column `kind` (PT-26).
 //   Times are UTC milliseconds since 1970. Names, rooms and `state` are untrusted text from Ring,
 //   stored as written and never logged (FR-002, FR-033).
@@ -101,6 +106,16 @@ export interface DeviceState {
   readonly state_version: number;
 }
 
+/** A device as State reads it back: its entry, and what State works out from its entries. */
+export interface StoredDevice extends DeviceState {
+  /**
+   * A motion sensor in motion: since when, in milliseconds since 1970: the `as_of` of the entry that
+   * first reported this motion. Left out for every other device, and for a sensor in motion stored
+   * before State kept it (migration 6), until its next entry.
+   */
+  readonly motion_since?: number;
+}
+
 /** A full snapshot of the home, as the link's `inventory` carries it. */
 export interface InventorySnapshot {
   /** Drawn from the home's counter before its entries' versions: lower than all of them. */
@@ -175,7 +190,7 @@ export interface StateStoreOptions {
 const LOCATION_COLUMNS =
   "location_id, name, ownership, time_zone, alarm_mode, as_of, state_version";
 const DEVICE_COLUMNS =
-  "device_id, location_id, name, kind, room, battery_pct, battery_low, power_mode, online, state, as_of, state_version";
+  "device_id, location_id, name, kind, room, battery_pct, battery_low, power_mode, online, state, as_of, state_version, motion_since";
 const HEALTH_COLUMNS =
   "home_link_status, home_link_since, ring_session_status, ring_session_since, push_status, push_since, last_event_at, stale_since, outbox_depth, connector_version, as_of, refresh_owed_since";
 
@@ -184,8 +199,14 @@ const SELECT_LOCATION = `SELECT ${LOCATION_COLUMNS} FROM location WHERE location
 const SELECT_LOCATION_VERSIONS =
   "SELECT location_id, state_version FROM location";
 const SELECT_DEVICE = `SELECT ${DEVICE_COLUMNS} FROM device WHERE device_id = @device_id`;
-const UPDATE_DEVICE =
-  "UPDATE device SET location_id = @location_id, name = @name, kind = @kind, room = @room, battery_pct = @battery_pct, battery_low = @battery_low, power_mode = @power_mode, online = @online, state = @state, as_of = @as_of, state_version = @state_version WHERE device_id = @device_id AND state_version < @state_version";
+// The stored `motion_since` is set exactly while the stored entry reports motion, so an entry in
+// motion keeps it when set and starts it when not. SET reads the row as it was before the statement,
+// on both dialects.
+const MOTION_SINCE =
+  "motion_since = CASE WHEN @in_motion = 1 THEN COALESCE(motion_since, @as_of) ELSE NULL END";
+const UPDATE_DEVICE = `UPDATE device SET location_id = @location_id, name = @name, kind = @kind, room = @room, battery_pct = @battery_pct, battery_low = @battery_low, power_mode = @power_mode, online = @online, state = @state, as_of = @as_of, state_version = @state_version, ${MOTION_SINCE} WHERE device_id = @device_id AND state_version < @state_version`;
+// After an inventory's upsert of the entry: only when that entry is the one stored.
+const SNAPSHOT_MOTION_SINCE = `UPDATE device SET ${MOTION_SINCE} WHERE device_id = @device_id AND state_version = @state_version`;
 const SELECT_DEVICE_ID =
   "SELECT device_id FROM device WHERE device_id = @device_id";
 const SELECT_DEVICE_VERSIONS = "SELECT device_id, state_version FROM device";
@@ -226,6 +247,7 @@ const DEVICE_ROW = z.object({
   state: z.string(),
   as_of: storedTime,
   state_version: z.number().int(),
+  motion_since: storedTime.nullable(),
 });
 
 const HEALTH_ROW = z.object({
@@ -301,7 +323,10 @@ export class StateStore {
         "The device could not be stored.",
         () =>
           this.#store.run(
-            statement(UPDATE_DEVICE, deviceValues(device)),
+            statement(UPDATE_DEVICE, {
+              ...deviceValues(device),
+              in_motion: inMotion(device),
+            }),
             signal,
           ),
       );
@@ -361,7 +386,7 @@ export class StateStore {
   async devices(
     filter: DeviceFilter,
     signal: AbortSignal,
-  ): Promise<readonly DeviceState[]> {
+  ): Promise<readonly StoredDevice[]> {
     const rows = await this.#guard(
       signal,
       "The devices could not be read.",
@@ -374,7 +399,7 @@ export class StateStore {
   async device(
     deviceId: string,
     signal: AbortSignal,
-  ): Promise<DeviceState | undefined> {
+  ): Promise<StoredDevice | undefined> {
     const row = await this.#guard(signal, "The device could not be read.", () =>
       this.#store.get(
         statement(SELECT_DEVICE, { device_id: deviceId }),
@@ -515,6 +540,17 @@ async function applySnapshot(
     }
     listedDevices.add(device.device_id);
     await session.run(deviceUpsert(session.dialect, device), signal);
+    if (device.type === "motion") {
+      await session.run(
+        statement(SNAPSHOT_MOTION_SINCE, {
+          device_id: device.device_id,
+          state_version: device.state_version,
+          as_of: device.as_of,
+          in_motion: inMotion(device),
+        }),
+        signal,
+      );
+    }
   }
   const below = snapshot.snapshot_version;
   const removed =
@@ -626,6 +662,11 @@ function deviceUpsert(dialect: SqlDialect, device: DeviceState): SqlStatement {
   });
 }
 
+// 1 for a motion sensor whose entry reports motion, as the overview's `active_motion` reads it.
+function inMotion(device: DeviceState): number {
+  return Number(device.type === "motion" && device.state.motion === true);
+}
+
 function deviceValues(device: DeviceState): SqlParams {
   return {
     device_id: device.device_id,
@@ -701,7 +742,7 @@ function locationOf(row: SqlRow): LocationState {
   };
 }
 
-function deviceOf(row: SqlRow): DeviceState {
+function deviceOf(row: SqlRow): StoredDevice {
   const device = parseRow(DEVICE_ROW, row, "device");
   return {
     device_id: device.device_id,
@@ -718,6 +759,9 @@ function deviceOf(row: SqlRow): DeviceState {
     state: stateOf(device.state),
     as_of: device.as_of,
     state_version: device.state_version,
+    ...(device.motion_since === null
+      ? {}
+      : { motion_since: device.motion_since }),
   };
 }
 

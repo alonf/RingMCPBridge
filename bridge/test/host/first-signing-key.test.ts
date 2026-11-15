@@ -58,16 +58,21 @@ async function run(
 }
 
 describe("the first-signing-key command", () => {
-  it("is reached through the image's entry point, before any run mode's settings are read", () => {
-    const result = spawnSync(process.execPath, [MAIN, "first-signing-key"], {
-      encoding: "utf8",
-      timeout: SPAWN_TIMEOUT_MS,
-      env: { PATH: process.env.PATH ?? "" },
-    });
+  it(
+    "is reached through the image's entry point, before any run mode's settings are read",
+    () => {
+      const result = spawnSync(process.execPath, [MAIN, "first-signing-key"], {
+        encoding: "utf8",
+        timeout: SPAWN_TIMEOUT_MS,
+        env: { PATH: process.env.PATH ?? "" },
+      });
 
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Usage: first-signing-key");
-  });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Usage: first-signing-key");
+      // The spawn's own limit: under the coverage run, starting a process can pass the 5 s default.
+    },
+    SPAWN_TIMEOUT_MS,
+  );
 
   it("writes the first key to the named vault, saying so and printing no part of the key", async () => {
     const vault = new StandInVault();

@@ -62,6 +62,11 @@ export interface SummaryDevice {
   readonly state: Readonly<Record<string, unknown>>;
   /** When this state was true, in milliseconds since 1970. */
   readonly as_of: number;
+  /**
+   * A motion sensor in motion: when the home first reported this motion (State's, DRIFT-001-86).
+   * Left out when State has none yet; the overview then gives `as_of`.
+   */
+  readonly motion_since?: number;
 }
 
 /** The health as the Health engine gives it, as of now. */
@@ -259,7 +264,7 @@ export function overview(
       )
       .map((device) => ({
         device: reference(device),
-        last_motion_at: formatUtc(device.as_of),
+        last_motion_at: formatUtc(device.motion_since ?? device.as_of),
       })),
     offline_devices: devices
       .filter((device) => !device.online)
