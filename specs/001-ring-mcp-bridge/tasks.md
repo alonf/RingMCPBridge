@@ -509,7 +509,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 **Depends on**: T034 runs alongside Phases 2 to 6. T035 needs T033. T036 follows the findings.
 
 - [x] T034 [assigned_to: Reviewer] [effort: 1] Run continuous co-review during implement, with the reviewer host (codex) through specrew-review: one run per finished group (foundation, home side, link, core read path, sign-in, admin page, deploy). Findings are recorded for rework (Trace: FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048; CP-RV)
-- [ ] T035 [assigned_to: Reviewer] [effort: 1] Assemble the review-signoff evidence:
+- [x] T035 [assigned_to: Reviewer] [effort: 1] Assemble the review-signoff evidence:
   - the drift check (specrew-drift-check) into `iterations/001/drift-log.md`;
   - `iterations/001/quality/mechanical-findings.json` (dead-field, anti-pattern, test-integrity);
   - `iterations/001/quality/quality-evidence.md`: the stack tooling, plus the three restored reviews (concurrency, resiliency, retry and idempotency);
@@ -518,7 +518,7 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
   - a walk through the iteration 001 rows of quickstart.md Step 9.
 
   (Trace: FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048, SC-003, SC-005, SC-006, SC-011; CP-RV)
-- [ ] T036 [assigned_to: Implementer] [effort: 3] Rework reserve: fixes for review findings, about 10% of the iteration. Points left unused are reported at the retro, never spent on new scope (Trace: FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048; CP-RW)
+- [x] T036 [assigned_to: Implementer] [effort: 3] Rework reserve: fixes for review findings, about 10% of the iteration. Points left unused are reported at the retro, never spent on new scope (Trace: FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048; CP-RW)
 
 **Verification**: `pwsh -File .specify/extensions/specrew-speckit/scripts/validate-governance.ps1 -ProjectPath .`
 

@@ -1,13 +1,18 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T033
-**Tasks Remaining**: T035, T036 (2 tasks, 4 story_points)
-**In Progress**: T035 (the review evidence)
+**Last Completed Task**: T036
+**Tasks Remaining**: none (the review boundary is next)
+**In Progress**: (none): the review-signoff boundary
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-15T02:04:00Z
+**Updated**: 2026-11-15T15:26:37Z
 
 ## Execution Summary
+
+- **T035 and T036 are done; the iteration is in review** (2026-11-15).
+  - **T035's evidence:** the drift check; `quality/` with 11 gates and 3 lenses; `review.md`, accepted, with its gap ledger (the soak and the month's checks deferred, DEC-001-01); the reviewer artifacts; the quickstart's Step 9 walk.
+  - **T036's rework:** about 3.25 of 3 SP (estimate), over the reserve by about 0.25, reported at the retro: the independent review of `f3884bb` (DRIFT-001-86) and the co-review's rounds 30 to 33 (DRIFT-001-87 to DRIFT-001-89), the last clean on `0431bcf`.
+  - **Next:** the review-signoff boundary, the owner's decision.
 
 - **The owner's decisions before the review stop** (2026-11-15; DRIFT-001-85; `.squad/decisions.md` DEC-001-01 and DEC-001-02).
   - **T033 is done.** Its agent trials, the stale check and the Docker health check are complete. SC-003's 7-day soak, SC-011's bill for the month and the clock check are carried into iteration 002, around 2026-11-21.

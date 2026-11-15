@@ -2,7 +2,7 @@
 
 **Schema**: v1
 **Spec**: [../../spec.md](../../spec.md)
-**Status**: executing
+**Status**: reviewing
 **Capacity**: 42/42 story_points
 **Started**: 2026-11-02
 **Completed**:
@@ -74,8 +74,8 @@ Success criteria touched: SC-003 (the 7-day soak starts), SC-005 (stale within 2
 | CP-17 | Minimal admin page: health and enrollment-code compare, three widths, word plus icon | FR-005, FR-032, FR-040 | US6 (part) | 1 | Implementer | `bridge/src/core/clients/**` | done | Implementer (claude) | 4 | — |
 | CP-19 | Bicep (App Service, Azure SQL, Key Vault, Blob) and the GitHub Actions deploy | FR-032, FR-044 | cross-cutting | 3 | Implementer | `infra/**`, `scripts/**`, `.github/**` | done | Implementer (claude) | 5.5 | — |
 | CP-21a | First agent trial: ChatGPT and Claude sign in through Entra and read the home; the 7-day Ring-session soak starts | FR-029, FR-042 | US1 | 1 | Implementer (with the owner) | — | done | Implementer (claude), with the owner | 6 | — |
-| CP-RV | Review: codex review runs and the hardening review | FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048 | all | 3 | Reviewer | — | in-progress | Reviewer (codex) | 1 | — |
-| CP-RW | Expected rework (about 10%) | FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048 | all | 3 | Implementer | — | planned | — | — | — |
+| CP-RV | Review: codex review runs and the hardening review | FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048 | all | 3 | Reviewer | — | done | Reviewer (claude), with codex | 4 | — |
+| CP-RW | Expected rework (about 10%) | FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048 | all | 3 | Implementer | — | done | Implementer (claude) | 3.25 | — |
 
 ## Effort Model
 

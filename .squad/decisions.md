@@ -19,6 +19,39 @@
 - **Approved by**: the owner, typed reply "2. a" to the choice put in the conversation on 2026-11-15
 - **Record**: DRIFT-001-85
 
+### 2026-11-15 — Defer: SC-003's 7-day Ring-session soak past iteration 001
+
+- **Decision ID**: rmb-i001-sc003-soak-deferred
+- **Type**: defer
+- **Affected Requirement**: SC-003
+- **Affected Iteration**: specs\001-ring-mcp-bridge\iterations\001
+- **Approving Human**: the owner
+- **Recorded At**: 2026-11-15T15:26:37Z
+- **Next Action**: Iteration 002 checks the soak around 2026-11-21: 7 days on the owner's home without a Ring re-login, running since 2026-11-14. If it fails, its fix is iteration 002's first item.
+- **Rationale**: The owner, 2026-11-15: "1. a", typed in reply to the choice of carrying T033's soak and the month's checks into iteration 002 (DEC-001-01, DRIFT-001-85). The soak cannot finish before the review stop. Recorded in `specs\001-ring-mcp-bridge\iterations\001\review.md` (Gap Ledger).
+
+### 2026-11-15 — Defer: SC-011's bill for the month past iteration 001
+
+- **Decision ID**: rmb-i001-sc011-bill-deferred
+- **Type**: defer
+- **Affected Requirement**: SC-011
+- **Affected Iteration**: specs\001-ring-mcp-bridge\iterations\001
+- **Approving Human**: the owner
+- **Recorded At**: 2026-11-15T15:26:37Z
+- **Next Action**: Iteration 002 reads the bill for the pilot's first month against the $30 ceiling (about $0.47 for the first day, estimate).
+- **Rationale**: The owner, 2026-11-15: "1. a" (DEC-001-01, DRIFT-001-85). A month's bill cannot be read before the month ends. Recorded in `specs\001-ring-mcp-bridge\iterations\001\review.md` (Gap Ledger).
+
+### 2026-11-15 — Defer: the clock check on the VM and the core past iteration 001
+
+- **Decision ID**: rmb-i001-clock-check-deferred
+- **Type**: defer
+- **Affected Requirement**: the spec's edge case "Clocks drift between the home part and the cloud part" (T033 step 6)
+- **Affected Iteration**: specs\001-ring-mcp-bridge\iterations\001
+- **Approving Human**: the owner
+- **Recorded At**: 2026-11-15T15:26:37Z
+- **Next Action**: Iteration 002 compares the VM's and the core's clocks at the soak's end.
+- **Rationale**: The owner, 2026-11-15: "1. a" (DEC-001-01, DRIFT-001-85). The check belongs with the soak's end. Recorded in `specs\001-ring-mcp-bridge\iterations\001\review.md` (Gap Ledger).
+
 ## Governance
 
 - All meaningful changes require team consensus
