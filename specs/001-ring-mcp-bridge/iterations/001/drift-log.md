@@ -1210,6 +1210,7 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
        - A session of an asset the live connection does not serve is ignored, as the library ignores it.
        - When the connection reopens, a counted hub waits for its list again.
        - The log has `ring_hub_offline` with `offline` or `cell_backup`, and `ring_hub_back`; no hub id.
+       - The ids match: the library itself matches a hub's list by its `src` against the hub's `uuid`, the id its session report carries (`location.js`, ring-client-api 14.3.0).
      - **The owner's choice:** a hub on its cellular backup counts as offline by default (the conservative reading). It may count as current instead.
   2. **A registration fetched before its checks.**
      - **What happened:** a self-registration naming a `sector_identifier_uri` had oidc-provider 9.13.3 fetch that URL while it checked the metadata (`Client.validate`, `sectorValidate`). That ran before the Issuer's listing and the hour's limit (`grants-adapter.ts`), so an unlisted caller with no token could make the core fetch a URL of its choosing. The provider reads `jwks_uri` and `sector_identifier_uri` answers with no size limit by default.
@@ -1219,8 +1220,8 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
        - Every answer has a finite limit: the metadata document 5 KB, `jwks_uri` 16 KB, `sector_identifier_uri` 5 KB (`bounded-fetch.ts`).
        - At most 4 fetches for clients run at once; one more is refused without fetching.
   3. **A reply mixing two reads.** Inquiry read State's data and its health apart: in parallel, and in `get_device` the device first. A home that came back between the reads lent its fresh health to data read before: an old door and alarm mode in a `cached` reply. State holds no snapshot of both, so the health is now read first, then the data. The data is then at least as new as the reply says; at worst a fresh read says `stale`. The read latency budget still passes.
-  4. **A motion time any report moved.** `get_overview`'s `last_motion_at` is the sensor's `as_of`, its latest report. A battery report while the sensor still reports motion moves it, so the field claimed a motion that did not happen then.
-     - **For now:** the field's description says what it is: the latest report while motion was reported, not when the motion began. Only the description changed in `schemas/`, which FR-046 allows.
+  4. **A motion time any report moved.** `get_overview`'s `last_motion_at` is the sensor's `as_of`, the home's latest read of it. A battery report while the sensor still reports motion moves it, as does a re-read, so the field claimed a motion that did not happen then.
+     - **For now:** the field's description says what it is: the home's latest read while motion was reported, not when the motion began. Only the description changed in `schemas/`, which FR-046 allows.
      - **The owner's choice:** track the motion's own time now, or with iteration 002's event history.
 - **Requirement citation**: FR-006 and SC-005 (a reply never shows old data as current); FR-029, FR-030 and the security design's T11 (what callers with no token can make the Issuer do; CP-17's review); FR-001 and FR-046 (the overview's fields; the contract changes only by adding); T013, T021, T023, T036.
 - **Resolution**:

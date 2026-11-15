@@ -98,7 +98,7 @@ export const overviewData = z.object({
         // DRIFT-001-86: the latest report while motion was reported; the motion's own time comes
         // with the event history.
         last_motion_at: utcTime(
-          "When the home last heard from the sensor while it reported motion, in UTC. Any report moves it, a battery level too: it is not when the motion began.",
+          "When the home last read the sensor while it reported motion, in UTC. Any later report or read moves it, a battery level too: it is not when the motion began.",
         ),
       }),
     )
