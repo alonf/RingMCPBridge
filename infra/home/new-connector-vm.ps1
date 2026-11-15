@@ -346,7 +346,10 @@ function Invoke-Apply {
     $diskFolder = Join-Path $vmFolder 'Virtual Hard Disks'
     $osDisk = Join-Path $diskFolder "$VMName-os.vhdx"
     $seedDisk = Join-Path $diskFolder "$VMName-seed.vhdx"
-    foreach ($disk in @($osDisk, $seedDisk)) {
+    # The converter's fixed VHD too: a disk already there is not this run's, so the rollback, which
+    # removes what this run created, must never count it as its own (CP-21a's review).
+    $fixed = Join-Path $diskFolder "$VMName-os.vhd"
+    foreach ($disk in @($fixed, $osDisk, $seedDisk)) {
         if (Test-Path -LiteralPath $disk) {
             throw "'$disk' already exists, though no VM is named '$VMName'. Move or delete it first."
         }
@@ -370,7 +373,6 @@ function Invoke-Apply {
         $cloudImage = Get-CloudImage $download
 
         Write-Step 3 'The system disk'
-        $fixed = Join-Path $diskFolder "$VMName-os.vhd"
         $created.Add($fixed)
         & $Converter -Path $cloudImage -Destination $fixed
         $created.Add($osDisk)

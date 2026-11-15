@@ -22,7 +22,7 @@
 
 ## Summary
 
-**Total drift events**: 82
+**Total drift events**: 83
 **Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
 **Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
 
@@ -1173,6 +1173,26 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-83: CP-21a's co-review of the pilot's changes: one finding, the VM script's rollback could delete a disk it did not create
+
+- **Detected**: 2026-11-15, implement, T034, the co-review round of the pilot's changes (codex, checkpoint `cp-21a-pilot-review`, `run-20261115-001543845-f07189c4`, 11 minutes, $0).
+  - The owner typed `approved for review round`, and Specrew refused it: the allowance was spent. The owner then typed `approved for allowance reset`. The reset was applied with `--remediate allowance-reset` and a recorded reason, and Specrew counted it as the round's approval. Round budget: 1 of 4 used since the reset.
+  - **The first launch failed** (`runtime-command-shim-unsupported:codex`) and used no round. codex had been reinstalled through npm on 2026-11-14, so `codex` resolved to npm's wrapper scripts. The round ran with codex's own program, from the same npm install, first on that process's `PATH`.
+- **Kind**: a review finding against `infra/home/new-connector-vm.ps1` (T033's VM script, DRIFT-001-73). Specrew demoted it from major to a note, since it stated no concrete failure scenario; it does not block sign-off.
+- **Observed** (checked against the code, real):
+  - The script refused an existing `<VMName>-os.vhdx` or `<VMName>-seed.vhdx` before changing anything, but not the converter's intermediate fixed disk, `<VMName>-os.vhd`.
+  - With such a file present, for example left by an earlier run cut off hard, or a disk someone put there, the run listed it as its own. The converter then refused to overwrite it, and the rollback deleted it.
+  - So a disk the run did not create could be destroyed, against the script's promise to remove only what it created.
+- **Decided**: the fixed disk joins the check made before anything changes. A disk already at any of the three names is refused, and kept.
+- **Requirement citation**: T033 (the home VM); DRIFT-001-73; the script's own rule that a failed run removes only what it created.
+- **Resolution**: fixed test-first.
+  - A new test puts a disk at each of the three names, and expects a refusal with the disk kept and nothing changed. It failed before the fix for `-os.vhd` alone, and passes after.
+  - All 25 VM-script tests pass.
+  - The VM already running is not affected: the script runs only when a VM is created.
+  - Cost: under 0.25 SP (estimate), $0.
+- **Carry-forward**: Specrew asks the owner whether to run another round, to stop the review here (sign-off on the files as they are), or to abandon the campaign.
+- **Class closure**: the test of a disk already at each name, including the intermediate one, which failed before the fix.
 
 ### DRIFT-001-82: claude.ai's model reads only a tool's text, which was a one-line summary: no alarm mode, no names
 

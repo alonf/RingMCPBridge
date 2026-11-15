@@ -18,6 +18,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -472,6 +473,32 @@ describe.runIf(HAS_PWSH)(
       expect(commands(calls)).not.toContain("curl.exe");
       expect(commands(calls)).not.toContain("New-VM");
     });
+
+    // CP-21a's review: a disk already there, the intermediate fixed VHD included, is not this run's,
+    // so it is refused before anything changes and never removed by the rollback.
+    it.each([
+      "ring-bridge-os.vhd",
+      "ring-bridge-os.vhdx",
+      "ring-bridge-seed.vhdx",
+    ])(
+      "refuses a disk already in the VM's folder (%s) and keeps it, changing nothing",
+      (name) => {
+        const vmPath = folder();
+        const disks = join(vmPath, "ring-bridge", "Virtual Hard Disks");
+        mkdirSync(disks, { recursive: true });
+        writeFileSync(join(disks, name), "keep");
+
+        const { calls, output, exitCode } = runVm(parameters({ Apply: true }), {
+          vmPath,
+        });
+
+        expect(exitCode).toBe(1);
+        expect(output).toContain("already exists");
+        expect(readFileSync(join(disks, name), "utf8")).toBe("keep");
+        expect(commands(calls)).not.toContain("curl.exe");
+        expect(commands(calls)).not.toContain("New-VM");
+      },
+    );
 
     it("refuses an image that does not match SHA256SUMS, and deletes it", () => {
       const { calls, output, exitCode, vmFolder } = runVm(

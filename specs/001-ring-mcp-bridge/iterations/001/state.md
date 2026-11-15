@@ -5,9 +5,14 @@
 **Tasks Remaining**: T033-T036 (4 tasks, 6 story_points)
 **In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-14T23:35:00Z
+**Updated**: 2026-11-15T00:30:00Z
 
 ## Execution Summary
+
+- **CP-21a's co-review of the pilot's changes** (2026-11-15; DRIFT-001-83; T034). The owner approved the round, and an allowance reset.
+  - **The round:** codex, 11 minutes, $0. It found one note: the VM script's rollback could delete an `-os.vhd` that predated the run. That is fixed test-first.
+  - The first launch failed on codex's npm wrapper script and used no round. It ran with codex's own program first on that process's PATH.
+  - **Waiting on the owner's choice:** another round, stop the review here (sign-off), or abandon.
 
 - **The connector reports its health to Docker** (2026-11-15; DRIFT-001-72, T033 step 2).
   - It writes a health file every 15 s, which the image's `health` command reads for the `HEALTHCHECK`.
