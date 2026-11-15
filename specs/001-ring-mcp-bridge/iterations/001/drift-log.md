@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 83
-**Resolution rate**: 100% resolved or decided. 82 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
+**Total drift events**: 84
+**Resolution rate**: 100% resolved or decided. 83 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
 **Specification drift** (T035's drift check, 2026-11-15): three items against the spec, each decided or for the owner's decision:
 
 - **DRIFT-001-33:** the overview counts a battery at or below the threshold as low, where FR-007 says "below". Minor, and for the owner at the review boundary: FR-007 says "at or below" (recommended, as the owner saw a sensor at 20% listed), or the code changes to "below".
@@ -1185,6 +1185,78 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-84: T035's review evidence: the mechanical checks' 26 findings, one of them real, and what T035 changed besides records
+
+- **Detected**: 2026-11-15, implement, T035 (the review-signoff evidence). T035 started before T033 finished, on the owner's direction: "continue to the next iteration". T033's 7-day soak runs on, and its result goes to the owner at the review boundary.
+- **Kind**: review evidence, and one defect against the link contract's correlation rule (OR2). Two changes beyond records: a test seam, and that defect's fix.
+- **Observed**:
+  - **The mechanical checks** (`run-mechanical-checks.ps1`, Specrew 0.40.0):
+    - `anti-pattern` and `test-integrity` found nothing.
+    - `dead-field` reported 26 findings, all of one rule, `dead-field.websocket-payload-unused`. Each was checked against the code:
+
+      | Finding | Field | Declared at | Verdict | Where it is read |
+      | --- | --- | --- | --- | --- |
+      | mf-001 | `keyNotEnrolled` | `core-messages.ts:26` | false positive | a link close-reason constant: `home-session.ts:286` (`switch` case), `core-session.ts:686` |
+      | mf-002 | `keyRevoked` | `core-messages.ts:27` | false positive | close-reason constant: `home-session.ts:283`, `core-session.ts:424` |
+      | mf-003 | `versionNotAccepted` | `core-messages.ts:28` | false positive | close-reason constant: `home-session.ts:289`, `core-session.ts:317` |
+      | mf-004 | `challengeFailed` | `core-messages.ts:29` | false positive | close-reason constant: `home-session.ts:292`, `core-session.ts:357` |
+      | mf-005 | `request_id` | `core-messages.ts:48` | **real, fixed** | kept by the link contract for correlation (OR2), and read by no end. Both ends now log it: `core-session.ts` (`connector_link_inventory_requested`), `home-session.ts:170` (`core_link_inventory_requested`). The rule still lists it: it does not see a read through `message.body` |
+      | mf-006 | `key_id` | `home-messages.ts:35` | false positive | the hello's: `core-session.ts:311` |
+      | mf-007 | `connector_version` | `home-messages.ts:36` | false positive | `core-session.ts:312` |
+      | mf-008 | `signature` | `home-messages.ts:43` | false positive | the challenge response: `verifyChallenge`, `core-session.ts:356` |
+      | mf-009 | `public_key` | `home-messages.ts:49` | false positive | the enrollment request: `core-session.ts:334` |
+      | mf-010 | `time_zone` | `home-messages.ts:58` | false positive | `intake-mapping.ts:65` |
+      | mf-011 | `alarm_mode` | `home-messages.ts:59` | false positive | `intake-mapping.ts:66` |
+      | mf-012 | `ownership` | `home-messages.ts:60` | false positive | `intake-mapping.ts:69` |
+      | mf-013 | `device_id` | `home-messages.ts:68` | false positive | `intake-mapping.ts:77` |
+      | mf-014 | `room` | `home-messages.ts:82` | false positive | `intake-mapping.ts:81` |
+      | mf-015 | `battery_pct` | `home-messages.ts:83` | false positive | `intake-mapping.ts:82` |
+      | mf-016 | `battery_low` | `home-messages.ts:84` | false positive | `intake-mapping.ts:85` |
+      | mf-017 | `power_mode` | `home-messages.ts:85` | false positive | `intake-mapping.ts:88` |
+      | mf-018 | `online` | `home-messages.ts:86` | false positive | `intake-mapping.ts:89` |
+      | mf-019 | `locations` | `home-messages.ts:102` | false positive | the inventory's: `intake-mapping.ts:29` |
+      | mf-020 | `devices` | `home-messages.ts:103` | false positive | the inventory's: `intake-mapping.ts:30` |
+      | mf-021 | `ring_session` | `home-messages.ts:115` | false positive | the heartbeat's: `intake-mapping.ts:47` |
+      | mf-022 | `outbox_depth` | `home-messages.ts:119` | false positive | `intake-mapping.ts:49` |
+      | mf-023 | `inventory_owed_after` | `home-messages.ts:125` | false positive | `intake-mapping.ts:50` (DRIFT-001-38) |
+      | mf-024 | `last_ring_event_at` | `home-messages.ts:127` | false positive | `intake-mapping.ts:52` |
+      | mf-025 | `error_counts` | `home-messages.ts:129` | false positive | `intake-mapping.ts:55` |
+      | mf-026 | `shut` | `socket-link.ts:41` | false positive | an interface method the link calls: `link-connection.ts:175` |
+
+  - **The rule's blind spots** are four kinds of read it does not see:
+    - constants read in `switch` cases;
+    - a field read through a parameter (`response.signature`, `message.body.request_id`);
+    - an interface method;
+    - fields read by a mapping module apart from the message's own file.
+
+    `mechanical-findings.json` is kept as the runner wrote it, and this table is its disposition (the `dead-field` gate is `excepted` in `quality/quality-evidence.md`). No code was changed to quiet the rule.
+  - **A timing-sensitive test:** run with coverage across the whole suite on Windows, the health writer's test failed. It polled the health file every 50 ms while the writer renamed a new one over it, and the record never changed. A read beside a rename can fail the rename on Windows; that is likely the cause, though not proven, and the connector runs on Linux. The writer gained `settled()`, which resolves once its queued writes land, and the test reads only after it (`2aa13a9`).
+  - **The rest of the evidence**, in `quality/quality-evidence.md` and `quality/lenses/`:
+    - coverage on SQLite: 96.46% of lines and 92.75% of branches;
+    - dependency-cruiser: no violation;
+    - the audit gate: one excepted advisory chain;
+    - the latency budget and the schema snapshot: pass;
+    - Playwright: 132 checks;
+    - the image's smoke test: 9 checks;
+    - the three restored reviews and the three lenses. Two lens rows are advisory: the excepted dependency advisory, and test determinism.
+- **Decided**:
+  - **The `request_id` fix** (T036's rework): the core logs the id it sends, and the connector logs the id it gets, so one inventory request is followed across both logs. The field stays: it is part of version 1 of the link protocol.
+  - **T036's rework so far:**
+    - DRIFT-001-83's VM-script fix, under 0.25 SP;
+    - this fix, about 0.1 SP;
+    - the test seam, under 0.1 SP.
+
+    All estimates, about 0.4 SP of T036's 3.
+- **Requirement citation**: OR2 (`implementation-rules.yml`: `request_id` end to end); `contracts/connector-link.md` ("`request_id` and `client_id`, for correlation"); FR-034; the plan's Required Quality Gates; T035; T036.
+- **Resolution**:
+  - **The `request_id` fix**, test-first: the core's and the connector's tests each expect the id in their log line. Both failed before the fix and pass after, and the connector's ships with the next connector image.
+  - **The triage** is recorded here.
+  - Cost: T035's evidence, about 1 SP (estimate), $0.
+- **Carry-forward**:
+  - **To Specrew** (a note for its maintainers, not this project's defect): the `dead-field` rule's blind spots above. How a mechanical finding's disposition is recorded (`-DispositionPath`, `dispositionRef`) is not documented outside the scripts.
+  - **To T035's last step:** the reviewer artifacts and the quickstart's Step 9 walk.
+- **Class closure**: the two log tests for `request_id`, which failed before the fix. For the rule's false positives: NONE — they are the checker's, and the disposition table makes each one visible.
 
 ### DRIFT-001-83: CP-21a's co-review of the pilot's changes: one finding, the VM script's rollback could delete a disk it did not create
 

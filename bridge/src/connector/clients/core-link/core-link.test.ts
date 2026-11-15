@@ -32,6 +32,7 @@ import {
 import { HomeScheduler } from "../home-scheduler/index.ts";
 import { CoreLink, HANDSHAKE_TIMEOUT_MS, RECONNECT_BACKOFF } from "./index.ts";
 
+const INVENTORY_REQUEST_ID = "inventory-request-1";
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 const CODE = "CODE-4711";
 const VERSION = "0.1.0";
@@ -229,9 +230,16 @@ describe("CoreLink: opening a session", () => {
     await frameOf(link, "inventory");
     void link.core.send({
       type: "inventory_request",
-      body: { request_id: "r-1" },
+      body: { request_id: INVENTORY_REQUEST_ID },
     });
     await frameOf(link, "inventory", 2);
+    // The core's request id is logged at home too, so one request is followed across both logs (OR2,
+    // CP-21a's mechanical check).
+    expect(test.lines.join("\n")).toMatch(
+      new RegExp(
+        `"event":"core_link_inventory_requested".*"request_id":"${INVENTORY_REQUEST_ID}"`,
+      ),
+    );
 
     test.engine.apply({
       kind: "device",

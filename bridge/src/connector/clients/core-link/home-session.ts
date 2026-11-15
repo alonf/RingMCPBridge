@@ -165,6 +165,10 @@ export class HomeSession {
         );
         return;
       case "inventory_request":
+        // The core's id for the request, so one request is followed across both logs (OR2).
+        this.#logger.info("core_link_inventory_requested", {
+          request_id: message.body.request_id,
+        });
         this.#settle(
           "inventory_request",
           this.#context.ingest.inventoryRequested(signal),

@@ -620,7 +620,9 @@ export class CoreSession {
     this.#inventoryAsked = true;
     const request: InventoryRequestMessage = { request_id: randomUUID() };
     this.#send(CORE_MESSAGE_TYPES.inventoryRequest, request);
-    this.#logger.info("connector_link_inventory_requested");
+    this.#logger.info("connector_link_inventory_requested", {
+      request_id: request.request_id,
+    });
   }
 
   // Event's failure is logged once, here: the message stays unacked, and the home sends it again.

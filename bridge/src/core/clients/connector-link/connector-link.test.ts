@@ -653,8 +653,13 @@ describe("ConnectorLink: what Event decided (T018)", () => {
     await frameOf(home, "ack", 4);
 
     expect(messagesOf(home, "inventory_request")).toHaveLength(2);
-    expect(messagesOf(home, "inventory_request")[0]?.request_id).toEqual(
-      expect.any(String),
+    const [first] = messagesOf(home, "inventory_request");
+    expect(first?.request_id).toEqual(expect.any(String));
+    // Logged with the id the home logs too (OR2, CP-21a's mechanical check).
+    expect(test.lines.join("\n")).toMatch(
+      new RegExp(
+        `"event":"connector_link_inventory_requested".*"request_id":"${String(first?.request_id)}"`,
+      ),
     );
   });
 

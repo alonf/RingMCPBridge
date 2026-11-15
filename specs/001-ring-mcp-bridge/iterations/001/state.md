@@ -3,11 +3,20 @@
 **Schema**: v2
 **Last Completed Task**: T034
 **Tasks Remaining**: T033, T035, T036 (3 tasks, 5 story_points)
-**In Progress**: T033 (the first agent trial and the soak), which the owner runs: Claude Code's loopback sign-in fixed and the pilot's agent list written (DRIFT-001-65)
+**In Progress**: T033 (the 7-day soak only, to about 2026-11-21); T035 (the review evidence)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-15T01:15:00Z
+**Updated**: 2026-11-15T01:52:00Z
 
 ## Execution Summary
+
+- **T035, the review evidence, is under way** (2026-11-15; DRIFT-001-84; the owner's direction to go on while the soak runs).
+  - **Done:**
+    - the drift check;
+    - the mechanical checks, with all 26 `dead-field` findings triaged: 25 are the rule's false positives, and one was real, now fixed;
+    - `quality-evidence.md`'s full gate matrix with the tooling's numbers and the three restored reviews;
+    - the three lenses.
+  - **The real finding:** the connector did not log the core's `request_id` (OR2). Both ends now log it, test-first, under T036.
+  - **Left in T035:** the reviewer artifacts and the quickstart's Step 9 walk, then the review stop.
 
 - **CP-21a's co-review of the pilot's changes** (2026-11-15; DRIFT-001-83; T034). The owner approved the round, and an allowance reset.
   - **The round:** codex, 11 minutes, $0. It found one note: the VM script's rollback could delete an `-os.vhd` that predated the run. That is fixed test-first.
