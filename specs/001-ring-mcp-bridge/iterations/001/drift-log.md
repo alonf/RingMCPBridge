@@ -23,8 +23,20 @@
 ## Summary
 
 **Total drift events**: 83
-**Resolution rate**: 100% (3 resolved at plan and 1 at tasks on 2026-11-02; 4 before implement and 2 in implement on 2026-11-03; 1 in implement on 2026-11-04; 4 in implement on 2026-11-05; 4 in implement on 2026-11-06; 16 in implement on 2026-11-07; 3 in implement on 2026-11-08)
-**Specification drift**: None detected (three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec)
+**Resolution rate**: 100% resolved or decided. 82 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
+**Specification drift** (T035's drift check, 2026-11-15): three items against the spec, each decided or for the owner's decision:
+
+- **DRIFT-001-33:** the overview counts a battery at or below the threshold as low, where FR-007 says "below". Minor, and for the owner at the review boundary: FR-007 says "at or below" (recommended, as the owner saw a sensor at 20% listed), or the code changes to "below".
+- **DRIFT-001-81:** the admin page's time zone setting is beyond FR-039's list. It is the owner's decision; FR-039 gains it when the spec is next revised.
+- **DRIFT-001-82:** a reply's text content (`contracts/errors.md`) changed from a one-line summary to the reply as JSON, then that summary. Owner-approved, as the MCP specification asks. The tool list and the published schemas are unchanged (FR-046).
+
+Before 2026-11-08: three tooling-output drifts, one record-to-record conflict, one owner re-slicing of the design analysis's first slice, two gaps between plan artifacts, and two link-contract defects found by the hardening review, all against the spec.
+**Recorded deferrals, not drift:** FR-005's push reception and last event come with events in iteration 002 (`contracts/mcp-tools.md`).
+**Not yet met in iteration 001** (T033, for the owner at the review boundary):
+
+- SC-003, the 7-day Ring-session soak, running from 2026-11-14 to about 2026-11-21;
+- SC-011, the month's bill;
+- the clock check at the soak's end.
 
 ## Events
 
