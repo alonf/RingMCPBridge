@@ -6,7 +6,9 @@
 //
 // A session of an asset the live connection does not serve is ignored, as the library ignores it.
 // When the live connection reopens, a counted hub waits for its list again: the library asks every
-// hub for its list then, and forgets which were offline.
+// hub for its list then, and forgets which were offline. After a closure the adapter counted, past
+// the grace, every hub the reopened connection serves waits for its list the same way, since the
+// data each sent last is from before the closure (`awaitLists`, DRIFT-001-89).
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
 import type {
@@ -63,6 +65,21 @@ export class HubSessions {
   /** True while a hub counts against the session: offline past the grace, or not yet listed. */
   get counting(): boolean {
     return [...this.#hubs.values()].some((state) => state.kind !== "grace");
+  }
+
+  /**
+   * The live connection reopened after a closure past the grace: every hub it serves counts until
+   * its device list comes again (DRIFT-001-89). The adapter calls it before it works out the
+   * status, so the status never says ok in between.
+   */
+  awaitLists(): void {
+    for (const { uuid } of this.#location.assets ?? []) {
+      const state = this.#hubs.get(uuid);
+      if (state?.kind === "grace") {
+        state.cancel();
+      }
+      this.#hubs.set(uuid, { kind: "awaiting_list" });
+    }
   }
 
   stop(): void {

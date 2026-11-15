@@ -771,8 +771,8 @@ describe("RingApiAdapter notices Ring going away and coming back", () => {
     return { ...ready, hub };
   }
 
-  it("counts Ring unavailable once a hub's live connection stays closed past the grace, and ok once it opens again", async () => {
-    const { clock, adapter, changes, hub } = await watching();
+  it("counts Ring unavailable once a hub's live connection stays closed past the grace, and ok once it opens again and its hub's list has come", async () => {
+    const { clock, client, adapter, changes, hub } = await watching();
 
     hub.connectedStream.emit(false);
     await pass(clock, RING_CONNECTION_GRACE_MS - STEP_MS);
@@ -780,12 +780,54 @@ describe("RingApiAdapter notices Ring going away and coming back", () => {
     await pass(clock, STEP_MS);
     expect(adapter.sessionStatus()).toBe("unavailable");
     hub.connectedStream.emit(true);
+    hub.sendDeviceList([client.contact, client.panel]);
 
     expect(adapter.sessionStatus()).toBe("ok");
     expect(sessionChanges(changes)).toEqual([
       { kind: "session", status: "unavailable" },
       { kind: "session", status: "ok" },
     ]);
+  });
+
+  // DRIFT-001-89 (co-review round 4): the data each hub sent last is from before the closure, so
+  // Ring stays unavailable from the reopen until the hub sends its list, which the library asks
+  // every hub for then. The status never says ok in between.
+  it("stays unavailable after a closure past the grace from the reopen until its hub's list comes, and reports no stuck connection meanwhile", async () => {
+    let reports = 0;
+    const { clock, client, adapter, changes, hub } = await watching(() => {
+      reports += 1;
+    });
+    hub.connectedStream.emit(false);
+    await pass(clock, RING_CONNECTION_GRACE_MS);
+
+    hub.connectedStream.emit(true);
+    await pass(clock, 2 * RING_CONNECTION_STUCK_MS);
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    hub.sendDeviceList([client.contact], "hub-2");
+    hub.sendDeviceList([]);
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    hub.sendDeviceList([client.contact, client.panel]);
+
+    expect(adapter.sessionStatus()).toBe("ok");
+    expect(sessionChanges(changes)).toEqual([
+      { kind: "session", status: "unavailable" },
+      { kind: "session", status: "ok" },
+    ]);
+    expect(reports).toBe(0);
+  });
+
+  it("waits after a closure past the grace for the list of each hub the reopened connection serves", async () => {
+    const { clock, client, adapter, hub } = await watching();
+    hub.connectedStream.emit(false);
+    await pass(clock, RING_CONNECTION_GRACE_MS);
+
+    hub.assets = [{ uuid: FAKE_HUB }, { uuid: "hub-2" }];
+    hub.connectedStream.emit(true);
+    hub.sendDeviceList([client.contact, client.panel]);
+    expect(adapter.sessionStatus()).toBe("unavailable");
+    hub.sendDeviceList([client.contact], "hub-2");
+
+    expect(adapter.sessionStatus()).toBe("ok");
   });
 
   it("ignores a reconnect shorter than the grace", async () => {
@@ -879,6 +921,7 @@ describe("RingApiAdapter notices Ring going away and coming back", () => {
     expect(client.getProfileCalls).toBe(before + 1);
     expect(adapter.sessionStatus()).toBe("unavailable");
     hub.connectedStream.emit(true);
+    hub.sendDeviceList([client.contact, client.panel]);
     expect(adapter.sessionStatus()).toBe("ok");
   });
 

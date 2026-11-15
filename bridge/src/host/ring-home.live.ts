@@ -21,14 +21,15 @@ export interface RingHomeSettings extends HomeFileSettings {
 
 /**
  * Opens the Secrets File and the Ring Adapter. `onConnectionStuck` hears, once, that a hub's live
- * connection has stayed closed for 5 minutes while Ring's calls work (the owner's (y)). Throws
- * `HostError` (`setup_needed`) when there is no Secrets File yet.
+ * connection has stayed closed for 5 minutes while Ring's calls work (the owner's (y)). It is
+ * required, so no mode opens Ring without it (DRIFT-001-89). Throws `HostError` (`setup_needed`)
+ * when there is no Secrets File yet.
  */
 export async function openRingHome(
   settings: RingHomeSettings,
   clock: Clock,
   logger: Logger,
-  onConnectionStuck?: () => void,
+  onConnectionStuck: () => void,
 ): Promise<LocalHome> {
   const file = await openHomeSecrets(settings);
   const secrets = file.secrets;
@@ -42,7 +43,7 @@ export async function openRingHome(
     clock,
     logger,
     saveRefreshToken: (token) => file.update({ ringRefreshToken: token }),
-    ...(onConnectionStuck === undefined ? {} : { onConnectionStuck }),
+    onConnectionStuck,
   });
   return {
     ring,

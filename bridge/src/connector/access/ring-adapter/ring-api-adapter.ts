@@ -670,8 +670,9 @@ export class RingApiAdapter implements RingPort {
   }
 
   // A hub's live connection: closed past the grace after it had been open, Ring counts as
-  // unavailable until it opens again. Its first `false`, before the first connection, does not
-  // count, and a routine reconnect within the grace changes nothing.
+  // unavailable until it opens again and each hub it serves has sent its device list
+  // (DRIFT-001-89, `HubSessions`). Its first `false`, before the first connection, does not count,
+  // and a routine reconnect within the grace changes nothing.
   #watchConnection(location: RingClientLocation): Unsubscribe {
     let wasOpen = false;
     let cancelGrace: Cancel | undefined;
@@ -680,7 +681,9 @@ export class RingApiAdapter implements RingPort {
         wasOpen = true;
         cancelGrace?.();
         cancelGrace = undefined;
-        if (this.#connectionsClosed.delete(location.id)) {
+        if (this.#connectionsClosed.has(location.id)) {
+          this.#hubSessions.get(location.id)?.awaitLists();
+          this.#connectionsClosed.delete(location.id);
           this.#updateStatus();
         }
         return;

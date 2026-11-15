@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 88
-**Resolution rate**: 100% resolved or decided. 87 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
+**Total drift events**: 89
+**Resolution rate**: 100% resolved or decided. 88 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). Each entry lists its carry-forwards to later iterations.
 **Specification drift** (T035's drift check, 2026-11-15, and the review of f3884bb): four items against the spec, each decided or for the owner's decision:
 
 - **DRIFT-001-33:** the overview counted a battery at or below the threshold as low, where FR-007 said "below". The owner chose "at or below", and the spec now says so (DRIFT-001-85, DEC-001-02).
@@ -1186,6 +1186,23 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - a read begun before the session paying the inventory it owes;
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
+
+### DRIFT-001-89: The co-review's round 4 on 5f6d8d9: data read as current just after a Ring reconnect, and mode A never recovered a stuck connection
+
+- **Detected**: 2026-11-15, implement, co-review round 4 of the campaign `cmp-001-ring-mcp-bridge-i001` (`run-20261115-114230329-89ed980d`, codex), on `5f6d8d9`, which the owner approved. Two findings the reviewer called major; the gate took both as minor, since neither named a failing case. Each was checked in the code and is real.
+- **Kind**: two defects, minor.
+- **Observed**:
+  1. A hub's live connection closed past the 30 s grace counts Ring unavailable, so every reply is stale. When it opened again, the adapter said Ring was ok at once, before the hubs sent their device lists, which bring each device's data up to date. Until they came, a reply could give a door's state from before the closure as current. DRIFT-001-86 closed the same gap for a hub Ring calls offline, not for the connection itself.
+  2. Mode A opened the Ring home without the owner's (y) (DRIFT-001-35): a hub's connection stuck closed for 5 minutes never ended the process, so its replies stayed stale until someone restarted it. The connector had it. The owner's home runs the connector, so it was not affected.
+- **Requirement citation**: FR-006 and SC-005 (a reply never shows old data as current); FR-042 and DRIFT-001-35 (the owner's (y)); FR-045 (mode A); T013, T027, T036.
+- **Resolution**: fixed, test-first.
+  - Item 1: after a closure past the grace, every hub the reopened connection serves waits for its device list, as an offline hub does once it is back (`HubSessions.awaitLists`). The adapter marks them before it works out the status, so the status never says ok in between. A list for another hub, or one naming no device, does not count. The wait is not a stuck connection, so it never restarts the process.
+  - 2 new adapter tests: the wait from the reopen to the list, with no stuck report meanwhile; and a list from each hub the connection serves. Both failed before the fix. Two tests expected ok at the reopen itself, which was the defect: they now send the list first, on purpose. A deliberate break that worked out the status before marking the hubs was caught by two tests.
+  - Item 2: mode A passes the owner's (y) to the Ring home, and a stuck connection reaches `onFatal` as `ring_connection_stuck`, as in the connector. Mode A's process then ends, for its MCP client to start it again, as `main.ts` already said. `openRingHome` now requires the callback, so a mode that leaves it out does not type-check, which a deliberate break confirmed. A new test fails before the fix.
+  - The whole suite: 1,296 tests pass (134 skip without SQL Server), lint, types, format and dependency rules clean.
+- **Known limit**: a served hub whose list never comes after a reopen keeps Ring unavailable, with no restart, as a hub back online does since DRIFT-001-86. The replies say stale meanwhile, which is the safe side. Whether the owner's (y) should cover it is for the owner, with iteration 002.
+- **Carry-forward**: the known limit above, to iteration 002's design analysis.
+- **Class closure**: the adapter tests fail if a reopen after a counted closure says ok before each served hub's list has come, or if the status says ok in between. `openRingHome`'s required callback makes a mode without the owner's (y) a type error, and mode A's test fails if a stuck connection does not reach `onFatal`.
 
 ### DRIFT-001-88: The co-review's round 3 on 31df5a7: the Issuer's fetch limit freed a place when the headers came, not the body
 

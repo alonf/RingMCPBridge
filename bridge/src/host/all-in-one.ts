@@ -18,6 +18,9 @@
 // - **The home's key** is approved at start (`approveLocalKey`; the owner's choice (i),
 //   DRIFT-001-53): the in-process home part has no network link, so no other home can enroll, and
 //   mode A's admin page comes only in iteration 004. Its enrollment code is new at each start.
+// - **A stuck Ring connection** (the owner's (y)): a hub's live connection closed for 5 minutes
+//   while Ring's calls work reaches `onFatal`, as in the connector, and the caller ends the process
+//   for its MCP client to start it again (DRIFT-001-89).
 // - **The log goes to stderr**: stdout carries the protocol. The caller serves stdio.
 // It reaches no Azure library, oidc-provider or SQL Server driver (a dependency rule checks it).
 import { randomBytes } from "node:crypto";
@@ -75,13 +78,17 @@ export interface AllInOneParts {
   readonly logger: Logger;
   /**
    * Opens the home side: the Secrets File and the Ring Adapter in production
-   * (`ring-home.live.ts`), the scenario engine in development and tests.
+   * (`ring-home.live.ts`), the scenario engine in development and tests. `onConnectionStuck` is the
+   * owner's (y), as in the connector.
    */
-  readonly openHome: () => Promise<LocalHome>;
+  readonly openHome: (onConnectionStuck: () => void) => Promise<LocalHome>;
   /** Approves the home's key at start: production mode A, the dev script and most tests (DRIFT-001-53). */
   readonly approveLocalKey?: boolean;
   readonly connectorVersion: string;
-  /** Hears that mode A cannot go on: the home could not open, or the lease was lost. */
+  /**
+   * Hears that mode A cannot go on: the home could not open, the lease was lost, or Ring's live
+   * connection is stuck.
+   */
   readonly onFatal: (error: unknown) => void;
 }
 
@@ -206,7 +213,14 @@ class HomePart {
     // The closers run in reverse: the outbox's file is let go last.
     const outbox = await openHomeOutbox(this.#dataDir, clock);
     this.#closers.push(() => outbox.close());
-    const home = await this.#parts.openHome();
+    const home = await this.#parts.openHome(() => {
+      this.#fatal(
+        new HostError(
+          "ring_connection_stuck",
+          "A hub's live connection to Ring stayed closed while Ring's calls worked.",
+        ),
+      );
+    });
     this.#closers.push(() => home.close());
     const enrollmentCode = randomBytes(ENROLLMENT_CODE_BYTES).toString(
       "base64url",

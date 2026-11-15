@@ -1,13 +1,17 @@
 // Mode A's one process per data folder (T027 part 3): a second process on the same folder never
 // opens its home part, and so never reaches Ring, while the first holds the lease; it takes over
 // once the first stops. A home that cannot open is reported, not left half started, and so is a
-// folder whose outbox is gone while its Secrets File is kept (T028, DRIFT-001-36).
+// folder whose outbox is gone while its Secrets File is kept (T028, DRIFT-001-36), and so is a
+// stuck Ring connection, as in the connector (the owner's (y), DRIFT-001-89).
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { startAllInOne } from "../../src/host/all-in-one.ts";
-import type { RunningAllInOne } from "../../src/host/all-in-one.ts";
+import type {
+  AllInOneParts,
+  RunningAllInOne,
+} from "../../src/host/all-in-one.ts";
 import type { LocalHome } from "../../src/host/home-assembly.ts";
 import { HostError } from "../../src/host/host-error.ts";
 import { FakeClock } from "../../src/utilities/clock/index.ts";
@@ -51,7 +55,7 @@ interface Process {
 async function modeA(
   dataDir: string,
   clock: FakeClock,
-  openHome?: () => Promise<LocalHome>,
+  openHome?: AllInOneParts["openHome"],
 ): Promise<Process> {
   const settings = loadSettings({
     BRIDGE_MODE: "all-in-one",
@@ -141,5 +145,29 @@ describe("mode A, one process per data folder", () => {
     expect(bridge.fatal[0]).toMatchObject({ kind: "outbox_lost" });
     expect(bridge.homesOpened()).toBe(0);
     expect(await readdir(dataDir)).not.toContain("outbox.db");
+  });
+
+  it("hands a stuck Ring connection to onFatal, for the process to end and its client to start it again", async () => {
+    const dataDir = await folder();
+    const clock = new FakeClock(START);
+    const key = await generateSigningKeyPair();
+    let reportStuck: (() => void) | undefined;
+    const home: LocalHome = {
+      ring: new ScenarioEngine(clock),
+      key,
+      close: () => Promise.resolve(),
+    };
+
+    const bridge = await modeA(dataDir, clock, (onConnectionStuck) => {
+      reportStuck = onConnectionStuck;
+      return Promise.resolve(home);
+    });
+    await driveUntil(clock, () => reportStuck !== undefined);
+    expect(bridge.fatal).toEqual([]);
+    reportStuck?.();
+
+    expect(bridge.fatal).toHaveLength(1);
+    expect(bridge.fatal[0]).toBeInstanceOf(HostError);
+    expect(bridge.fatal[0]).toMatchObject({ kind: "ring_connection_stuck" });
   });
 });
