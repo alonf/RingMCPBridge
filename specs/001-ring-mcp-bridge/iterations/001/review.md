@@ -36,14 +36,14 @@
     name a failed run freely without the record being refused for it.
     Leave it empty when the record rests on no campaign run. Do not name a run you are only discussing.
 -->
-<!-- SPECREW-REVIEW-EVIDENCE:  -->
+<!-- SPECREW-REVIEW-EVIDENCE: run-20261115-170156800-64511f10 -->
 
 <!-- SPECREW-DERIVED-INDEPENDENT-REVIEW v1 -->
 <!-- Derived from the review authority store. Do not hand-edit: the validator recomputes it. -->
-- No run in this project's review store qualifies as an independent review of the current tree.
-- The most recent completed run reviewed tree 73020bbf50f10cf4b0108cc7d89122f6ade84a17 and does not cover the current source: source files have changed since it read them.
-- It is evidence about the tree it read. It is not evidence about the code as it stands.
-- Any independence this record claims rests on something other than a campaign run, and must say what.
+- Run: run-20261115-170156800-64511f10 (harness codex-cli-file-primary)
+- Outcome: pass, complete, current, valid - 0 finding(s)
+- Reviewed tree: d1d7e8f2a35bd04fe51adcd2796cca2a01cd98b6
+- Coverage: 107 source path(s) of 116 declared and checked against the frozen target.
 <!-- /SPECREW-DERIVED-INDEPENDENT-REVIEW -->
 
 <!--
@@ -71,7 +71,7 @@
 
 ## Notes
 
-- **The co-review campaign** `cmp-001-ring-mcp-bridge-i001`: its round 33 (`run-20261115-150558819-d9da95a1`, 12 minutes) reviewed the code at `0431bcf` and found nothing, verdict pass. The sign-off records changed after that round (`plan.md`, `tasks.md` and the generated `current-architecture.md`), so no run is named yet as the evidence this record rests on.
+- **The review rests on** the co-review campaign `cmp-001-ring-mcp-bridge-i001`, round 34 (`run-20261115-170156800-64511f10`, 15 minutes, codex). It reviewed `411f4c5` and found nothing: verdict pass, current for the files as they are. Round 33 (`run-20261115-150558819-d9da95a1`) had reviewed the code at `0431bcf` with the same result; round 34 covered what changed after it: the sign-off records, Specrew CI's checkout (DRIFT-001-90) and the review history, committed on the owner's choice (DRIFT-001-90). No code changed between the two.
 - **After T035:** the owner relayed an independent review of `f3884bb`, with four findings (DRIFT-001-86). The campaign's rounds 30 to 32 then found one or two minor findings each (DRIFT-001-87 to DRIFT-001-89). Each was fixed test-first, and round 33 found nothing. The drift log calls rounds 31 and 32 "round 3" and "round 4": it counts the rounds of the allowance that began with CP-21a's round. Round 33 ran after the owner's allowance reset.
 - **The evidence:**
   - `drift-log.md` (89 events: the drift check of 2026-11-15, and T036's DRIFT-001-86 to DRIFT-001-89);
