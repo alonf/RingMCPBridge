@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "v1",
+  "featureRef": "specs/001-ring-mcp-bridge/spec.md",
+  "iterationRef": "specs/001-ring-mcp-bridge/iterations/002",
+  "generatedAt": "2026-11-16T22:45:49Z",
+  "generator": {
+    "name": "specrew-iteration-scaffold",
+    "version": "1.0.0"
+  },
+  "findings": []
+}
