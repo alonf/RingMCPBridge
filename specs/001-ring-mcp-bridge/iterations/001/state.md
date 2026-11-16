@@ -2,24 +2,24 @@
 
 **Schema**: v2
 **Current Phase**: retro
-**Iteration Status**: not-started
-**Last Completed Task**: (none)
-**Tasks Remaining**: CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RV, CP-RW
+**Iteration Status**: ready-for-review
+**Last Completed Task**: CP-RV
+**Tasks Remaining**: (none)
 **In Progress**: (none)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-16T17:39:03.9276383Z
+**Updated**: 2026-11-16T21:57:02.8896097Z
 
 ## Execution Summary
 
 <!-- specrew:task-progress-summary:begin -->
-- Execution has not started yet.
-- Task progress: 0 complete, 0 in-progress, 19 pending, 0 blocked.
-- Latest completed task: (none)
+- Implementation tasks are complete; review-signoff is next.
+- Task progress: 19 complete, 0 in-progress, 0 pending, 0 blocked.
+- Latest completed task: CP-RV
 <!-- specrew:task-progress-summary:end -->
 
 - **The retro is approved; the iteration closeout is in progress** (2026-11-16).
   - **The retro:** the owner's "approved for retro". The retro is `retro.md`: about 75.75 SP against a plan of 42 (estimate), six lessons, and the capacity choice for iteration 002.
-  - **The header above is Specrew's rebuild** from `tasks-progress.yml`, which nobody kept during the iteration. By the owner's "go", that local file now matches plan.md's table, where all 19 tasks are done. Specrew's next write is expected to rebuild the header (DRIFT-001-91).
+  - **The header and the progress block above are Specrew's own** (2026-11-17). A session start's writer rebuilt them from `tasks-progress.yml`, corrected by the owner's "go" to match plan.md's table, where all 19 tasks are done. The block's "review-signoff is next" and the CP-RV name are the writer's wording (DRIFT-001-91).
   - **The closeout:** plan.md's Capacity line now reads the summed Actuals (75.75/42). The review-time dashboard is removed so the closeout sync renders a fresh one.
   - **Next:** the closeout sync and the owner's closeout verdict. Then iteration 002's design analysis, starting from the retro's Signals.
 
