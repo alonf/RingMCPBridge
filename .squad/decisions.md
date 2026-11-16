@@ -261,3 +261,12 @@
 - **Launch Mode**: (none)
 - **Agent Response Snippet**: (none)
 - **Reason**: No persisted authorization matched before-implement -> review-signoff.
+
+## 2026-11-16T01:27:46Z — Boundary sync: review-signoff
+
+- **Boundary Type**: review-signoff
+- **Feature Ref**: 001-ring-mcp-bridge
+- **Iteration Number**: 001
+- **Task ID**: (none)
+- **Auth Commit Hash**: 36e501c43a9b2b87b7a2f3d7d0e6734e03607c28
+- **Recorded At**: 2026-11-16T01:27:35Z

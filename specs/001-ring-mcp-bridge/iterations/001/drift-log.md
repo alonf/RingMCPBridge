@@ -1218,7 +1218,12 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
     - The sync runs with npm's and Node's folders removed from the PATH of that one process, so the gate takes its own fallback, which it did.
     - This entry records the skipped lint and the evidence above.
   - The owner, 2026-11-16, "F": plan.md's Status is set back to "executing" by hand, the gate's own repair. Round 34 reviewed plan.md with "reviewing", so the sign-off check is expected to call round 34 out of date over that one line and to ask for the owner's partial sign-off. That line is the only difference from round 34's reviewed tree, and no code changed. When the owner's approval of review-signoff is recorded, Specrew writes the line back to "reviewing".
-  - The partial sign-off is bound to the files as they are when the sync writes its request, so nothing is written in the repository from this entry until the crossing is recorded. The outcome goes into the boundary commit's records.
+  - The partial sign-off is bound to the files as they are when the sync writes its request, so nothing is written in the repository from this entry until the crossing is recorded. The outcome is below.
+- **Outcome** (2026-11-16):
+  - The sync's run first required `36e501c` to be pushed. It then refused at the sign-off check, as expected (`latest-result-not-current`), and wrote the request `override-7381a1cf4380fd12160bbfed` for those files.
+  - The owner typed the partial sign-off, with the reason: "the only change since co-review round 34 in the reviewed code is plan.md's Status line, set back from reviewing to executing at the iteration-state gate's instruction; Specrew writes it back to reviewing when the sign-off is approved, and no code changed". The hook captured it as the owner's.
+  - The next run recorded the crossing (`crossing-69699c293359dcf2…`), and the owner typed "approved for review-signoff", recorded at 01:31:46Z. Specrew wrote plan.md's Status back to "reviewing", so plan.md is again byte-identical to the version round 34 reviewed.
+  - Specrew CI failed on `36e501c` alone, where the validator wanted "reviewing" because review.md exists.
 - **Carry-forward**:
   - Until Specrew's fixes land, each later boundary's sync on this branch (retro, iteration closeout) meets the same lint limit and needs the same decision. The fix is on Specrew's bug-bash list: batch the list or pass paths relative to the project, degrade on a failed launch, and keep to the project's lint scope, so that `--fix` does not rewrite managed and historical files.
   - Two approvals for one sign-off, and the iteration-state check against a hand-set plan line, are on that list too.

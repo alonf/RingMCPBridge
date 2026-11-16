@@ -42,6 +42,13 @@
       "response_text": "",
       "handoff_present": false,
       "recorded_at": "2026-11-02T23:56:47Z"
+    },
+    {
+      "commit": "36e501c43a9b2b87b7a2f3d7d0e6734e03607c28",
+      "boundary": "review-signoff",
+      "response_text": "",
+      "handoff_present": false,
+      "recorded_at": "2026-11-16T01:27:46Z"
     }
   ]
 }
