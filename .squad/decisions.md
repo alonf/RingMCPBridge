@@ -239,3 +239,25 @@
 - **Launch Mode**: (none)
 - **Agent Response Snippet**: (none)
 - **Reason**: Persisted authorization matched the requested boundary.
+
+## 2026-11-15T22:25:31Z — Boundary enforcement: review-signoff
+
+- **Feature**: 001-ring-mcp-bridge
+- **Boundary Type**: review-signoff
+- **Current Boundary**: before-implement
+- **Requested Boundary**: review-signoff
+- **Enforcement Action**: blocked
+- **Launch Mode**: (none)
+- **Agent Response Snippet**: (none)
+- **Reason**: No persisted authorization matched before-implement -> review-signoff.
+
+## 2026-11-16T00:08:14Z — Boundary enforcement: review-signoff
+
+- **Feature**: 001-ring-mcp-bridge
+- **Boundary Type**: review-signoff
+- **Current Boundary**: before-implement
+- **Requested Boundary**: review-signoff
+- **Enforcement Action**: blocked
+- **Launch Mode**: (none)
+- **Agent Response Snippet**: (none)
+- **Reason**: No persisted authorization matched before-implement -> review-signoff.
