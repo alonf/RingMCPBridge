@@ -3,7 +3,7 @@
 **Schema**: v1
 **Spec**: [../../spec.md](../../spec.md)
 **Status**: retro
-**Capacity**: 42/42 story_points
+**Capacity**: 75.75/42 story_points
 **Started**: 2026-11-02
 **Completed**:
 
@@ -122,3 +122,4 @@ Success criteria touched: SC-003 (the 7-day soak starts), SC-005 (stale within 2
 - Add task rows only for work that is traceable to the scoped requirements above.
 - Keep Status: planning until the plan is fully decomposed and approved.
 - If task effort exceeds the configured threshold, make the deferral decision explicit in this plan before execution starts and name the lowest-priority requirement slices proposed for deferral.
+- **At the iteration closeout** (2026-11-16): the Capacity line reads the summed Actuals, 75.75 against the cap of 42, about 1.8 times the plan (the actuals are estimates). The planned scope was 42 SP, and all 19 tasks are done. The retro's Estimation Accuracy explains the overrun, and iteration 002's capacity choice is in its Signals.

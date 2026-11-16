@@ -17,6 +17,12 @@
 - Latest completed task: (none)
 <!-- specrew:task-progress-summary:end -->
 
+- **The retro is approved; the iteration closeout is in progress** (2026-11-16).
+  - **The retro:** the owner's "approved for retro". The retro is `retro.md`: about 75.75 SP against a plan of 42 (estimate), six lessons, and the capacity choice for iteration 002.
+  - **The header above is Specrew's rebuild** from `tasks-progress.yml`, which nobody kept during the iteration. By the owner's "go", that local file now matches plan.md's table, where all 19 tasks are done. Specrew's next write is expected to rebuild the header (DRIFT-001-91).
+  - **The closeout:** plan.md's Capacity line now reads the summed Actuals (75.75/42). The review-time dashboard is removed so the closeout sync renders a fresh one.
+  - **Next:** the closeout sync and the owner's closeout verdict. Then iteration 002's design analysis, starting from the retro's Signals.
+
 - **The review is signed off** (2026-11-16): the owner's "approved for review-signoff", recorded at 01:31:46Z, with a partial sign-off over plan.md's Status line (DRIFT-001-91). Round 34 is the review's evidence.
   - **Next:** the retro, then the iteration closeout.
 
