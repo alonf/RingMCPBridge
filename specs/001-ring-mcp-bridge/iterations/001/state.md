@@ -1,13 +1,21 @@
 # Iteration State: 001
 
 **Schema**: v2
-**Last Completed Task**: T036
-**Tasks Remaining**: none (the retro is next)
-**In Progress**: (none): the retro
+**Current Phase**: retro
+**Iteration Status**: not-started
+**Last Completed Task**: (none)
+**Tasks Remaining**: CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08a, CP-09, CP-10, CP-11a, CP-14, CP-15, CP-16, CP-17, CP-19, CP-21a, CP-RV, CP-RW
+**In Progress**: (none)
 **Baseline Ref**: ae40fa10981259acab40787c0b60e38366a1cdde
-**Updated**: 2026-11-16T01:33:06Z
+**Updated**: 2026-11-16T17:39:03.9276383Z
 
 ## Execution Summary
+
+<!-- specrew:task-progress-summary:begin -->
+- Execution has not started yet.
+- Task progress: 0 complete, 0 in-progress, 19 pending, 0 blocked.
+- Latest completed task: (none)
+<!-- specrew:task-progress-summary:end -->
 
 - **The review is signed off** (2026-11-16): the owner's "approved for review-signoff", recorded at 01:31:46Z, with a partial sign-off over plan.md's Status line (DRIFT-001-91). Round 34 is the review's evidence.
   - **Next:** the retro, then the iteration closeout.

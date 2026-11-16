@@ -270,3 +270,28 @@
 - **Task ID**: (none)
 - **Auth Commit Hash**: 36e501c43a9b2b87b7a2f3d7d0e6734e03607c28
 - **Recorded At**: 2026-11-16T01:27:35Z
+
+## 2026-11-16T17:31:41Z — Boundary sync: retro
+
+- **Boundary Type**: retro
+- **Feature Ref**: 001-ring-mcp-bridge
+- **Iteration Number**: 001
+- **Task ID**: (none)
+- **Auth Commit Hash**: 171ba0224106d096e7c2ba63c03f12262f638e81
+- **Recorded At**: 2026-11-16T17:31:23Z
+
+## 2026-11-16T17:32:18Z — Boundary sync warning: retro
+
+- **Boundary Type**: retro
+- **Latest Recorded Boundary**: retro
+- **Recorded At**: 2026-11-16T17:32:18Z
+- **Warning**: Expected next boundary 'iteration-closeout' but received 'retro'.
+
+## 2026-11-16T17:32:32Z — Boundary sync: retro
+
+- **Boundary Type**: retro
+- **Feature Ref**: 001-ring-mcp-bridge
+- **Iteration Number**: 001
+- **Task ID**: (none)
+- **Auth Commit Hash**: 171ba0224106d096e7c2ba63c03f12262f638e81
+- **Recorded At**: 2026-11-16T17:32:18Z

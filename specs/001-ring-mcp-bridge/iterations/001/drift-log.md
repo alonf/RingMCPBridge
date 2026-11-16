@@ -1228,6 +1228,17 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - Until Specrew's fixes land, each later boundary's sync on this branch (retro, iteration closeout) meets the same lint limit and needs the same decision. The fix is on Specrew's bug-bash list: batch the list or pass paths relative to the project, degrade on a failed launch, and keep to the project's lint scope, so that `--fix` does not rewrite managed and historical files.
   - Two approvals for one sign-off, and the iteration-state check against a hand-set plan line, are on that list too.
   - plan.md's Status is Specrew's to write: it is not set by hand again.
+  - **The retro** (2026-11-16):
+    - **The lint fallback.** The owner gave a standing yes for the retro and iteration-closeout syncs ("yes for retro and closeout").
+      - The retro sync ran once under it, on `171ba02`. It passed (exit 0) and recorded `crossing-fbecfc194a7589493ebcb7fcdf585d0746344d33bc67a3ab3ef86b6a08e6e1e8`.
+      - I then ran it a second time by mistake: a call I meant to do nothing passed a flag the runner script ignores. That run recorded the same crossing again, and added a second sync event, a second decisions entry and the warning "Expected next boundary 'iteration-closeout' but received 'retro'". Those records stay as the sync wrote them.
+    - **The review evidence after the approval.** The owner typed "approved for retro". The recorder then wrote plan.md's Status "retro", and plan.md is in round 34's reviewed tree. So the validator now refuses review.md's evidence: "it reviewed tree d1d7e8f2 and 1 source file(s) have changed since: specs/001-ring-mcp-bridge/iterations/001/plan.md".
+      - The owner's decision ("go", option (a)): review.md stays as signed off, and this entry is the disposition. No new round was run, because the closeout's own Status write would make it stale too.
+      - Specrew CI fails on that check until Specrew stops counting its own Status line as a change.
+    - **state.md rebuilt from a progress file nobody kept.** The recorder rebuilt state.md's header from `tasks-progress.yml`, which is untracked and was never updated. So state.md read "Iteration Status: not-started", with all 19 tasks remaining, while plan.md's table has all 19 done.
+      - The owner's decision ("go"): the local progress file now matches plan.md's table. Each task's start and finish times come from the plan's history: the first commit where its row read in-progress, and the first where it read done.
+      - state.md is committed as the recorder wrote it, apart from one blank line put back before its Notes heading for the Markdown lint. Specrew's next write is expected to rebuild it from the corrected file, and the closeout checks that it did.
+    - Both of these are for Specrew's bug-bash list.
 - **Class closure**: NONE - the defects are in Specrew's code, and their fixes are tracked on Specrew's bug-bash list. Until then, each skipped lint is recorded with its evidence.
 
 ### DRIFT-001-90: Specrew CI on a79514a: a shallow checkout, a derived review block CI could not reproduce, and a reviewed snapshot only the owner's machine holds
