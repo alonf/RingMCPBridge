@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0",
+  "feature": "001-ring-mcp-bridge",
+  "iteration": "001",
+  "sealed_at": "2026-11-16T22:30:49.1105608+00:00",
+  "sealed_files": [
+    {
+      "path": "code-map.md",
+      "sha256": "bae01c335b4ed0c65731ee51aba8830e7438a41bb7edeec4d10370c29e146ab2"
+    },
+    {
+      "path": "coverage-evidence.md",
+      "sha256": "6d129126b1d4ce00945aacc7f8dea172bf7eac66c03e246660dc00315da47bd3"
+    },
+    {
+      "path": "dashboard.md",
+      "sha256": "54fddaa3f42fd2f1788cb30377a0b512b2281c769332af29e760e606af707488"
+    },
+    {
+      "path": "dependency-report.md",
+      "sha256": "155d9b38ec5eaa678775c1915aee04521a706f7c63331edc947e4e270862de9b"
+    },
+    {
+      "path": "design-analysis.md",
+      "sha256": "d8c0c465a742fe2a0a3e9201780117214fa91eb02fb79464bff52e57dd4ff997"
+    },
+    {
+      "path": "drift-log.md",
+      "sha256": "35f1aa43406fbc634557b080d0ec17ab2861393d9b295ad3c8bccae3ad897566"
+    },
+    {
+      "path": "lens-applicability.json",
+      "sha256": "935b68158655b3ff7d96aa73f1f4ff28cf761d6f49b17b9c3d79ebcae6ea1579"
+    },
+    {
+      "path": "plan.md",
+      "sha256": "e249169b34bd6e75a752198524cd12626b4b6834f9a7c704444cd622222f2c2b"
+    },
+    {
+      "path": "quality/hardening-gate.md",
+      "sha256": "1b9763f0a0172966dc76e84e36ba6540b1c6e88a7caf4343db87e27d203ff691"
+    },
+    {
+      "path": "quality/lenses/robustness-baseline.md",
+      "sha256": "425c36134199c154dd300dace7611a602505c65d013717f8c93bc1a954ad3704"
+    },
+    {
+      "path": "quality/lenses/security-baseline.md",
+      "sha256": "524ed57e110cb47e7beeca4fef4dcf6d0ae034701ddae19a5c727602c0629206"
+    },
+    {
+      "path": "quality/lenses/test-integrity.md",
+      "sha256": "1d4f653eb2954ff1a0f577a30abfbebfaa580a7281ee3a2ed81d3fda9e6f83f6"
+    },
+    {
+      "path": "quality/mechanical-findings.json",
+      "sha256": "91672065296ecb0d95cf757a8b32257c011177c8d3b502a571f19f58443cdbee"
+    },
+    {
+      "path": "quality/quality-evidence.md",
+      "sha256": "0563deedbf447eadc60b2c2ba9704f7ccda67ea8ad6f64f7db014717d562014e"
+    },
+    {
+      "path": "retro.md",
+      "sha256": "ea839ead41e6df7f58748b44dfb0300c8e03a6170174d449a155d663288e7177"
+    },
+    {
+      "path": "review-diagrams.md",
+      "sha256": "58e22ed1a77c3e07bb89138e92c6622d4fcfa73eadc96ce8da74e66eaba852d5"
+    },
+    {
+      "path": "review.md",
+      "sha256": "48062debcaaecdfcaee3a55a45c97c65a5e6f61929e10c2eab5bce8f83100830"
+    },
+    {
+      "path": "reviewer-index.md",
+      "sha256": "caff7047c00120d67b7374c8b960081ee9af7fe110a4a0f25e5c211cab7572f0"
+    },
+    {
+      "path": "security-surface.md",
+      "sha256": "de712fbb87f05abdfb42e523c6a1cde30bf108d8e59f7560f9ec381a3354b9d1"
+    },
+    {
+      "path": "state.md",
+      "sha256": "f7d03995402b914b3184ca0a41bc215ed3513b64c1a16ecdae54ac7537942de5"
+    },
+    {
+      "path": "tasks-progress.yml",
+      "sha256": "9a4ccd108f22023f0bbfd310e3fbbc4976c33e24ab514d29bb43f51f4d935166"
+    }
+  ],
+  "source": "iteration-closeout-authorization"
+}
