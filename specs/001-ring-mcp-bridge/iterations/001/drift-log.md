@@ -23,7 +23,7 @@
 ## Summary
 
 **Total drift events**: 91
-**Resolution rate**: 100% resolved or decided. 88 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). T036's entries, DRIFT-001-86 to DRIFT-001-89, were reviewed in the rounds that followed, the last of them clean on `0431bcf`. DRIFT-001-91, the review-signoff sync's lint, is decided by the owner. Each entry lists its carry-forwards to later iterations.
+**Resolution rate**: 100% resolved or decided. 88 events were resolved within iteration 001, from 2026-11-02 to 2026-11-15. One, DRIFT-001-77 (the snooze), is deferred by the owner to iteration 002's design analysis; DRIFT-001-85 carries T033's soak and the month's checks into iteration 002, with the owner's approval. The 24 entries "recorded for the co-review" were reviewed in the co-review rounds that followed, the last of them CP-21a (DRIFT-001-83). T036's entries, DRIFT-001-86 to DRIFT-001-89, were reviewed in the rounds that followed, the last of them clean on `0431bcf`. DRIFT-001-91, the review-signoff sync's lint and plan.md's Status, is decided by the owner. Each entry lists its carry-forwards to later iterations.
 **Specification drift** (T035's drift check, 2026-11-15, and the review of f3884bb): four items against the spec, each decided or for the owner's decision:
 
 - **DRIFT-001-33:** the overview counted a battery at or below the threshold as low, where FR-007 said "below". The owner chose "at or below", and the spec now says so (DRIFT-001-85, DEC-001-02).
@@ -1187,32 +1187,43 @@ The same round also found that PT-19 and data-model.md G4 still started the audi
   - an earlier read that finishes last kept;
   - takeovers not taken in turn.
 
-### DRIFT-001-91: the review-signoff sync stopped in its Markdown lint, whose command line was too long for Windows
+### DRIFT-001-91: the review-signoff sync stopped in its Markdown lint, whose command line was too long for Windows, and then at plan.md's Status
 
-- **Detected**: 2026-11-16, at the review-signoff boundary. The owner's own run of the sync and two of mine stopped at the same step, and none of them recorded anything.
-- **Kind**: a governed tooling defect (Specrew 0.40.0). No code changed.
+- **Detected**: 2026-11-16, at the review-signoff boundary. The owner's own run of the sync and two of mine stopped at the lint, and a fourth, on the lint's own fallback, stopped at the iteration-state check. None of them recorded anything.
+- **Kind**: governed tooling defects (Specrew 0.40.0), and one hand edit of mine. No code changed.
 - **Observed**:
   1. Before it writes, the sync lints every Markdown file changed since its base ref, `origin/main`, with one `npx markdownlint-cli --fix` command. This branch holds the whole feature, so the list is 425 files, each passed by its full path: 39,211 characters. Windows refuses to start a process whose command line is over 32,767 characters, and PowerShell reports the refusal as "Program 'node.exe' failed to run: StandardOutputEncoding is only supported when standard output is redirected." The sync does not catch the failed launch, so it stops. The syncs of 2026-11-02 and 2026-11-03 had few files to lint.
   2. A run with `npx` pointed at npm's `npx.cmd` failed the same way, which ruled out npm's PowerShell wrapper. The owner's reviewer session for the Specrew repository found the cause and reproduced it on the same PowerShell version (7.6.10); the length above was measured here.
   3. Before that, the owner typed "approved for review-signoff" before the sync had run, so no crossing was pending and the hook recorded nothing. The sync records the crossing and authorizes nothing, so it comes first. The readiness wording that suggested otherwise is a recorded Specrew bug.
-- **Evidence, the lint without `--fix`**: markdownlint 0.48.0 with the project's `.markdownlint.json`, over the gate's 425 files in batches of 50, found 1,522 problems, none of them in the files the project's CI lints:
+  4. With npm's and Node's folders off the PATH of one process, the lint took its own fallback ("[markdownlint-gate] markdownlint-cli unavailable; skipping gate"). Then the iteration-state check refused: "plan.md for iteration 001 says Status 'reviewing', but the last authorized boundary is 'before-implement' (approved 11/03/2026 00:04:02), which reads 'executing' in plan.md's own vocabulary. ... if state.md is ahead of the record rather than behind it, correct the line by hand and record why in the drift log." I had set that Status to "reviewing" by hand in `a79514a`, before round 34. Specrew writes the line itself when the owner's approval of review-signoff is recorded.
+- **Evidence**:
+  - The lint without `--fix`: markdownlint 0.48.0 with the project's `.markdownlint.json`, over the gate's 425 files in batches of 50, found 1,522 problems, none of them in the files the project's CI lints:
 
-  | Where | Problems |
-  | --- | --- |
-  | The research notes | 994 |
-  | The closed workshop records | 124 |
-  | Specrew's managed copies of its skills (`.agents`, `.claude`, `.copilot`, `.github/agents`, `.specify`) | 366 |
-  | `.specrew/review` | 36 |
-  | Other | 2 |
+    | Where | Problems |
+    | --- | --- |
+    | The research notes | 994 |
+    | The closed workshop records | 124 |
+    | Specrew's managed copies of its skills (`.agents`, `.claude`, `.copilot`, `.github/agents`, `.specify`) | 366 |
+    | `.specrew/review` | 36 |
+    | Other | 2 |
 
-  CI's own lint command finds nothing in the committed files.
+    CI's own lint command finds nothing in the committed files.
+
+  - The run on the fallback: the reviewer session read Specrew's `v0.40.0-beta41` source and found that the sync starts nothing else from those folders. The installed module was compared with that tag by hash before the run: 233 of 233 PowerShell files identical. `pwsh` and `git` stayed on PATH.
+
 - **Requirement citation**: the review-signoff boundary (T035); FR-047 (the gates); the CI lint scope (T004, DRIFT-001-07).
-- **Resolution**: human-decision, decided: the owner, 2026-11-16, "E'":
-  - No fix by hand: the problems sit in files Specrew overwrites when it updates, in history the project leaves unlinted on purpose, and in the committed review store.
-  - The sync runs once with npm's and Node's folders removed from the PATH of that one process, so the gate takes its own fallback ("markdownlint-cli unavailable; skipping gate"). It runs only after the Specrew reviewer session confirms, from Specrew's source, that this sync starts nothing else from those folders.
-  - This entry records the skipped lint and the evidence above.
-- **Carry-forward**: until Specrew's fix lands, each later boundary's sync on this branch (retro, iteration closeout) meets the same limit and needs the same decision. The fix is on Specrew's bug-bash list: batch the list or pass paths relative to the project, degrade on a failed launch, and keep to the project's lint scope, so that `--fix` does not rewrite managed and historical files.
-- **Class closure**: NONE - the defect is in Specrew's code, and its fix is tracked on Specrew's bug-bash list. Until then, each skipped lint is recorded with its evidence.
+- **Resolution**: human-decision, decided:
+  - The owner, 2026-11-16, "E'":
+    - No fix by hand: the problems sit in files Specrew overwrites when it updates, in history the project leaves unlinted on purpose, and in the committed review store.
+    - The sync runs with npm's and Node's folders removed from the PATH of that one process, so the gate takes its own fallback, which it did.
+    - This entry records the skipped lint and the evidence above.
+  - The owner, 2026-11-16, "F": plan.md's Status is set back to "executing" by hand, the gate's own repair. Round 34 reviewed plan.md with "reviewing", so the sign-off check is expected to call round 34 out of date over that one line and to ask for the owner's partial sign-off. That line is the only difference from round 34's reviewed tree, and no code changed. When the owner's approval of review-signoff is recorded, Specrew writes the line back to "reviewing".
+  - The partial sign-off is bound to the files as they are when the sync writes its request, so nothing is written in the repository from this entry until the crossing is recorded. The outcome goes into the boundary commit's records.
+- **Carry-forward**:
+  - Until Specrew's fixes land, each later boundary's sync on this branch (retro, iteration closeout) meets the same lint limit and needs the same decision. The fix is on Specrew's bug-bash list: batch the list or pass paths relative to the project, degrade on a failed launch, and keep to the project's lint scope, so that `--fix` does not rewrite managed and historical files.
+  - Two approvals for one sign-off, and the iteration-state check against a hand-set plan line, are on that list too.
+  - plan.md's Status is Specrew's to write: it is not set by hand again.
+- **Class closure**: NONE - the defects are in Specrew's code, and their fixes are tracked on Specrew's bug-bash list. Until then, each skipped lint is recorded with its evidence.
 
 ### DRIFT-001-90: Specrew CI on a79514a: a shallow checkout, a derived review block CI could not reproduce, and a reviewed snapshot only the owner's machine holds
 
