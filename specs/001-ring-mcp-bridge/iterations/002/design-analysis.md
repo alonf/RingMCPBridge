@@ -50,9 +50,28 @@ The unknowns it must face:
 6. **Task ids and the task ledger** (DRIFT-002-01): task ids that match tasks.md, or the ledger kept current as each task finishes.
 7. **A midpoint independent review** (iteration 001's Lesson 6).
 
+## Applicable Lenses
+
+Selected by the questionnaire in file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/lens-applicability.json (the owner typed "confirm", 2026-11-17). Eight of nine areas apply.
+
+| Lens | Why | Depth | What it decides for iteration 002 |
+| --- | --- | --- | --- |
+| architecture-core | always on | light | The event path fits the decided topology (home connector and Azure core, plus all-in-one mode) with no new deployable |
+| component-design | always on | full | The event path's components and responsibilities, co-designed, with one flow walked: Ring push to connector, link, Event manager, event log, agent notification |
+| requirements-nfr | always on | medium | The 10-second budget (SC-001), 24-hour catch-up, at-least-once delivery with dedup, and how each is measured |
+| security-compliance | auth and secrets: yes | medium | Untrusted event text reaching agents, push credentials on the home, per-client subscriptions |
+| data-storage | persistent data: yes | medium | The event log, cursors with epochs, each client's delivery state, retention, the one-transaction write |
+| integration-api | external services: yes | full | Ring's push (the "crypto-key is missing" line), MCP events to ChatGPT, earlier-era clients, the listen stream, the channel shim, the dot |
+| devops-operations | deploy and CI: yes | light | The out-of-band alert rule (about $1.50 a month, feature plan) and the new migrations |
+| observability-resilience | performance and resilience: yes | medium | The Ring-down health event, push-reception health, the recovery summary, catch-up |
+| ui-ux | user-facing UI: no | skipped | Iteration 002 builds no screen of its own. The dot is ChatGPT's indicator, and the admin page does not change unless a later decision says it should show push health |
+
+The coding rules carry over from the feature's implementation rules; a new dependency would come up under integration-api. The reviewer stays codex, as chosen for the feature.
+
 ## Decisions So Far
 
 - **Capacity** (the owner, 2026-11-17, typed "1"):
   - Keep the capacity at 42 SP, and scale each task estimate by about 1.8, iteration 001's measured ratio of effort to plan (estimate).
   - Each estimate includes its co-review rounds and its first real-world run (iteration 001's Lesson 1).
   - At that ratio, the 16 SP forecast is about 29 SP of effort, leaving about 13 SP under the cap for the carried items (estimate).
+- **Design areas** (the owner, 2026-11-17, typed "confirm"): the eight areas above, with ui-ux skipped.
