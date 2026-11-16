@@ -75,3 +75,8 @@ The coding rules carry over from the feature's implementation rules; a new depen
   - Each estimate includes its co-review rounds and its first real-world run (iteration 001's Lesson 1).
   - At that ratio, the 16 SP forecast is about 29 SP of effort, leaving about 13 SP under the cap for the carried items (estimate).
 - **Design areas** (the owner, 2026-11-17, typed "confirm"): the eight areas above, with ui-ux skipped.
+- **architecture-core** (the owner, 2026-11-17, typed "Yes" and "move on"):
+  - IDesign and the hybrid topology plus all-in-one mode stay. The channel shim on the owner's PC is the only new running piece.
+  - Ring's push format and each agent platform's envelope stay behind their own boundaries.
+  - Out of iteration 002: Control, Media, motion opt-ins, Ring's official API, and admin-page changes.
+  - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/architecture-core.md
