@@ -39,6 +39,11 @@
   - It wrote no crossing and no pending-verdict file. The only change is the local lifecycle file's pending next boundary, now 'plan', which git does not track.
 - **Requirement citation**: the plan boundary of iteration 002; DRIFT-001-91's fallback, used once per owner yes.
 - **Resolution**: human-decision, pending. The one recovery step is to run the plan sync once more, naming iteration 002 (`-IterationNumber 002`, as the retro and closeout syncs did), on the owner's yes. Iteration 001 is sealed and correct, so the refusal's advice to correct its lines by hand does not apply: those files are not edited.
+- **The second run** (the owner's second "yes", 2026-11-17, naming iteration 002) passed the iteration-state gate. Then its design-analysis gate refused, again writing no crossing and no pending-verdict file:
+  - Each of the three options lacks the fields iteration 001's design analysis had: Approach, Architectural pattern, Quality features considered, Effort estimate, Reversibility cost, Trade-offs, and a Mermaid diagram.
+  - The Applicable Lenses section lacks an "Addressed:" line for each of the eight selected areas, pointing into the option comparison.
+
+  That is the crew's authoring gap: iteration 002's design analysis followed the options message instead of the template. The proposed recovery, on the owner's approval: add those fields and lines without changing the options, the choice or any decision, then run the sync once more.
 - **Carry-forward**: for Specrew's bug-bash list: the plan sync skill's command passes no iteration number, and on a later iteration the sync then checks the closed one.
 - **Class closure**: NONE - Specrew's code picks the default. This project's guard: every sync here names its iteration.
 
