@@ -28,11 +28,12 @@ import {
   ringHttpError,
 } from "../../../../test/support/fake-ring-client.ts";
 import type {
+  FakeCamera,
   FakeDevice,
   FakeLocation,
 } from "../../../../test/support/fake-ring-client.ts";
 import { RingAdapterError } from "./ring-adapter-error.ts";
-import type { RingChange, RingDevice } from "./ring-port.ts";
+import type { RingChange, RingDevice, RingPush } from "./ring-port.ts";
 
 const START = Date.UTC(2026, 10, 6, 9, 0, 0);
 const TOKEN = "rotated-token-for-the-test";
@@ -1341,5 +1342,48 @@ describe("RingApiAdapter reads rooms from each hub's room list", () => {
         }) as unknown,
       },
     ]);
+  });
+});
+
+describe("RingApiAdapter push", () => {
+  it("hands each camera's push to the push watchers with its device and location, until closed", async () => {
+    const { clock, client, adapter } = setup();
+    const pushes: RingPush[] = [];
+    const stop = adapter.watchPush((push) => pushes.push(push));
+    await driveFakeClock(clock, adapter.locations(never()));
+    const camera = client.locationsList[0]?.cameras[0] as FakeCamera;
+    const payload = { android_config: { category: "anything" } };
+
+    camera.onNewNotification.emit(payload);
+    expect(pushes).toEqual([
+      { device_id: "42", location_id: "loc-1", payload },
+    ]);
+
+    stop();
+    camera.onNewNotification.emit(payload);
+    expect(pushes).toHaveLength(1);
+
+    adapter.watchPush((push) => pushes.push(push));
+    adapter.close();
+    expect(camera.onNewNotification.listeners).toBe(0);
+  });
+
+  it("logs a failing push watcher by name only and still calls the next one", async () => {
+    const { clock, client, adapter, lines } = setup();
+    const heard: string[] = [];
+    adapter.watchPush(() => {
+      throw new Error("unexpected");
+    });
+    adapter.watchPush((push) => heard.push(push.device_id));
+    await driveFakeClock(clock, adapter.locations(never()));
+    const camera = client.locationsList[0]?.cameras[0] as FakeCamera;
+
+    camera.onNewNotification.emit({ secret_text: "Front Door" });
+    expect(heard).toEqual(["42"]);
+    const failures = lines.filter((line) =>
+      line.includes("ring_push_listener_failed"),
+    );
+    expect(failures).toHaveLength(1);
+    expect(lines.join("\n")).not.toContain("Front Door");
   });
 });

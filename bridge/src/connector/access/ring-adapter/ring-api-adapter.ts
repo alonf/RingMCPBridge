@@ -53,6 +53,8 @@ import type {
   RingDevice,
   RingLocation,
   RingPort,
+  RingPush,
+  RingPushPort,
   RingSessionStatus,
   StopWatching,
 } from "./ring-port.ts";
@@ -132,7 +134,7 @@ function isDevice(entry: RingDevice | undefined): entry is RingDevice {
 }
 
 /** The Ring port over the owner's Ring account. */
-export class RingApiAdapter implements RingPort {
+export class RingApiAdapter implements RingPort, RingPushPort {
   readonly #client: RingClient;
   readonly #gate: RingCallGate;
   readonly #clock: Clock;
@@ -152,6 +154,7 @@ export class RingApiAdapter implements RingPort {
   readonly #rooms = new Map<string, ReadonlyMap<string, string>>();
   readonly #roomsUnanswered = new Set<string>();
   readonly #listeners = new Set<(change: RingChange) => void>();
+  readonly #pushListeners = new Set<(push: RingPush) => void>();
   readonly #subscriptions: Unsubscribe[] = [];
   readonly #saving = new Set<Promise<void>>();
   // The status's inputs: calls failing, the hubs whose connection stayed closed past the grace, the
@@ -257,6 +260,13 @@ export class RingApiAdapter implements RingPort {
     await Promise.all([...this.#saving]);
   }
 
+  watchPush(listener: (push: RingPush) => void): StopWatching {
+    this.#pushListeners.add(listener);
+    return () => {
+      this.#pushListeners.delete(listener);
+    };
+  }
+
   /** Stops every subscription and the probe, and closes the Ring connection. */
   close(): void {
     this.#stopProbe();
@@ -267,6 +277,7 @@ export class RingApiAdapter implements RingPort {
       subscription.unsubscribe();
     }
     this.#listeners.clear();
+    this.#pushListeners.clear();
     this.#client.disconnect();
   }
 
@@ -714,6 +725,18 @@ export class RingApiAdapter implements RingPort {
       return;
     }
     this.#locations.set(location.id, location);
+    // The library builds a location's cameras once, so each is subscribed to once, here.
+    for (const camera of location.cameras) {
+      this.#subscriptions.push(
+        camera.onNewNotification.subscribe((payload) => {
+          this.#emitPush({
+            device_id: String(camera.id),
+            location_id: location.id,
+            payload,
+          });
+        }),
+      );
+    }
     if (location.hasHubs) {
       this.#subscriptions.push(this.#watchConnection(location));
       const hubs = new HubSessions(location, {
@@ -779,6 +802,16 @@ export class RingApiAdapter implements RingPort {
         listener(change);
       } catch (error) {
         this.#logger.error("ring_change_listener_failed", undefined, error);
+      }
+    }
+  }
+
+  #emitPush(push: RingPush): void {
+    for (const listener of this.#pushListeners) {
+      try {
+        listener(push);
+      } catch (error) {
+        this.#logger.error("ring_push_listener_failed", undefined, error);
       }
     }
   }

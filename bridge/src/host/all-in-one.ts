@@ -230,6 +230,7 @@ class HomePart {
     }
     const homeSide = assembleHome({
       ring: home.ring,
+      ...(home.push === undefined ? {} : { push: home.push }),
       outbox,
       dial: inProcessDial(this.#core, logger),
       identity: {

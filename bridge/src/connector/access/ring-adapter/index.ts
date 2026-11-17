@@ -17,6 +17,8 @@ export type {
   RingOwnership,
   RingPort,
   RingPowerMode,
+  RingPush,
+  RingPushPort,
   RingSessionStatus,
   StopWatching,
 } from "./ring-port.ts";

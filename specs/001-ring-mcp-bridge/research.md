@@ -926,3 +926,17 @@ Gaps G1, G2, G5, G8, G10 to G12 and G14 in data-model.md belong to iterations 00
    FR-003 (motion queries), FR-004 (Ring history), FR-007 (battery alerts and the digest) and FR-010's per-client opt-ins move to iteration 003. The plan and the hardening gate were corrected to match. Affected: US1 AS4 and AS5, and US2 AS4, which are verified in iteration 003.
 3. **What S1 decides** → the three options in the product-domain record stand: unofficial, official, or both. The spec's TG-004 wording was aligned to "replaces or complements".
 4. **The out-of-band "Ring session lost" alert** → iteration 004, as the design analysis sliced it. In iteration 001 a lost Ring session shows on the admin page; from iteration 002 it also raises a HIGH health event. The hardening-gate row was corrected.
+
+## Iteration 002 addendum: the push probe (T038), part 1, read from the libraries (2026-11-17)
+
+These findings come from reading ring-client-api 14.3.0 and @eneris/push-receiver 4.3.0 as installed. The run at the owner's home (part 2) is still to come and needs the owner's OK to update the home connector.
+
+- **Push is already on.** ring-client-api registers its push receiver when the locations are first read, which the connector has done since iteration 001. No new dependency and no new credential is needed.
+- **What push covers:** cameras, doorbells and intercoms only. The library hands each notification to the device it names. Alarm sensors (contact, motion, flood) do not come by push: their changes arrive on the hub's live connection, which the Ring Adapter already reads.
+- **Formats:** Ring's version 2 notification (a category of ding, motion or intercom ding, with Ring's event id, a subtype and a trigger time) and an older alarm format. The library drops any other format without telling its caller.
+- **Three ways a push is lost before the bridge sees it:**
+  1. The library ignores every push in its first two seconds after connecting, as likely duplicates.
+  2. The library drops a format it does not know.
+  3. **The "crypto-key is missing" line.** The push receiver could not decrypt a message (it lacked its crypto-key or salt field, or failed authentication) and dropped it. The receiver's own note says later messages decrypt normally with the same keys. So the line means one push was lost, not that the session is broken.
+- **What follows for the design:** push alone cannot meet SC-002. The catch-up from Ring's history (T053) is what recovers a dropped push, and it must run on a schedule or on a sign of loss, not only after a link gap. This goes to the owner with part 2's result.
+- **Still unknown until part 2:** whether push arrives at the owner's home at all, its delay from Ring's trigger time, the unit of that time (the probe accepts seconds or milliseconds), and which categories and subtypes Ring really sends.

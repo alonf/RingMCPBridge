@@ -86,6 +86,7 @@ export async function startConnector(
   }
   const homeSide = assembleHome({
     ring: home.ring,
+    ...(home.push === undefined ? {} : { push: home.push }),
     outbox,
     dial: (signal) => dialLink(homeSettings.coreUrl, { clock, logger }, signal),
     identity: {

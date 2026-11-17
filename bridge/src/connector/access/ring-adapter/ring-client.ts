@@ -76,6 +76,11 @@ export interface RingClientCameraFields {
  */
 export interface RingClientCamera extends RingClientCameraFields {
   updateData(data: RingClientCameraData): void;
+  /**
+   * Each push notification Ring sends about the device, as the library parsed it (no replay). The
+   * library drops what arrives in its first two seconds and any format it does not know.
+   */
+  readonly onNewNotification: RingClientStream<unknown>;
 }
 
 /** A location's details as Ring sends them. */

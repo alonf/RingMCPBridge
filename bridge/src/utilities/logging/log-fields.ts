@@ -28,6 +28,8 @@ export const LOG_FIELD_KINDS = {
   agent: "code",
   message_type: "code",
   kind: "code",
+  /** Ring's own subtype of a push, such as `human` (T038). */
+  subtype: "code",
   outcome: "code",
   error_code: "code",
   http_status: "measure",

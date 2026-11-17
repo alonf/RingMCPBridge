@@ -100,3 +100,20 @@ export interface RingPort {
   /** Calls `listener` with each change Ring reports, in order, until stopped. */
   watch(listener: (change: RingChange) => void): StopWatching;
 }
+
+/**
+ * A push notification Ring sent about a camera, doorbell or intercom (CP-08b, T038). Alarm sensors
+ * do not come this way: their changes arrive on the hub's live connection, as `RingChange`.
+ */
+export interface RingPush {
+  readonly device_id: string;
+  readonly location_id: string;
+  /** Ring's payload as sent: untrusted, read tolerantly by its reader, and never logged. */
+  readonly payload: unknown;
+}
+
+/** Ring's push notifications, apart from `RingPort` so a reader of state need not carry it. */
+export interface RingPushPort {
+  /** Calls `listener` with each push notification Ring delivers, in order, until stopped. */
+  watchPush(listener: (push: RingPush) => void): StopWatching;
+}

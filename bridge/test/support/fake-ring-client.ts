@@ -127,6 +127,8 @@ export const FAKE_DOORBELL: FakeCameraData = {
  * only when its data is replaced (`updateData`), which the library's own polling would do.
  */
 export class FakeCamera implements RingClientCamera {
+  /** Ring's push notifications about the camera: a test emits what Ring would send. */
+  readonly onNewNotification = new FakeRingStream<unknown>();
   #data: FakeCameraData;
 
   constructor(data: FakeCameraData) {

@@ -3,6 +3,7 @@
 // with no moment where both run the link, and the home links to it again.
 import { afterEach, describe, expect, it } from "vitest";
 import { OutboxStore } from "../../src/connector/access/outbox-store/index.ts";
+import type { RingPushPort } from "../../src/connector/access/ring-adapter/index.ts";
 import { RESEND_TICK_MS } from "../../src/connector/clients/home-scheduler/index.ts";
 import type { LeaseStore } from "../../src/core/access/lease/index.ts";
 import type { SettingsStore } from "../../src/core/access/settings/index.ts";
@@ -120,6 +121,7 @@ async function home(
   test: Rig,
   engine: ScenarioEngine,
   dial: (signal: AbortSignal) => Promise<DialOutcome>,
+  push?: RingPushPort,
 ): Promise<HomeAssembly> {
   const outbox = await OutboxStore.open(
     { path: ":memory:", clock: test.clock },
@@ -127,6 +129,7 @@ async function home(
   );
   const assembly = assembleHome({
     ring: engine,
+    ...(push === undefined ? {} : { push }),
     outbox,
     dial,
     identity: {
@@ -321,5 +324,32 @@ describe("the core and home assemblies", () => {
     ]);
 
     expect(outcome).toBe("stopped");
+  });
+
+  it("listens for Ring's push while the home part runs, when it is given a push port", async () => {
+    const test = await rig();
+    const coreSide = core(test, "a");
+    coreSide.start();
+    let listeners = 0;
+    const push: RingPushPort = {
+      watchPush: () => {
+        listeners += 1;
+        return () => {
+          listeners -= 1;
+        };
+      },
+    };
+    const homeSide = await home(
+      test,
+      new ScenarioEngine(test.clock),
+      inProcess(test, [coreSide]),
+      push,
+    );
+
+    expect(listeners).toBe(0);
+    homeSide.start();
+    expect(listeners).toBe(1);
+    await homeSide.stop();
+    expect(listeners).toBe(0);
   });
 });
