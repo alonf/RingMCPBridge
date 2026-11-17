@@ -59,7 +59,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
 **Independent test**: `iterations/002/quality/hardening-gate.md` records the effective review class, the reviewer and the approval reference, and no critical concern is open without the owner's approved deferral.
 **Depends on**: the owner's tasks approval. Implementation also needs the before-implement approval.
 
-- [ ] T037 [assigned_to: Reviewer] [effort: 0.9] Review and sign off `specs/001-ring-mcp-bridge/iterations/002/quality/hardening-gate.md` for the event path:
+- [x] T037 [assigned_to: Reviewer] [effort: 0.9] Review and sign off `specs/001-ring-mcp-bridge/iterations/002/quality/hardening-gate.md` for the event path:
   - the five concerns against the design analysis's decisions (the ack after commit, the send window and backoff, dedup, the callback rules, Ring text untrusted);
   - the three dimensions overridden to required: concurrency, resiliency, retry and idempotency (DRIFT-002-03);
   - the two planning additions, which the owner decides: a malformed Ring payload counts toward "push degraded", and one client's failed delivery never blocks the others.

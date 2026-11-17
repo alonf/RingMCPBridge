@@ -5,10 +5,10 @@
 **Feature Ref**: `specs/001-ring-mcp-bridge/spec.md`
 **Iteration Ref**: `specs/001-ring-mcp-bridge/iterations/002`
 **Requested Review Class**: `strongest-available`
-**Effective Review Class**: `(pending hardening review)`
+**Effective Review Class**: `codex (model chatgpt), review class rank 85: the highest-ranked allowed reviewer host`
 **Overall Verdict**: `ready`
 **Approval Ref**: `—`
-**Reviewed By**: Reviewer (pending)
+**Reviewed By**: Reviewer on the codex host, run `run-20261117-185648219-777d6e8c` (round 1 of campaign `cmp-001-ring-mcp-bridge-i002`)
 **Reviewed At**: 2026-11-16T22:45:49Z
 
 <!--
@@ -49,3 +49,6 @@
 - After every row in the table is filled in with a canonical Status, flip the metadata `Overall Verdict` to `ready` (if every concern is `addressed` / `not-applicable` / `deferred-with-approval`) or keep `blocked`.
 - Runtime evidence (lens execution, test counts, mechanical-findings results) is collected after implementation lands; the gate is a PLANNING-time artifact and that deferral is intentional.
 - 2026-11-17 (plan): all five concerns are filled at planning time for the event path. `retry-idempotency-requirements` and `operational-resilience-concerns` are flipped from the scaffold's `not-applicable` to `addressed` (DRIFT-002-03). The Overall Verdict is computed from the rows, so it reads `ready`. That is not the sign-off: the reviewer's hardening review before implement records the effective review class, the reviewer and the approval reference, and implementation waits for it.
+- 2026-11-17 (before-implement, T037, on the owner's "approved for review round"): codex reviewed the frozen tree `c221ee7e` (HEAD 21850d2): iteration 002's planning documents and the existing code. Verdict pass, no findings, current for that tree. The review was risk-based and selective, not a line-by-line inventory, and it ran no tests or builds. The reviewed tree is anchored as tag `specrew-reviewed/run-20261117-185648219-777d6e8c`.
+- Not reviewed by codex: this gate's metadata and note, T037's check mark and DRIFT-002-07, all written after the reviewed tree.
+- Still the owner's to decide: the two planning additions (a malformed payload counts toward degraded; one client's failed delivery never blocks the others). The review raised nothing against them.

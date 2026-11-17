@@ -22,11 +22,25 @@
 
 ## Summary
 
-**Total drift events**: 6
-**Resolution rate**: 100% (6/6 resolved or decided)
+**Total drift events**: 7
+**Resolution rate**: 100% (7/7 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-07: the hardening review needed two repairs outside the project before it could start
+
+- **Detected**: 2026-11-17, at T037, the hardening review before implement.
+- **Kind**: tooling on the owner's PC (Specrew 0.40.0 and the reviewer's launcher). The project's files were not changed for it.
+- **Observed**:
+  1. **The review engine's copy on the PC differed from the project's.** The review refused with `review-engine-version-mismatch` and asked for a project update. Read-only checks (names, dates and hashes) showed the project's copy unchanged since 2026-11-01 and one file of the installed copy changed on 2026-11-17. The update was not run, because it would have copied that change into the project. The owner fixed the installed copy, and the check then passed.
+  2. **The reviewer could not be launched.** The run `run-20261117-181348428-cc789c45` failed before the reviewer was invoked, with `runtime-command-shim-unsupported:codex`: on this PC `codex` resolved only to npm's launcher scripts, and the review starts only a native executable. No round was used.
+  3. **The fallback**, by the owner's typed "yes", on the reviewer session's advice: for the review process only, the folder of the native `codex.exe` inside npm's own installation of codex was put first on PATH. Nothing was installed and no file changed.
+  4. With it, `run-20261117-185648219-777d6e8c` ran and passed with no findings.
+- **Requirement citation**: T037 and iteration 002's hardening gate; this project's rule that fallbacks on PATH need the owner's yes per run.
+- **Resolution**: human-decision, decided by the owner on 2026-11-17 (the fix on the PC, and the "yes" for the fallback). The hardening gate records the review.
+- **Carry-forward**: each later review round in this session needs the same fallback and the owner's yes, unless the session is started where a native `codex` is on PATH. For Specrew's bug-bash list: the review refuses npm's launcher for codex on Windows.
+- **Class closure**: NONE - the launch rule is Specrew's. This project's guard: check what `codex` resolves to before asking for a review round.
 
 ### DRIFT-002-06: the tasks sync refused because state.md's phase is ahead of the authority record
 
