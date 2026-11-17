@@ -1,524 +1,310 @@
 ---
 
-description: "Iteration 001 task list for the Ring MCP Bridge"
+description: "Iteration 002 task list for the Ring MCP Bridge"
 ---
 
-# Tasks: Ring MCP Bridge, iteration 001
+# Tasks: Ring MCP Bridge, iteration 002
 
-**Input**: design documents in `specs/001-ring-mcp-bridge/`: `plan.md` (approved 2026-11-02), `iterations/001/plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md`
-**Scope**: iteration 001 only, 42 story points: US1 reads after Entra sign-in, read scope only, on the real hybrid path, plus the minimal admin page (US6 in part). Iterations 002 to 004 get their own design analysis, plan and tasks stages.
+**Input**: design documents in `specs/001-ring-mcp-bridge/`: `plan.md`, `iterations/002/plan.md` (approved 2026-11-17), `iterations/002/design-analysis.md` (Option B), `spec.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md`
+**Scope**: iteration 002 only, 33.75 story points of effort against the cap of 42: US2's pushed events, the cursor, late events and the recovery summary, Ring-down health, and US1's health completed (FR-005). Iterations 003 and 004 get their own design analysis, plan and tasks stages.
 **Tests**: requested.
 
 - code-implementation I4.4: the failing test comes first for the engines, the edge parsers, Normalize and every bug fix. Elsewhere, tests are written with the code, in the same task.
 - plan.md (`verification-confidence`): each FR gets a positive and a negative test, and failure-mode FRs are not covered by smoke tests only.
 
-**Organization**: one phase per delivery step. Tasks that serve the US1 read path carry `[US1]`, and the admin-page and enrollment tasks carry `[US6]`. Setup, foundation, deploy and review tasks carry no story label.
+**Iteration 001's task list** (T001 to T036, all done) is kept unchanged in [tasks-iteration-001.md](tasks-iteration-001.md). Task numbers continue from T037, so a number names one task across the whole feature.
+
+**Organization**: one phase per step of Option B's order. Tasks on the event path carry `[US2]`. The health-completion task carries `[US1]`. Probe, alert, review and pilot tasks carry no story label.
 
 ## Format: `- [ ] T### [P?] [US#?] [assigned_to: <role>] [effort: <SP>] Description with exact file path(s) (Trace: ...)`
 
 - **[P]**: can run in parallel: different files, and no dependency on an unfinished task.
 - **[US#]**: the user story the task serves.
 - **[assigned_to]**: the role from `.specrew/role-assignments.yml`.
-- **[effort]**: story points. The tasks sum to 42, the configured capacity.
-- **Trace**: the FRs and SCs the task serves (iteration 001 scope only), then the plan work item (CP-xx).
+- **[effort]**: story points, already scaled by about 1.8 (iteration 001's measured ratio). All figures are estimates. The tasks sum to 33.75.
+- **Trace**: the FRs and SCs the task serves (iteration 002 scope only), then the plan work item (CP-xx).
 
 ## Path Conventions
 
-From plan.md "Project Structure" (code-implementation I5.2): one npm workspace with the `bridge` and `shim` packages.
+From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` and `bridge/src/connector/`, IDesign layers are folders: `clients/`, `managers/`, `engines/`, `access/`.
 
-- `bridge/src/host/`, `bridge/src/core/`, `bridge/src/connector/`, `bridge/src/utilities/`, `bridge/src/contract/`: product code. Inside `core/` and `connector/`, IDesign layers are folders: `clients/`, `managers/`, `engines/`, `access/`.
-- `bridge/test/`: integration and end-to-end tests. Unit tests sit beside the code as `x.test.ts`.
-- `schemas/` (generated), `infra/` (Bicep and the bootstrap), `scripts/` (dev helpers), `.github/` (workflows).
-- Owner values are placeholders everywhere: `<subscription>`, `<resource-group>`, `<registry>`, `<owner>/<repo>`, `<core-host>`. Real values never go into the repository.
+- New folders in this iteration, one per new component of the agreed map:
+  - home: `bridge/src/connector/clients/push-listener/`, `bridge/src/connector/engines/normalize/`;
+  - core: `bridge/src/core/clients/scheduler/`, `bridge/src/core/engines/classify/`, `bridge/src/core/access/event-log/`, `bridge/src/core/access/audit/`, `bridge/src/core/access/subscriptions/`, `bridge/src/core/access/delivery/`.
+- Extended in place: `bridge/src/connector/managers/ingest/`, `bridge/src/connector/access/outbox-store/`, `bridge/src/connector/clients/core-link/`, `bridge/src/core/clients/connector-link/`, `bridge/src/core/managers/event/`, `bridge/src/core/managers/inquiry/`, `bridge/src/core/engines/health/`, `bridge/src/core/clients/mcp-endpoint/`, `bridge/src/contract/`, `schemas/`.
+- Owner values are placeholders everywhere: `<subscription>`, `<resource-group>`, `<core-host>`, `<owner-email>`, `<owner-phone>`. Real values never go into the repository. Pilot facts go in the pilot journal, which is not tracked.
 
 ## Work Item to Task Map (capacity check)
 
 | Work item | Planned SP | Tasks | Task SP |
 | --- | --- | --- | --- |
-| CP-01 Scaffold, toolchain, CI | 3 | T002, T003, T004 | 1 + 1 + 1 = 3 |
-| CP-02 Utilities | 2 | T005, T006 | 1 + 1 = 2 |
-| CP-03 Query layer, migrations, DTOs | 3 | T007, T008 | 2 + 1 = 3 |
-| CP-04 Test harness | 3 | T009, T010 | 2 + 1 = 3 |
-| CP-05 Public Contract | 1 | T011 | 1 |
-| CP-06 Setup CLI and Secrets File | 2 | T012, T028 | 1 + 1 = 2 |
-| CP-07 Ring Adapter | 2 | T013 | 2 |
-| CP-08a Outbox Store | 1 | T014 | 1 |
-| CP-09 The link | 3 | T015, T016, T017 | 1 + 1 + 1 = 3 |
-| CP-10 Host and Lease | 2 | T026, T027 | 1 + 1 = 2 |
-| CP-11a Event manager, link intake | 1 | T018 | 1 |
-| CP-14 Inquiry path | 3 | T019, T020, T021 | 1 + 1 + 1 = 3 |
-| CP-15 MCP Endpoint | 2 | T024, T025 | 1 + 1 = 2 |
-| CP-16 Issuer | 3 | T022, T023 | 1 + 2 = 3 |
-| CP-17 Minimal admin page | 1 | T029 | 1 |
-| CP-19 Bicep and deploy | 3 | T030, T031, T032 | 1 + 1 + 1 = 3 |
-| CP-21a First agent trial | 1 | T033 | 1 |
-| CP-RV Review | 3 | T001, T034, T035 | 1 + 1 + 1 = 3 |
-| CP-RW Rework | 3 | T036 | 3 |
-| **Total** | **42** | **36 tasks** | **42** |
+| CP-08b Home event intake | 6.3 | T038, T041, T042, T043, T044, T053 | 0.9 + 0.9 + 0.9 + 0.9 + 1.35 + 1.35 = 6.3 |
+| CP-11b Core event path | 6.3 | T045, T046, T047, T054, T055 | 0.9 + 1.35 + 1.8 + 0.9 + 1.35 = 6.3 |
+| CP-12 Subscriptions and cursors | 1.8 | T051, T052 | 0.9 + 0.9 = 1.8 |
+| CP-13 Delivery | 3.6 | T039, T048, T057 | 0.9 + 1.8 + 0.9 = 3.6 |
+| CP-18 Alert rule | 2.25 | T056 | 2.25 |
+| CP-20 Spike S1 | 1.8 | T040 | 1.8 |
+| CP-21b The dot and latency samples | 1.8 | T049 | 1.8 |
+| CP-MR Midpoint review | 1.8 | T050 | 1.8 |
+| CP-RV Review | 3.6 | T037, T058, T059 | 0.9 + 1.8 + 0.9 = 3.6 |
+| CP-RW Rework | 3.6 | T060 | 3.6 |
+| CP-PJ Carried pilot reads | 0.9 | T061 | 0.9 |
+| **Total** | **33.75** | **25 tasks** | **33.75** |
 
 ---
 
 ## Phase 1: Hardening Review (before any code)
 
-**Goal**: the hardening gate is signed off before implementation starts (plan.md "Phase 2 Hardening").
-**Independent test**: `iterations/001/quality/hardening-gate.md` records the effective review class, the reviewer and the approval reference, and no critical concern is open without the owner's approved deferral.
+**Goal**: iteration 002's hardening gate is signed off before implementation starts.
+**Independent test**: `iterations/002/quality/hardening-gate.md` records the effective review class, the reviewer and the approval reference, and no critical concern is open without the owner's approved deferral.
 **Depends on**: the owner's tasks approval. Implementation also needs the before-implement approval.
 
-- [x] T001 [assigned_to: Reviewer] [effort: 1] Run the hardening review of `specs/001-ring-mcp-bridge/iterations/001/quality/hardening-gate.md` with the reviewer host (codex, `.specrew/reviewer-hosts.json`) at the strongest available class. Record Effective Review Class, Reviewed By and Approval Ref in the gate. Any unresolved critical security, resilience or operational concern needs the owner's explicit approved deferral before the before-implement boundary (Trace: FR-029, FR-030, FR-032, FR-033, FR-034, FR-042, FR-044; CP-RV)
+- [ ] T037 [assigned_to: Reviewer] [effort: 0.9] Review and sign off `specs/001-ring-mcp-bridge/iterations/002/quality/hardening-gate.md` for the event path:
+  - the five concerns against the design analysis's decisions (the ack after commit, the send window and backoff, dedup, the callback rules, Ring text untrusted);
+  - the three dimensions overridden to required: concurrency, resiliency, retry and idempotency (DRIFT-002-03);
+  - the two planning additions, which the owner decides: a malformed Ring payload counts toward "push degraded", and one client's failed delivery never blocks the others.
+
+  (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-RV)
 
 **Verification**: `pwsh -File .specify/extensions/specrew-speckit/scripts/validate-governance.ps1 -ProjectPath .`
 
 ---
 
-## Phase 2: Setup (shared infrastructure)
+## Phase 2: Probes (Option B, step 1)
 
-**Goal**: an installable workspace whose checks run on every commit and in CI.
-**Independent test**: `npm ci` succeeds on Node 26; the pre-commit hook and the CI workflow run green on the empty packages.
-**Depends on**: Phase 1.
+**Goal**: the three biggest unknowns are met before the event path is built: Ring's push at home, MCP Events on the owner's ChatGPT plan, and Ring's official app registration.
+**Independent test**: each probe ends with a written finding in `specs/001-ring-mcp-bridge/research.md` (a dated iteration 002 addendum) that says what was observed, what stays unknown, and what the next task does differently because of it.
+**Depends on**: Phase 1. The three probes are independent of each other.
 
-- [x] T002 [assigned_to: Implementer] [effort: 1] Create the npm workspace at the repository root: `package.json` (workspaces `bridge` and `shim`; `devEngines` node `^24.11 || ^26` and npm `>=10.9`), `package-lock.json`, `tsconfig.base.json` (TypeScript 6.0.3 pinned, erasable syntax only, ES modules, `nodenext`), `bridge/package.json`, `shim/package.json`, and the folders of plan.md "Source Code": `bridge/src/{host,core,connector,utilities,contract}/`, `bridge/test/{scenarios,fixtures/ring}/`, `schemas/`, `infra/`, `scripts/`. Pin the dependency versions in plan.md "Technical Context". Add `.gitignore` entries for `bridge/test/scenarios/local/`, `.specrew/handover/` and `.specrew/runtime/` (Trace: FR-046, FR-047; CP-01)
-- [x] T003 [P] [assigned_to: Implementer] [effort: 1] Add the lint, format, hook and test configuration:
-  - `eslint.config.js`: ESLint 10.14.0 flat config with typescript-eslint 8.72.1 `strictTypeChecked` and `stylisticTypeChecked`, plus `eslint-config-prettier`.
-  - `.prettierrc`: Prettier 3.9.10.
-  - `.githooks/pre-commit`: lint, format check, and gitleaks 8.30.1 (a pinned binary checked by checksum), with the no-GUID rule in `.gitleaks.toml`. The npm `prepare` script sets `core.hooksPath` to `.githooks`.
-  - `vitest.config.ts`: Vitest 5 with the `@vitest/coverage-v8` gate at 90% lines and 85% branches. It excludes the real Ring Adapter, the Key Vault and managed-identity SQL implementations, and the Host wiring.
-  - `playwright.config.ts`: Playwright 1.64.1 at three widths (folded phone, unfolded phone, PC), in the dark and the light theme.
+- [ ] T038 [P] [assigned_to: Implementer] [effort: 0.9] The push probe at home, in `bridge/src/connector/clients/push-listener/`:
+  - a minimal Push Listener over the Ring boundary (`bridge/src/connector/access/ring-adapter/` stays the only import site of the Ring library);
+  - it logs each push's shape with identifiers only: the kind, the device id, Ring's timestamp and the arrival time. No names, text or images;
+  - a few real payloads, with their identifying values replaced, saved as fixtures under `bridge/test/fixtures/ring/` for T042;
+  - the push library's "crypto-key is missing" log line: find its cause and whether a push is lost when it appears;
+  - it runs on the owner's home connector for at least one doorbell press and one motion event. The home update needs the owner's OK.
 
-  (Trace: FR-032, FR-034, FR-040; CP-01)
-- [x] T004 [assigned_to: Implementer] [effort: 1] Add CI and the boundary rules:
-  - `.github/workflows/ci.yml`, on PRs and pushes:
-    - `npm ci --ignore-scripts`, `tsc --noEmit`, ESLint and the Prettier check;
-    - Vitest unit and integration tests, with SQL Server and Azurite service containers;
-    - dependency-cruiser, the schema snapshot check and gitleaks;
-    - `npm audit --json` through a script in `scripts/` that applies the written exception list and fails on high or critical findings;
-    - `npm sbom` against the licence allow-list.
-  - `.github/workflows/weekly.yml`: StrykerJS 10.1.1 on `bridge/src/core/engines/**`.
-  - `.dependency-cruiser.cjs`, for dependency-cruiser 18.7.0:
-    - from the connector wiring, nothing reaches `@azure/*`, oidc-provider or mssql;
-    - from the core wiring, nothing reaches ring-client-api;
-    - ring-client-api is imported only inside `bridge/src/connector/access/ring-adapter/`;
-    - another component is imported only through its `index.ts`;
-    - `shim/` imports nothing from `bridge/`;
-    - only MCP Endpoint (and Delivery, from iteration 002) imports `bridge/src/contract/`.
-  - The Specrew-installed `.github/workflows/specrew-ci.yml` (DRIFT-001-07):
-    - point its governance step at `.specify/extensions/specrew-speckit/scripts/validate-governance.ps1`;
-    - remove the steps that call `tests/integration/*.ps1`, which exist only in Specrew's own repository;
-    - check the other Specrew-installed workflows the same way;
-    - re-check after each Specrew update, which may restore the file.
+  Finding: push arrives or not, its delay from Ring's timestamp, and the payload kinds seen (Trace: FR-008, FR-042; CP-08b)
+- [ ] T039 [P] [assigned_to: Implementer] [effort: 0.9] The MCP Events probe on the owner's ChatGPT plan:
+  - read OpenAI's current draft for MCP Events: the subscription call, the webhook's signature, who issues the signing secret, the retry rules, and the callback hosts;
+  - a stub subscription handler behind a configuration switch in `bridge/src/core/clients/mcp-endpoint/`, which accepts a test subscription and records its shape with identifiers only;
+  - one test event sent by hand to the recorded callback, to see whether ChatGPT accepts it and whether the dot lights;
+  - the production deploy for this probe needs the owner's explicit OK.
 
-  (Trace: FR-046, FR-047, FR-026 with TG-004; CP-01)
+  Finding: whether the owner's plan offers MCP Events, the exact callback hosts for the allowlist, and the signature scheme. If the plan does not offer it, stop and bring the choice to the owner before T048 (Trace: FR-010, FR-012; CP-13)
+- [ ] T040 [P] [assigned_to: Implementer] [effort: 1.8] Spike S1, time-boxed to its points: can a non-US Ring account register an official private app?
+  - the owner does every Ring developer-portal step on their own account. No Ring credentials or codes pass through the chat;
+  - the Implementer prepares the step list and records each answer the owner reports;
+  - the result names which Ring path iteration 003 widens: the official API, or the current library.
 
-**Verification**: `npm ci`, `tsc --noEmit`, `npx eslint .`, `npx prettier --check .`, `npx depcruise bridge shim --config .dependency-cruiser.cjs`
+  (Trace: TG-004; CP-20)
+
+**Verification**: the three findings are in `research.md`; `npx vitest run bridge/src/connector/clients/push-listener`
+
+**Checkpoint**: the unknowns are answered or named. A "no" from T039 goes to the owner before Phase 4.
 
 ---
 
-## Phase 3: Foundational (blocking prerequisites)
+## Phase 3: User Story 2, the event path end to end (Option B, step 2)
 
-**Goal**: the utilities, the two-dialect query layer, the iteration 001 schema and the test harness that every later task uses.
-**Independent test**: the redaction test passes; the query layer's integration suite passes on SQLite and on the SQL Server container; the scenario engine serves a 100-device home on the fake clock.
-**Depends on**: Phase 2. **No user-story task starts before this phase is done.**
+**Goal**: a Ring push at home becomes one durable event in the core, written once with its state change and its audit record, and acked home only after the commit.
+**Independent test**:
 
-- [x] T005 [P] [assigned_to: Implementer] [effort: 1] Logging utility in `bridge/src/utilities/logging/`:
-  - structured JSON lines that carry identifiers only (`request_id`, `client_id`, the connector session id, event and device ids);
-  - a redaction layer for values shaped like tokens, keys, PINs and images.
+1. A doorbell press on the simulated home appears in the core's Event Log exactly once, with a priority from the policy file.
+2. Killing the core between the write and the ack, then restarting it, leaves exactly one event in the log and an empty backlog at home.
+3. Dropping the link for a minute loses nothing: every event arrives, in order per location.
 
-  Write the redaction test first. It feeds an OAuth token, a PIN-shaped value, a private key and image bytes through every log path and every error message, and asserts that none of them appears (Trace: FR-034; CP-02)
-- [x] T006 [P] [assigned_to: Implementer] [effort: 1] Utilities, each with its unit tests:
-  - `bridge/src/utilities/security/`: Ed25519 key pairs, challenge signing and verification, AES-256-GCM helpers for the encrypted files, and the Entra sign-in client. The client uses a managed-identity federated credential, with no client secret.
-  - `bridge/src/utilities/pub-sub/`: typed, in-process publish and subscribe.
-  - `bridge/src/utilities/config/`: zod-validated settings. It holds the run mode (core, connector or all-in-one) and defaults such as reads at 600 an hour and the battery threshold at 20%.
-  - `bridge/src/utilities/clock/`: a real clock and a fake clock, plus formatting in UTC and in a location's time zone.
+**Depends on**: Phase 2 (T038's payloads feed T042). Inside the phase: T041 first; then the home side (T042, T043, T044) and the core side (T045, T046) in turn; T047 last.
 
-  (Trace: FR-006, FR-029, FR-032; CP-02)
-- [x] T007 [assigned_to: Implementer] [effort: 2] Query layer in `bridge/src/utilities/query-layer/`:
-  - one interface over `node:sqlite` and mssql 12.7.13 (T-SQL);
-  - two-dialect versions of insert-or-update and paging, for use inside the accessors;
-  - a transaction helper that retries once on a transient error;
-  - a store-down error that managers turn into `BRIDGE_UNAVAILABLE`.
+- [ ] T041 [US2] [assigned_to: Implementer] [effort: 0.9] The event shape and the link's event messages:
+  - the event shape agents see, in `bridge/src/contract/`, checked against `specs/001-ring-mcp-bridge/contracts/events.schema.json`, with Ring's text fields marked untrusted in the schema;
+  - regenerated `schemas/`, with the snapshot check updated;
+  - the link's `event` message (home to core) and `event_ack` message (core to home) in `bridge/src/connector/clients/core-link/messages/` and `bridge/src/core/clients/connector-link/messages/`, added to link version 1 without a version bump;
+  - `specs/001-ring-mcp-bridge/contracts/connector-link.md` updated with both messages.
 
-  Integration tests run on SQLite and on the SQL Server container (Trace: FR-006; CP-03)
-- [x] T008 [assigned_to: Implementer] [effort: 1] Migrations and the iteration 001 schema in `bridge/src/utilities/query-layer/migrations/`:
-  - a forward-only, additive runner that runs at start;
-  - the tables `location`, `device` (with the column `kind` and `state_version`), the health snapshot, `setting`, `agent`, `connector`, `oidc_item` (PT-11) and `lease`.
+  Tests: a core that predates the messages ignores them without dropping the link; the schema snapshot changes only by additions (Trace: FR-008, FR-033, FR-046, FR-047; CP-08b)
+- [ ] T042 [P] [US2] [assigned_to: Implementer] [effort: 0.9] Normalize engine in `bridge/src/connector/engines/normalize/`. The failing test comes first:
+  - Ring's push payload becomes the bridge's event: an event id that is stable for the same Ring event, the kind, the device id, the location id and Ring's timestamp;
+  - Ring's text is carried as data and marked untrusted;
+  - a malformed or unknown payload returns a typed failure. It never throws and never produces a partial event.
 
-  The upgrade test (previous release to this one, on SQLite and on SQL Server) starts from an empty schema, because no release exists yet. Write the per-component DTO rule in `bridge/src/core/access/README.md`: rows map to DTOs inside each accessor, and State maps `kind` to the contract's `type` (PT-26) (Trace: FR-002, FR-006, FR-044; CP-03)
-- [x] T009 [P] [assigned_to: Implementer] [effort: 2] Scenario engine in `bridge/test/scenarios/`:
-  - **The simulated home:** about 100 devices of every supported type (contact, motion, flood, keypad, base station, camera, doorbell, light). It has:
-    - one location with a time zone and an alarm mode;
-    - a device named in Hebrew;
-    - low batteries and wired devices;
-    - offline devices.
-  - **Scripts and faults:** scripted state changes, and fault injection:
-    - Ring down, a 406, slow answers, and a lost session;
-    - link drops, delays and duplicates.
-  - **Driving:** the engine runs on the fake clock and implements the Ring Adapter's port. It replaces the adapter in tests and in the dev-only script.
+  Tests: every fixture from T038; the same Ring event twice gives the same event id; malformed input (Trace: FR-008, FR-033; CP-08b)
+- [ ] T043 [P] [US2] [assigned_to: Implementer] [effort: 0.9] Outbox Store, extended in `bridge/src/connector/access/outbox-store/`:
+  - events are held until the core's ack for that event id;
+  - a send window of about 50 unacked events;
+  - backoff on the oldest unacked event: 10 seconds, doubling to 5 minutes, with jitter;
+  - the backlog's size and the oldest event's age, for the heartbeat;
+  - a migration in `outbox-migrations.ts`.
 
-  Mirrors of the owner's home go only in the git-ignored `bridge/test/scenarios/local/` (Trace: FR-001, FR-002, FR-005, SC-006; CP-04)
-- [x] T010 [P] [assigned_to: Implementer] [effort: 1] Test support in `bridge/test/support/`:
-  - a second oidc-provider 9.13.3 standing in for Entra;
-  - MCP SDK client helpers for end-to-end tests (`@modelcontextprotocol/client` 2.4.0);
-  - a store-matrix fixture that runs an integration suite on SQLite and on SQL Server.
+  Tests, on the fake clock: the window never exceeds its size; the backoff series; an ack clears exactly one event; the queue survives a restart (Trace: FR-042, SC-002; CP-08b)
+- [ ] T044 [US2] [assigned_to: Implementer] [effort: 1.35] The home side joined up:
+  - Push Listener (`bridge/src/connector/clients/push-listener/`) hands each push to Ingest;
+  - Ingest (`bridge/src/connector/managers/ingest/ingest.ts`) normalizes it, writes it to the Outbox, then sends it;
+  - Core Link (`bridge/src/connector/clients/core-link/`) sends events up and takes acks in; Home Scheduler triggers the resends;
+  - the heartbeat carries the backlog's size and the oldest event's age;
+  - a malformed payload is logged by identifier and counted toward "push degraded" (a planning addition, pending the owner's decision in T037);
+  - logs carry identifiers only.
 
-  Also add `docker-compose.yml` at the root for the SQL Server container and Azurite (Trace: FR-029, FR-006; CP-04)
+  Tests: push to outbox to link on the scenario engine; a link drop and reconnect resends in order; no event text in any log line (Trace: FR-008, FR-034, FR-042; CP-08b)
+- [ ] T045 [P] [US2] [assigned_to: Implementer] [effort: 0.9] Classify engine in `bridge/src/core/engines/classify/`. The failing test comes first:
+  - FR-009's priority table as a data file beside the engine, validated when the core starts. A bad file stops the start with a clear error;
+  - the priority for an event comes from the table only. No priority is written in code;
+  - the late-event rule: an event is late when it was recovered after a gap or held at home for more than 2 minutes.
 
-**Verification**: `docker compose up -d`, `npx vitest run bridge/src/utilities bridge/test/scenarios bridge/test/support`
+  Tests: every row of the spec's table; an unknown kind gets the table's default; the 2-minute edge on the fake clock (Trace: FR-009, FR-013; CP-11b)
+- [ ] T046 [P] [US2] [assigned_to: Implementer] [effort: 1.35] Event Log and Audit resource access, in `bridge/src/core/access/event-log/` and `bridge/src/core/access/audit/`:
+  - Event Log: events in order per location, a sequence that never skips, the epoch, and a unique key on the event id for dedup;
+  - Audit: one record per event write, shaped so iteration 004's chain can be added without rewriting rows;
+  - migrations in `bridge/src/utilities/query-layer/migrations/` for both dialects;
+  - both take the caller's transaction. Neither opens its own.
 
-**Checkpoint**: the foundation is ready.
+  Tests, on SQLite and on the SQL Server container: the order per location; a duplicate event id is reported, not written twice; the sequence has no gap after a rolled-back write (Trace: FR-008, FR-011; CP-11b)
+- [ ] T047 [US2] [assigned_to: Implementer] [effort: 1.8] Event manager's event path in `bridge/src/core/managers/event/event-manager.ts`, with Connector Link (`bridge/src/core/clients/connector-link/`):
+  - one transaction per event: Classify, then Event Log, State and Audit together;
+  - the ack goes home only after the commit. A duplicate event id is acked without a second write;
+  - no event waits for a snapshot, and no event carries a frame link in this iteration;
+  - after the commit, the event is published for delivery. A delivery failure never rolls back the write;
+  - logs carry identifiers only.
 
----
-
-## Phase 4: User Story 1, ask about the home right now (Priority: P1) 🎯 MVP
-
-**Goal**: an agent that signed in through the bridge's own Issuer reads the overview, the device list, one device and the bridge's health. The data comes from the home connector over the WSS link, and every reply says when it was true and whether it is stale.
-**Independent test** (spec US1; quickstart Steps 3 and 4):
-
-- with the 100-device scenario engine, the mode A end-to-end suite calls the four read tools through the MCP SDK client;
-- the mode H integration tests sign in through the fake Entra and read through the real link on localhost;
-- checks: content, freshness markers, reply size (SC-006), and stale within 2 minutes after a loss (SC-005).
-
-**Depends on**: Phase 3. The order inside the phase is under "Dependencies".
-
-### The Public Contract
-
-- [x] T011 [US1] [assigned_to: Implementer] [effort: 1] Public Contract in `bridge/src/contract/`, following `contracts/mcp-tools.md` and `contracts/errors.md`:
-  - zod 4.6.7 schemas for the inputs and outputs of `get_overview`, `list_devices`, `get_device` and `get_health`;
-  - the reply envelope (`as_of`, `as_of_local`, `freshness`, `stale_since`, `data`) and the error envelope;
-  - every Ring-sourced field carries `x-untrusted: true` and says so in its description;
-  - every tool description ends with the untrusted-content sentence;
-  - a generator writes `schemas/` with `z.toJSONSchema`.
-
-  With the code, add three checks:
-  - the flat-schema check, which rejects `anyOf`, `oneOf`, `allOf`, `not`, `if`/`then`/`else`, `dependentRequired` and nullable types in inputs;
-  - the untrusted-marking check;
-  - the schema snapshot test, which fails on stale files or on any removal or narrowing.
-
-  The generated schemas match `contracts/iteration-001-tools.schema.json` (Trace: FR-033, FR-046, FR-047, FR-048; CP-05)
-
-### Home side
-
-- [x] T012 [P] [US1] [assigned_to: Implementer] [effort: 1] Secrets File in `bridge/src/connector/access/secrets-file/`:
-  - an encrypted file at home, whose key comes from a Docker secret;
-  - it holds the Ring refresh token, the push credentials, Ring's session hardware ID and the connector private key;
-  - writes are atomic when the token rotates;
-  - its values are never logged and never sent on the link.
-
-  Tests: a round trip; a wrong key fails closed; none of its values appears in logs or link frames (Trace: FR-032, FR-034; CP-06)
-- [x] T013 [P] [US1] [assigned_to: Implementer] [effort: 2] Ring Adapter in `bridge/src/connector/access/ring-adapter/`, over ring-client-api 14.3.0 (its only import site):
-  - **The interface:** only the bridge's own DTOs cross it:
-    - locations;
-    - devices, with `type`, room, battery, power mode, online state and state;
-    - device-change notifications;
-    - the session status: ok, unavailable or lost.
-  - **Names:** kept exactly as written, in any language, and marked untrusted.
-  - **The token:** the refresh token is saved to the Secrets File when it rotates.
-  - **The limits:**
-    - one shared limiter for every outgoing Ring call, with no polling bursts;
-    - a circuit that opens after 5 failures and probes once a minute;
-    - backoff of 1 to 30 s, randomised;
-    - a 406 counts as Ring unavailable.
-
-  Write the limiter, circuit and backoff tests first, on the fake clock. The Ring-boundary contract test asserts two things:
-  - no ring-client-api type, error or event crosses the adapter's interface;
-  - the scenario engine implements the same port.
-
-  (Trace: FR-026, FR-042, FR-002, FR-033, TG-004 with FR-026; CP-07)
-- [x] T014 [US1] [assigned_to: Implementer] [effort: 1] Outbox Store in `bridge/src/connector/access/outbox-store/` (the connector's own SQLite file), and Ingest's state path in `bridge/src/connector/managers/ingest/`:
-  - **Outbox rules:**
-    - a message is written before it is sent and cleared only on its `ack`;
-    - it is resent after 10 s without an ack, and the oldest is sent first on reconnect;
-    - the `state_version` counter is stored, so it survives a restart.
-  - **Ingest:** sends `inventory` (locations and devices) at every session start and on `inventory_request`, and sends `device_state` when a device changes. A `device_state` message carries the device's full current entry, never only the changed fields (DRIFT-001-06). Each location entry in `inventory` carries its own `state_version` from the same counter (DRIFT-001-08).
-
-  Tests:
-  - a restart with unacked messages;
-  - the resend timing, on the fake clock;
-  - versions that keep increasing across a restart.
-
-  (Trace: FR-042, FR-006; CP-08a)
-
-### The link
-
-- [x] T015 [US1] [assigned_to: Implementer] [effort: 1] Link transport in `bridge/src/utilities/link-transport/`, over ws 8.22.0:
-  - frame types and the protocol version;
-  - send priority: commands, events, state messages and heartbeats go before media chunks;
-  - WSS ping and pong;
-  - an in-memory link pair for tests.
-
-  It knows no Ring words and no bridge words (Trace: FR-046, FR-042; CP-09)
-- [x] T016 [US1] [assigned_to: Implementer] [effort: 1] Core Link and Home Scheduler at home, in `bridge/src/connector/clients/core-link/` and `bridge/src/connector/clients/home-scheduler/`:
-  - **Connecting:**
-    - dial out over WSS, with no inbound port;
-    - send `hello` with version 1, `key_id`, `connector_version` and `session_id`;
-    - sign the `challenge` with the connector key.
-  - **Messages:**
-    - send from the Outbox, and clear a message on its `ack`;
-    - answer `inventory_request`;
-    - send `enroll` with the public key and the printed code until `enrolled` arrives.
-  - **Staying connected:**
-    - reconnect with randomised backoff of 1 to 30 s, and be back within 60 s;
-    - send a heartbeat every 15 s, with the Ring session, push, outbox depth, last Ring event and error counts;
-    - run the 10 s resend tick.
-
-  (Trace: FR-032, FR-042, FR-005; CP-09)
-- [x] T017 [US1] [assigned_to: Implementer] [effort: 1] Connector Link in the core, in `bridge/src/core/clients/connector-link/`, the WSS upgrade endpoint:
-  - **Version:** accept version 1. The N-1 rule is coded now, and its test comes with the first version bump (PT-07).
-  - **Identity:**
-    - check that the key is enrolled in Settings;
-    - issue a fresh challenge and verify its signature;
-    - close with a reason when the version is not accepted, the key is not enrolled or is revoked, or the challenge fails.
-  - **Enrollment:** hold `enroll` requests for the admin page.
-  - **Messages:** declare the home-to-core messages. Hand `inventory`, `device_state` and heartbeats to the Event manager, and send `ack` only after the commit.
-
-  Tests:
-  - the link version-1 contract test on both ends;
-  - the real WSS on localhost with drops, delays and duplicates, reconnecting within 60 s.
-
-  (Trace: FR-032, FR-046, FR-042; CP-09)
-
-### Core state and the read path
-
-- [x] T018 [US1] [assigned_to: Implementer] [effort: 1] Event manager intake in `bridge/src/core/managers/event/`, and the Health engine's link rules in `bridge/src/core/engines/health/`:
-  - **State:**
-    - apply `inventory` and `device_state` to State latest-wins by `state_version`, per device and per location, in one transaction, and only then ack (a failed commit is not acked);
-    - a new enrollment resets the stored versions.
-  - **Health:**
-    - heartbeats update the Ring session and the outbox depth;
-    - after 2 minutes without a heartbeat, the home shows offline, with `stale_since`;
-    - health changes are published on Pub/Sub.
-
-  Write the Health engine tests first, on the fake clock:
-  - offline after 2 minutes, and the recovery;
-  - lower or equal versions are ignored;
-  - no field is lost (DRIFT-001-06). Version 10 changes the battery and its commit fails. Version 11 changes `online` and commits. The resend of version 10 is then ignored, and State holds version 11's full entry, which already includes version 10's battery change;
-  - no location rolls back (DRIFT-001-08). Inventory A fails to commit. Newer inventory B commits with a changed alarm mode. Then A is resent: its location fields are ignored, and the overview still shows B's alarm mode.
-
-  (Trace: FR-005, FR-006, SC-005; CP-11a)
-- [x] T019 [P] [US1] [assigned_to: Implementer] [effort: 1] State accessor in `bridge/src/core/access/state/`:
-  - holds `location`, `device` and the health snapshot;
-  - inserts or updates devices and locations latest-wins by `state_version` (DRIFT-001-08);
-  - its DTOs carry `type`, mapped from `kind` (PT-26);
-  - raises the store-down error.
-
-  Integration tests run on SQLite and on SQL Server (Trace: FR-002, FR-006; CP-14)
-- [x] T020 [US1] [assigned_to: Implementer] [effort: 1] Summary engine in `bridge/src/core/engines/summary/`:
-  - it composes the overview: alarm mode, open contacts, active motion, offline devices, low batteries below the configured threshold, and health;
-  - it composes the default device list;
-  - both stay within about 8,000 tokens, estimated as characters ÷ 3, rounded up (PT-22).
-
-  Write its tests first. The agent-economy test runs `get_overview` and `list_devices` on the 100-device fixture and asserts the budget (Trace: FR-001, SC-006; CP-14)
-- [x] T021 [US1] [assigned_to: Implementer] [effort: 1] Inquiry manager in `bridge/src/core/managers/inquiry/`:
-  - **Tools:**
-    - `get_overview`;
-    - `list_devices`, with the filters `type` and `room`;
-    - `get_device`, with `NOT_FOUND` for an unknown id;
-    - `get_health`.
-  - **Freshness:**
-    - every reply carries `as_of` in UTC, `as_of_local` in the location's time zone, and `freshness`;
-    - while the home link is down, the last known state is returned as `stale`, with `stale_since`;
-    - when the store is down, reads fail with `BRIDGE_UNAVAILABLE` (retryable), never with stale data.
-  - **An omitted `location_id`:** resolves to the only owned location. Otherwise the call fails with `INVALID_ARGUMENT`, listing the location ids.
-
-  Tests:
-  - the freshness test: Ring down by fault injection, on the fake clock, must show stale within 2 minutes;
-  - stale while the home link is down;
-  - the store-down test;
-  - the Hebrew-name test, through `list_devices`.
-
-  (Trace: FR-001, FR-002, FR-005, FR-006, SC-005; CP-14)
-
-### Agent access
-
-- [x] T022 [US1] [assigned_to: Implementer] [effort: 1] Core accessors for sign-in, with their tests:
-  - `bridge/src/core/access/grants/`: the generic `oidc_item` `(model, id)` table (PT-11).
-  - `bridge/src/core/access/settings/`:
-    - the agent allowlist, seeded from deployment configuration: client ids, redirect URIs and scopes, read only in iteration 001 (PT-18);
-    - the `connector` rows: pending, enrolled or revoked;
-    - the global battery threshold.
-  - `bridge/src/core/access/secrets/`: Key Vault in mode H, through `@azure/identity` 4.14.1 and `@azure/keyvault-secrets` 4.12.0, and the encrypted local file in mode A. It holds `issuer-signing-keys`.
-
-  (Trace: FR-029, FR-030, FR-032; CP-16)
-- [x] T023 [US1] [assigned_to: Implementer] [effort: 2] Issuer in `bridge/src/core/clients/issuer/`, with oidc-provider 9.13.3 under `/oauth`:
-  - **Metadata:** the authorization-server metadata advertises PKCE `S256`, `client_id_metadata_document_supported: true`, and `none` among the token auth methods.
-  - **Clients:** CIMD first, DCR as the fallback, and listed agents only. The owner consents through the Entra sign-in.
-  - **Tokens:**
-    - access tokens last 1 hour;
-    - refresh tokens rotate and end after 30 days unused or 90 days at most, then answer `invalid_grant`;
-    - tokens are bound to the owner's `sub` and to the client;
-    - only the `read` scope is granted in iteration 001.
-  - **Keys:** signing keys come from Secrets, and the previous key is kept for checking.
-
-  Tests against the fake Entra:
-  - sign-in;
-  - an unlisted client is refused;
-  - lifetimes and rotation, on the fake clock;
-  - a reused refresh token is refused.
-
-  (Trace: FR-029, FR-030; CP-16)
-- [x] T024 [US1] [assigned_to: Implementer] [effort: 1] MCP Endpoint in `bridge/src/core/clients/mcp-endpoint/`, with `@modelcontextprotocol/server` 2.4.0, `@modelcontextprotocol/hono` 2.0.2 and hono 4.13.14:
-  - **Transport:** Streamable HTTP serving both protocol eras (2026-07-28 and the earlier one) on one endpoint in mode H. In mode A, stdio or an endpoint bound to localhost.
-  - **Tools:** the four read tools from the Public Contract.
-  - **Tokens:** bearer tokens are checked against the Issuer before the manager is called:
-    - 401 with `WWW-Authenticate` when a token is missing or invalid;
-    - 403 when the `read` scope is missing.
-  - **Discovery:** the protected-resource metadata (RFC 9728).
-  - **Deadline:** 60 s, answered with `TIMEOUT`.
-
-  Tests:
-  - contract tests for both eras, through the MCP SDK client;
-  - the completeness check: every iteration 001 tool and error code has a test.
-
-  (Trace: FR-029, FR-030, FR-047; CP-15)
-- [x] T025 [US1] [assigned_to: Implementer] [effort: 1] Read rate limit in `bridge/src/core/clients/mcp-endpoint/`:
-  - 600 reads an hour per client by default (from Config);
-  - counters live in memory and reset on restart;
-  - `RATE_LIMITED` comes with `retry_after_s`.
-
-  Add the CI read-latency check: tool reads take at most 0.5 s at the 95th percentile inside the bridge (plan.md "Performance Goals", the `bridge-latency-budget` gate) (Trace: FR-026, FR-030, FR-001; CP-15)
-
-### Host
-
-- [x] T026 [US1] [assigned_to: Implementer] [effort: 1] Lease accessor in `bridge/src/core/access/lease/`:
-  - one lease row per Ring account, renewed every 15 s, expiring after 45 s;
-  - an instance without the lease controls nothing (fail closed) and reports that it lacks the lease.
-
-  Tests: two instances on the fake clock; the lease lapses when the database is down (Trace: FR-044; CP-10)
-- [x] T027 [US1] [assigned_to: Implementer] [effort: 1] Host in `bridge/src/host/`:
-  - **Wiring:** `main.ts` loads `core.ts`, `connector.ts` or `all-in-one.ts` by the Config run mode. Each process has one Link transport, and mode A wires the home side to the core side in the same process.
-  - **Health endpoints:**
-    - `/livez`: the process and its event loop are alive;
-    - `/readyz`: the database is reachable, the lease is held, and secrets are loaded.
-  - **Dev script:** a dev-only npm script starts all-in-one with the scenario engine in place of Ring Adapter. It is left out of the production image.
-  - **Image:** `bridge/Dockerfile` builds one image for core and connector, for amd64 and arm64.
-
-  Test: the mode A end-to-end suite, driven by the MCP SDK client against the scenario engine, calls the four read tools (Trace: FR-044, FR-001, FR-002, FR-005, FR-006; CP-10)
+  Tests: the three independent tests above, including the kill between commit and ack; a failed State write rolls back the Event Log and the Audit; two locations in parallel keep their own order (Trace: FR-008, FR-014, FR-034, SC-002; CP-11b)
 
 **Verification**: `tsc --noEmit`, `npx vitest run --coverage` (90% lines, 85% branches), `npx depcruise bridge shim --config .dependency-cruiser.cjs`, the schema snapshot check
 
-**Checkpoint**: US1 works end to end in mode A and in the mode H integration tests.
+**Checkpoint**: events flow from a push to the core's log, once each, in mode A and in the mode H integration tests.
 
 ---
 
-## Phase 5: User Story 6 in part, enrollment and the minimal admin page (Priority: P2)
+## Phase 4: User Story 2, ChatGPT delivery and the dot (Option B, step 3)
 
-**Goal**: the owner sets up the home connector and approves its enrollment on a minimal admin page that also shows health (US6 scenario 1; FR-040 in part).
+**Goal**: a HIGH event reaches ChatGPT as an MCP Event within the 10-second budget, the dot lights, and an independent review reads the path at its midpoint.
+**Independent test**: a doorbell press at the owner's home lights ChatGPT's dot. The core's log shows the time from Ring's trigger to ChatGPT accepting the webhook, per event.
+**Depends on**: Phase 3 and T039's finding. T049 needs T048 deployed, with the owner's OK. T050 follows T049.
+
+- [ ] T048 [US2] [assigned_to: Implementer] [effort: 1.8] Delivery to ChatGPT, in `bridge/src/core/access/delivery/` and `bridge/src/core/clients/mcp-endpoint/`:
+  - the subscription call as OpenAI's draft publishes it, for clients with the read scope only;
+  - each subscription's callback address and signing secret stored in the database, encrypted, through `bridge/src/core/access/subscriptions/` (the store's cursor fields come in T051);
+  - callbacks go out through the bounded fetch: only the hosts T039 found, HTTPS only, with a time limit and a size limit, and no redirects;
+  - each webhook is signed as the draft requires; HIGH and MEDIUM are pushed at least once, and the event id lets the client drop repeats;
+  - Ring's text in the payload is marked untrusted;
+  - one client's failed delivery never blocks the others (a planning addition, pending the owner's decision in T037);
+  - the time from Ring's trigger to the webhook's acceptance is logged per event, by identifier.
+
+  Tests: against a stub receiver: the signature verifies; a callback outside the allowlist is refused; a slow receiver times out and is retried; a client without the read scope cannot subscribe (Trace: FR-010, FR-012, FR-030, FR-033, SC-001; CP-13)
+- [ ] T049 [US2] [assigned_to: Owner, with the Implementer] [effort: 1.8] The dot and the first end-to-end latency samples:
+  - deploy the core and update the home connector, each with the owner's explicit OK;
+  - the owner connects ChatGPT to the new core and reads the home once (the agent read carried from iteration 001);
+  - at least ten real events: the logged time from Ring's trigger to ChatGPT accepting the webhook, against SC-001's 10 seconds;
+  - the owner's stopwatch samples of the dot, recorded beside the logged times;
+  - the samples go in the pilot journal; the summary without home details goes in `specs/001-ring-mcp-bridge/iterations/002/state.md`.
+
+  (Trace: FR-010, FR-012, SC-001; CP-21b)
+- [ ] T050 [assigned_to: Reviewer] [effort: 1.8] Midpoint independent review, after the dot (iteration 001's Lesson 6): one co-review run through specrew-review over Phases 2 to 4, on the owner's "approved for review round". Findings go to T060 before Phase 5 builds on the path (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-MR)
+
+**Verification**: `npx vitest run bridge/src/core/access/delivery bridge/src/core/clients/mcp-endpoint`, the deploy workflow's smoke test, and the pilot journal entries
+
+**Checkpoint**: the dot lights from a real doorbell press, and SC-001 has its first measured samples.
+
+---
+
+## Phase 5: User Story 2 and User Story 1, cursors, catch-up and health (Option B, step 4)
+
+**Goal**: an agent reads every event after its cursor; events missed during a gap come back marked late with one summary; Ring going down is itself an event; `get_health` is complete.
 **Independent test**:
 
-- the Setup CLI, run against the scenario engine, creates the key pair and prints a code;
-- on the admin page, the owner compares and approves the code, and an older key is revoked;
-- Playwright checks the page at three widths, in both themes.
+1. An agent that reads with `get_events` from its cursor, across a core restart and a dropped link, sees every HIGH event exactly once.
+2. After a simulated 3-hour gap, the missed events are stored late, none is pushed one by one, and one recovery summary is pushed.
+3. Ring down for more than 2 minutes raises one HIGH health event, and its return raises one recovery event.
 
-**Depends on**: T012 and T013 (Setup CLI); T017, T021 and T023 (admin page).
+**Depends on**: Phase 3. T051 before T052. T053 before T054. T055 can run beside them.
 
-- [x] T028 [US6] [assigned_to: Implementer] [effort: 1] Setup CLI in `bridge/src/connector/clients/setup-cli/`:
-  - the owner runs the Ring login with 2FA; the agent never does;
-  - it saves the Ring secrets to the Secrets File;
-  - it creates the connector key pair, and the private key never leaves home;
-  - it prints the one-time enrollment code, which the connector also logs.
+- [ ] T051 [US2] [assigned_to: Implementer] [effort: 0.9] Subscriptions store's cursors in `bridge/src/core/access/subscriptions/`:
+  - each client's cursor per location, with the epoch, and its last-read mark;
+  - each client's delivery state (opt-ins come in iteration 003);
+  - a cursor never skips an event and survives a restart; an epoch change is reported to the reader, never hidden;
+  - a migration for both dialects.
 
-  Tests use the scenario engine in place of Ring (Trace: FR-032; CP-06)
-- [x] T029 [US6] [assigned_to: Implementer] [effort: 1] Minimal admin page in `bridge/src/core/clients/web/`: server-rendered with hono, for the owner only, behind a fresh Entra sign-in.
-  - **The Health section:**
-    - the `get_health` data, read through Inquiry and polled every 15 s;
-    - "connector behind";
-    - banners with what to do when the home is offline, the Ring session is lost or the store is down.
-  - **The Enroll connector section:**
-    - shows the pending request's code, to compare with the connector's log;
-    - approving needs a sign-in under 5 minutes old and a typed confirmation;
-    - approval writes the enrollment to Settings, revokes any older key, and resets the stored state versions.
-  - **The page:**
-    - three widths;
-    - dark by default, with a light switch remembered per browser;
-    - every status as a word and an icon;
-    - keyboard use and readable contrast;
-    - English.
+  Tests: restart; two clients with separate cursors; an old-epoch cursor (Trace: FR-010, FR-011; CP-12)
+- [ ] T052 [US2] [assigned_to: Implementer] [effort: 0.9] `get_events`, in `bridge/src/contract/`, `bridge/src/core/managers/inquiry/` and `bridge/src/core/clients/mcp-endpoint/`:
+  - input: a cursor, filters by priority, kind and device, and a limit. The input schema is flat: enums and optional fields only;
+  - output: events after the cursor, in order, and a next cursor; Ring's text is marked untrusted in the tool's description and schema;
+  - the read scope is required, and each call counts against the read limit;
+  - checked against `specs/001-ring-mcp-bridge/contracts/iteration-002-tools.schema.json`; `schemas/` regenerated; `specs/001-ring-mcp-bridge/contracts/mcp-tools.md` updated.
 
-  Playwright smoke checks run at the three widths, in both themes, one per page state (Trace: FR-040, FR-005, FR-032; CP-17)
+  Tests: the first independent test above; paging to the end; a filter that matches nothing; the 601st read in an hour is refused; a token without the read scope is refused (Trace: FR-011, FR-026, FR-030, FR-047, FR-048, SC-002; CP-12)
+- [ ] T053 [US2] [assigned_to: Implementer] [effort: 1.35] Catch-up at home, in `bridge/src/connector/managers/ingest/` and `bridge/src/connector/access/outbox-store/`:
+  - the catch-up mark: the last Ring event known to be in the Outbox;
+  - after a push gap or a restart, Ring's history is read from the mark, up to 24 hours back, through the shared Ring limiter with backoff, never in a burst;
+  - recovered events go through Normalize and the Outbox with the same event ids as their pushes would have had, marked late;
+  - an event held at home for more than 2 minutes is marked late when it is sent;
+  - the link reconnects within 60 seconds of a drop, with growing, randomised delays.
 
-**Verification**: `npx vitest run bridge/src/connector/clients/setup-cli bridge/src/core/clients/web`, `npx playwright test`
+  Tests, on the fake clock: a 3-hour gap; a 30-hour gap recovers only 24 hours and says so; an event seen both by push and by catch-up is stored once; the limiter is never exceeded (Trace: FR-013, FR-026, FR-042; CP-08b)
+- [ ] T054 [US2] [assigned_to: Implementer] [effort: 0.9] Late events and the recovery summary, in `bridge/src/core/managers/event/`:
+  - a late event is stored with its late marker and its priority, and is never pushed by itself;
+  - when a batch of late events ends, one recovery summary is pushed: the count, the time range, the sequence range and the highest priority among them;
+  - `get_events` returns late events in their place in the order, with the marker.
 
----
+  Tests: the second independent test above; a single late event still gives one summary; a HIGH late event shows in the summary's highest priority (Trace: FR-013; CP-11b)
+- [ ] T055 [P] [US1] [assigned_to: Implementer] [effort: 1.35] Health completed, in `bridge/src/core/engines/health/`, `bridge/src/core/managers/inquiry/` and a new `bridge/src/core/clients/scheduler/`:
+  - Ring down for more than 2 minutes raises one HIGH health event through the event path; its return raises one recovery event;
+  - `get_health` adds push reception, the last event received and the home's backlog (size and the oldest's age);
+  - the core's Scheduler: minute ticks for the home-offline check and the purge of events older than 30 days;
+  - the CI latency check of 0.5 seconds is extended to the event path's write.
 
-## Phase 6: Hybrid Deployment and the First Agent Trial
+  Tests: the third independent test above; flapping under 2 minutes raises nothing; the purge keeps day 30 and removes day 31; `get_health`'s new fields on a stale home (Trace: FR-005, FR-008, FR-015, SC-005; CP-11b)
 
-**Goal**: the core runs on Azure from a gated pipeline, and real agents read the home through Entra sign-in. The 7-day Ring-session soak starts.
-**Independent test**: quickstart Steps 5 to 8. The deploy's smoke test passes on `/readyz` and `get_health`. Claude Code, claude.ai and ChatGPT read the home after signing in.
-**Depends on**: T030 and T031 can start after T002. T032 needs T027 and T030. T033 needs T028, T029 and T032.
+**Verification**: `tsc --noEmit`, `npx vitest run --coverage`, the schema snapshot check, `npx depcruise bridge shim --config .dependency-cruiser.cjs`
 
-- [x] T030 [P] [assigned_to: Implementer] [effort: 1] Bicep in `infra/`: `main.bicep` and its modules, in the region Israel Central.
-  - **App Service B1 Linux:**
-    - one instance, Always On, WebSockets, VNet integration;
-    - the health check on `/readyz`, and auto-heal on `/livez`.
-  - **Other resources:** Azure SQL Basic, Blob, Key Vault, the core's user-assigned managed identity, and Log Analytics.
-  - **Secrets:** no deploy creates or writes a secret value, and nothing is a placeholder (PT-03, DRIFT-001-05). Until `issuer-signing-keys` is set, `/readyz` reports not ready and names it. `pin-hash` arrives with disarm in iteration 004.
-  - **Owner values:** a committed example parameter file holds placeholders only, and the real values stay in a git-ignored local file.
-
-  Checks: `az bicep build` and the PR what-if (Trace: FR-044, FR-032, SC-011; CP-19)
-- [x] T031 [P] [assigned_to: Implementer] [effort: 1] The bootstrap and the Entra runbook.
-
-  The bootstrap is `infra/bootstrap/bootstrap.ps1`, in PowerShell 7 (PT-05):
-  - **Parameters:** `-SubscriptionName`, `-GitHubRepo <owner>/<repo>`, `-RegistryName` and `-Apply`.
-  - **Safety:**
-    - it only prints its steps unless `-Apply` is passed;
-    - there is no default subscription;
-    - every step checks first and skips work already done.
-  - **Its steps:**
-    1. The owner signs in with `az login`.
-    2. Pick `<subscription>`.
-    3. Create `<resource-group>`.
-    4. Create the deploy identity: a user-assigned managed identity with a GitHub OIDC federated credential, and no password or secret.
-    5. Give it its roles:
-       - Contributor on the resource group;
-       - role assignment limited to an allow-list that includes Key Vault Secrets Officer;
-       - AcrPush on `<registry>` only.
-    6. Set the GitHub environment variables with `gh`.
-    7. After the first deploy (T032), set the first issuer signing key (PT-03, DRIFT-001-05):
-       - with the owner's own sign-in, generate the key in memory and write it straight to Key Vault as `issuer-signing-keys`;
-       - it never touches the disk, the console output or the repository;
-       - skip if the secret already exists. Later keys come from the core's 90-day rotation (PT-04).
-
-  The runbook is `infra/bootstrap/entra-app-registration.md`. It covers the owner's one-time Entra app registration and the SQL break-glass group (PT-06). The IDs go into GitHub environment variables and are never committed (Trace: FR-029, FR-032; CP-19)
-- [x] T032 [assigned_to: Implementer] [effort: 1] Deploy workflow `.github/workflows/deploy.yml`:
-  - **On a PR:** a Bicep what-if on `infra/`.
-  - **On a merge to `main`:**
-    1. The mode H end-to-end job: the core and connector containers run with SQL Server and Azurite, and an agent signs in through the fake Entra and reads through the link.
-    2. Push the core image to `<registry>`, and the connector image to ghcr.io (amd64 and arm64).
-    3. Wait for the owner's approval on the GitHub environment.
-    4. Deploy the Bicep and the core.
-    5. Run the smoke test on `https://<core-host>/readyz` and `get_health`. On the very first deploy, `/readyz` reports `issuer-signing-keys` missing. The owner runs the bootstrap's step 7 (T031), then reruns the smoke test.
-  - **Rollback:** redeploy the previous image.
-
-  (Trace: FR-044, FR-029, FR-001; CP-19)
-- [x] T033 [US1] [assigned_to: Implementer] [effort: 1] The first agent trial and the soak, with the owner. The owner performs every sign-in and the Ring login.
-  1. Deploy to the owner's subscription.
-  2. On the home VM, run the Setup CLI. Start the connector with `unless-stopped`, the Docker health check and log rotation (PT-02). Approve its code on the admin page.
-  3. Connect Claude Code, claude.ai and ChatGPT through Entra. From each, call `get_overview`, `list_devices`, `get_device` and `get_health`.
-  4. Stop the connector for 3 minutes, and check that replies come back stale, with `stale_since`.
-  5. Start the SC-003 7-day Ring-session soak.
-  6. Check the clock sync, the App Service health check and auto-heal, and the bill against the $30 ceiling.
-
-  Results go in the owner's pilot journal, outside the repository, with no owner identifiers in git (Trace: SC-003, SC-005, SC-011, FR-029, FR-001, FR-042; CP-21a)
-
-**Verification**: `az bicep build --file infra/main.bicep`, `pwsh -File infra/bootstrap/bootstrap.ps1` (print-only), the workflow's smoke test, and the pilot journal entries
+**Checkpoint**: US2's acceptance scenarios pass on the simulated home, and SC-002's kill-and-restart and dropped-link tests read every event from the cursor.
 
 ---
 
-## Phase 7: Review and Rework
+## Phase 6: The alert rule and the listen stream (Option B, step 5)
 
-**Goal**: the reviewed, signed-off iteration, with its evidence and the fixes its findings need.
+**Goal**: the owner hears out of band when the bridge cannot speak for itself, and clients on the earlier protocol version receive pushed events.
+**Independent test**: stopping the home connector for 10 minutes sends one email and one SMS to the owner. A client on the earlier protocol version that opens the listen stream receives a HIGH event.
+**Depends on**: Phase 5 (the backlog and the health fields). T056 and T057 are independent.
+
+- [ ] T056 [P] [assigned_to: Implementer] [effort: 2.25] One Azure Monitor alert rule, by email and SMS, in `infra/modules/` and `infra/main.bicep`:
+  - the conditions: no heartbeat for 10 minutes; the home offline over 10 minutes; the oldest unacked event waiting over about 5 minutes; the Ring session lost;
+  - the core logs each condition as a structured signal the rule reads, by identifier only (`bridge/src/core/engines/health/`);
+  - the owner's email and phone are parameters with placeholders. Real values are entered as GitHub Actions secrets at deploy time (quickstart.md) and are never committed;
+  - SMS to an Israeli number: confirm it is delivered. If it is not, bring the choice to the owner;
+  - the deploy needs the owner's explicit OK. Cost: about $1.50 a month plus cents per SMS (estimate from list prices).
+
+  Tests: `az bicep build`; the infra tests in `bridge/test/infra/`; the independent test above, once, on the real deployment (Trace: FR-043, SC-010; CP-18)
+- [ ] T057 [P] [US2] [assigned_to: Implementer] [effort: 0.9] The minimal listen stream for earlier-era clients, in `bridge/src/core/access/delivery/` and `bridge/src/core/clients/mcp-endpoint/`:
+  - a client on the earlier protocol version receives HIGH and MEDIUM events as notifications on its open stream, at least once, with the event id for dedup;
+  - the stream is a hint. The client's cursor and `get_events` stay the source of truth;
+  - the channel shim for a desktop coding agent is not built (DRIFT-002-02).
+
+  Tests: both protocol eras in `bridge/test/mcp-endpoint/`; a closed stream loses nothing that `get_events` cannot read (Trace: FR-010, FR-012; CP-13)
+
+**Verification**: `az bicep build --file infra/main.bicep`, `npx vitest run bridge/test/infra bridge/test/mcp-endpoint`
+
+---
+
+## Phase 7: Review, Rework and the Carried Pilot Reads
+
+**Goal**: the reviewed, signed-off iteration, with its evidence, the fixes its findings need, and the pilot's two carried results.
 **Independent test**: the review-signoff evidence gate finds every reviewer artifact. `validate-governance.ps1` passes.
-**Depends on**: T034 runs alongside Phases 2 to 6. T035 needs T033. T036 follows the findings.
+**Depends on**: T058 runs alongside Phases 3 to 6. T059 needs Phases 2 to 6. T060 follows the findings. T061 follows the calendar.
 
-- [x] T034 [assigned_to: Reviewer] [effort: 1] Run continuous co-review during implement, with the reviewer host (codex) through specrew-review: one run per finished group (foundation, home side, link, core read path, sign-in, admin page, deploy). Findings are recorded for rework (Trace: FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048; CP-RV)
-- [x] T035 [assigned_to: Reviewer] [effort: 1] Assemble the review-signoff evidence:
-  - the drift check (specrew-drift-check) into `iterations/001/drift-log.md`;
-  - `iterations/001/quality/mechanical-findings.json` (dead-field, anti-pattern, test-integrity);
-  - `iterations/001/quality/quality-evidence.md`: the stack tooling, plus the three restored reviews (concurrency, resiliency, retry and idempotency);
-  - the lens evidence under `iterations/001/quality/lenses/`: security-baseline, robustness-baseline and test-integrity;
+- [ ] T058 [assigned_to: Reviewer] [effort: 1.8] Run continuous co-review during implement, with the reviewer host (codex) through specrew-review: one run per finished group (the home event path, the core event path, delivery, cursors and catch-up, the alert rule), each on the owner's "approved for review round". After each round, tag its reviewed tree and push the tag (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-RV)
+- [ ] T059 [assigned_to: Reviewer] [effort: 0.9] Assemble the review-signoff evidence under `specs/001-ring-mcp-bridge/iterations/002/`:
+  - the drift check (specrew-drift-check) into `drift-log.md`;
+  - `quality/mechanical-findings.json` and `quality/quality-evidence.md`, with the three restored reviews (concurrency, resiliency, retry and idempotency);
+  - the lens evidence under `quality/lenses/`;
   - the reviewer artifacts: `review.md`, `code-map.md`, `coverage-evidence.md`, `reviewer-index.md`, `review-diagrams.md` and `dependency-report.md`;
-  - a walk through the iteration 001 rows of quickstart.md Step 9.
+  - a walk through the iteration 002 rows of quickstart.md.
 
-  (Trace: FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048, SC-003, SC-005, SC-006, SC-011; CP-RV)
-- [x] T036 [assigned_to: Implementer] [effort: 3] Rework reserve: fixes for review findings, about 10% of the iteration. Points left unused are reported at the retro, never spent on new scope (Trace: FR-001, FR-002, FR-005, FR-006, FR-026, FR-029, FR-030, FR-032, FR-033, FR-034, FR-040, FR-042, FR-044, FR-046, FR-047, FR-048; CP-RW)
+  (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048, SC-001, SC-002, SC-005, SC-010; CP-RV)
+- [ ] T060 [assigned_to: Implementer] [effort: 3.6] Rework reserve: fixes for the midpoint review's and the co-review's findings, each with its failing test first. Points left unused are reported at the retro, never spent on new scope (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-RW)
+- [ ] T061 [assigned_to: Implementer, with the owner] [effort: 0.9] The carried pilot reads:
+  - about 2026-11-21: the 7-day soak's result and the clock check at its end, including the Ring session's re-establishment on 2026-11-16, against SC-003;
+  - at month end: the month's bill against SC-011's $30 ceiling;
+  - both results go in `specs/001-ring-mcp-bridge/iterations/002/state.md` without home or account details, and in the pilot journal with them.
+
+  (Trace: FR-042, SC-003, SC-011; CP-PJ)
 
 **Verification**: `pwsh -File .specify/extensions/specrew-speckit/scripts/validate-governance.ps1 -ProjectPath .`
 
@@ -528,132 +314,121 @@ From plan.md "Project Structure" (code-implementation I5.2): one npm workspace w
 
 ### Phase Dependencies
 
-- **Phase 1 (hardening review)** comes first. No implementation task starts before the hardening sign-off and the owner's before-implement approval.
-- **Phase 2 (setup)**, then **Phase 3 (foundational)**. Phase 3 blocks every story task.
-- **Phase 4 (US1)** needs Phase 3.
-- **Phase 5 (US6 in part)** needs the US1 tasks named in its header.
-- **Phase 6:** T030 and T031 can run early. T032 and T033 close the iteration.
-- **Phase 7:** T034 runs alongside, and T035 and T036 come last.
+- **Phase 1** (T037): after the tasks approval. It blocks all code.
+- **Phase 2** (T038, T039, T040): after Phase 1 and the before-implement approval. The three run in parallel.
+- **Phase 3** (T041 to T047): after T038.
+- **Phase 4** (T048, T049, T050): after Phase 3 and T039.
+- **Phase 5** (T051 to T055): after Phase 3. It starts after T050, so the midpoint review's findings come first.
+- **Phase 6** (T056, T057): after Phase 5.
+- **Phase 7**: T058 alongside; T059 and T060 at the end; T061 by the calendar.
 
-### Inside Phase 4 (US1)
+### Inside Phase 3
 
-- T011 is needed by T024.
-- T012 and T013 run in parallel after T006 and T009.
-- T014 needs T007 and T008.
-- T015 is needed by T016 and T017.
-- T016 needs T012, T014 and T015.
-- T017 needs T015 and T022 (enrolled keys live in Settings).
-- T018 needs T017 and T019.
-- T019 needs T008.
-- T020 needs T019.
-- T021 needs T018 and T020.
-- T022 needs T008.
-- T023 needs T010 and T022.
-- T024 needs T011, T021 and T023.
-- T025 needs T024.
-- T026 needs T008.
-- T027 needs T016, T017, T024 and T026.
+```text
+T041 -> T042 -> T044
+T041 -> T043 -> T044
+T041 -> T045 -> T047
+T041 -> T046 -> T047
+T044 + T047 -> the end-to-end tests
+```
 
 ### Shared Files (why some tasks are serial)
 
-- `bridge/src/utilities/**` is shared by CP-02, CP-03 and CP-09, so T005 and T006 run in parallel only because their subfolders differ. T007, T008 and T015 run one at a time.
-- T024 and T025 share `bridge/src/core/clients/mcp-endpoint/`, so they run in order.
-- `.github/**` is shared by T004 and T032, which are far apart in time.
+- `bridge/src/core/clients/mcp-endpoint/`: T039, T048, T052 and T057, in that order.
+- `bridge/src/core/managers/event/`: T047, then T054.
+- `bridge/src/connector/managers/ingest/` and `bridge/src/connector/access/outbox-store/`: T043 and T044, then T053.
+- `bridge/src/core/access/subscriptions/`: T048, then T051.
+- `bridge/src/contract/` and `schemas/`: T041, then T052.
 
 ---
 
 ## Parallel Examples
 
 ```text
-# Phase 3, after Phase 2:
-Task: "T005 Logging utility in bridge/src/utilities/logging/"
-Task: "T006 Utilities in bridge/src/utilities/{security,pub-sub,config,clock}/"
-Task: "T009 Scenario engine in bridge/test/scenarios/"
-Task: "T010 Test support in bridge/test/support/ and docker-compose.yml"
+# Phase 2, after Phase 1:
+T038 (push probe)   T039 (MCP Events probe)   T040 (Spike S1)
 
-# Phase 4, home side, after Phase 3:
-Task: "T012 Secrets File in bridge/src/connector/access/secrets-file/"
-Task: "T013 Ring Adapter in bridge/src/connector/access/ring-adapter/"
-Task: "T019 State accessor in bridge/src/core/access/state/"
+# Phase 3, after T041:
+T042 (Normalize)   T043 (Outbox Store)   T045 (Classify)   T046 (Event Log, Audit)
 
-# Phase 6, at any point after Phase 2:
-Task: "T030 Bicep in infra/"
-Task: "T031 Bootstrap and runbook in infra/bootstrap/"
+# Phase 6:
+T056 (alert rule)   T057 (listen stream)
 ```
+
+One implementer does the work, so "parallel" here means the order is free, not that two agents write at once (plan.md, Concurrency Rationale).
 
 ---
 
 ## Implementation Strategy
 
-### MVP First
+### Risk First
 
-1. Phase 1: hardening sign-off, then the owner's before-implement approval.
-2. Phases 2 and 3: the foundation.
-3. Phase 4 up to T027: **stop and check that US1 runs end to end in mode A**, with the four read tools against the 100-device scenario engine and the freshness and agent-economy tests green.
-4. Then the mode H path: the link integration tests, sign-in through the fake Entra.
+1. Phase 1, then the three probes.
+2. The event path, once, with its guarantees.
+3. ChatGPT delivery and the dot. **Stop and review** (T050).
 
 ### Incremental Delivery
 
-1. Mode A, end to end (T027).
-2. The admin page and enrollment (T028, T029).
-3. The hybrid deploy (T030 to T032).
-4. Real agents and the soak (T033).
+1. After Phase 3: events are durable in the core. Nothing is pushed yet.
+2. After Phase 4: the dot lights. SC-001 has samples.
+3. After Phase 5: `get_events`, catch-up and complete health. SC-002's tests pass.
+4. After Phase 6: the alerts and the listen stream.
+
+Every production deploy and every home connector update needs the owner's explicit OK.
 
 ---
 
 ## Traceability Check (both directions)
 
-Run on 2026-11-02 against `iterations/001/plan.md` (the requirement scope) and `spec.md`.
-
-**Requirements to tasks**: every in-scope FR and SC has at least one task.
+**Requirements to tasks**: every in-scope FR and SC has at least one implementing or measuring task. The review tasks (T037, T050, T058, T059, T060) cite every FR and are left out of this table.
 
 | Requirement | Tasks |
 | --- | --- |
-| FR-001 | T009, T020, T021, T025, T027, T032, T033, T034, T035, T036 |
-| FR-002 | T008, T009, T013, T019, T021, T027, T034, T035, T036 |
-| FR-005 | T009, T016, T018, T021, T027, T029, T034, T035, T036 |
-| FR-006 | T006, T007, T008, T010, T014, T018, T019, T021, T027, T034, T035, T036 |
-| FR-026 | T004, T013, T025, T034, T035, T036 |
-| FR-029 | T001, T006, T010, T022, T023, T024, T031, T032, T033, T034, T035, T036 |
-| FR-030 | T001, T022, T023, T024, T025, T034, T035, T036 |
-| FR-032 | T001, T003, T006, T012, T016, T017, T022, T028, T029, T030, T031, T034, T035, T036 |
-| FR-033 | T001, T011, T013, T034, T035, T036 |
-| FR-034 | T001, T003, T005, T012, T034, T035, T036 |
-| FR-040 | T003, T029, T034, T035, T036 |
-| FR-042 | T001, T013, T014, T015, T016, T017, T033, T034, T035, T036 |
-| FR-044 | T001, T008, T026, T027, T030, T032, T034, T035, T036 |
-| FR-046 | T002, T004, T011, T015, T017, T034, T035, T036 |
-| FR-047 | T002, T004, T011, T024, T034, T035, T036 |
-| FR-048 | T011, T034, T035, T036 |
-| SC-003 | T033, T035 |
-| SC-005 | T018, T021, T033, T035 |
-| SC-006 | T009, T020, T035 |
-| SC-011 | T030, T033, T035 |
+| FR-005 | T055 |
+| FR-008 | T038, T041, T042, T044, T046, T047, T055 |
+| FR-009 | T045 |
+| FR-010 | T039, T048, T049, T051, T057 |
+| FR-011 | T046, T051, T052 |
+| FR-012 | T039, T048, T049, T057 |
+| FR-013 | T045, T053, T054 |
+| FR-014 | T047 |
+| FR-015 | T055 |
+| FR-026 | T052, T053 |
+| FR-030 | T048, T052 |
+| FR-033 | T041, T042, T048 |
+| FR-034 | T044, T047 |
+| FR-042 | T038, T043, T044, T053, T061 |
+| FR-043 | T056 |
+| FR-046 | T041 |
+| FR-047 | T041, T052 |
+| FR-048 | T052 |
+| SC-001 | T048, T049 |
+| SC-002 | T043, T047, T052 |
+| SC-003 | T061 |
+| SC-005 | T055 |
+| SC-010 | T056 |
+| SC-011 | T061 |
 
-**Tasks to requirements**: all 36 tasks cite at least one in-scope FR or SC. TG-004 appears only paired with FR-026 (T004, T013). No task cites a requirement outside iteration 001's scope.
+**Tasks to requirements**: all 25 tasks cite at least one in-scope FR or SC, except T040, which cites TG-004 (the accepted unknown S1), as `iterations/002/plan.md` states for CP-20. No task cites a requirement outside iteration 002's scope.
 
 **Result**: PASS.
 
-- FR coverage: 16/16.
-- SC coverage: 4/4.
-- Orphan tasks: 0.
-- Every task has an owner role and an effort.
-- Effort: 42 SP against a capacity of 42.
+**Partly delivered in iteration 002** (as `iterations/002/plan.md` states):
 
-**Partly delivered in iteration 001** (as `iterations/001/plan.md` states):
+- FR-010: without per-client opt-ins (iteration 003).
+- FR-012: without the local relay to a desktop coding agent (DRIFT-002-02).
+- FR-014: no event carries a frame link until media arrives in iteration 003.
+- FR-026: the read limit on `get_events` and the shared Ring limiter on catch-up.
+- FR-030: only clients with the read scope subscribe.
+- FR-043: without the audit-chain and write-once-copy conditions (iteration 004).
 
-- FR-005: push reception and the last event are filled from 002.
-- FR-026: the read limit and the shared Ring limiter only.
-- FR-030: the read scope only.
-- FR-040: the minimal admin page only.
-- FR-042: the 24-hour catch-up is 002.
-- FR-046: link version 1, completed in 002 without a bump.
+**The owner's additions beyond the spec's text** (DRIFT-002-04): the backlog in the heartbeat and `get_health` (T044, T055), the backlog alert and the Ring-session-lost alert (T056).
 
 ---
 
 ## Notes
 
-- **The audit chain (DRIFT-001-04).** data-model.md and research.md PT-33 start the `audit-90d` and `audit-1y` chains in iteration 001, but no iteration 001 work item builds the Audit accessor, and FR-035 is outside 001's scope. These tasks follow the approved iteration plan, so iteration 001 writes no audit entries. Resolved at the tasks boundary on 2026-11-02: the owner kept the plan as it is, and data-model.md and PT-33 now start the chains in iterations 002 to 004.
-- **Owner values.** The owner's subscription, tenant, IDs and home details never enter the repository. Scrubbed Ring payloads are committed only after the owner's review.
-- **Commits.** Commit after each task or logical group, and only with the owner's go-ahead.
-- **Rules.** The implement-time code rules come from `implementation-rules.yml`, through the specrew-code-rules skill. Workshop question 16 (`code-rules.local.yml`) is still open, so the shipped catalog applies.
+- The plan's task table keeps the work items (CP-xx). This file breaks them into tasks, as in iteration 001.
+- A task is done when its tests pass, its checks are green and its commit is pushed. Its work item is marked done in the task ledger when its last task finishes.
+- Probes may change later tasks. A change of scope goes to the owner and into `iterations/002/drift-log.md`; it is never absorbed quietly.
+- No Ring credentials or codes pass through the chat. The owner types them into the Setup CLI or Ring's own pages.
