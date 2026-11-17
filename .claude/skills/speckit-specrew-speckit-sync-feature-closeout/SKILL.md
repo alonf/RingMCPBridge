@@ -1,1 +1,0 @@
-../../../.specify/extensions/specrew-speckit/.specify-dev/agent-commands/claude/speckit-specrew-speckit-sync-feature-closeout/SKILL.md
