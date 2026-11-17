@@ -86,3 +86,8 @@ The coding rules carry over from the feature's implementation rules; a new depen
   - Catch-up stays at home, in Ingest.
   - The channel shim is deferred to a later iteration (DRIFT-002-02). Claude reads events with `get_events`.
   - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/component-design.md
+- **requirements-nfr** (2026-11-17; the owner typed "move on" without changing the four recommendations):
+  - SC-001 is measured from Ring's trigger time to ChatGPT accepting the webhook, logged for every event; the CI 0.5 s check extends to events; the owner adds stopwatch samples of the dot.
+  - The first resend stays at 10 s, so the backoff is read as consistent with FR-042.
+  - FR-009's priority table ships as a data file. Events are kept 30 days. Late events are summarized (FR-013).
+  - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/requirements-nfr.md
