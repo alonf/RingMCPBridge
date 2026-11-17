@@ -109,3 +109,8 @@ The coding rules carry over from the feature's implementation rules; a new depen
   - The dot is checked by the owner, after confirming MCP Events on the owner's ChatGPT plan.
   - Spike S1, time-boxed at 1 SP.
   - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/integration-api.md
+- **devops-operations** (the owner, 2026-11-17, "Yes, and yes" and "move on"):
+  - One Azure Monitor alert rule, email and SMS: no heartbeat for 10 minutes, home offline over 10 minutes, the event backlog over about 5 minutes, and the Ring session lost (moved into iteration 002 by the owner; FR-043 lists it).
+  - About $1.50 a month for the rule, plus cents for messages (feature plan). Research-needed: SMS to an Israeli number.
+  - The same deploy as iteration 001; add-only migrations.
+  - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/devops-operations.md
