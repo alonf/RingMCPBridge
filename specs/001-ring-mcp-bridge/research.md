@@ -940,3 +940,36 @@ These findings come from reading ring-client-api 14.3.0 and @eneris/push-receive
   3. **The "crypto-key is missing" line.** The push receiver could not decrypt a message (it lacked its crypto-key or salt field, or failed authentication) and dropped it. The receiver's own note says later messages decrypt normally with the same keys. So the line means one push was lost, not that the session is broken.
 - **What follows for the design:** push alone cannot meet SC-002. The catch-up from Ring's history (T053) is what recovers a dropped push, and it must run on a schedule or on a sign of loss, not only after a link gap. This goes to the owner with part 2's result.
 - **Still unknown until part 2:** whether push arrives at the owner's home at all, its delay from Ring's trigger time, the unit of that time (the probe accepts seconds or milliseconds), and which categories and subtypes Ring really sends.
+
+## Iteration 002 addendum: the MCP Events probe (T039), part 1, read from OpenAI's guide (2026-11-17)
+
+Source: OpenAI's guide "MCP events" (developers.openai.com/plugins/build/mcp-events), read on 2026-11-17. The underlying proposal (SEP-3415, the Events Extension) is still a draft, so details may change. Part 2, the test subscription from the owner's ChatGPT, is still to come and needs the owner's OK for a production deploy.
+
+- **Declaring it:** the server adds `"events": {}` to its capabilities: in the `initialize` result for the earlier protocol era, and in the `server/discover` result for 2026-07-28. Whether the TypeScript SDK passes that key through is the open spike S4; the probe answers it.
+- **Three methods to serve:**
+  - `events/list`: each event type with `name`, `description`, `delivery`, `inputSchema` and `payloadSchema`; paged by `cursor`.
+  - `events/subscribe`: `name`, `arguments`, `delivery` (`mode`, `url`, `secret`) and `cursor`; the answer has `id`, `refreshBefore`, `cursor` and `truncated`.
+  - `events/unsubscribe`: must be idempotent.
+- **The signing secret comes from ChatGPT**, in `delivery.secret`: `whsec_` and then base64 of 24 to 64 bytes. The server must refuse any other form. This settles "who issues the secret": the bridge stores it encrypted and never creates it.
+- **The callback hosts are not published.** OpenAI gives no host list and no IP list. Its rule is: HTTPS only, resolve and check the address at connection time, refuse private and local addresses, and follow no redirects. So the decided allowlist cannot come from the guide. Part 2 records the host ChatGPT really sends; the owner then decides between pinning to that host and the guide's public-address rule.
+- **A verification step before a subscription is accepted:** the server posts a signed `{"type": "verification", "challenge": ...}` to the callback and must get a 2xx that echoes the challenge, compared in constant time. A failure answers the subscribe call with error -32015.
+- **Each delivery:** one event per request, at most 256 KiB, signed as Standard Webhooks (`webhook-id` equal to the event id, `webhook-timestamp`, `webhook-signature`) plus `X-MCP-Subscription-Id`. The body has `eventId`, `name`, `timestamp`, `data` and `cursor`. A 2xx is the acknowledgement. Retries keep the event id and sign again; no retry after 410 or 413.
+- **Lifetime:** the answer's `refreshBefore` is the expiry; ChatGPT renews by subscribing again with its last cursor. Delivery stops at expiry, on unsubscribe, and when the user's access is revoked.
+- **What ChatGPT does not support:** polling, streaming, and the draft's gap and terminated notices. Events may arrive out of order.
+- **Where it works:** the guide names Work chats on ChatGPT web, and in the desktop app with Cloud selected. It names no plan and does not describe the indicator. Whether the owner's plan has it is exactly what part 2 finds out.
+- **What follows for the tasks:** T048 gains the verification step, the `whsec_` check, `events/list` with a payload schema, and expiry by `refreshBefore`. These sit inside the decided design (signed webhooks, the secret in the database, the bounded fetch) and add no new component.
+
+## Iteration 002 addendum: Spike S1 (T040), the step list for the owner (2026-11-17)
+
+Source: Ring's developer pages on developer.amazon.com (Getting Started, Configure, Publish), read through a web search on 2026-11-17. They do not say which countries may register. That is the question the owner's own attempt answers.
+
+The owner does every step on their own account. No Ring or Amazon credential, code, client secret or signature key is typed into the chat.
+
+1. Open Ring's developer console (developer.amazon.com, the Ring section) and sign in. Report: did sign-in work with the account's country, or was it refused?
+2. Open the apps list and its Private Apps tab. Report: is the tab there, and is "create" offered?
+3. Create a private app: an internal name and an app type, then accept Ring's security and privacy standards. Report: accepted or refused, and the refusal's wording if any.
+4. The console then shows a Client ID, a Client Secret and an HMAC signature key, once only. Keep them in a password manager. Report only that they were shown.
+5. Try account linking: link the owner's own Ring account to the private app. Report: linked, or refused, and whether the location and its devices appear.
+6. Note any requirement the pages state on the way: a Ring plan, a user limit, a static IP to register.
+
+The result is one of three: registration and linking both work (the official path is open), registration works but linking does not, or registration is refused. Each is a finding; none is a failure of the spike.
