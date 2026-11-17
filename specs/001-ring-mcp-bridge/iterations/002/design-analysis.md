@@ -102,3 +102,10 @@ The coding rules carry over from the feature's implementation rules; a new depen
   - ChatGPT's webhook subscriptions keep their callback address and signing secret in the database, encrypted at rest and readable only by the core's identity.
   - About 3,000 to 9,000 event rows in 30 days; no tier change, $0 extra (estimate).
   - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/data-storage.md
+- **integration-api** (the owner, 2026-11-17, "all as recommended" and "move on"):
+  - CP-08b starts with a push probe (about 1 SP of effort, estimate); a periodic history check is added if push loses events.
+  - MCP Events to ChatGPT as OpenAI's draft publishes them, inside Delivery's ChatGPT adapter.
+  - A minimal listen stream for earlier-era clients (FR-012).
+  - The dot is checked by the owner, after confirming MCP Events on the owner's ChatGPT plan.
+  - Spike S1, time-boxed at 1 SP.
+  - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/integration-api.md
