@@ -4,7 +4,7 @@
 **Iteration**: 002
 **Date**: 2026-11-17
 **Spec**: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/spec.md
-**Status**: draft, in progress with the owner
+**Status**: decided, Option B (the owner, 2026-11-17)
 
 <!--
   This artifact is the durable pre-plan design decision record. Plan generation is
@@ -263,9 +263,9 @@ Ring push -> Push Listener -> Ingest -> Normalize -> Outbox Store -> Core Link
 
 ## Human Decision
 
-- **Decision verdict**: pending
-- **Chosen option**: pending
-- **Reason**: pending
-- **Modifications**: pending
-- **Design-analysis draft commit**: pending
-- **Decision recorded in commit**: pending
+- **Decision verdict**: "B", then "move on" (typed by the owner, 2026-11-17, in reply to the options message). This is the option choice, not a boundary verdict: the plan boundary's approval comes after plan.md is written and the plan sync records the crossing, as in iteration 001.
+- **Chosen option**: Option B
+- **Reason**: The owner accepted the crew recommendation; no further reason given.
+- **Modifications**: None. The carried items stand as recommended above. The ledger's prevention is still open: it is settled in the plan when the owner's reviewer session for Specrew answers, and until then the proven path stands (DRIFT-002-01).
+- **Design-analysis draft commit**: 031f421
+- **Decision recorded in commit**: pending (the commit that records this section; a follow-up commit points here, as in iteration 001)
