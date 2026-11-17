@@ -22,11 +22,26 @@
 
 ## Summary
 
-**Total drift events**: 2
-**Resolution rate**: 100% (2/2 resolved or decided)
-**Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take.
+**Total drift events**: 3
+**Resolution rate**: 100% (3/3 resolved or decided)
+**Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-03: the quality resolver again marks concurrency, resiliency and retry/idempotency as not applicable
+
+- **Detected**: 2026-11-17, at iteration 002's plan stage, by `resolve-quality-profile.ps1` (the before-plan check).
+- **Kind**: governed tooling output that contradicts the spec, as in iteration 001 (DRIFT-001-01). No code changed.
+- **Observed**: the resolver's `not_applicable_dimensions` list concurrency-correctness ("no … realtime concurrency behavior"), resiliency ("does not materially depend on retries, reconnect, or degraded recovery") and retry-idempotency-and-recovery ("does not present a material retry or recovery workflow"). Its hardening focus area "Retry and idempotency expectations" is likewise `not-applicable`.
+- **Requirement citation**: iteration 002 is the event path, so these dimensions are its core:
+  - FR-010: at least once, deduplicated by event id;
+  - FR-011: a cursor that never skips and survives restarts;
+  - FR-013: late events and the recovery summary;
+  - FR-042: resend after 10 seconds, reconnect, the 24-hour catch-up;
+  - and the decided ack after the core's commit, with the send window and backoff (component-design, 2026-11-17).
+- **Resolution**: overridden to required, as in iteration 001, where the owner accepted the same override with the design-analysis verdict (DRIFT-001-01). Iteration 002's plan states the override in its Notes. Its hardening gate (`quality/hardening-gate.md`) marks the three dimensions and the retry and idempotency focus area as required, and is filled for the event path before implementation starts. The owner reviews it at the plan boundary.
+- **Carry-forward**: for Specrew's bug-bash list: the resolver reads no concurrency or retry signal from a spec that states at-least-once delivery, cursors, resends and catch-up.
+- **Class closure**: NONE - the resolver is Specrew's code. This project's guard is the before-plan check plus this override, applied at each plan stage.
 
 ### DRIFT-002-02: the channel shim, FR-012's desktop relay, is deferred out of iteration 002
 
