@@ -145,7 +145,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - logs carry identifiers only.
 
   Tests: push to outbox to link on the scenario engine; a link drop and reconnect resends in order; no event text in any log line (Trace: FR-008, FR-034, FR-042; CP-08b)
-- [ ] T045 [P] [US2] [assigned_to: Implementer] [effort: 0.9] Classify engine in `bridge/src/core/engines/classify/`. The failing test comes first:
+- [x] T045 [P] [US2] [assigned_to: Implementer] [effort: 0.9] Classify engine in `bridge/src/core/engines/classify/`. The failing test comes first:
   - FR-009's priority table as a data file beside the engine, validated when the core starts. A bad file stops the start with a clear error;
   - the priority for an event comes from the table only. No priority is written in code;
   - the late-event rule: an event is late when it was recovered after a gap or held at home for more than 2 minutes.

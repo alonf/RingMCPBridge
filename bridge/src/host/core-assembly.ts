@@ -7,6 +7,7 @@ import { Lease } from "../core/access/lease/index.ts";
 import type { LeaseStore, LeaseTiming } from "../core/access/lease/index.ts";
 import { SettingsStore } from "../core/access/settings/index.ts";
 import { StateStore } from "../core/access/state/index.ts";
+import type { PriorityPolicy } from "../core/engines/classify/index.ts";
 import { AdminManager } from "../core/managers/admin/index.ts";
 import { EventManager } from "../core/managers/event/index.ts";
 import type { EventTopics } from "../core/managers/event/index.ts";
@@ -17,6 +18,7 @@ import type { Logger } from "../utilities/logging/index.ts";
 import { PubSub } from "../utilities/pub-sub/index.ts";
 import type { QueryLayer } from "../utilities/query-layer/index.ts";
 import { LeasedLinks } from "./leased-links.ts";
+import { readPriorityPolicy } from "./priority-policy.ts";
 
 /**
  * The lease's name. One deployment serves one Ring account, with one home part, and the core keeps
@@ -37,6 +39,8 @@ export interface CoreAssemblyOptions {
   readonly leaseHolder?: string;
   /** The lease's timing; the recorded 15 s and 45 s when left out. */
   readonly leaseTiming?: LeaseTiming;
+  /** The event priorities; read from the Classify engine's policy file when left out. */
+  readonly priorityPolicy?: PriorityPolicy;
 }
 
 /** The core's components, built once per process. */
@@ -50,6 +54,8 @@ export interface CoreAssembly {
   readonly lease: Lease;
   /** The connector link, run only while the lease is held: `accept` is the `LinkServer`'s `onLink`. */
   readonly links: LeasedLinks;
+  /** The event priorities and the late limit, checked at start (T045); the Event manager's from T047. */
+  readonly priorityPolicy: PriorityPolicy;
   /** Takes the lease, and runs the link while it is held. */
   start(): void;
   /** Ends the link's term, lets the lease go, and waits for queued events; the caller closes the database after. */
@@ -59,6 +65,8 @@ export interface CoreAssembly {
 /** Builds the core's components. Nothing runs until `start`. */
 export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
   const { store, clock, logger } = options;
+  // First, so a bad policy file stops the start before anything is built.
+  const priorityPolicy = options.priorityPolicy ?? readPriorityPolicy();
   const state = new StateStore({ store });
   const settings = new SettingsStore({
     store,
@@ -112,6 +120,7 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
     admin,
     lease,
     links,
+    priorityPolicy,
     start: () => {
       lease.start();
       void lease.settled().then(() => {

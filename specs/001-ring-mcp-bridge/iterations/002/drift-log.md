@@ -22,11 +22,25 @@
 
 ## Summary
 
-**Total drift events**: 10
-**Resolution rate**: 100% (10/10 resolved or decided)
+**Total drift events**: 11
+**Resolution rate**: 100% (11/11 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-11: FR-009's table leaves three cases open; the policy file takes one reading of each
+
+- **Detected**: 2026-11-18, while writing the Classify engine's policy file (T045).
+- **Kind**: the spec's table does not decide three cases. The policy is data, so each reading is one row in `bridge/src/core/engines/classify/priority-policy.json`.
+- **Observed**:
+  1. **Camera motion while armed.** FR-009 lists "motion while armed" as HIGH and "other camera motion" as not pushed. The file reads "motion while armed" as an alarm motion sensor. Camera and doorbell motion is MEDIUM with a person and LOW without, armed or not. The other reading would push every passing car while the alarm is armed.
+  2. **A contact closing.** FR-009 says "a contact". The file gives a closing the same priority as an opening: HIGH while armed, MEDIUM while disarmed.
+  3. **A location with no alarm.** It counts as not armed.
+  - The recovery kinds (`health.home_online`, `health.ring_restored`) are HIGH, as `contracts/events.schema.json` proposes. `mode.changed` and `ring.other` get the default, LOW.
+- **Requirement citation**: FR-009; `data-model.md` "Priority policy"; `contracts/events.schema.json` (`kind`, `priority`).
+- **Resolution**: implementer-decision in policy data, reported to the owner at the next checkpoint for confirmation. Changing a reading is an edit to one row of the file and its test.
+- **Carry-forward**: the kinds named in the file are the ones Normalize (T042) must produce; T042 and the file are checked against each other then.
+- **Class closure**: NONE - open cases in a requirement's table, settled in data and shown to the owner.
 
 ### DRIFT-002-10: T041's wording against the link contract: the existing `ack`, and the device entry inside the event
 
