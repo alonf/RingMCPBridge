@@ -91,3 +91,9 @@ The coding rules carry over from the feature's implementation rules; a new depen
   - The first resend stays at 10 s, so the backoff is read as consistent with FR-042.
   - FR-009's priority table ships as a data file. Events are kept 30 days. Late events are summarized (FR-013).
   - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/requirements-nfr.md
+- **security-compliance** (the owner, 2026-11-17, "agree to all" and "move on", after asking why Ring's text is untrusted and whether to use APIM):
+  - Ring-sourced text in events stays marked untrusted, as in the reads.
+  - No APIM in iteration 002. Callback calls reuse the core's bounded fetch: HTTPS only, private and special-use addresses refused, timeouts and size limits; only listed agents with `read` subscribe.
+  - Research-needed: ChatGPT's callback hosts and who issues the signing secret (the integration area's MCP Events test).
+  - Push credentials stay in the home's encrypted file; revoking an agent ends its subscriptions.
+  - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/security-compliance.md
