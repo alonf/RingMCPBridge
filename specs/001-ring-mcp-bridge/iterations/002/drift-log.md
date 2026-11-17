@@ -38,7 +38,7 @@
   3. **A location with no alarm.** It counts as not armed.
   - The recovery kinds (`health.home_online`, `health.ring_restored`) are HIGH, as `contracts/events.schema.json` proposes. `mode.changed` and `ring.other` get the default, LOW.
 - **Requirement citation**: FR-009; `data-model.md` "Priority policy"; `contracts/events.schema.json` (`kind`, `priority`).
-- **Resolution**: implementer-decision in policy data, reported to the owner at the next checkpoint for confirmation. Changing a reading is an edit to one row of the file and its test.
+- **Resolution**: human-decision for reading 1, by the owner's typed reply on 2026-11-18: camera motion with no person is LOW, and a doorbell press is pushed while disarmed too (it is HIGH in every mode, as FR-009 lists it). Readings 2 and 3 were shown to the owner in the same checkpoint and stay as the implementer's decision in policy data unless the owner changes them. Changing a reading is an edit to one row of the file and its test.
 - **Carry-forward**: the kinds named in the file are the ones Normalize (T042) must produce; T042 and the file are checked against each other then.
 - **Class closure**: NONE - open cases in a requirement's table, settled in data and shown to the owner.
 
