@@ -268,4 +268,4 @@ Ring push -> Push Listener -> Ingest -> Normalize -> Outbox Store -> Core Link
 - **Reason**: The owner accepted the crew recommendation; no further reason given.
 - **Modifications**: None. The carried items stand as recommended above. The ledger's prevention is still open: it is settled in the plan when the owner's reviewer session for Specrew answers, and until then the proven path stands (DRIFT-002-01).
 - **Design-analysis draft commit**: 031f421
-- **Decision recorded in commit**: pending (the commit that records this section; a follow-up commit points here, as in iteration 001)
+- **Decision recorded in commit**: 416403e
