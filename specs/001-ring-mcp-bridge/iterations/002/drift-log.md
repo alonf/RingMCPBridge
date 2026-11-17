@@ -22,11 +22,25 @@
 
 ## Summary
 
-**Total drift events**: 5
-**Resolution rate**: 100% (5/5 resolved or decided)
+**Total drift events**: 6
+**Resolution rate**: 83% (5/6 resolved or decided; DRIFT-002-06 waits on the owner's yes)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-06: the tasks sync refused because state.md's phase is ahead of the authority record
+
+- **Detected**: 2026-11-17, at iteration 002's tasks sync.
+- **Kind**: a state mismatch written by governed tooling (Specrew 0.40.0). Nothing was recorded.
+- **Observed**:
+  - After the owner's "approved for plan", the session was resumed once. Specrew's session-start writer then created `tasks-progress.yml` (eleven work items, all pending) and rewrote state.md's header, setting Current Phase to "before-implement" and Iteration Status to "not-started". Both files were committed unchanged (840dc81).
+  - The tasks sync ran once with the lint fallback (DRIFT-001-91), naming iteration 002, by the owner's typed "yes". Its iteration-state gate refused: state.md says Current Phase "before-implement", but the last authorized boundary is "plan". It wrote no crossing and no pending-verdict file.
+  - The refusal's own advice for a page that is ahead of the record: correct the line by hand and record why in the drift log.
+  - Separately, iteration 002's plan.md still reads Status "planning" after the approval. The crew has not changed it.
+- **Requirement citation**: the tasks boundary of iteration 002; this project's rule that the crew never hand-sets state.md's Specrew header without the owner's approval.
+- **Resolution**: human-decision, pending. The proposed recovery, on the owner's yes: set state.md's Current Phase line to "plan", the last authorized boundary, as the refusal advises; commit it; run the tasks sync once more. If that run refuses, stop and report.
+- **Carry-forward**: for Specrew's bug-bash list: the session-start writer sets a phase that the tasks sync's gate then refuses.
+- **Class closure**: NONE - Specrew's code writes the line. This project's guard: no session is resumed or started between an approval and the next sync.
 
 ### DRIFT-002-05: the first plan sync checked iteration 001 and was refused
 
