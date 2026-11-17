@@ -40,6 +40,7 @@
 - **Requirement citation**: the tasks boundary of iteration 002; this project's rule that the crew never hand-sets state.md's Specrew header without the owner's approval.
 - **Resolution**: human-decision, pending. The proposed recovery, on the owner's yes: set state.md's Current Phase line to "plan", the last authorized boundary, as the refusal advises; commit it; run the tasks sync once more. If that run refuses, stop and report.
 - **The owner's "yes"** (2026-11-17) approved the one hand edit and one more sync run. state.md's Current Phase line was set from "before-implement" to "plan", the last authorized boundary, as the refusal advises. No other line was changed.
+- **The second run** (2026-11-17, at 21e6290) passed the phase check and was refused by the same gate on another line: state.md's Execution Summary still says "Execution has not started yet." beside a header that now carries Current Phase "plan" and Iteration Status "not-started". It wrote no crossing. The recovery step failed on its next attempt, so the crew stopped and reported; no third attempt was made. The state page that the plan sync accepted was the scaffolded one, before the session-start writer added its header lines (f6a8746).
 - **Carry-forward**: for Specrew's bug-bash list: the session-start writer sets a phase that the tasks sync's gate then refuses.
 - **Class closure**: NONE - Specrew's code writes the line. This project's guard: no session is resumed or started between an approval and the next sync.
 
