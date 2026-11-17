@@ -1,7 +1,7 @@
 # Iteration State: 002
 
 **Schema**: v2
-**Current Phase**: before-implement
+**Current Phase**: plan
 **Iteration Status**: not-started
 **Last Completed Task**: (none)
 **Tasks Remaining**: CP-08b, CP-11b, CP-12, CP-13, CP-18, CP-20, CP-21b, CP-MR, CP-RV, CP-RW, CP-PJ

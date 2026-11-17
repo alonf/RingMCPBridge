@@ -39,6 +39,7 @@
   - Separately, iteration 002's plan.md still reads Status "planning" after the approval. The crew has not changed it.
 - **Requirement citation**: the tasks boundary of iteration 002; this project's rule that the crew never hand-sets state.md's Specrew header without the owner's approval.
 - **Resolution**: human-decision, pending. The proposed recovery, on the owner's yes: set state.md's Current Phase line to "plan", the last authorized boundary, as the refusal advises; commit it; run the tasks sync once more. If that run refuses, stop and report.
+- **The owner's "yes"** (2026-11-17) approved the one hand edit and one more sync run. state.md's Current Phase line was set from "before-implement" to "plan", the last authorized boundary, as the refusal advises. No other line was changed.
 - **Carry-forward**: for Specrew's bug-bash list: the session-start writer sets a phase that the tasks sync's gate then refuses.
 - **Class closure**: NONE - Specrew's code writes the line. This project's guard: no session is resumed or started between an approval and the next sync.
 
