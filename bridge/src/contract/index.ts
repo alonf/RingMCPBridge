@@ -29,6 +29,17 @@ export {
 } from "./envelopes.ts";
 export type { ErrorCode, Freshness, Outcome } from "./envelopes.ts";
 
+/** The event every agent sees (T041), in get_events replies, in pushes and in the log. */
+export {
+  EVENT_PRIORITIES,
+  EVENTS_RECOVERED_KIND,
+  eventShape,
+  frameLink,
+  OTHER_RING_KIND,
+  recoveredSummary,
+} from "./event.ts";
+export type { BridgeEvent } from "./event.ts";
+
 /** Shapes the tools share. */
 export {
   ALARM_MODES,

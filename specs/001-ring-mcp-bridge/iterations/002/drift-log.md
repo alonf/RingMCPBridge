@@ -22,11 +22,36 @@
 
 ## Summary
 
-**Total drift events**: 8
-**Resolution rate**: 100% (8/8 resolved or decided)
+**Total drift events**: 10
+**Resolution rate**: 100% (10/10 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-10: T041's wording against the link contract: the existing `ack`, and the device entry inside the event
+
+- **Detected**: 2026-11-18, while building T041.
+- **Kind**: the task's wording differs from the decided contract. The contract is followed.
+- **Observed**:
+  1. `tasks.md` T041 names a new `event_ack` message from core to home. `contracts/connector-link.md` had already decided that the existing `ack` answers an event, with the event's `event_id` as its `message_id` (PT-07). No new message is added; Core Link at home already reads `ack`.
+  2. The contract lists `state_version` as a field of `EventMessage`, "together with the device's full current entry". The entry already carries its own `state_version`, so the message has one field, `device_state`, holding the entry. The contract's text now says so.
+- **Requirement citation**: FR-008, FR-046; `contracts/connector-link.md` "Frames" and "EventMessage"; PT-07, PT-30.
+- **Resolution**: implementer-decision, inside the decided contract, reported to the owner at the next checkpoint. `tasks.md` is left as approved; this entry is the record.
+- **Carry-forward**: T044 and T047 use `ack` and `device_state` as described here.
+- **Class closure**: NONE - a wording difference between two approved records, settled by the earlier design decision.
+
+### DRIFT-002-09: Phase 3 tasks that do not read Ring's push payloads started before T038's home run
+
+- **Detected**: 2026-11-18, after T038 part 1 and T039's handler.
+- **Kind**: task order. `tasks.md` places Phase 3 after T038, because T038's recorded payloads feed T042.
+- **Observed**:
+  - T038 part 2 (the run at the owner's home) waits for the owner's decision on updating the home connector during the 7-day soak.
+  - T041 (the event shape and the link's event message) reads no Ring payload. It was built while that decision is open.
+  - T042 (Normalize) stays behind T038 part 2, as planned: its fixtures must be the real payloads.
+- **Requirement citation**: `tasks.md` "Phase Dependencies" and "Inside Phase 3"; the owner's standing instruction to continue with approved work when nothing is pending.
+- **Resolution**: implementer-decision, reported to the owner at the next checkpoint. It changes no scope and no design, and the owner can reverse it.
+- **Carry-forward**: T043, T045 and T046 also read no Ring payload and may follow in the same way. T042, T044 and T047 keep their planned order.
+- **Class closure**: NONE - an ordering choice inside one iteration.
 
 ### DRIFT-002-08: a second audit exception, for a new picomatch advisory in the development tools
 

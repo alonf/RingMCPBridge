@@ -8,8 +8,10 @@ import {
 } from "../../../../utilities/security/index.ts";
 import {
   enrollSchema,
+  eventSchema,
   helloSchema,
   MAX_ENROLLMENT_CODE_LENGTH,
+  readHomeMessage,
 } from "./index.ts";
 
 describe("the home's hello and enroll, as the core reads them", () => {
@@ -71,6 +73,68 @@ describe("the home's hello and enroll, as the core reads them", () => {
       },
     ]) {
       expect(enrollSchema.safeParse(refused).success).toBe(false);
+    }
+  });
+});
+
+describe("the home's event, as the core reads it (T041)", () => {
+  const event = {
+    event_id: "evt-1",
+    location_id: "loc-1",
+    kind: "doorbell.ding",
+    occurred_at: "2026-11-17T09:00:00Z",
+    received_at: "2026-11-17T09:00:01.250Z",
+    summary: "Someone rang the front door.",
+    from_history: false,
+  };
+  const entry = {
+    device_id: "dev-1",
+    location_id: "loc-1",
+    name: "Front Door",
+    type: "contact",
+    power_mode: "battery",
+    online: true,
+    state: { open: true },
+    as_of: "2026-11-17T09:00:00Z",
+    state_version: 7,
+  };
+
+  it("accepts an event with only what every event has, and one with every field", () => {
+    expect(eventSchema.safeParse(event).success).toBe(true);
+    expect(
+      eventSchema.safeParse({
+        ...event,
+        kind: "contact.open",
+        device_id: "dev-1",
+        name: "Front Door",
+        room: "Hall",
+        from_history: true,
+        device_state: entry,
+        data: { ring_kind: "new_ring_thing" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("reads it from an `event` frame", () => {
+    expect(
+      readHomeMessage({ kind: "message", type: "event", body: event }),
+    ).toEqual({ type: "event", body: event });
+  });
+
+  it("refuses an event with a priority or a late flag, which only the core sets, and one in a wrong form", () => {
+    for (const refused of [
+      { priority: "HIGH" },
+      { late: true },
+      { event_id: "" },
+      { occurred_at: "yesterday" },
+      { summary: "" },
+      { from_history: undefined },
+      { device_state: { ...entry, state_version: 0 } },
+    ]) {
+      expect(
+        eventSchema.safeParse({ ...event, ...refused }).success,
+        JSON.stringify(refused),
+      ).toBe(false);
     }
   });
 });

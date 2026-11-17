@@ -66,14 +66,16 @@ A connection the core refuses is closed with a reason [P]: version not accepted,
 
 ### EventMessage
 
-Fields [P names unless noted]: `event_id`, `location_id` (PT-24), `kind`, `occurred_at`, `received_at`, `device_id`, the device's `name` and `room` (untrusted), `summary` (untrusted-derived), `from_history`, `state_version`, `data`.
+Fields [P names unless noted]: `event_id`, `location_id` (PT-24), `kind`, `occurred_at`, `received_at`, `device_id`, the device's `name` and `room` (untrusted), `summary` (untrusted-derived), `from_history`, `device_state`, `data`. Required: `event_id`, `location_id`, `kind`, `occurred_at`, `received_at`, `summary` and `from_history`. Declared in iteration 002 by T041 (`bridge/src/core/clients/connector-link/messages/`).
 
 - Normalize builds it from Ring's payload as a tolerant reader. An unknown Ring kind becomes `ring.other`, with Ring's name kept as untrusted text (CD4).
 - Ring strings are marked untrusted at the edge (CD map v3 Normalize, FR-033).
 - It carries no priority: Classify sets the priority in the core from policy data (FR-009, CD map v3 Classify).
 - It carries no `late` flag. Ingest stamps `received_at` (the connector's own receive time), and the core's Classify engine decides `late` (PT-25).
 - `from_history` [P] is `true` for an event Ingest read from Ring history after a gap. It states where the event came from, not whether it is late. Classify needs it because such an event is received at home long after it occurred (see Open item 1 in `../data-model.md` "Resolved at plan").
-- `state_version` [P] is present when the event changes a device's state, together with the device's full current entry (as in `device_state`). State applies it latest-wins, like a `device_state` message (PT-30, DRIFT-001-06).
+- `device_state` [P] is present when the event changes a device's state: the device's full current entry, as in the `device_state` message, with its `state_version`. State applies it latest-wins, like a `device_state` message (PT-30, DRIFT-001-06, DRIFT-002-10).
+- The core answers with the existing `ack`, whose `message_id` is the event's `event_id`. There is no separate event ack (DRIFT-002-10).
+- A core that does not take events yet logs the message and leaves it unacked, and the link stays open. The same holds for a message type a core does not know. So `event` joins link version 1 without a version bump (PT-07).
 
 ### Device inventory and state
 

@@ -628,6 +628,37 @@ describe("ConnectorLink: the home's messages", () => {
     ).toHaveLength(2);
     expect(test.lines.join("\n")).not.toContain(RING_NAME);
   });
+
+  // T041: `event` joins link version 1 with no version bump. A core that does not take events
+  // yet, or that has never heard of a message type, keeps the link and leaves the message unacked.
+  it("keeps the link on an event it does not take yet and on a message type it does not know, acking neither", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+
+    send(home, "event", {
+      event_id: "evt-1",
+      location_id: "loc-1",
+      kind: "doorbell.ding",
+      occurred_at: "2026-11-17T09:00:00Z",
+      received_at: "2026-11-17T09:00:01Z",
+      summary: RING_NAME,
+      from_history: false,
+    });
+    send(home, "message_from_a_later_version", { text: RING_NAME });
+    send(home, "inventory", inventory("m-2"));
+
+    expect(await frameOf(home, "ack")).toEqual({ message_id: "m-2" });
+    expect(messagesOf(home, "ack")).toHaveLength(1);
+    expect(home.link.closed).toBeUndefined();
+    expect(
+      test.lines.filter((line) =>
+        line.includes("connector_link_message_refused"),
+      ),
+    ).toHaveLength(2);
+    expect(test.lines.join("\n")).not.toContain(RING_NAME);
+  });
 });
 
 describe("ConnectorLink: what Event decided (T018)", () => {

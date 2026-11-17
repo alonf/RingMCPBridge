@@ -115,7 +115,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
 
 **Depends on**: Phase 2 (T038's payloads feed T042). Inside the phase: T041 first; then the home side (T042, T043, T044) and the core side (T045, T046) in turn; T047 last.
 
-- [ ] T041 [US2] [assigned_to: Implementer] [effort: 0.9] The event shape and the link's event messages:
+- [x] T041 [US2] [assigned_to: Implementer] [effort: 0.9] The event shape and the link's event messages:
   - the event shape agents see, in `bridge/src/contract/`, checked against `specs/001-ring-mcp-bridge/contracts/events.schema.json`, with Ring's text fields marked untrusted in the schema;
   - regenerated `schemas/`, with the snapshot check updated;
   - the link's `event` message (home to core) and `event_ack` message (core to home) in `bridge/src/connector/clients/core-link/messages/` and `bridge/src/core/clients/connector-link/messages/`, added to link version 1 without a version bump;

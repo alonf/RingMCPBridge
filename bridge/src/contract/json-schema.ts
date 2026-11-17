@@ -3,6 +3,7 @@
 // `$defs` entry per tool. The snapshot test (bridge/test/contract/) checks the published files.
 import { z } from "zod";
 import { errorEnvelope } from "./envelopes.ts";
+import { eventShape } from "./event.ts";
 import { TOOL_CATALOG } from "./inquiry-tools.ts";
 import type { ToolContract } from "./inquiry-tools.ts";
 
@@ -83,6 +84,15 @@ export function contractDocuments(
         $schema: DRAFT,
         $id: `${ID_PREFIX}tool-error`,
         ...jsonSchemaOf(errorEnvelope, "output"),
+      },
+    },
+    {
+      fileName: "event.schema.json",
+      direction: "output",
+      schema: {
+        $schema: DRAFT,
+        $id: `${ID_PREFIX}event`,
+        ...jsonSchemaOf(eventShape, "output"),
       },
     },
   ];

@@ -14,6 +14,7 @@ export const HOME_MESSAGE_TYPES = {
   inventory: "inventory",
   deviceState: "device_state",
   heartbeat: "heartbeat",
+  event: "event",
 } as const;
 
 const utcTime = z.iso.datetime();
@@ -110,6 +111,31 @@ export const deviceStateSchema = deviceEntrySchema.extend({
 });
 export type DeviceStateMessage = z.infer<typeof deviceStateSchema>;
 
+/**
+ * `event` (`EventMessage`, T041): one normalized event, through the outbox. Its `event_id` is its
+ * message id: the core's `ack` names it, and a repeat is dropped on it.
+ * - It carries no priority and no `late` flag: the core's Classify engine sets both.
+ * - `name`, `room`, `summary` and `data` are untrusted text from Ring (FR-033).
+ * - `from_history` is true for an event read from Ring's history after a gap.
+ * - `device_state` is the device's full current entry, with its `state_version`, when the event
+ *   changes a device's state. State applies it latest-wins, as it does a `device_state` message.
+ */
+export const eventSchema = z.strictObject({
+  event_id: z.string().min(1),
+  location_id: z.string().min(1),
+  kind: z.string().min(1),
+  occurred_at: utcTime,
+  received_at: utcTime,
+  device_id: z.string().min(1).optional(),
+  name: z.string().optional(),
+  room: z.string().optional(),
+  summary: z.string().min(1),
+  from_history: z.boolean(),
+  device_state: deviceEntrySchema.optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+export type EventMessage = z.infer<typeof eventSchema>;
+
 /** `heartbeat`: the home's health summary, every 15 s; not through the outbox. */
 export const heartbeatSchema = z.strictObject({
   ring_session: z.enum(["ok", "unavailable", "lost"]),
@@ -141,7 +167,8 @@ export type HomeMessage =
   | { readonly type: "enroll"; readonly body: EnrollMessage }
   | { readonly type: "inventory"; readonly body: InventoryMessage }
   | { readonly type: "device_state"; readonly body: DeviceStateMessage }
-  | { readonly type: "heartbeat"; readonly body: HeartbeatMessage };
+  | { readonly type: "heartbeat"; readonly body: HeartbeatMessage }
+  | { readonly type: "event"; readonly body: EventMessage };
 
 /**
  * The message in a frame from the home, or `undefined` for a frame that is not one of them or whose
@@ -180,6 +207,8 @@ export function readHomeMessage(frame: LinkFrame): HomeMessage | undefined {
         type: "heartbeat",
         body: data,
       }));
+    case HOME_MESSAGE_TYPES.event:
+      return read(eventSchema, body, (data) => ({ type: "event", body: data }));
     default:
       return undefined;
   }

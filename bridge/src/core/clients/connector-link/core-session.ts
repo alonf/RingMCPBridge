@@ -554,6 +554,9 @@ export class CoreSession {
         );
         return;
       }
+      // Until the Event manager's event path takes it (T047), an event is logged and left
+      // unacked, as any message this core does not handle: the home keeps it and sends it again.
+      case "event":
       case "hello":
       case "challenge_response":
       case "enroll":
