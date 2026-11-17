@@ -351,3 +351,12 @@
 - **Task ID**: (none)
 - **Auth Commit Hash**: 14418a8abfd8e814566a7450db5766084125727f
 - **Recorded At**: 2026-11-17T16:14:33Z
+
+## 2026-11-17T19:50:57Z — Boundary sync: before-implement
+
+- **Boundary Type**: before-implement
+- **Feature Ref**: 001-ring-mcp-bridge
+- **Iteration Number**: 002
+- **Task ID**: (none)
+- **Auth Commit Hash**: bd3020d181bedca6e41ed79eee9b6062688c7b84
+- **Recorded At**: 2026-11-17T19:50:41Z
