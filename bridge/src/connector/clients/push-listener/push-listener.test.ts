@@ -8,7 +8,8 @@ import type {
   RingPush,
   RingPushPort,
 } from "../../access/ring-adapter/index.ts";
-import { PushListener } from "./index.ts";
+import { MAX_SHAPES_RECORDED, PushListener } from "./index.ts";
+import type { PushShapeRecord, PushShapeSink } from "./index.ts";
 
 const TRIGGERED_AT_MS = Date.UTC(2026, 10, 7, 9, 0, 0);
 const DELAY_MS = 1_800;
@@ -43,7 +44,7 @@ function dingFixture(): unknown {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
-function setup(): {
+function setup(shapes?: PushShapeSink): {
   source: PushSource;
   lines: string[];
   listener: PushListener;
@@ -59,6 +60,7 @@ function setup(): {
       now: () => clock.now(),
       minLevel: "debug",
     }),
+    ...(shapes === undefined ? {} : { shapes }),
   });
   return { source, lines, listener };
 }
@@ -112,6 +114,45 @@ describe("PushListener", () => {
 
     expect(received(lines)).toHaveLength(1);
     expect(lines.join("\n")).not.toContain("Front Door");
+  });
+
+  it("hands each distinct payload shape to its sink once, with no value in it", () => {
+    const shapes: PushShapeRecord[] = [];
+    const { source, listener } = setup((record) => shapes.push(record));
+    listener.start();
+
+    source.send(dingFixture());
+    source.send(dingFixture());
+    source.send({ note: "Front Door ajar" });
+
+    expect(shapes).toHaveLength(2);
+    expect(shapes[0]).toMatchObject({ format: "ding_v2", kind: "ding" });
+    expect(shapes[1]).toEqual({
+      format: "unknown",
+      kind: "other",
+      shape: { note: "string" },
+    });
+    expect(JSON.stringify(shapes)).not.toContain("Front Door");
+    expect(JSON.stringify(shapes)).not.toContain("Example Door");
+  });
+
+  it("hands over no more than the cap, and keeps listening when the sink fails", () => {
+    let handed = 0;
+    const { source, lines, listener } = setup(() => {
+      handed += 1;
+      if (handed === 1) {
+        throw new Error("disk full");
+      }
+    });
+    listener.start();
+
+    for (let index = 0; index < MAX_SHAPES_RECORDED + 5; index += 1) {
+      source.send({ [`field_${String(index)}`]: index });
+    }
+
+    expect(handed).toBe(MAX_SHAPES_RECORDED);
+    expect(received(lines)).toHaveLength(MAX_SHAPES_RECORDED + 5);
+    expect(lines.join("\n")).toContain("ring_push_shape_failed");
   });
 
   it("listens once however often it is started, and not at all once stopped", () => {

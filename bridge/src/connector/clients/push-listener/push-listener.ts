@@ -2,6 +2,10 @@
 // that a push arrived, about which device, of which kind, and how long after Ring's own time for
 // it, and nothing else. Ring's payload carries names and text, which are content: none of it is
 // logged (FR-034, OR6). Handing each push to Ingest comes with T044.
+//
+// For T042, it also hands each distinct payload shape (field names and value types, never a
+// value) to an optional sink, the first `MAX_SHAPES_RECORDED` of them, so the probe at the
+// owner's home shows which fields Ring's real pushes carry.
 import type { Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
 import type {
@@ -9,13 +13,31 @@ import type {
   RingPushPort,
   StopWatching,
 } from "../../access/ring-adapter/index.ts";
+import { shapeOf } from "./push-shape.ts";
+import type { PayloadShape } from "./push-shape.ts";
 import { sightPush } from "./push-sighting.ts";
+import type { PushFormat, PushKind } from "./push-sighting.ts";
+
+/** How many distinct payload shapes one process hands to the sink. */
+export const MAX_SHAPES_RECORDED = 50;
+
+/** One distinct payload shape, with what the listener made of the push. */
+export interface PushShapeRecord {
+  readonly format: PushFormat;
+  readonly kind: PushKind;
+  readonly shape: PayloadShape;
+}
+
+/** Where distinct payload shapes go: a file in the data folder, in the connector. */
+export type PushShapeSink = (record: PushShapeRecord) => void;
 
 /** What the Push Listener is wired with. */
 export interface PushListenerOptions {
   readonly ring: RingPushPort;
   readonly clock: Clock;
   readonly logger: Logger;
+  /** Where distinct payload shapes go; none are kept when left out. */
+  readonly shapes?: PushShapeSink;
 }
 
 /** Ring's push notifications, heard. One per connector process; the Host starts and stops it. */
@@ -23,12 +45,15 @@ export class PushListener {
   readonly #ring: RingPushPort;
   readonly #clock: Clock;
   readonly #logger: Logger;
+  readonly #shapes: PushShapeSink | undefined;
+  readonly #shapesSeen = new Set<string>();
   #stopWatching: StopWatching | undefined;
 
   constructor(options: PushListenerOptions) {
     this.#ring = options.ring;
     this.#clock = options.clock;
     this.#logger = options.logger.with({ component: "push_listener" });
+    this.#shapes = options.shapes;
   }
 
   /** Starts listening. Starting twice listens once. */
@@ -59,5 +84,29 @@ export class PushListener {
         ? {}
         : { delay_ms: this.#clock.now() - sighting.triggeredAtMs }),
     });
+    this.#recordShape({
+      format: sighting.format,
+      kind: sighting.kind,
+      shape: shapeOf(push.payload),
+    });
+  }
+
+  // A shape already handed over, or one past the cap, is not handed over again.
+  #recordShape(record: PushShapeRecord): void {
+    const sink = this.#shapes;
+    const key = JSON.stringify(record);
+    if (
+      sink === undefined ||
+      this.#shapesSeen.has(key) ||
+      this.#shapesSeen.size >= MAX_SHAPES_RECORDED
+    ) {
+      return;
+    }
+    this.#shapesSeen.add(key);
+    try {
+      sink(record);
+    } catch (error) {
+      this.#logger.warn("ring_push_shape_failed", undefined, error);
+    }
   }
 }

@@ -22,11 +22,27 @@
 
 ## Summary
 
-**Total drift events**: 11
-**Resolution rate**: 100% (11/11 resolved or decided)
+**Total drift events**: 12
+**Resolution rate**: 100% (12/12 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-12: the probes' deploy: a payload-shape capture in the home image, and the MCP Events switch as a deploy setting
+
+- **Detected**: 2026-11-18, preparing the deploy the owner approved ("OK for all": the home update now, the MCP Events test deploy, and Spike S1).
+- **Kind**: two additions inside T038 and T039, made so that one home restart and one deploy answer both probes.
+- **Observed**:
+  1. **The push probe's output.** T042's tests use "every fixture from T038", but the Push Listener logs codes only: the format, the kind, Ring's subtype and the delay. A home run would show that push works, not which fields Ring's real payloads carry, and finding that out later would need a second home restart during the soak.
+     - So the listener also writes each distinct payload shape to `push-shapes.jsonl` in the connector's data folder, at most 50 of them.
+     - A shape is field names and value types only: no value, and a field name that could be an id is hidden. The owner can send the file as it is.
+     - T042's fixtures are then built from the library's types to match these shapes, with made-up values.
+  2. **The MCP Events switch.** The probe's setting `BRIDGE_MCP_EVENTS_PROBE` is now an optional deploy setting, taken from a repository variable of the same name. It is off when the variable is unset. Turning the probe off again is: remove the variable and deploy again, which needs the owner's OK like any production deploy.
+- **What this deploy ships besides the probes**: everything committed since iteration 001's last deploy. On the core: the event shape, the `event` message (logged and left unacked), the Classify engine, and migration 7 (four new, empty tables on Azure SQL). At home: the push listener and outbox migration 2 (two columns). All of it is additive; nothing reads or writes events end to end yet.
+- **Requirement citation**: T038, T039, T042; FR-034 (no content in logs or files the owner sends); the owner's typed "OK for all" on 2026-11-18.
+- **Resolution**: implementer-decision inside approved tasks, reported to the owner in the reply that gives the deploy's steps.
+- **Carry-forward**: T042 builds its fixtures from the shapes file. T048 removes the probe and its setting.
+- **Class closure**: NONE - a probe's output shaped to what the next task needs.
 
 ### DRIFT-002-11: FR-009's table leaves three cases open; the policy file takes one reading of each
 

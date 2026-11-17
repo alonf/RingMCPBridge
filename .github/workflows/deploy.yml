@@ -211,6 +211,7 @@ jobs:
           SQL_ADMIN_GROUP_OBJECT_ID: ${{ secrets.SQL_ADMIN_GROUP_OBJECT_ID }}
           BRIDGE_AGENTS: ${{ vars.BRIDGE_AGENTS }}
           BRIDGE_REGISTRATIONS_PER_HOUR: ${{ vars.BRIDGE_REGISTRATIONS_PER_HOUR }}
+          BRIDGE_MCP_EVENTS_PROBE: ${{ vars.BRIDGE_MCP_EVENTS_PROBE }}
           BRIDGE_LOG_LEVEL: ${{ vars.BRIDGE_LOG_LEVEL }}
         run: node scripts/deploy-parameters.mjs "$RUNNER_TEMP/parameters.json"
       - name: Preview the changes (what-if)

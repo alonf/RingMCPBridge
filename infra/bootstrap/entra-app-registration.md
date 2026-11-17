@@ -110,6 +110,7 @@ An agent you leave out cannot link. Removing one later ends its links.
 Two more variables are optional, set the same way:
 
 - `BRIDGE_REGISTRATIONS_PER_HOUR`: how many new agent registrations the core accepts an hour, from 1 to 1000. Unset, 10.
+- `BRIDGE_MCP_EVENTS_PROBE`: `true` turns on the MCP Events test handler on `/mcp` (T039) for the next deploy. Unset, it is off. Remove the variable and deploy again when the test is done.
 - `BRIDGE_LOG_LEVEL`: `debug`, `info`, `warn` or `error`. Unset, `info`.
 
 A change takes effect at the next deploy.

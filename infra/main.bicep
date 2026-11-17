@@ -68,6 +68,9 @@ param agents string = '[]'
 @description('New agent registrations accepted an hour; empty leaves the core\'s default of 10.')
 param registrationsPerHour string = ''
 
+@description('true turns on the MCP Events probe on /mcp (T039); empty leaves it off.')
+param mcpEventsProbe string = ''
+
 @description('The role definition id of Key Vault Secrets User, looked up by name at deploy time.')
 param keyVaultReaderRoleId string
 
@@ -154,6 +157,7 @@ module appService 'modules/app-service.bicep' = {
     ownerObjectId: ownerObjectId
     agents: agents
     registrationsPerHour: registrationsPerHour
+    mcpEventsProbe: mcpEventsProbe
   }
 }
 

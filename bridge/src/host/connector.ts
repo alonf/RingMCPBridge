@@ -28,6 +28,7 @@ import { HealthWriter } from "./connector-health.ts";
 import { assembleHome } from "./home-assembly.ts";
 import type { LocalHome } from "./home-assembly.ts";
 import { openHomeOutbox } from "./home-files.ts";
+import { pushShapesFile } from "./push-shapes-file.ts";
 import { HostError } from "./host-error.ts";
 import { openRingHome } from "./ring-home.live.ts";
 
@@ -86,7 +87,13 @@ export async function startConnector(
   }
   const homeSide = assembleHome({
     ring: home.ring,
-    ...(home.push === undefined ? {} : { push: home.push }),
+    ...(home.push === undefined
+      ? {}
+      : {
+          push: home.push,
+          // The push probe's record of payload shapes for T042 (T038 part 2).
+          pushShapes: pushShapesFile(homeSettings.dataDir, clock, logger),
+        }),
     outbox,
     dial: (signal) => dialLink(homeSettings.coreUrl, { clock, logger }, signal),
     identity: {

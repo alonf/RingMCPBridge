@@ -11,6 +11,7 @@ import { CoreLink } from "../connector/clients/core-link/index.ts";
 import type { CoreLinkIdentity } from "../connector/clients/core-link/index.ts";
 import { HomeScheduler } from "../connector/clients/home-scheduler/index.ts";
 import { PushListener } from "../connector/clients/push-listener/index.ts";
+import type { PushShapeSink } from "../connector/clients/push-listener/index.ts";
 import { Ingest } from "../connector/managers/ingest/index.ts";
 import type { Clock } from "../utilities/clock/index.ts";
 import { LinkSlot } from "../utilities/link-transport/index.ts";
@@ -37,6 +38,8 @@ export interface HomeAssemblyOptions {
   readonly ring: RingPort;
   /** Ring's push notifications; with none, no Push Listener is built. */
   readonly push?: RingPushPort;
+  /** Where the Push Listener hands distinct payload shapes (T038 part 2); none kept when left out. */
+  readonly pushShapes?: PushShapeSink;
   /** The open outbox; the caller closes it after `stop`. */
   readonly outbox: OutboxStore;
   /** Opens one link to the core: `dialLink` in the connector, an in-process pair in mode A. */
@@ -80,7 +83,14 @@ export function assembleHome(options: HomeAssemblyOptions): HomeAssembly {
   const pushListener =
     options.push === undefined
       ? undefined
-      : new PushListener({ ring: options.push, clock, logger });
+      : new PushListener({
+          ring: options.push,
+          clock,
+          logger,
+          ...(options.pushShapes === undefined
+            ? {}
+            : { shapes: options.pushShapes }),
+        });
 
   return {
     ingest,
