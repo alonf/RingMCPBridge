@@ -23,7 +23,7 @@
 ## Summary
 
 **Total drift events**: 6
-**Resolution rate**: 83% (5/6 resolved or decided; DRIFT-002-06 waits on the owner's yes)
+**Resolution rate**: 100% (6/6 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
@@ -44,6 +44,7 @@
 - **The reviewer session's reading** (advice, 2026-11-17, from Specrew 0.40.0's source): with the writer's header lines present, no value passes at the tasks sync. One check accepts only the last approved boundary, "plan"; the next refuses "plan" beside "Execution has not started yet.". A page without the two lines passes, because both checks skip an absent line. It names this a Specrew defect.
 - **The owner's "1"** (2026-11-17) chose the repair: state.md restored exactly as it was at f6a8746, the scaffolded form the plan sync accepted. This also undoes the hand-set phase line. `tasks-progress.yml` is unchanged. Then one sync run.
 - **Rule for iteration 002**: until the before-implement approval is recorded, avoid session starts; before each sync, if a session start added the header lines again, restore the scaffolded page and note it here. After that approval the writer's header is accepted.
+- **Closed**: 2026-11-17. The third run, on the restored page (14418a8), passed every gate and recorded the tasks crossing (2026-11-17T16:14:33Z). The owner then typed "approved for tasks". The "pending" in the Resolution line above is superseded by this line.
 - **Carry-forward**: for Specrew's bug-bash list: the session-start writer sets a phase that the tasks sync's gate then refuses.
 - **Class closure**: NONE - Specrew's code writes the line. This project's guard: no session is resumed or started between an approval and the next sync.
 
