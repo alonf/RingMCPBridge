@@ -23,7 +23,7 @@
 ## Summary
 
 **Total drift events**: 5
-**Resolution rate**: 80% (4/5 resolved or decided; DRIFT-002-05 waits on the owner's yes)
+**Resolution rate**: 100% (5/5 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
@@ -44,6 +44,7 @@
   - The Applicable Lenses section lacks an "Addressed:" line for each of the eight selected areas, pointing into the option comparison.
 
   That is the crew's authoring gap: iteration 002's design analysis followed the options message instead of the template. The proposed recovery, on the owner's approval: add those fields and lines without changing the options, the choice or any decision, then run the sync once more.
+- **Closed**: 2026-11-17. The owner's third "yes" covered the layout fill (commit 40286f7; the options, the choice of B, the effort figures and the trade-offs unchanged) and one more sync. That third run, naming iteration 002, passed every gate and recorded the plan crossing at 40286f7 (2026-11-17T10:54:15Z). The owner then typed "approved for plan". The "pending" in the Resolution line above is superseded by this line.
 - **Carry-forward**: for Specrew's bug-bash list: the plan sync skill's command passes no iteration number, and on a later iteration the sync then checks the closed one.
 - **Class closure**: NONE - Specrew's code picks the default. This project's guard: every sync here names its iteration.
 
