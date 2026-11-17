@@ -4,6 +4,10 @@
 // its ack (AC B10, OR5, FR-042, PT-30). It also keeps the home's `state_version` counter, so
 // versions keep increasing across a restart.
 //
+// Events (T043; FR-042, SC-002) are held the same way, until the core's ack for their event id,
+// with two differences: at most `EVENT_WINDOW` are sent and unacked at one time, and an unacked
+// event is sent again after 10 s, then after waits that double up to 5 minutes, with jitter.
+//
 // Bodies hold Ring names: untrusted text that is stored as written, and never logged or quoted in
 // an error (FR-033, FR-034).
 import { randomUUID } from "node:crypto";
@@ -29,8 +33,30 @@ export const OUTBOX_FILE_NAME = "outbox.db";
 /** How long a sent message waits for its ack before it is sent again (connector-link.md). */
 export const RESEND_AFTER_MS = 10_000;
 
-/** The messages that go through the outbox in iteration 001. */
+/** The most events sent and not yet acked at one time: the send window (T043) [P]. */
+export const EVENT_WINDOW = 50;
+/** An event's first wait for its ack before it is sent again. */
+export const EVENT_RESEND_FIRST_MS = 10_000;
+/** The longest an event waits between two sends: the wait doubles up to this. */
+export const EVENT_RESEND_MAX_MS = 300_000;
+/** How far the jitter moves a wait, as a share of it, either way [P]. */
+export const EVENT_RESEND_JITTER = 0.2;
+
+/** The state messages that go through the outbox; `takeDue` hands these out. */
 export type OutboxKind = "inventory" | "device_state";
+
+/** An event waiting for its ack. Its `eventId` is the link's `message_id` for it. */
+export interface OutboxEvent {
+  readonly eventId: string;
+  readonly body: OutboxBody;
+}
+
+/** The events waiting for their ack, as the heartbeat reports them. */
+export interface EventBacklog {
+  readonly count: number;
+  /** How long the oldest of them has waited since it was written; `null` when none waits. */
+  readonly oldestAgeMs: number | null;
+}
 
 /** A message body: JSON-ready data in the link contract's field names. */
 export type OutboxBody = Readonly<Record<string, unknown>>;
@@ -64,6 +90,8 @@ export interface OutboxStoreOptions {
    * leaves nothing to clear (CP-10 review).
    */
   readonly exclusive?: boolean;
+  /** A number from 0 up to 1 for the resend jitter; `Math.random` when left out. */
+  readonly random?: () => number;
 }
 
 /** SQLite's primary result codes for a lock another connection holds: SQLITE_BUSY, SQLITE_LOCKED. */
@@ -89,20 +117,41 @@ const INSERT_MESSAGE =
 const SELECT_DUE = `SELECT seq, message_id, kind, body FROM outbox WHERE ${IS_KNOWN_KIND} AND ${IS_DUE} ORDER BY seq LIMIT @limit`;
 const MARK_SENT = `UPDATE outbox SET sent_at = @now WHERE seq <= @last_seq AND ${IS_KNOWN_KIND} AND ${IS_DUE}`;
 const DELETE_MESSAGE = "DELETE FROM outbox WHERE message_id = @message_id";
-const MARK_WRITTEN =
-  "UPDATE outbox SET sent_at = @now WHERE message_id = @message_id AND sent_at IS NOT NULL";
 const MARK_ALL_UNSENT =
   "UPDATE outbox SET sent_at = NULL WHERE sent_at IS NOT NULL";
 const COUNT_MESSAGES = "SELECT COUNT(*) AS depth FROM outbox";
+
+const SELECT_MESSAGE_ID =
+  "SELECT message_id FROM outbox WHERE message_id = @message_id";
+const INSERT_EVENT =
+  "INSERT INTO outbox (message_id, kind, body, created_at) VALUES (@message_id, 'event', @body, @created_at)";
+const SELECT_EVENTS_TO_RESEND =
+  "SELECT seq, message_id, body, attempts FROM outbox WHERE kind = 'event' AND sent_at IS NOT NULL AND due_at <= @now ORDER BY seq";
+const COUNT_EVENTS_IN_FLIGHT =
+  "SELECT COUNT(*) AS in_flight FROM outbox WHERE kind = 'event' AND sent_at IS NOT NULL";
+const SELECT_NEW_EVENTS =
+  "SELECT seq, message_id, body, attempts FROM outbox WHERE kind = 'event' AND sent_at IS NULL ORDER BY seq LIMIT @limit";
+const MARK_EVENT_SENT =
+  "UPDATE outbox SET sent_at = @now, attempts = @attempts, due_at = @due_at WHERE seq = @seq";
+const MARK_EVENT_WRITTEN =
+  "UPDATE outbox SET due_at = @now + (due_at - sent_at), sent_at = @now WHERE message_id = @message_id AND kind = 'event' AND sent_at IS NOT NULL";
+const MARK_STATE_WRITTEN =
+  "UPDATE outbox SET sent_at = @now WHERE message_id = @message_id AND kind <> 'event' AND sent_at IS NOT NULL";
+const MARK_ALL_UNSENT_EVENTS =
+  "UPDATE outbox SET attempts = 0, due_at = NULL WHERE kind = 'event'";
+const EVENT_BACKLOG =
+  "SELECT COUNT(*) AS waiting, MIN(created_at) AS oldest FROM outbox WHERE kind = 'event'";
 
 /** The home's outbox. One instance per connector process, over its own file. */
 export class OutboxStore {
   readonly #layer: QueryLayer;
   readonly #clock: Clock;
+  readonly #random: () => number;
 
-  private constructor(layer: QueryLayer, clock: Clock) {
+  private constructor(layer: QueryLayer, clock: Clock, random: () => number) {
     this.#layer = layer;
     this.#clock = clock;
+    this.#random = random;
   }
 
   /** Opens the outbox file, creating it and bringing its schema up to date. */
@@ -131,7 +180,7 @@ export class OutboxStore {
       signal.throwIfAborted();
       throw unavailable("The outbox file could not be prepared.", error);
     }
-    return new OutboxStore(layer, options.clock);
+    return new OutboxStore(layer, options.clock, options.random ?? Math.random);
   }
 
   /**
@@ -206,6 +255,112 @@ export class OutboxStore {
     );
   }
 
+  /**
+   * Writes one event, held until the core's ack for its event id. `compose` builds its body and
+   * draws the state versions it carries; the event and the counter are saved together. An event
+   * already waiting is left as it is and reported as `duplicate`, and `compose` is not called.
+   */
+  async appendEvent(
+    eventId: string,
+    compose: (versions: StateVersions) => OutboxBody,
+    signal: AbortSignal,
+  ): Promise<"written" | "duplicate"> {
+    return this.#guard(signal, "The event could not be written.", () =>
+      this.#layer.transaction(async (session) => {
+        const held = await session.get(
+          statement(SELECT_MESSAGE_ID, { message_id: eventId }),
+          signal,
+        );
+        if (held !== undefined) {
+          return "duplicate";
+        }
+        const first = await readLastVersion(session, signal);
+        let last = first;
+        const body = compose({
+          next: () => {
+            last += 1;
+            return last;
+          },
+        });
+        if (last !== first) {
+          await session.run(
+            statement(SAVE_LAST_VERSION, { last_version: last }),
+            signal,
+          );
+        }
+        await session.run(
+          statement(INSERT_EVENT, {
+            message_id: eventId,
+            body: JSON.stringify(body),
+            created_at: this.#clock.now(),
+          }),
+          signal,
+        );
+        return "written";
+      }, signal),
+    );
+  }
+
+  /**
+   * The events to send now, oldest first:
+   * - those sent before whose wait for an ack has passed: 10 s after the first send, doubling to
+   *   5 minutes, each wait moved by the jitter;
+   * - then new ones, as many as keep the events sent and not yet acked within `EVENT_WINDOW`.
+   *
+   * Each is marked sent now.
+   */
+  async takeDueEvents(signal: AbortSignal): Promise<readonly OutboxEvent[]> {
+    return this.#guard(signal, "The outbox could not be read.", () =>
+      this.#layer.transaction(async (session) => {
+        const now = this.#clock.now();
+        const again = await session.all(
+          statement(SELECT_EVENTS_TO_RESEND, { now }),
+          signal,
+        );
+        const flying = await session.get(
+          statement(COUNT_EVENTS_IN_FLIGHT),
+          signal,
+        );
+        const inFlight = flying?.in_flight;
+        if (typeof inFlight !== "number") {
+          throw unreadableRow();
+        }
+        const room = Math.max(0, EVENT_WINDOW - inFlight);
+        const fresh =
+          room === 0
+            ? []
+            : await session.all(
+                statement(SELECT_NEW_EVENTS, { limit: room }),
+                signal,
+              );
+        const rows = [...again, ...fresh];
+        for (const row of rows) {
+          await this.#markEventSent(session, row, now, signal);
+        }
+        return rows.map(eventOf);
+      }, signal),
+    );
+  }
+
+  /** The events waiting for their ack, and how long the oldest has waited (the heartbeat's backlog). */
+  async eventBacklog(signal: AbortSignal): Promise<EventBacklog> {
+    const row = await this.#guard(signal, "The outbox could not be read.", () =>
+      this.#layer.get(statement(EVENT_BACKLOG), signal),
+    );
+    const count = row?.waiting;
+    const oldest = row?.oldest;
+    if (typeof count !== "number") {
+      throw unavailable("The outbox could not be read.");
+    }
+    return {
+      count,
+      oldestAgeMs:
+        typeof oldest === "number"
+          ? Math.max(0, this.#clock.now() - oldest)
+          : null,
+    };
+  }
+
   /** Clears a message on its ack. Resolves false when no such message waits (a repeated ack). */
   async acknowledge(messageId: string, signal: AbortSignal): Promise<boolean> {
     const deleted = await this.#guard(
@@ -227,20 +382,51 @@ export class OutboxStore {
    */
   async markWritten(messageId: string, signal: AbortSignal): Promise<void> {
     await this.#guard(signal, "The outbox could not be updated.", () =>
-      this.#layer.run(
-        statement(MARK_WRITTEN, {
-          now: this.#clock.now(),
-          message_id: messageId,
-        }),
-        signal,
-      ),
+      this.#layer.transaction(async (session) => {
+        const params = { now: this.#clock.now(), message_id: messageId };
+        // An event keeps its own wait, counted from now.
+        await session.run(statement(MARK_EVENT_WRITTEN, params), signal);
+        await session.run(statement(MARK_STATE_WRITTEN, params), signal);
+      }, signal),
     );
   }
 
   /** Makes every unacked message due now, so a new session sends them all again, oldest first. */
   async markAllUnsent(signal: AbortSignal): Promise<void> {
     await this.#guard(signal, "The outbox could not be updated.", () =>
-      this.#layer.run(statement(MARK_ALL_UNSENT), signal),
+      this.#layer.transaction(async (session) => {
+        await session.run(statement(MARK_ALL_UNSENT), signal);
+        // A new session starts each event's backoff again.
+        await session.run(statement(MARK_ALL_UNSENT_EVENTS), signal);
+      }, signal),
+    );
+  }
+
+  // Marks one event sent now, with its next send time: 10 s after the first send, doubling with
+  // each later one up to 5 minutes, moved by the jitter so resends do not line up.
+  async #markEventSent(
+    session: SqlSession,
+    row: SqlRow,
+    now: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { seq, attempts } = row;
+    if (typeof seq !== "number" || typeof attempts !== "number") {
+      throw unreadableRow();
+    }
+    const wait = Math.min(
+      EVENT_RESEND_FIRST_MS * 2 ** attempts,
+      EVENT_RESEND_MAX_MS,
+    );
+    const jitter = 1 + EVENT_RESEND_JITTER * (2 * this.#random() - 1);
+    await session.run(
+      statement(MARK_EVENT_SENT, {
+        seq,
+        now,
+        attempts: attempts + 1,
+        due_at: now + Math.round(wait * jitter),
+      }),
+      signal,
     );
   }
 
@@ -314,6 +500,23 @@ function itemOf(row: SqlRow): OutboxItem {
     throw unreadableRow();
   }
   return { messageId, kind, body: body as OutboxBody };
+}
+
+function eventOf(row: SqlRow): OutboxEvent {
+  const eventId = row.message_id;
+  if (typeof eventId !== "string" || typeof row.body !== "string") {
+    throw unreadableRow();
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(row.body);
+  } catch {
+    throw unreadableRow();
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw unreadableRow();
+  }
+  return { eventId, body: body as OutboxBody };
 }
 
 function isKnownKind(kind: string): kind is OutboxKind {

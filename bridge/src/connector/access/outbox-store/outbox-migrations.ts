@@ -33,4 +33,18 @@ export const OUTBOX_MIGRATIONS: readonly Migration<"sqlite">[] = [
       ],
     },
   },
+  // Migration 2 (T043): what an event's resend needs. `attempts` counts how often a message was
+  // sent in this session, and `due_at` is when it is sent again without an ack. Only events use
+  // them; the state messages keep their fixed resend time. Additive: a column with a default and
+  // a nullable column, so the release before still runs on this file (DS5).
+  {
+    version: 2,
+    name: "event-resend",
+    statements: {
+      sqlite: [
+        "ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE outbox ADD COLUMN due_at INTEGER",
+      ],
+    },
+  },
 ];

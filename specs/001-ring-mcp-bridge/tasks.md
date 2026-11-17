@@ -128,7 +128,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - a malformed or unknown payload returns a typed failure. It never throws and never produces a partial event.
 
   Tests: every fixture from T038; the same Ring event twice gives the same event id; malformed input (Trace: FR-008, FR-033; CP-08b)
-- [ ] T043 [P] [US2] [assigned_to: Implementer] [effort: 0.9] Outbox Store, extended in `bridge/src/connector/access/outbox-store/`:
+- [x] T043 [P] [US2] [assigned_to: Implementer] [effort: 0.9] Outbox Store, extended in `bridge/src/connector/access/outbox-store/`:
   - events are held until the core's ack for that event id;
   - a send window of about 50 unacked events;
   - backoff on the oldest unacked event: 10 seconds, doubling to 5 minutes, with jitter;
