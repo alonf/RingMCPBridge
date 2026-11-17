@@ -187,11 +187,75 @@ From iteration 001's retro Signals and DRIFT-002-01, each with the crew's recomm
 | SC-011's bill for the month | In iteration 002: read the month's bill when it closes | 0.25 |
 | The agent read from ChatGPT on the new core | Inside CP-21b | 0 |
 | A midpoint independent review (iteration 001's Lesson 6) | In iteration 002, after step 3 of the chosen option | 1 |
-| Task ids and the ledger (DRIFT-002-01) | The plan's task rows and tasks.md's rows share the same T ids, one to one, so Specrew's own writer tracks progress; each iteration's ledger is committed | 0 |
+| Task ids and the ledger (DRIFT-002-01) | Unconfirmed, asked of the owner's reviewer session for Specrew: whether shared T ids in the plan and tasks.md let Specrew's writer track iteration 002 (its hints may apply to iteration 001 only). The proven path until then: set the ledger's entries to done as tasks finish, commit the ledger, and let one session start rebuild state.md | 0 |
 | DRIFT-001-77, the snooze | Iteration 003, next to the per-agent opt-ins it sits beside | 0 |
 | DRIFT-001-89's known limit (a hub whose device list never comes after a reconnect) | Iteration 003; whether the owner's (y) should cover it is decided there | 0 |
 
 With the carried items, about 18.75 raw SP, about 34 SP of effort against the 42 SP cap (estimate).
+
+## Co-Design Record
+
+**Human-agreed**: yes. This iteration-002 baseline was co-designed with the owner in the component-design area on 2026-11-17: the map was answered "1. OK", the four decisions were answered (the channel shim deferred, DRIFT-002-02), and the area closed with "move on".
+
+**The agreed event-path map (a subset of map v3, as decided):**
+
+```text
+ [N] new in 002   [E] extended in 002   [=] used as built in 001
+
+ AGENTS   ChatGPT (MCP events, the dot)   Claude, others (listen stream)   Claude Code
+              ^                                 ^                               ^
+              |                                 |      CHANNEL SHIM (your PC): deferred
+ =========================== AZURE CORE ======================================================
+ CLIENTS    [E] MCP Endpoint            [E] Connector Link          [N] Scheduler
+ MANAGERS   [E] Event                   [E] Inquiry
+ ENGINES    [N] Classify                [E] Health
+ RESOURCE   [N] Event Log   [=] State   [N] Audit   [N] Subscriptions   [N] Delivery
+ ACCESS
+ SCHEMAS    [E] Public Contract (the event shape agents see)
+ ======================================^======================================================
+                                       | WSS link: events up, acks down
+ =========================== HOME CONNECTOR ==================================================
+ CLIENTS    [N] Push Listener           [E] Core Link               [=] Home Scheduler
+ MANAGERS   [E] Ingest
+ ENGINES    [N] Normalize
+ RESOURCE   [E] Outbox Store            [=] Ring Adapter            [=] Secrets File
+ ACCESS
+```
+
+**Every component and its responsibility (IDesign vocabulary):**
+
+- **Clients**
+  - MCP Endpoint [E]: event notifications to current-era clients (ChatGPT, the dot), and `get_events`.
+  - Connector Link [E]: event messages from home to Event, and acks back.
+  - Scheduler [N]: minute ticks in the core: the home-offline check and the 30-day purge.
+  - Push Listener [N] (home): Ring's push in.
+  - Core Link [E] (home): events up, acks in.
+  - Home Scheduler [=] (home): resends.
+- **Managers**
+  - Event [E]: one transaction per event, priority, fan-out, late events, health changes.
+  - Inquiry [E]: `get_events` after a cursor, with filters and a next cursor.
+  - Ingest [E] (home): normalize, outbox, send; catch-up after a gap (up to 24 hours), marked late.
+- **Engines**
+  - Classify [N]: priority from policy data (FR-009), the late-event rule.
+  - Health [E]: the Ring-down event after 2 minutes, the recovery event, push-reception health.
+  - Normalize [N] (home): Ring's payload into the bridge's event shape, Ring's text marked untrusted.
+- **Resource access**
+  - Event Log [N]: events in order per location, the epoch, dedup by event id.
+  - State [=]: device state, updated by events.
+  - Audit [N]: written in the same transaction.
+  - Subscriptions [N]: each client's cursor and last-read mark.
+  - Delivery [N]: one adapter per platform.
+  - Outbox Store [E] (home): events until acked, the catch-up mark.
+
+**Agreed flow (a doorbell ring, a HIGH event, within 10 seconds end to end), walked through the map:**
+
+```text
+Ring push -> Push Listener -> Ingest -> Normalize -> Outbox Store -> Core Link
+  -> (link) -> Connector Link -> Event -> Classify (HIGH)
+  -> one transaction: Event Log + State + Audit -> ack back home (the outbox clears)
+  -> Delivery (per Subscriptions) -> ChatGPT event (the dot) / listen stream
+  -> later, the agent calls get_events -> Inquiry -> its cursor -> Event Log
+```
 
 ## Crew Recommendation
 
@@ -199,4 +263,9 @@ With the carried items, about 18.75 raw SP, about 34 SP of effort against the 42
 
 ## Human Decision
 
-Pending: the owner chooses an option and the carried items.
+- **Decision verdict**: pending
+- **Chosen option**: pending
+- **Reason**: pending
+- **Modifications**: pending
+- **Design-analysis draft commit**: pending
+- **Decision recorded in commit**: pending
