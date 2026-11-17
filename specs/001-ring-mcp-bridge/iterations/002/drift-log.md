@@ -22,11 +22,24 @@
 
 ## Summary
 
-**Total drift events**: 3
-**Resolution rate**: 100% (3/3 resolved or decided)
-**Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
+**Total drift events**: 4
+**Resolution rate**: 100% (4/4 resolved or decided)
+**Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-04: the owner's additions beyond the spec's text: the backlog, its alert, and the Ring-session-lost alert brought forward
+
+- **Detected**: 2026-11-17, at iteration 002's plan stage, checking the plan against the spec.
+- **Kind**: scope additions and a move between iterations, decided by the owner in the design analysis. The spec is unchanged.
+- **Observed**:
+  1. **The backlog in the heartbeat and in `get_health`.** FR-005's health fields are the home link, the Ring session, push reception, the last event and stale-since; the backlog is not among them. The owner took it with the ack and resend design ("2 ok", component-design): the heartbeat reports the backlog's size and the oldest's age, and `get_health` shows it (observability-resilience, "all as recommended").
+  2. **An alert on the backlog.** FR-043's conditions are the heartbeat, the home offline, the Ring session lost, the audit chain and the write-once copy; the backlog is not among them. The owner took an alert when the oldest unacked event has waited more than about 5 minutes (component-design, "2 ok"; devops-operations, "Yes").
+  3. **The Ring-session-lost alert in iteration 002.** FR-043 lists it, but the feature plan's map placed it in iteration 004. The owner moved it here (devops-operations, "yes"): it is the failure the 7-day soak watches for, and it shares the one rule.
+- **Requirement citation**: FR-005 and FR-043 (the conditions they list); FR-042 (the resend that the backlog reports on); the feature plan's iteration map (FR-043 "in part" for iteration 002).
+- **Resolution**: human-decision, decided by the owner on 2026-11-17 in the design analysis (records: `workshop/component-design.md`, `workshop/observability-resilience.md`, `workshop/devops-operations.md`). Items 1 and 2 add to what the spec requires and contradict none of it; item 3 moves a listed condition earlier. Iteration 002's plan carries all three (CP-08b, CP-11b, CP-18), and the feature plan's pointer line records the move. The review's drift check treats them as authorized, not as gold-plating.
+- **Carry-forward**: whether the spec should name the backlog in FR-005 and FR-043 is a spec decision for a later spec change; the owner decides it then.
+- **Class closure**: NONE - a one-off set of owner decisions at the design analysis, recorded so the review can trace them.
 
 ### DRIFT-002-03: the quality resolver again marks concurrency, resiliency and retry/idempotency as not applicable
 

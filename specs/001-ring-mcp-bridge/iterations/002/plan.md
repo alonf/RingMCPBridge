@@ -55,7 +55,9 @@ Partly in iteration 002:
 - FR-043: no heartbeat for 10 minutes, the home offline over 10 minutes and the Ring session lost, plus the home's event backlog over about 5 minutes (the owner's addition). The audit conditions come with the audit chain in iteration 004.
 - FR-046: link version 1 gains its event messages without a version bump.
 
-Success criteria touched: SC-001 (the 10-second budget, first samples), SC-003 (the soak's result), SC-005 (the HIGH health event), SC-010 (the alerts) and SC-011 (the bill).
+Success criteria touched: SC-001 (the 10-second budget, first samples), SC-002 (no HIGH event lost: the kill-and-restart and dropped-link tests read every event from the cursor), SC-003 (the soak's result), SC-005 (the HIGH health event), SC-010 (the alerts) and SC-011 (the bill).
+
+The owner's decisions in the design analysis add three things beyond the spec's text: the home's backlog in the heartbeat and in `get_health`, an alert on that backlog, and the Ring-session-lost alert moved from iteration 004 into this one. DRIFT-002-04 records them.
 
 ## Tasks
 
@@ -68,7 +70,7 @@ Effort is each item's raw estimate scaled by about 1.8, iteration 001's measured
 | CP-12 | Subscriptions and cursors: cursors with epochs that never skip and survive restarts; each client's delivery state; `get_events` after a cursor with filters and a next cursor, flat input, read scope and read limit | FR-010, FR-011, FR-026, FR-030, FR-047, FR-048 | US2 | 1.8 | Implementer | `bridge/src/core/**`, `bridge/src/contract/**`, `schemas/**` | planned | — | — | — |
 | CP-13 | Delivery: the ChatGPT adapter for MCP Events as OpenAI's draft publishes them (signed webhooks; each subscription's callback address and signing secret in the database, encrypted; callbacks through the bounded fetch), and the minimal listen stream for earlier-era clients. HIGH and MEDIUM pushed at least once, dedup by event id, Ring text marked untrusted. The channel shim is deferred (DRIFT-002-02) | FR-010, FR-012, FR-030, FR-033 | US2 | 3.6 | Implementer | `bridge/src/core/**` | planned | — | — | — |
 | CP-18 | One Azure Monitor alert rule, by email and SMS: no heartbeat for 10 minutes, the home offline over 10 minutes, the backlog over about 5 minutes, the Ring session lost | FR-043 | cross-cutting | 2.25 | Implementer | `infra/**`, `bridge/src/core/**` | planned | — | — | — |
-| CP-20 | Spike S1, time-boxed: can a non-US Ring account register an official private app (TG-004, the accepted unknown S1)? The owner does the Ring developer-portal steps; no Ring credentials or codes pass through the chat | FR-042 | discovery | 1.8 | Implementer, with the owner's account | — | planned | — | — | — |
+| CP-20 | Spike S1, time-boxed: can a non-US Ring account register an official private app (TG-004, the accepted unknown S1)? The owner does the Ring developer-portal steps; no Ring credentials or codes pass through the chat | TG-004 | discovery | 1.8 | Implementer, with the owner's account | — | planned | — | — | — |
 | CP-21b | The dot and the first end-to-end latency samples: SC-001 measured from Ring's trigger to ChatGPT accepting the webhook, logged per event; the owner's stopwatch samples of the dot; the agent read from ChatGPT on the new core | FR-010, FR-012 | US2 | 1.8 | Owner, with the Implementer | — | planned | — | — | — |
 | CP-MR | Midpoint independent review, after the dot (iteration 001's Lesson 6) | FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048 | all | 1.8 | Reviewer | — | planned | — | — | — |
 | CP-RV | Review: codex review runs and the hardening review | FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048 | all | 3.6 | Reviewer | — | planned | — | — | — |
@@ -119,6 +121,7 @@ Effort is each item's raw estimate scaled by about 1.8, iteration 001's measured
 
 - Requirement scope: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048
 - User stories represented in current scope: US2 (pushed events, the cursor, late events and the recovery summary, Ring-down health), and US1's health completed (FR-005).
+- CP-20 traces to TG-004 and the accepted unknown S1, not to an FR: the spike decides which Ring path iteration 003 widens, as the feature plan's spike table states.
 - Every requirement in scope maps to at least one work item above. tasks.md, at the tasks stage, breaks them into tasks mapped to FRs and SCs and runs the traceability check.
 - Overcommit guardrail: 33.75 planned against 42 (threshold 1.0), so no deferral is needed. The about 8 SP of headroom is kept for the first-contact items: the push probe, MCP Events, S1 and the dot (estimate).
 

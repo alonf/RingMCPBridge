@@ -270,7 +270,7 @@ CP-03 and CP-04 cite event requirements because the shared foundation is built o
 | | Expected rework (about 10%) | | rework | 2 | Implementer |
 | | **Total forecast for iteration 002** | | | **16** | |
 
-Iteration 002 is now planned in [iterations/002/plan.md](iterations/002/plan.md) (2026-11-17), from its design analysis (Option B). It plans 33.75 SP of effort against 42: the raw estimates scaled by about 1.8, iteration 001's measured ratio, with the carried items added. The channel shim is deferred out of iteration 002 (DRIFT-002-02), so FR-012's local relay to a desktop coding agent waits for a later iteration's planning.
+Iteration 002 is now planned in [iterations/002/plan.md](iterations/002/plan.md) (2026-11-17), from its design analysis (Option B). It plans 33.75 SP of effort against 42: the raw estimates scaled by about 1.8, iteration 001's measured ratio, with the carried items added. The channel shim is deferred out of iteration 002 (DRIFT-002-02), so FR-012's local relay to a desktop coding agent waits for a later iteration's planning. The Ring-session-lost alert (FR-043) moves from iteration 004 into iteration 002, by the owner's decision, with an alert on the home's event backlog (DRIFT-002-04).
 
 **Capacity status: `ok`.** Iteration 001 is 42 SP against a capacity of 42 (ratio 1.0, at the threshold). Iteration 002's forecast of 16 SP also fits.
 
