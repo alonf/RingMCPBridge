@@ -97,3 +97,8 @@ The coding rules carry over from the feature's implementation rules; a new depen
   - Research-needed: ChatGPT's callback hosts and who issues the signing secret (the integration area's MCP Events test).
   - Push credentials stay in the home's encrypted file; revoking an agent ends its subscriptions.
   - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/security-compliance.md
+- **data-storage** (the owner, 2026-11-17, "all as recommended" and "move on"):
+  - The event log and cursor as the data model designs them; migrations only add.
+  - ChatGPT's webhook subscriptions keep their callback address and signing secret in the database, encrypted at rest and readable only by the core's identity.
+  - About 3,000 to 9,000 event rows in 30 days; no tier change, $0 extra (estimate).
+  - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/data-storage.md
