@@ -27,6 +27,8 @@ const LEFT_AT_DEFAULT: ReadonlySet<string> = new Set([
   SETTING_VARIABLES.batteryThresholdPct,
   SETTING_VARIABLES.staleAfterS,
   SETTING_VARIABLES.eventRetentionDays,
+  // Off in production until the owner OKs the probe's deploy (T039 part 2).
+  CORE_HOST_VARIABLES.mcpEventsProbe,
 ]);
 
 function infraFile(path: string): string {

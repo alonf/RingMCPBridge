@@ -189,6 +189,7 @@ describe("mode H's core settings", () => {
         publicUrl: "https://bridge.example.test",
         port: 8080,
         trustProxy: false,
+        mcpEventsProbe: false,
         sqlServer: "bridge-sql.database.windows.net",
         sqlDatabase: "bridge",
         keyVaultUrl: "https://bridge-vault.vault.azure.net",
@@ -210,6 +211,7 @@ describe("mode H's core settings", () => {
       BRIDGE_PUBLIC_URL: "https://bridge.example.test/",
       BRIDGE_PORT: "3000",
       BRIDGE_TRUST_PROXY: "true",
+      BRIDGE_MCP_EVENTS_PROBE: "true",
       BRIDGE_OWNER_OBJECT_ID: "owner-object-1",
       BRIDGE_REGISTRATIONS_PER_HOUR: "25",
       BRIDGE_AGENTS: JSON.stringify([
@@ -227,6 +229,7 @@ describe("mode H's core settings", () => {
         publicUrl: "https://bridge.example.test",
         port: 3000,
         trustProxy: true,
+        mcpEventsProbe: true,
         ownerObjectId: "owner-object-1",
         registrationsPerHour: 25,
         agents: [
@@ -280,6 +283,11 @@ describe("mode H's core settings", () => {
       "a proxy flag other than true or false",
       { BRIDGE_TRUST_PROXY: "yes" },
       "BRIDGE_TRUST_PROXY",
+    ],
+    [
+      "an events probe flag other than true or false",
+      { BRIDGE_MCP_EVENTS_PROBE: "on" },
+      "BRIDGE_MCP_EVENTS_PROBE",
     ],
     [
       "a tenant named by its domain, which Entra's issuer never is",

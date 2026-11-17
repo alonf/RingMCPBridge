@@ -60,6 +60,8 @@ export interface CoreHostSettings {
   readonly agents: readonly ListedAgentSetting[];
   /** New agent registrations (DCR) the Issuer accepts in an hour, across all agents (CP-17's review). */
   readonly registrationsPerHour: number;
+  /** Whether the MCP Events probe answers on `/mcp` (T039). Off unless set. */
+  readonly mcpEventsProbe: boolean;
 }
 
 /** The home part (connector). */
@@ -101,6 +103,7 @@ export const CORE_HOST_VARIABLES = {
   ownerObjectId: "BRIDGE_OWNER_OBJECT_ID",
   agents: "BRIDGE_AGENTS",
   registrationsPerHour: "BRIDGE_REGISTRATIONS_PER_HOUR",
+  mcpEventsProbe: "BRIDGE_MCP_EVENTS_PROBE",
 } as const;
 
 /** The variable behind each of the connector's settings. */
@@ -205,6 +208,7 @@ export const CORE_HOST_SCHEMA: z.ZodType<CoreHostSettings> = z
       .pipe(z.number().int().min(1).max(MAX_REGISTRATIONS_PER_HOUR))
       .optional()
       .transform((limit) => limit ?? REGISTRATIONS_PER_HOUR_DEFAULT),
+    mcpEventsProbe: FLAG_SCHEMA,
   })
   .transform(({ ownerObjectId, ...core }): CoreHostSettings => ({
     ...core,

@@ -30,6 +30,10 @@ export const LOG_FIELD_KINDS = {
   kind: "code",
   /** Ring's own subtype of a push, such as `human` (T038). */
   subtype: "code",
+  /** An MCP event type's name, such as `bridge.probe` (T039). */
+  event_name: "code",
+  /** A callback's host name, never its path (T039). */
+  host: "code",
   outcome: "code",
   error_code: "code",
   http_status: "measure",

@@ -973,3 +973,16 @@ The owner does every step on their own account. No Ring or Amazon credential, co
 6. Note any requirement the pages state on the way: a Ring plan, a user limit, a static IP to register.
 
 The result is one of three: registration and linking both work (the official path is open), registration works but linking does not, or registration is refused. Each is a finding; none is a failure of the spike.
+
+## Iteration 002 addendum: the MCP Events probe (T039), the probe handler and spike S4 (2026-11-17)
+
+- **Spike S4 is answered: yes.** The TypeScript SDK's server (2.4.0) passes a top-level `events` capability through unchanged, in the `initialize` result of the earlier era and in the `server/discover` result of 2026-07-28. It also serves the three `events/*` methods as custom methods in both eras. A test reads this from the wire (`bridge/test/mcp-endpoint/events-probe.test.ts`).
+  - The SDK's own client drops the `events` key when it reads the capabilities. That matters only to tests, which therefore read the wire; ChatGPT does not use this client.
+- **The probe handler exists**, off by default, behind the core's setting `BRIDGE_MCP_EVENTS_PROBE`. The infrastructure does not set it, so production does not serve it. With the switch on it:
+  - declares `events`, and lists one event type, `bridge.probe`, which carries no home data;
+  - checks a subscription: the `whsec_` secret form, `webhook` delivery, and a callback that is HTTPS at a host name with no credentials;
+  - posts the signed verification challenge and accepts the subscription only on a 2xx that echoes it; otherwise it answers error -32015 with its reason;
+  - sends one signed test event five seconds later;
+  - logs the client, the event name, the delivery mode, the callback's host and each answer's status. The secret stays in memory and is never logged, and neither are the callback's path or the arguments.
+- **What the probe does not do**, and T048 must: resolve the callback's address and refuse private ones, apply the host allowlist, limit the answer's size, retry, store subscriptions, and expire them. The probe follows no redirect and gives a callback five seconds. It is reachable only with an access token the owner's own sign-in issued.
+- **Part 2**, with the owner's OK for one production deploy: set the switch, connect from the owner's ChatGPT, and read from the log whether a subscription arrives, which host its callback names, and whether the verification and the test event are accepted.

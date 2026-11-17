@@ -19,7 +19,10 @@ import type { AddressInfo } from "node:net";
 import { getRequestListener } from "@hono/node-server";
 import type { CoreSecrets } from "../core/access/secrets/index.ts";
 import { Issuer, IssuerError } from "../core/clients/issuer/index.ts";
-import { McpEndpoint } from "../core/clients/mcp-endpoint/index.ts";
+import {
+  EventsProbe,
+  McpEndpoint,
+} from "../core/clients/mcp-endpoint/index.ts";
 import {
   ADMIN_PATH,
   SIGN_IN_RETURN_PATH,
@@ -72,7 +75,7 @@ export interface CoreServiceResources {
   readonly store: QueryLayer;
   readonly secrets: CoreSecrets;
   readonly ownerSignIn: OwnerSignIn;
-  /** Fetches agents' client metadata documents. */
+  /** Fetches agents' client metadata documents, and calls the MCP Events probe's callbacks (T039). */
   readonly fetch: HttpFetch;
   /** Must read the same time as `Date`, as oidc-provider does: `SystemClock`. */
   readonly clock: Clock;
@@ -154,6 +157,10 @@ export async function startCoreService(
   );
   await keys.start();
 
+  // The MCP Events probe (T039) answers only while its switch is on.
+  const eventsProbe = settings.core.mcpEventsProbe
+    ? new EventsProbe({ fetch: resources.fetch, clock, logger })
+    : undefined;
   const mcp = new McpEndpoint(
     {
       resource: `${publicUrl}${MCP_PATH}`,
@@ -162,7 +169,13 @@ export async function startCoreService(
       allowedHosts: [new URL(publicUrl).hostname],
       readsPerHour: settings.readsPerHour,
     },
-    { inquiry: core.inquiry, tokens: issuer, clock, logger },
+    {
+      inquiry: core.inquiry,
+      tokens: issuer,
+      clock,
+      logger,
+      ...(eventsProbe === undefined ? {} : { eventsProbe }),
+    },
   );
   const mcpListener = getRequestListener((request) => mcp.fetch(request));
   const web = new Web(
@@ -267,6 +280,7 @@ export async function startCoreService(
     stop: () => {
       stopping ??= (async () => {
         keys.stop();
+        eventsProbe?.stop();
         // The server's close waits for every connection, and `closeAllConnections` leaves out the
         // upgraded ones: the home's link, which keeps up its heartbeats. So the links are closed
         // before the wait, or a stop with a home connected would never finish (CP-10 review).
