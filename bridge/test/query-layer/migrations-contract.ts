@@ -120,6 +120,43 @@ const EXPECTED_TABLES: Readonly<
     ["snapshot_id", true],
     ["snapshot_version", true],
   ],
+  log_meta: [
+    ["location_id", true],
+    ["epoch", true],
+    ["next_seq", true],
+  ],
+  event: [
+    ["location_id", true],
+    ["seq", true],
+    ["event_id", true],
+    ["kind", true],
+    ["priority", true],
+    ["occurred_at", true],
+    ["received_at", true],
+    ["stored_at", true],
+    ["device_id", false],
+    ["summary", true],
+    ["media_id", false],
+    ["late", true],
+    ["data", false],
+  ],
+  audit_chain: [
+    ["chain", true],
+    ["next_seq", true],
+  ],
+  audit_entry: [
+    ["chain", true],
+    ["seq", true],
+    ["kind", true],
+    ["event_id", false],
+    ["location_id", false],
+    ["event_seq", false],
+    ["client_id", false],
+    ["sub", false],
+    ["action", false],
+    ["result", false],
+    ["ts", true],
+  ],
 };
 
 const LOCATION = {

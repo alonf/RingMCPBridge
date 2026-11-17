@@ -151,7 +151,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - the late-event rule: an event is late when it was recovered after a gap or held at home for more than 2 minutes.
 
   Tests: every row of the spec's table; an unknown kind gets the table's default; the 2-minute edge on the fake clock (Trace: FR-009, FR-013; CP-11b)
-- [ ] T046 [P] [US2] [assigned_to: Implementer] [effort: 1.35] Event Log and Audit resource access, in `bridge/src/core/access/event-log/` and `bridge/src/core/access/audit/`:
+- [x] T046 [P] [US2] [assigned_to: Implementer] [effort: 1.35] Event Log and Audit resource access, in `bridge/src/core/access/event-log/` and `bridge/src/core/access/audit/`:
   - Event Log: events in order per location, a sequence that never skips, the epoch, and a unique key on the event id for dedup;
   - Audit: one record per event write, shaped so iteration 004's chain can be added without rewriting rows;
   - migrations in `bridge/src/utilities/query-layer/migrations/` for both dialects;
