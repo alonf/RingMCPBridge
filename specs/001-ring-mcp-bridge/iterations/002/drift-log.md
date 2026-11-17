@@ -22,11 +22,25 @@
 
 ## Summary
 
-**Total drift events**: 4
-**Resolution rate**: 100% (4/4 resolved or decided)
+**Total drift events**: 5
+**Resolution rate**: 80% (4/5 resolved or decided; DRIFT-002-05 waits on the owner's yes)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-05: the first plan sync checked iteration 001 and was refused
+
+- **Detected**: 2026-11-17, at iteration 002's plan sync.
+- **Kind**: operator error in the sync's arguments, under governed tooling (Specrew 0.40.0). Nothing was recorded.
+- **Observed**:
+  - The plan sync ran once with the lint fallback (DRIFT-001-91: npm's and Node's folders off PATH for that one process), by the owner's typed "yes". markdownlint was skipped as expected.
+  - The run did not name the iteration, following the plan sync skill's command, which passes none. The sync then took the iteration from the session's lifecycle position, which still names iteration 001.
+  - Its iteration-state gate refused: iteration 001's state.md (Current Phase iteration-closeout, Iteration Status complete) and plan.md (Status complete) did not match the boundary being synced, 'plan'.
+  - It wrote no crossing and no pending-verdict file. The only change is the local lifecycle file's pending next boundary, now 'plan', which git does not track.
+- **Requirement citation**: the plan boundary of iteration 002; DRIFT-001-91's fallback, used once per owner yes.
+- **Resolution**: human-decision, pending. The one recovery step is to run the plan sync once more, naming iteration 002 (`-IterationNumber 002`, as the retro and closeout syncs did), on the owner's yes. Iteration 001 is sealed and correct, so the refusal's advice to correct its lines by hand does not apply: those files are not edited.
+- **Carry-forward**: for Specrew's bug-bash list: the plan sync skill's command passes no iteration number, and on a later iteration the sync then checks the closed one.
+- **Class closure**: NONE - Specrew's code picks the default. This project's guard: every sync here names its iteration.
 
 ### DRIFT-002-04: the owner's additions beyond the spec's text: the backlog, its alert, and the Ring-session-lost alert brought forward
 
