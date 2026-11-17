@@ -66,6 +66,25 @@ Selected by the questionnaire in file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp
 | observability-resilience | performance and resilience: yes | medium | The Ring-down health event, push-reception health, the recovery summary, catch-up |
 | ui-ux | user-facing UI: no | skipped | Iteration 002 builds no screen of its own. The dot is ChatGPT's indicator, and the admin page does not change unless a later decision says it should show push health |
 
+How the options address each selected area:
+
+- **architecture-core**
+  - Addressed: every option keeps the decided topology and map with no new deployable. See each option's Architectural pattern; the options differ only in order (Option B's Approach).
+- **component-design**
+  - Addressed: the options differ in which components exist first. Option B's Approach builds each component once with its guarantees; Option A's Trade-offs name the rework; Option C's Approach builds by layer.
+- **requirements-nfr**
+  - Addressed: SC-001's 10-second budget is the driver. Option A's and Option B's Trade-offs: measured early on the real path. Option C's Trade-offs: proven last.
+- **security-compliance**
+  - Addressed: Option B's Quality features considered: the callback rules, untrusted marking and subscription secrets are built in with steps 2 and 3. Option A's Quality features considered: hardening follows the thin slice.
+- **data-storage**
+  - Addressed: Option B's Approach, step 2: the one-transaction write and dedup from the start. Option A's Trade-offs: added later on a path in use. Option C's Approach: the stores complete before delivery.
+- **integration-api**
+  - Addressed: Option B's Approach, step 1: the push probe, MCP Events on the owner's plan and Spike S1 run first, in parallel. Option A's Approach: push and MCP Events first, S1 last. Option C's Trade-offs: MCP Events and the dot last.
+- **devops-operations**
+  - Addressed: Option B's Approach, step 5, and Option C's Approach, step 5: the alert rule after the event path exists. The deploy is the same in every option.
+- **observability-resilience**
+  - Addressed: Option B's Approach, step 4: Ring-down events, the health fields, catch-up and the recovery summary. Option A's Approach, step 3: the same, after the thin slice.
+
 The coding rules carry over from the feature's implementation rules; a new dependency would come up under integration-api. The reviewer stays codex, as chosen for the feature.
 
 ## Decisions So Far
@@ -141,18 +160,38 @@ That leaves about 11 SP of effort under the 42 SP cap for the carried items.
 
 ## Alternatives
 
-All three build the same decided scope. They differ in order, and so in when the unknowns are met.
+All three build the same decided scope. They differ in order, and so in when the unknowns are met. The fields below restate what the owner saw when choosing; no option, effort figure or trade-off changed.
 
 ### Option A: Simplest — a thin ChatGPT slice first
+
+**Approach**:
 
 1. The push probe, then a minimal event path: no catch-up, late events or recovery summary yet.
 2. MCP Events to ChatGPT and the dot, with the first latency samples.
 3. Then catch-up, late events and the recovery summary, cursors and `get_events`, alerts, the listen stream, and Spike S1.
 
-- **For:** the two biggest unknowns (MCP Events on the owner's plan, and the 10-second budget) are answered first.
-- **Against:** the one-transaction write, dedup and the ack after commit are added on top of a path already in use. That is rework, the cost iteration 001's retro names.
+**Architectural pattern**: the agreed event-path map (Co-Design Record), unchanged, built as a thin slice first and thickened afterwards.
+**Quality features considered**: requirements-nfr (SC-001 measured first); integration-api (MCP Events and the dot first). The retry and data guarantees (the one-transaction write, dedup, the ack after commit), security hardening of callbacks, alerts and health fields come afterwards.
+**Effort estimate**: the same scope, about 31 SP of effort (estimate), plus rework that is not sized: the guarantees are added to a path already in use.
+**Reversibility cost**: Low for the order itself. Medium for the code: the thin path is reworked when the guarantees arrive.
+**Trade-offs**:
+
+- (+) The two biggest unknowns (MCP Events on the owner's plan, and the 10-second budget) are answered first.
+- (−) The one-transaction write, dedup and the ack after commit are added on top of a path already in use. That is rework, the cost iteration 001's retro names.
+
+**Diagram**:
+
+```mermaid
+flowchart LR
+  P[Push probe] --> T[Thin event path]
+  T --> D[MCP Events and the dot]
+  D --> G[Guarantees added: one transaction, dedup, ack after commit]
+  G --> R[Catch-up, cursors, alerts, listen stream, S1]
+```
 
 ### Option B: Reasonable — risk-first, each part built once (crew recommendation)
+
+**Approach**:
 
 1. **Probes in parallel:**
    - the push probe at home;
@@ -163,10 +202,29 @@ All three build the same decided scope. They differ in order, and so in when the
 4. **Cursors and `get_events`;** catch-up, late events and the recovery summary; Ring-down events and the new health fields.
 5. **The alert rule and the minimal listen stream.**
 
-- **For:** the biggest unknowns come early, and nothing is built twice.
-- **Against:** the dot lights a little later than in Option A.
+**Architectural pattern**: the agreed event-path map (Co-Design Record), unchanged. Probes first, then each component built once with its decided guarantees.
+**Quality features considered**: all eight selected areas (see Applicable Lenses). The unknowns of integration-api and requirements-nfr are probed in step 1; the data, retry and security decisions are built in with steps 2 and 3; devops and observability close in steps 4 and 5.
+**Effort estimate**: about 31 SP of effort, about 34 with the carried items, against the 42 SP cap (estimate).
+**Reversibility cost**: Low. The probes are small and cheap to discard, and the order of steps 4 and 5 can still change.
+**Trade-offs**:
+
+- (+) The biggest unknowns come early, and nothing is built twice.
+- (−) The dot lights a little later than in Option A.
+
+**Diagram**:
+
+```mermaid
+flowchart LR
+  P[Probes: push, MCP Events, S1] --> E[Event path end to end]
+  E --> D[ChatGPT delivery and the dot]
+  D --> M[Midpoint review]
+  M --> C[Cursors, catch-up, Ring-down events, health fields]
+  C --> A[Alert rule and listen stream]
+```
 
 ### Option C: By-the-book — layer by layer
+
+**Approach**:
 
 1. The home side complete: push, ingest, the outbox, catch-up.
 2. The core's event path complete.
@@ -174,8 +232,24 @@ All three build the same decided scope. They differ in order, and so in when the
 4. The delivery adapters.
 5. The alerts.
 
-- **For:** each layer is finished once.
-- **Against:** ChatGPT end to end, the dot and the 10-second budget are proven last. Iteration 001 found its escapes late (DRIFT-001-86), and this order repeats that risk.
+**Architectural pattern**: the agreed event-path map (Co-Design Record), unchanged, built bottom-up, one layer at a time.
+**Quality features considered**: data-storage and component-design first (each layer complete with its guarantees). The unknowns of integration-api and requirements-nfr (MCP Events, the dot, SC-001) are met last.
+**Effort estimate**: the same scope, about 31 SP of effort (estimate), with the risk of late findings that is not sized.
+**Reversibility cost**: Medium. A problem found at the end (MCP Events or the 10-second budget) reaches back into finished layers.
+**Trade-offs**:
+
+- (+) Each layer is finished once.
+- (−) ChatGPT end to end, the dot and the 10-second budget are proven last. Iteration 001 found its escapes late (DRIFT-001-86), and this order repeats that risk.
+
+**Diagram**:
+
+```mermaid
+flowchart BT
+  H[Home side: push, ingest, outbox, catch-up] --> K[Core event path]
+  K --> S[Subscriptions and cursors]
+  S --> V[Delivery adapters]
+  V --> L[Alerts, the dot]
+```
 
 ## Carried Items
 
