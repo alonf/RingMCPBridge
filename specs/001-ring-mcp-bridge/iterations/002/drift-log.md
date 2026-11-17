@@ -22,11 +22,24 @@
 
 ## Summary
 
-**Total drift events**: 7
-**Resolution rate**: 100% (7/7 resolved or decided)
+**Total drift events**: 8
+**Resolution rate**: 100% (8/8 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-08: a second audit exception, for a new picomatch advisory in the development tools
+
+- **Detected**: 2026-11-17, by CI's audit step on commit 85ef659, which changed documents only.
+- **Kind**: a new upstream advisory, not a change in this project.
+- **Observed**:
+  - GHSA-fc5q-39xc-vjpf, high: picomatch is open to a slow-pattern denial of service. Every release up to 4.0.7, the newest, is affected, so no fixed version exists.
+  - picomatch reaches this project only through development tools: dependency-cruiser, vite (through tinyglobby and fdir) and vitest. The production install (`npm ls picomatch --omit=dev`) has none of it.
+  - The patterns it matches here are the repository's own configuration, not Ring's text or an agent's input.
+- **Requirement citation**: `implementation-rules.yml`, `project.supply-chain-policy`: npm audit fails on high or critical over the whole tree, with a written exception list.
+- **Resolution**: human-decision, decided by the owner's typed "yes" on 2026-11-17: the advisory is added to `scripts/audit-exceptions.json`, the list's second entry, until a fixed picomatch ships.
+- **Carry-forward**: remove the entry when a fixed picomatch is released; Dependabot's weekly update will show it.
+- **Class closure**: NONE - upstream advisories arrive when they arrive. The audit gate still blocks every other high or critical advisory.
 
 ### DRIFT-002-07: the hardening review needed two repairs outside the project before it could start
 
