@@ -114,3 +114,89 @@ The coding rules carry over from the feature's implementation rules; a new depen
   - About $1.50 a month for the rule, plus cents for messages (feature plan). Research-needed: SMS to an Israeli number.
   - The same deploy as iteration 001; add-only migrations.
   - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/devops-operations.md
+- **observability-resilience** (the owner, 2026-11-17, "all as recommended" and "move on"):
+  - `get_health` adds push reception, the last event received and the home's backlog (FR-005's fields).
+  - Ring-down and recovery events go through the normal event path.
+  - Push is "on" when the receiver is connected, and "degraded" when the library rejects messages or a history check finds missed events.
+  - Events are logged with identifiers only; the per-event latency log is SC-001's pilot log.
+  - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/observability-resilience.md
+
+## Effort After the Decisions
+
+The forecast's 16 SP, adjusted by the decisions above (raw SP, then effort at about 1.8; all estimates):
+
+| Item | Forecast | Change | Raw | Effort at 1.8 |
+| --- | --- | --- | --- | --- |
+| CP-08b push, ingest, catch-up, late | 2 | + the push probe 0.5, + the send window and backoff 1 | 3.5 | 6.3 |
+| CP-11b the event path | 3 | + `get_health` fields and push states 0.5 | 3.5 | 6.3 |
+| CP-12 subscriptions, cursors, `get_events` | 1 | none | 1 | 1.8 |
+| CP-13 delivery | 3 | − the channel shim 1 (DRIFT-002-02) | 2 | 3.6 |
+| CP-18 alerts | 1 | + the backlog and Ring-session conditions 0.25 | 1.25 | 2.25 |
+| CP-20 Spike S1 | 1 | none | 1 | 1.8 |
+| CP-21b the dot, latency samples | 1 | none | 1 | 1.8 |
+| Review and rework | 4 | none | 4 | 7.2 |
+| **Total** | **16** | | **17.25** | **about 31** |
+
+That leaves about 11 SP of effort under the 42 SP cap for the carried items.
+
+## Alternatives
+
+All three build the same decided scope. They differ in order, and so in when the unknowns are met.
+
+### Option A: Simplest — a thin ChatGPT slice first
+
+1. The push probe, then a minimal event path: no catch-up, late events or recovery summary yet.
+2. MCP Events to ChatGPT and the dot, with the first latency samples.
+3. Then catch-up, late events and the recovery summary, cursors and `get_events`, alerts, the listen stream, and Spike S1.
+
+- **For:** the two biggest unknowns (MCP Events on the owner's plan, and the 10-second budget) are answered first.
+- **Against:** the one-transaction write, dedup and the ack after commit are added on top of a path already in use. That is rework, the cost iteration 001's retro names.
+
+### Option B: Reasonable — risk-first, each part built once (crew recommendation)
+
+1. **Probes in parallel:**
+   - the push probe at home;
+   - MCP Events on the owner's ChatGPT plan, with a test subscription against a stub;
+   - Spike S1 started with the owner's Ring account.
+2. **The event path end to end, as decided:** push, the outbox with its send window and backoff, the link, one transaction (event log, state, audit), and the ack after commit.
+3. **ChatGPT delivery and the dot**, with the latency samples. The midpoint independent review goes here.
+4. **Cursors and `get_events`;** catch-up, late events and the recovery summary; Ring-down events and the new health fields.
+5. **The alert rule and the minimal listen stream.**
+
+- **For:** the biggest unknowns come early, and nothing is built twice.
+- **Against:** the dot lights a little later than in Option A.
+
+### Option C: By-the-book — layer by layer
+
+1. The home side complete: push, ingest, the outbox, catch-up.
+2. The core's event path complete.
+3. Subscriptions and cursors.
+4. The delivery adapters.
+5. The alerts.
+
+- **For:** each layer is finished once.
+- **Against:** ChatGPT end to end, the dot and the 10-second budget are proven last. Iteration 001 found its escapes late (DRIFT-001-86), and this order repeats that risk.
+
+## Carried Items
+
+From iteration 001's retro Signals and DRIFT-002-01, each with the crew's recommendation (estimates):
+
+| Item | Recommendation | Raw SP |
+| --- | --- | --- |
+| SC-003's 7-day soak and the clock check (ending about 2026-11-21) | In iteration 002: read the result at its end, including the Ring session's re-establishment seen on 2026-11-16 at 19:00 UTC | 0.25 |
+| SC-011's bill for the month | In iteration 002: read the month's bill when it closes | 0.25 |
+| The agent read from ChatGPT on the new core | Inside CP-21b | 0 |
+| A midpoint independent review (iteration 001's Lesson 6) | In iteration 002, after step 3 of the chosen option | 1 |
+| Task ids and the ledger (DRIFT-002-01) | The plan's task rows and tasks.md's rows share the same T ids, one to one, so Specrew's own writer tracks progress; each iteration's ledger is committed | 0 |
+| DRIFT-001-77, the snooze | Iteration 003, next to the per-agent opt-ins it sits beside | 0 |
+| DRIFT-001-89's known limit (a hub whose device list never comes after a reconnect) | Iteration 003; whether the owner's (y) should cover it is decided there | 0 |
+
+With the carried items, about 18.75 raw SP, about 34 SP of effort against the 42 SP cap (estimate).
+
+## Crew Recommendation
+
+**Option B**, with the carried items as recommended above. It meets iteration 002's two biggest unknowns early (push reliability, and MCP Events with the dot on the owner's plan) without building any part twice, and its midpoint review answers iteration 001's Lesson 6. At about 34 SP of effort it stays under the 42 SP cap with about 8 SP of headroom (estimate).
+
+## Human Decision
+
+Pending: the owner chooses an option and the carried items.
