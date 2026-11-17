@@ -80,3 +80,9 @@ The coding rules carry over from the feature's implementation rules; a new depen
   - Ring's push format and each agent platform's envelope stay behind their own boundaries.
   - Out of iteration 002: Control, Media, motion opt-ins, Ring's official API, and admin-page changes.
   - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/architecture-core.md
+- **component-design** (the owner, 2026-11-17, answered the four decisions, then "move on"):
+  - The event path's map is kept as shown in the record, with one flow walked: a doorbell ring from Ring's push to the agent.
+  - Home gets its ack only after the core commits. Resends use a send window (about 50 in flight) and backoff on the oldest (10 s doubling to 5 minutes, with jitter). The backlog is reported in the heartbeat and `get_health`, with an alert after about 5 minutes. The outbox keeps everything until acked. About 2 SP of effort, inside CP-08b (estimate).
+  - Catch-up stays at home, in Ingest.
+  - The channel shim is deferred to a later iteration (DRIFT-002-02). Claude reads events with `get_events`.
+  - Record: file:///C:/Dev/RingMCPBridge/specs/001-ring-mcp-bridge/iterations/002/workshop/component-design.md

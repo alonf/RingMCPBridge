@@ -22,11 +22,28 @@
 
 ## Summary
 
-**Total drift events**: 1
-**Resolution rate**: 100% (1/1 resolved or decided)
-**Specification drift**: None detected. DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take.
+**Total drift events**: 2
+**Resolution rate**: 100% (2/2 resolved or decided)
+**Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take.
 
 ## Events
+
+### DRIFT-002-02: the channel shim, FR-012's desktop relay, is deferred out of iteration 002
+
+- **Detected**: 2026-11-17, iteration 002's design analysis, component-design.
+- **Kind**: scope deferral, decided by the owner. The spec is unchanged.
+- **Observed**:
+  - The channel shim relays events to Claude Code on the owner's PC, through Claude Code's channels (a research preview).
+  - The owner: "claude code is not the intended client". The intended clients are ChatGPT, with the dot, and the Claude apps.
+  - Checked on 2026-11-17: ChatGPT takes pushed events through MCP Events (signed webhooks, the dot and Work mode). The Claude apps have no documented way to take a connector's pushed message; only Claude Code has channels.
+- **Requirement citation**: FR-012: "The system MUST deliver push both to clients on the current MCP protocol version and to clients on the earlier version, including a local relay that brings events to a desktop coding agent."
+- **Resolution**: deferred, by the owner's typed "2" (2026-11-17), the crew's recommendation.
+  - The shim is not built in iteration 002. FR-012's other parts stay in scope: push to current-era and earlier-era clients.
+  - The Claude apps read events with `get_events` from their cursor (FR-011).
+  - If Anthropic adds push for Claude's connectors, Delivery gets one more adapter; each platform already has its own.
+  - This frees about 1 of CP-13's 3 SP, about 2 SP of effort at 1.8 (estimate).
+- **Carry-forward**: the shim, and FR-012's desktop-relay clause, to a later iteration's planning. Feature closeout cannot claim FR-012 in full until then.
+- **Class closure**: NONE - a scope deferral, not a defect; its carry-forward keeps it visible until a later iteration takes it.
 
 ### DRIFT-002-01: iteration 001's closeout facts, carried here because its drift log is sealed
 
