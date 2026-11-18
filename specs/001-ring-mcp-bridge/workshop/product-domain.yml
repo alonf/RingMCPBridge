@@ -14,7 +14,7 @@ areas:
     operator: Whoever runs the bridge (the author first; each OSS user self-hosts).
     stakeholders_and_harmed_parties:
       - Author's household (spouse, children) - wrong arm/disarm, missed alerts.
-      - Owners of shared locations (author's mother-in-law; author's brother) - privacy and consent for agent access to their sensors/cameras.
+      - Owners of locations shared with the author - privacy and consent for agent access to their sensors/cameras.
       - Visitors and passers-by captured on camera - privacy.
       - The author's Ring account - risk of WAF blocks or account termination on the unofficial path.
   pain_and_workaround:
@@ -27,7 +27,7 @@ areas:
     author_installation:
       location_country: IL
       owned_location: 1 location with Ring Alarm (~40 contact sensors, ~18 motion detectors, 3 flood sensors, keypad(s), base station) and 6 cameras/doorbells (Video Doorbell 4 [battery], Battery Doorbell 2K Plus [battery], Floodlight Cam Wired, Floodlight Cam Plus Wired, Outdoor/Stick Up Cam, plus one more), Ring Multi plan, E2EE off.
-      shared_locations: Mother-in-law's home (same yard, same LAN, separate Ring Alarm; author is a shared user) and brother's location (author is a shared user).
+      shared_locations: Locations other owners share with the author's account (the author is a shared user). Any number, owned or shared, by configuration.
   constraints:
     - Official Ring Partner API Appstore is US-only; private-app geography is contradictory in Ring docs; author's location is in Israel.
     - Unofficial path conflicts with Ring ToS 2(h); Cloudflare WAF 406 blocks on datacenter IPs; roughly annual breaking changes.
@@ -49,7 +49,7 @@ areas:
       - Arm Home/Away with confirmation; floodlight on/off.
       - Disarm built in v1 but OFF by default; when enabled requires a PIN (never in model context) plus out-of-band human confirmation.
     optional_in_v1:
-      - Shared locations (mother-in-law, brother) - read-only by default, behind a configuration option.
+      - Shared locations - read-only by default, behind a configuration option.
     non_goals_v1:
       - Face recognition / person identification.
       - Hosted multi-user SaaS.

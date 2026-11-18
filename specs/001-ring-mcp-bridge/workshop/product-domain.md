@@ -33,7 +33,7 @@
 - **Secondary users:** other Ring owners who use the public MIT-licensed GitHub project (known).
 - **Who can be harmed:**
   - The author's household, through a wrong arm/disarm or a missed alert.
-  - The owners of the shared locations (the mother-in-law and the brother). Their consent and privacy are involved.
+  - The owners of locations shared with the author. Their consent and privacy are involved.
   - Visitors and passers-by who appear on camera.
   - The author's Ring account, which can be blocked or terminated.
 
@@ -45,7 +45,7 @@
 ## The author's installation (known)
 
 - **Owned location:** one location, in Israel. It has a Ring Alarm with roughly 40 contact sensors, 18 motion detectors, 3 flood sensors, keypads and a base station. There are 6 cameras and doorbells, 2 of them battery-powered. The plan is Ring Multi, and end-to-end encryption is off.
-- **Shared locations:** the mother-in-law's home (same yard and same LAN, with its own Ring Alarm) and the brother's location. The author is a shared user on both.
+- **Shared locations:** other owners share locations with the author's account. The bridge handles any number of owned and shared locations; which ones an installation has is its own configuration, not the project's.
 
 ## Constraints
 

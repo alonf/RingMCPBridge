@@ -1413,7 +1413,7 @@ describe("Ingest: the alarm hub's events", () => {
     const home = standardHome();
     const shared: RingLocation = {
       location_id: "loc-shared",
-      name: "Family home",
+      name: "Shared home",
       time_zone: "Asia/Tokyo",
       alarm_mode: "away",
       ownership: "shared",
@@ -1475,11 +1475,11 @@ describe("Ingest: the alarm hub's events", () => {
       [
         "alarm.triggered",
         "loc-shared",
-        "Family home: The burglar alarm is going off: Front Door.",
+        "Shared home: The burglar alarm is going off: Front Door.",
       ],
-      ["flood", "loc-shared", "Family home: Water detected at Laundry."],
+      ["flood", "loc-shared", "Shared home: Water detected at Laundry."],
     ]);
-    expect(lines.join("\n")).not.toContain("Family home");
+    expect(lines.join("\n")).not.toContain("Shared home");
   });
 
   it("sends from a shared home only kinds the core's policy can keep", () => {
