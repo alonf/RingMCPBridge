@@ -245,7 +245,7 @@ describe("the event path, home to core", () => {
     await driveUntil(test.clock, async () => (await backlog(test)) === 0);
     expect(await test.events()).toEqual([
       expect.objectContaining({
-        event_id: "7400000000000000001",
+        event_id: "7400000000000000001-d",
         location_id: STANDARD_LOCATION_ID,
         seq: 1,
         kind: "doorbell.ding",
@@ -305,9 +305,9 @@ describe("the event path, home to core", () => {
     await driveUntil(test.clock, async () => (await backlog(test)) === 0);
     expect((await test.events()).map((row) => [row.event_id, row.seq])).toEqual(
       [
-        [ids[0], 1],
-        [ids[1], 2],
-        [ids[2], 3],
+        [`${ids[0] ?? ""}-d`, 1],
+        [`${ids[1] ?? ""}-d`, 2],
+        [`${ids[2] ?? ""}-d`, 3],
       ],
     );
   });

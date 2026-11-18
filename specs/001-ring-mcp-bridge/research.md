@@ -1011,3 +1011,13 @@ The probe was deployed with the owner's OK on 2026-11-18 (commit `8957bcd`, DRIF
 - **Neither could be decrypted.** The push library (`@eneris/push-receiver` 4.3.0, which `ring-client-api` 14.3.0 pins) failed with `ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY`, so the bridge saw nothing and the payload-shape file stayed empty. FCM's `crypto-key` header now carries a second parameter, and 4.3.0 reads it by position. The fix is 4.3.1 (DRIFT-002-16).
 - **The library drops such a push silently.** The bridge cannot see the failure, so its heartbeat still says push is `ok`. The catch-up from Ring's history (T053) is the safety net, and a check for "push wired but silent too long" is worth adding.
 - **Still to come:** the run again on the image with 4.3.1, for the delay from Ring's trigger, the categories Ring sends, and the payload layout that T042's fixtures must match.
+
+## Iteration 002 addendum: the push probe (T038), part 2, the home run with push-receiver 4.3.1 (2026-11-18)
+
+- **Push works.** Three pushes arrived and decrypted: a camera's motion, the doorbell's person alert and its press.
+- **The delay** from Ring's trigger time (`analytics.triggered_at`, in milliseconds) to the home receiving the push was 0.38 to 0.76 seconds.
+- **What Ring sent:** category `motion` with subtype `motion` (no person), category `motion` with subtype and detection type `human`, and category `ding` with subtype `button_press`. All were Ring's version 2 format.
+- **The layout** matches the library's type, with a few more fields (`android_config.channel` and `group_key`, `data.device.e2ee_cem`, `data.event.description_provider`, `eventito.initial_motion_offset` for motion, and an `img` block with a snapshot URL). Normalize reads none of the extra fields. The test fixtures now follow this layout, with made-up values.
+- **Repeats.** One motion push arrived twice, 0.2 seconds apart, with the same id; the outbox wrote it once. The doorbell's person alert and its press shared one Ring id, which dropped the press until the fix (DRIFT-002-17).
+- **One message at startup** could not be decrypted ("crypto-key is missing"), as before. It came 3 seconds after the connection opened, before any press, and no Ring push was lost to it.
+- **The log** shows the doorbell's device id as `[redacted]`: an all-digit id of 8 digits or fewer looks like a PIN to the log's rules, which leave it out on purpose. The stored event keeps the real id.

@@ -76,7 +76,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
 **Independent test**: each probe ends with a written finding in `specs/001-ring-mcp-bridge/research.md` (a dated iteration 002 addendum) that says what was observed, what stays unknown, and what the next task does differently because of it.
 **Depends on**: Phase 1. The three probes are independent of each other.
 
-- [ ] T038 [P] [assigned_to: Implementer] [effort: 0.9] The push probe at home, in `bridge/src/connector/clients/push-listener/`:
+- [x] T038 [P] [assigned_to: Implementer] [effort: 0.9] The push probe at home, in `bridge/src/connector/clients/push-listener/`:
   - a minimal Push Listener over the Ring boundary (`bridge/src/connector/access/ring-adapter/` stays the only import site of the Ring library);
   - it logs each push's shape with identifiers only: the kind, the device id, Ring's timestamp and the arrival time. No names, text or images;
   - a few real payloads, with their identifying values replaced, saved as fixtures under `bridge/test/fixtures/ring/` for T042;
@@ -122,7 +122,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - `specs/001-ring-mcp-bridge/contracts/connector-link.md` updated with both messages.
 
   Tests: a core that predates the messages ignores them without dropping the link; the schema snapshot changes only by additions (Trace: FR-008, FR-033, FR-046, FR-047; CP-08b)
-- [ ] T042 [P] [US2] [assigned_to: Implementer] [effort: 0.9] Normalize engine in `bridge/src/connector/engines/normalize/`. The failing test comes first:
+- [x] T042 [P] [US2] [assigned_to: Implementer] [effort: 0.9] Normalize engine in `bridge/src/connector/engines/normalize/`. The failing test comes first:
   - Ring's push payload becomes the bridge's event: an event id that is stable for the same Ring event, the kind, the device id, the location id and Ring's timestamp;
   - Ring's text is carried as data and marked untrusted;
   - a malformed or unknown payload returns a typed failure. It never throws and never produces a partial event.

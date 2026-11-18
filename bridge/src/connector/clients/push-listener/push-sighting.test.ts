@@ -25,7 +25,7 @@ describe("sightPush", () => {
     expect(sightPush(dingFixture())).toEqual({
       format: "ding_v2",
       kind: "ding",
-      subtype: "ding",
+      subtype: "button_press",
       ringEventId: "7400000000000000001",
       triggeredAtMs: TRIGGERED_AT_MS,
     });

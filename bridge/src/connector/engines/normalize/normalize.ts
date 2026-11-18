@@ -3,9 +3,12 @@
 // that is absent or of another type is left out, and what cannot be used is a typed failure, never
 // a throw and never half an event.
 //
-// - **The event id** is Ring's id for the event (the ding's id, else the analytics' referring id),
-//   so the same Ring event always gives the same id and the core drops a repeat. A push with none
-//   is refused: it could not be told apart from a repeat.
+// - **The event id** is Ring's id for the event (the ding's id, else the analytics' referring id)
+//   and a one-letter code for what happened: `d` a doorbell press, `p` motion with a person, `m`
+//   other motion, `i` an intercom ring, `o` anything else. Ring keeps one id for a doorbell's whole
+//   visit, so its person alert and its press share it (DRIFT-002-17); the code keeps them apart,
+//   while the same push sent twice still gives the same id and the core drops the repeat. A push
+//   with no id of Ring's is refused: it could not be told apart from a repeat.
 // - **The kind**: a doorbell press is `doorbell.ding`, camera motion is `motion`, an intercom ring
 //   is `intercom.ding`, and a category the bridge does not know is `ring.other`, with Ring's name
 //   for it kept as data.
@@ -56,6 +59,16 @@ export type Normalized =
 
 /** The longest event id the core's log holds. */
 export const MAX_RING_EVENT_ID_LENGTH = 128;
+const KIND_CODE_LENGTH = 2;
+
+/** What happened, as the event id's last letter. */
+const KIND_CODES: Readonly<Record<string, string>> = {
+  "doorbell.ding": "d",
+  "intercom.ding": "i",
+  motion: "m",
+  "ring.other": "o",
+};
+const PERSON_CODE = "p";
 
 const CATEGORY = {
   ding: "com.ring.pn.live-event.ding",
@@ -120,7 +133,8 @@ function occurredAt(push: DingV2, receivedAtMs: number): number {
 
 function ringEventId(push: DingV2): string | undefined {
   const id = push.data?.event?.ding?.id ?? push.analytics?.referring_item_id;
-  return id !== undefined && id.length <= MAX_RING_EVENT_ID_LENGTH
+  return id !== undefined &&
+    id.length <= MAX_RING_EVENT_ID_LENGTH - KIND_CODE_LENGTH
     ? id
     : undefined;
 }
@@ -209,15 +223,18 @@ export function normalizePush(
     return { ok: false, reason: "no_event_id" };
   }
   const name = ding.data.data?.device?.name;
+  const what = described(ding.data, name);
+  const code =
+    what.person === true ? PERSON_CODE : (KIND_CODES[what.kind] ?? "o");
   return {
     ok: true,
     event: {
-      event_id: eventId,
+      event_id: `${eventId}-${code}`,
       location_id: push.location_id,
       device_id: push.device_id,
       occurred_at: occurredAt(ding.data, receivedAtMs),
       ...(name === undefined ? {} : { name }),
-      ...described(ding.data, name),
+      ...what,
     },
   };
 }

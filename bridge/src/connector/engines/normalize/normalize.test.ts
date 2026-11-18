@@ -56,7 +56,7 @@ function normalized(payload: unknown): NormalizedEvent {
 describe("Normalize: a doorbell press", () => {
   it("becomes doorbell.ding, with Ring's event id, the adapter's device and location, and Ring's time", () => {
     expect(normalized(dingFixture())).toEqual({
-      event_id: RING_EVENT_ID,
+      event_id: `${RING_EVENT_ID}-d`,
       location_id: LOCATION_ID,
       device_id: DEVICE_ID,
       kind: "doorbell.ding",
@@ -66,12 +66,52 @@ describe("Normalize: a doorbell press", () => {
     });
   });
 
+  // DRIFT-002-17: at the owner's home, a doorbell's person alert and its press 7 s later carried
+  // the same Ring id, and the press was dropped as a repeat of the alert.
+  it("gives a doorbell's person alert and its press, which share Ring's id, different event ids", () => {
+    const press = normalized(dingFixture());
+    const person = normalized(motion("human"));
+    const otherMotion = normalized(motion("motion"));
+
+    expect(press.event_id).toBe(`${RING_EVENT_ID}-d`);
+    expect(person.event_id).toBe(`${RING_EVENT_ID}-p`);
+    expect(otherMotion.event_id).toBe(`${RING_EVENT_ID}-m`);
+  });
+
   it("gives the same event id for the same Ring event, whatever else differs", () => {
     const again = dingFixture();
     again.analytics.sent_at = TRIGGERED_AT + 9_000;
     again.android_config.body = "Another text";
 
     expect(normalized(again).event_id).toBe(normalized(dingFixture()).event_id);
+  });
+});
+
+// The layout Ring really sends, as the owner's home recorded it (T038 part 2), with made-up values.
+describe("Normalize: the recorded layout", () => {
+  function fixture(name: string): unknown {
+    const file = new URL(
+      `../../../../test/fixtures/ring/${name}`,
+      import.meta.url,
+    );
+    return JSON.parse(readFileSync(file, "utf8"));
+  }
+
+  it("reads a person at the doorbell's camera as motion with a person, before its press", () => {
+    const person = normalized(fixture("push-motion-human.synthetic.json"));
+    const press = normalized(fixture("push-ding-v2.synthetic.json"));
+
+    expect(person).toMatchObject({
+      event_id: `${RING_EVENT_ID}-p`,
+      kind: "motion",
+      person: true,
+      occurred_at: TRIGGERED_AT - 7_000,
+    });
+    expect(press).toMatchObject({
+      event_id: `${RING_EVENT_ID}-d`,
+      kind: "doorbell.ding",
+      occurred_at: TRIGGERED_AT,
+    });
   });
 });
 
@@ -219,7 +259,7 @@ describe("Normalize: what it cannot use", () => {
     const payload = dingFixture();
     delete payload.data.event.ding.id;
 
-    expect(normalized(payload).event_id).toBe(RING_EVENT_ID);
+    expect(normalized(payload).event_id).toBe(`${RING_EVENT_ID}-d`);
   });
 
   it("refuses an event id too long to store", () => {

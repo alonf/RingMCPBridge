@@ -83,7 +83,7 @@ describe("PushListener", () => {
         device_id: DEVICE_ID,
         event_id: "7400000000000000001",
         kind: "ding",
-        subtype: "ding",
+        subtype: "button_press",
         outcome: "ding_v2",
         delay_ms: DELAY_MS,
       }),

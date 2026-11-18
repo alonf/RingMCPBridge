@@ -22,11 +22,21 @@
 
 ## Summary
 
-**Total drift events**: 16
-**Resolution rate**: 100% (16/16 resolved or decided)
+**Total drift events**: 17
+**Resolution rate**: 100% (17/17 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-17: a doorbell press was dropped as a repeat of the person alert before it; the event id now says what happened
+
+- **Detected**: 2026-11-18, the home run on the image with push-receiver 4.3.1. The doorbell's person alert (motion, `human`, 14:15:17 UTC) and the press 7 seconds later (`ding`, `button_press`) carried the same Ring id. Normalize used Ring's id as the event id, so the core logged `connector_link_event_duplicate` for the press and stored only the alert: the HIGH event was lost.
+- **Kind**: a defect in T042, found by the first real run.
+- **Observed**: Ring keeps one id for a doorbell's whole visit, across its motion, person and press notifications. The same push sent twice (seen at 14:13:57, 0.2 s apart) also carries the same id, and that repeat must still be dropped.
+- **Resolution**: implementer fix inside T042. The event id is now Ring's id and a one-letter code for what happened: `d` a press, `p` motion with a person, `m` other motion, `i` an intercom ring, `o` anything else. A failing test came first (`normalize.test.ts`), and the fixtures now follow the field layout the home run recorded, with made-up values. Events stored before the fix keep their ids; the next deploy and home update carry the fix.
+- **Requirement citation**: FR-008 (every event recorded, a repeat recognised by its event id), SC-002; T042.
+- **Carry-forward**: the doorbell test is repeated after the next deploy and home update. A motion that Ring later upgrades to a person is now its own event (`m` then `p`), so the person alert is never lost behind a plainer one.
+- **Class closure**: NONE - the real pushes are now the fixtures' layout.
 
 ### DRIFT-002-16: Ring's push failed to decrypt at home; the push library is pinned to 4.3.1, and the licence gate reads the lockfile for that one edge
 

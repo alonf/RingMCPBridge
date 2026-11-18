@@ -1200,7 +1200,7 @@ describe("Ingest: Ring's push", () => {
     await ingest.flush();
 
     const [event] = await store.takeDueEvents(signal);
-    expect(event?.eventId).toBe("7400000000000000001");
+    expect(event?.eventId).toBe("7400000000000000001-d");
     expect(eventSchema.safeParse(event?.body).success).toBe(true);
     expect(event?.body).toMatchObject({
       kind: "doorbell.ding",
