@@ -22,11 +22,29 @@
 
 ## Summary
 
-**Total drift events**: 17
-**Resolution rate**: 100% (17/17 resolved or decided)
+**Total drift events**: 18
+**Resolution rate**: 100% (18/18 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-18: the callback allowlist decided; the first event reached ChatGPT; the owner's requests for the future plan
+
+- **Detected**: 2026-11-18, the owner's reply after the first real event reached ChatGPT.
+- **Kind**: one decision closed, and new scope requested for later iterations.
+- **Observed**:
+  1. **The first real event in ChatGPT.** ChatGPT subscribed to `ring.event` at 14:16:41 UTC. At 14:26:38 a camera's person event (MEDIUM) was delivered and accepted on the first try. The time from Ring's trigger to ChatGPT's acceptance was 1.5 seconds, against SC-001's 10 seconds. This is the first sample; T049 collects at least ten.
+  2. **The callback allowlist (DRIFT-002-15, item 3)**, decided by the owner: "The regular hosts: ChatGPT, Claude, Gemini (if supported)". Only ChatGPT implements MCP Events today. The extension is still a draft (SEP-3415), and no Claude or Gemini support was found. So `BRIDGE_CALLBACK_HOSTS` stays at ChatGPT's `connectors.api.openai.com`. When Claude or Gemini supports MCP Events, its observed callback host is added to the setting, a configuration change. Until then they read events with `get_events` (T052).
+  3. **Sign-in for the same three clients.** The owner pointed at the Trip system, which accepts ChatGPT, Claude (on `claude.ai` and `claude.com`) and Gemini's custom connector. The bridge's listed agents (`BRIDGE_AGENTS`) accept ChatGPT, Claude on `claude.ai`, and Claude Code. Claude on `claude.com` is one more listed redirect, a configuration change. Gemini needs code: its redirect address carries a per-connector id (`/a/user_bound_custom-mcp-<id>` on Google's relay hosts), which the bridge's exact-match listing cannot express. The Trip system's rule is the model. Both are proposed to the owner, not done.
+  4. **The owner's requests for the future plan:**
+     - **An image with the event.** This is planned: frames arrive with media in iteration 003 (US3), and the event's `frame` field is already in the contract.
+     - **Face recognition on the event's image:** how many people are at the door or in the yard; who they are; and, for each person, all their occurrences, served through a new MCP tool.
+     - **Naming people.** The owner suggested letting an agent name the people in a photo. Agents such as ChatGPT and Claude decline to identify real people from their faces, so names would come from the owner labelling a face once. The bridge, or a model it runs, would then match later images against those labels.
+     - **Constraints to settle in its design:** faces are biometric data, which Israel's privacy law treats as especially sensitive (Amendment 13), and visitors and passers-by are recorded without their knowledge, so it needs a legal check and a retention rule first. Where recognition runs is a design choice with costs on both sides: on the home server, with an open model and no cloud copy of faces, or in the cloud, where Azure's face identification needs Microsoft's approval for limited access.
+- **Requirement citation**: FR-010, FR-012, SC-001; the spec's US3 (media, iteration 003); research.md T039; the Trip system's sign-in rule.
+- **Resolution**: human-decision for the allowlist, by the owner's reply on 2026-11-18. The face-recognition requests are a new feature: it starts with the design workshop (users, privacy and legal constraints, where recognition runs, cost) before any spec.
+- **Carry-forward**: iteration 003's planning considers the face-recognition feature after the frames it depends on. The sign-in additions for `claude.com` and Gemini wait for the owner's decision. T049 continues the latency samples.
+- **Class closure**: NONE - an owner decision and new requests.
 
 ### DRIFT-002-17: a doorbell press was dropped as a repeat of the person alert before it; the event id now says what happened
 
