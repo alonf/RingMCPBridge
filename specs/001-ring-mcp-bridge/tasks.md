@@ -136,7 +136,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - a migration in `outbox-migrations.ts`.
 
   Tests, on the fake clock: the window never exceeds its size; the backoff series; an ack clears exactly one event; the queue survives a restart (Trace: FR-042, SC-002; CP-08b)
-- [ ] T044 [US2] [assigned_to: Implementer] [effort: 1.35] The home side joined up:
+- [x] T044 [US2] [assigned_to: Implementer] [effort: 1.35] The home side joined up:
   - Push Listener (`bridge/src/connector/clients/push-listener/`) hands each push to Ingest;
   - Ingest (`bridge/src/connector/managers/ingest/ingest.ts`) normalizes it, writes it to the Outbox, then sends it;
   - Core Link (`bridge/src/connector/clients/core-link/`) sends events up and takes acks in; Home Scheduler triggers the resends;
@@ -158,7 +158,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - both take the caller's transaction. Neither opens its own.
 
   Tests, on SQLite and on the SQL Server container: the order per location; a duplicate event id is reported, not written twice; the sequence has no gap after a rolled-back write (Trace: FR-008, FR-011; CP-11b)
-- [ ] T047 [US2] [assigned_to: Implementer] [effort: 1.8] Event manager's event path in `bridge/src/core/managers/event/event-manager.ts`, with Connector Link (`bridge/src/core/clients/connector-link/`):
+- [x] T047 [US2] [assigned_to: Implementer] [effort: 1.8] Event manager's event path in `bridge/src/core/managers/event/event-manager.ts`, with Connector Link (`bridge/src/core/clients/connector-link/`):
   - one transaction per event: Classify, then Event Log, State and Audit together;
   - the ack goes home only after the commit. A duplicate event id is acked without a second write;
   - no event waits for a snapshot, and no event carries a frame link in this iteration;

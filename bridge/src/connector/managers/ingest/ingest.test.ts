@@ -27,9 +27,11 @@ import type {
   RingDevice,
   RingLocation,
   RingPort,
+  RingPush,
   RingSessionStatus,
   StopWatching,
 } from "../../access/ring-adapter/index.ts";
+import { eventSchema } from "../../../core/clients/connector-link/messages/index.ts";
 import {
   HEBREW_DEVICE_ID,
   HEBREW_DEVICE_NAME,
@@ -461,6 +463,7 @@ describe("Ingest's heartbeat", () => {
           ring_session: "ok",
           push: "off",
           outbox_depth: null,
+          event_backlog: null,
           inventory_owed_after: null,
           last_ring_event_at: null,
           error_counts: { outbox_unavailable: 1 },
@@ -1151,4 +1154,120 @@ describe("Ingest after a device is added or removed at Ring (CP-16 review follow
       expect(idsOf(paying)).toContain(addedId);
     },
   );
+});
+
+// T044: Ring's push through Ingest. The path to the core is in bridge/test/host/event-path.test.ts.
+describe("Ingest: Ring's push", () => {
+  const pushDevice = "523456789";
+
+  function doorbellPush(ringEventId: string): RingPush {
+    return {
+      device_id: pushDevice,
+      location_id: "loc-1",
+      payload: {
+        android_config: { category: "com.ring.pn.live-event.ding" },
+        analytics: { triggered_at: START },
+        data: {
+          device: { name: "Front Door" },
+          event: { ding: { id: ringEventId, subtype: "ding" } },
+        },
+      },
+    };
+  }
+
+  function pushIngest(store: OutboxStore, slot: LinkSlot): Ingest {
+    const ingest = new Ingest({
+      ring: new ScenarioEngine(clock),
+      outbox: store,
+      link: slot,
+      clock,
+      logger: new Logger({
+        sink: (line) => lines.push(line),
+        now: () => clock.now(),
+        minLevel: "debug",
+      }),
+      pushOn: true,
+    });
+    ingests.push(ingest);
+    return ingest;
+  }
+
+  it("writes a push to the outbox as the core's event message, under Ring's event id", async () => {
+    const store = await openStore();
+    const ingest = pushIngest(store, new LinkSlot());
+
+    ingest.pushReceived(doorbellPush("7400000000000000001"));
+    await ingest.flush();
+
+    const [event] = await store.takeDueEvents(signal);
+    expect(event?.eventId).toBe("7400000000000000001");
+    expect(eventSchema.safeParse(event?.body).success).toBe(true);
+    expect(event?.body).toMatchObject({
+      kind: "doorbell.ding",
+      device_id: pushDevice,
+      occurred_at: formatUtc(START),
+      received_at: formatUtc(START),
+      from_history: false,
+    });
+    expect(lines.join("\n")).not.toContain("Front Door");
+  });
+
+  it("logs and counts a push it cannot use, by its device only, and queues nothing", async () => {
+    const store = await openStore();
+    const slot = new LinkSlot();
+    const ingest = pushIngest(store, slot);
+
+    ingest.pushReceived({
+      device_id: pushDevice,
+      location_id: "loc-1",
+      payload: { note: "Front Door ajar" },
+    });
+    await ingest.flush();
+
+    await expect(store.eventBacklog(signal)).resolves.toMatchObject({
+      count: 0,
+    });
+    const logged = lines.join("\n");
+    expect(logged).toContain("ingest_push_unusable");
+    expect(logged).toContain("unknown_format");
+    expect(logged).not.toContain("Front Door");
+    const pair = createLinkPair(
+      new Logger({ sink: () => undefined, now: () => 0, minLevel: "debug" }),
+    );
+    const frames: LinkFrame[] = [];
+    pair.acceptor.onFrame((frame) => frames.push(frame));
+    slot.put(pair.dialer);
+    await ingest.sendHeartbeat(signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(frames[0]).toMatchObject({
+      body: { error_counts: { push_unusable: 1 } },
+    });
+  });
+
+  it("says in the heartbeat that push is on, when the last push came, and how many events wait", async () => {
+    const store = await openStore();
+    const slot = new LinkSlot();
+    const ingest = pushIngest(store, slot);
+    ingest.pushReceived(doorbellPush("7400000000000000001"));
+    await ingest.flush();
+    await clock.advance(30_000);
+    const pair = createLinkPair(
+      new Logger({ sink: () => undefined, now: () => 0, minLevel: "debug" }),
+    );
+    const frames: LinkFrame[] = [];
+    pair.acceptor.onFrame((frame) => frames.push(frame));
+    slot.put(pair.dialer);
+
+    await ingest.sendHeartbeat(signal);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(frames[0]).toMatchObject({
+      type: "heartbeat",
+      body: {
+        push: "ok",
+        last_ring_event_at: formatUtc(START),
+        event_backlog: { count: 1, oldest_age_ms: 30_000 },
+      },
+    });
+  });
 });

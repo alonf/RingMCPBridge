@@ -147,6 +147,17 @@ export const heartbeatSchema = z.strictObject({
   /** Messages waiting for their ack; `null` when the outbox could not be read. */
   outbox_depth: z.number().int().min(0).nullable(),
   /**
+   * The events waiting for their ack, and how long the oldest has waited since the home wrote
+   * it; `null` when the outbox could not be read (T044). Absent from a home before events.
+   */
+  event_backlog: z
+    .strictObject({
+      count: z.number().int().min(0),
+      oldest_age_ms: z.number().int().min(0).nullable(),
+    })
+    .nullable()
+    .optional(),
+  /**
    * Set while the home owes an inventory because a change it saw could not be written to its
    * outbox: the newest `state_version` it had written before that change. The inventory that pays
    * it has a higher `snapshot_version`. `null` when no such inventory is owed (CP-14 review round 5).

@@ -70,6 +70,7 @@ export function assembleHome(options: HomeAssemblyOptions): HomeAssembly {
     link: slot,
     clock,
     logger,
+    pushOn: options.push !== undefined,
   });
   const coreLink = new CoreLink({
     dial: options.dial,
@@ -87,6 +88,9 @@ export function assembleHome(options: HomeAssemblyOptions): HomeAssembly {
           ring: options.push,
           clock,
           logger,
+          onPush: (push) => {
+            ingest.pushReceived(push);
+          },
           ...(options.pushShapes === undefined
             ? {}
             : { shapes: options.pushShapes }),

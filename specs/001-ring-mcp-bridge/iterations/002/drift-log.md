@@ -22,11 +22,24 @@
 
 ## Summary
 
-**Total drift events**: 13
-**Resolution rate**: 100% (13/13 resolved or decided)
+**Total drift events**: 14
+**Resolution rate**: 100% (14/14 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-14: T044's choices: the heartbeat's backlog field, how an unusable push counts, and how "the core stopped before its ack" is tested
+
+- **Detected**: 2026-11-18, building T044, which joins the home side to the core's event path.
+- **Kind**: three choices inside the decided design.
+- **Observed**:
+  1. **The backlog in the heartbeat.** The heartbeat gains an optional `event_backlog`: how many events wait for their ack, and how long the oldest has waited. It is additive in link version 1. The core declares it in the same commit, and the core and the home image are deployed together. `get_health` reads it from T055.
+  2. **An unusable push.** A push Normalize cannot use is logged by its device and the reason's code, and counted in the heartbeat's `error_counts` as `push_unusable`. The heartbeat's `push` stays `ok` while push is wired. This is the planning addition "counted toward push degraded" from T037, in its smallest form: a count the core can see, not a change of the push status. Making it change the status waits for the owner's decision on that addition.
+  3. **"The core stopped between its commit and its ack."** End to end, it is tested as the home sending the same event again after the core has committed it: the core acks it as a duplicate, the log holds it once, and the home's backlog empties. The core restarting on the same database is tested in the Event manager's tests (T047).
+- **Requirement citation**: FR-008, FR-042, SC-002; `tasks.md` T044 and T047, and Phase 3's independent tests; `contracts/connector-link.md` "Frames" (`heartbeat`).
+- **Resolution**: implementer-decision, reported to the owner at the next checkpoint.
+- **Carry-forward**: T047 and T044 are ticked with the end-to-end tests (`bridge/test/host/event-path.test.ts`). T042 stays open until the home run's payload shapes confirm its fixtures.
+- **Class closure**: NONE - choices inside the design.
 
 ### DRIFT-002-13: T047's core side built before the home side, and the decisions the event path needed
 

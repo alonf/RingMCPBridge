@@ -1,7 +1,7 @@
 // Push Listener (CP-08b, T038): Ring's push in. In this first step it is the push probe: it logs
 // that a push arrived, about which device, of which kind, and how long after Ring's own time for
 // it, and nothing else. Ring's payload carries names and text, which are content: none of it is
-// logged (FR-034, OR6). Handing each push to Ingest comes with T044.
+// logged (FR-034, OR6). From T044 it also hands each push to Ingest, which makes it an event.
 //
 // For T042, it also hands each distinct payload shape (field names and value types, never a
 // value) to an optional sink, the first `MAX_SHAPES_RECORDED` of them, so the probe at the
@@ -38,6 +38,8 @@ export interface PushListenerOptions {
   readonly logger: Logger;
   /** Where distinct payload shapes go; none are kept when left out. */
   readonly shapes?: PushShapeSink;
+  /** Where each push goes next: Ingest, in the home part (T044). */
+  readonly onPush?: (push: RingPush) => void;
 }
 
 /** Ring's push notifications, heard. One per connector process; the Host starts and stops it. */
@@ -46,6 +48,7 @@ export class PushListener {
   readonly #clock: Clock;
   readonly #logger: Logger;
   readonly #shapes: PushShapeSink | undefined;
+  readonly #onPush: ((push: RingPush) => void) | undefined;
   readonly #shapesSeen = new Set<string>();
   #stopWatching: StopWatching | undefined;
 
@@ -54,6 +57,7 @@ export class PushListener {
     this.#clock = options.clock;
     this.#logger = options.logger.with({ component: "push_listener" });
     this.#shapes = options.shapes;
+    this.#onPush = options.onPush;
   }
 
   /** Starts listening. Starting twice listens once. */
@@ -89,6 +93,15 @@ export class PushListener {
       kind: sighting.kind,
       shape: shapeOf(push.payload),
     });
+    try {
+      this.#onPush?.(push);
+    } catch (error) {
+      this.#logger.error(
+        "ring_push_not_handed_over",
+        { device_id: push.device_id },
+        error,
+      );
+    }
   }
 
   // A shape already handed over, or one past the cap, is not handed over again.

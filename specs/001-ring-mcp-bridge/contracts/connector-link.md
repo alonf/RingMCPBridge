@@ -53,7 +53,7 @@ In all-in-one mode (A) there is no link: Ring Access calls Execute in process, a
 | `inventory_request` [P] | core to home | asks the home for a fresh `inventory` | `request_id` [P] | - | Core Link | 001 | PT-30 |
 | `catchup_done` [P] | home to core | the outbox is drained and the catch-up is finished | `message_id` [P] | yes | Connector Link | 002 | CD-A4, PT-07 |
 | `ack` [P] | core to home | the message is committed; the outbox may clear it | `message_id` [P] (an event's `message_id` is its `event_id`) | - | Core Link | 001 | AC B10, DS4, OR §journey |
-| `heartbeat` [P] | home to core | every 15 s; the home's health summary | Ring session, push, outbox depth, the inventory owed after a version (`inventory_owed_after`, DRIFT-001-38), last Ring event, error counts [P names] | no | Connector Link | 001 | OR §journey, OR1, OR5 |
+| `heartbeat` [P] | home to core | every 15 s; the home's health summary | Ring session, push, outbox depth, the event backlog (`event_backlog`: the count and the oldest's age, T044), the inventory owed after a version (`inventory_owed_after`, DRIFT-001-38), last Ring event, error counts [P names] | no | Connector Link | 001 | OR §journey, OR1, OR5 |
 | `cmd` (`CommandMessage`) | core to home | one command, sent once | see "CommandMessage" | - | Core Link | 003 | IA D8 step 7, CD4 |
 | `result` | home to core | the command's outcome | `command_id`, `outcome`, `alarm_mode` (D8: "mode"), `as_of`, `error_code` [P] | not recorded | not named; the CD4 receiver rule points to Ring Access | 003 | IA D8 step 10 |
 | `media_chunk` [P] | home to core | capture bytes, in small chunks | `command_id`, `index`, `final`, the bytes [P] | no | not named | 003 | CD X2 |

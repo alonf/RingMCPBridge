@@ -31,7 +31,14 @@
 //
 // Messages go out on the link in the `LinkSlot`, which Core Link fills once a session is open. A
 // message is sent when it is written, and the 10 s tick sends again what has waited 10 s without
-// its ack (T016). Events, catch-up and the late marker come with CP-08b (iteration 002).
+// its ack (T016).
+//
+// Events (T044; FR-008, FR-042): each push the Push Listener hands over is normalized (T042) and
+// written to the outbox under its event id, held there until the core's ack for it, then sent.
+// Events go before state messages, as the link contract orders them, within the outbox's send
+// window and backoff (T043). A push Normalize cannot use is logged by its device and counted, and
+// nothing is queued. The heartbeat says push is on, when the last push came, and how many events
+// wait and for how long. Catch-up and the late marker come with T053.
 import type { Clock } from "../../../utilities/clock/index.ts";
 import { formatUtc } from "../../../utilities/clock/index.ts";
 import type {
@@ -41,11 +48,15 @@ import type {
 } from "../../../utilities/link-transport/index.ts";
 import type { Logger, LogFields } from "../../../utilities/logging/index.ts";
 import { HOME_MESSAGE_TYPES } from "../../../core/clients/connector-link/messages/index.ts";
-import type { HeartbeatMessage } from "../../../core/clients/connector-link/messages/index.ts";
+import type {
+  EventMessage,
+  HeartbeatMessage,
+} from "../../../core/clients/connector-link/messages/index.ts";
 import { OutboxStoreError } from "../../access/outbox-store/index.ts";
 import type {
+  EventBacklog,
+  OutboxBody,
   OutboxDraft,
-  OutboxItem,
   OutboxStore,
   StateVersions,
 } from "../../access/outbox-store/index.ts";
@@ -54,8 +65,11 @@ import type {
   RingChange,
   RingDevice,
   RingPort,
+  RingPush,
   StopWatching,
 } from "../../access/ring-adapter/index.ts";
+import { normalizePush } from "../../engines/normalize/index.ts";
+import type { NormalizedEvent } from "../../engines/normalize/index.ts";
 import { deviceEntry, HomeView } from "./home-view.ts";
 import type { TimedChange } from "./home-view.ts";
 
@@ -82,6 +96,8 @@ export interface IngestOptions {
   readonly link: LinkSlot;
   readonly clock: Clock;
   readonly logger: Logger;
+  /** Whether Ring's push reaches the home (the Push Listener is wired): the heartbeat says so. */
+  readonly pushOn?: boolean;
 }
 
 // The newest picture of the home: the number of the read it came from, in the order reads began,
@@ -105,6 +121,9 @@ export class Ingest {
   readonly #link: LinkSlot;
   readonly #clock: Clock;
   readonly #logger: Logger;
+  readonly #pushOn: boolean;
+  // When the last push was received, on the home's clock; none yet.
+  #lastPushAt: number | undefined;
   readonly #readsRunning = new Set<TimedChange[]>();
   readonly #errorCounts = new Map<string, number>();
   #latest: LatestView | undefined;
@@ -132,6 +151,7 @@ export class Ingest {
     this.#link = options.link;
     this.#clock = options.clock;
     this.#logger = options.logger.with({ component: "ingest" });
+    this.#pushOn = options.pushOn ?? false;
   }
 
   /** Starts taking Ring's changes. The Host calls it before the first session starts. */
@@ -196,6 +216,51 @@ export class Ingest {
     }
   }
 
+  /**
+   * One push from Ring (T044): normalized, written to the outbox under its event id, then sent.
+   * It never throws: what cannot be used or written is logged and counted here.
+   */
+  pushReceived(push: RingPush): void {
+    const receivedAt = this.#clock.now();
+    this.#lastPushAt = receivedAt;
+    const normalized = normalizePush(push, receivedAt);
+    if (!normalized.ok) {
+      this.#count("push_unusable");
+      this.#logger.warn("ingest_push_unusable", {
+        device_id: push.device_id,
+        error_code: normalized.reason,
+      });
+      return;
+    }
+    const body = eventBody(normalized.event, receivedAt);
+    const fields: LogFields = {
+      event_id: body.event_id,
+      device_id: push.device_id,
+      kind: body.kind,
+    };
+    void this.#step(() =>
+      this.#outbox.appendEvent(body.event_id, () => body, UNCANCELLED),
+    ).then(
+      (written) => {
+        this.#logger.info("ingest_event_queued", {
+          ...fields,
+          outcome: written,
+        });
+        return this.#sendDueSafely(UNCANCELLED).catch((error: unknown) => {
+          this.#count("internal");
+          this.#logger.error(
+            "ingest_not_sent",
+            { ...fields, error_code: "internal" },
+            error,
+          );
+        });
+      },
+      (error: unknown) => {
+        this.#eventNotQueued(fields, error);
+      },
+    );
+  }
+
   /** The 15 s tick: sends the home's health summary, if a session is open. */
   async sendHeartbeat(signal: AbortSignal): Promise<void> {
     const link = this.#link.current;
@@ -204,10 +269,12 @@ export class Ingest {
     }
     const heartbeat: HeartbeatMessage = {
       ring_session: this.#ring.sessionStatus(),
-      push: "off",
+      push: this.#pushOn ? "ok" : "off",
       outbox_depth: await this.#depth(signal),
+      event_backlog: await this.#backlog(signal),
       inventory_owed_after: this.#owedAfter ?? null,
-      last_ring_event_at: null,
+      last_ring_event_at:
+        this.#lastPushAt === undefined ? null : formatUtc(this.#lastPushAt),
       error_counts: Object.fromEntries(this.#errorCounts),
       as_of: formatUtc(this.#clock.now()),
     };
@@ -407,6 +474,18 @@ export class Ingest {
     );
   }
 
+  // An event that cannot be written is lost to the core until the catch-up (T053) finds it again.
+  #eventNotQueued(fields: LogFields, error: unknown): void {
+    const code =
+      error instanceof OutboxStoreError ? "outbox_unavailable" : "internal";
+    this.#count(code);
+    this.#logger.error(
+      "ingest_event_not_queued",
+      { ...fields, error_code: code },
+      error,
+    );
+  }
+
   // The debt names the newest version kept before this change.
   #stateNotQueued(fields: LogFields, error: unknown): void {
     this.#oweInventory();
@@ -445,6 +524,9 @@ export class Ingest {
     if (this.#sessionStarting) {
       return;
     }
+    if ((await this.#sendDueEvents(signal)) === "closed") {
+      return;
+    }
     for (let sent = 0; sent < SEND_BATCH; sent += 1) {
       const link = this.#link.current;
       if (link === undefined) {
@@ -454,12 +536,36 @@ export class Ingest {
       if (item === undefined) {
         return;
       }
-      if ((await this.#send(link, item, signal)) === "closed") {
+      const body = { ...item.body, message_id: item.messageId };
+      const outcome = await this.#send(link, item.kind, body, item.messageId);
+      if (outcome === "closed") {
         return;
       }
       await this.#outbox.markWritten(item.messageId, signal);
     }
     this.#continueSending(signal);
+  }
+
+  // The events due, within the outbox's window, before any state message: an event's own body is
+  // the link's `event` message, its event id the `message_id` the core acks.
+  async #sendDueEvents(signal: AbortSignal): Promise<SendOutcome> {
+    const link = this.#link.current;
+    if (link === undefined) {
+      return "closed";
+    }
+    for (const event of await this.#outbox.takeDueEvents(signal)) {
+      const outcome = await this.#send(
+        link,
+        HOME_MESSAGE_TYPES.event,
+        event.body,
+        event.eventId,
+      );
+      if (outcome === "closed") {
+        return "closed";
+      }
+      await this.#outbox.markWritten(event.eventId, signal);
+    }
+    return "sent";
   }
 
   #continueSending(signal: AbortSignal): void {
@@ -473,29 +579,44 @@ export class Ingest {
   // cannot block or repeat (DRIFT-001-22). Its state goes again in the next inventory.
   async #send(
     link: LinkConnection,
-    item: OutboxItem,
-    signal: AbortSignal,
+    type: string,
+    body: OutboxBody,
+    messageId: string,
   ): Promise<SendOutcome> {
     let written: Promise<SendOutcome>;
     try {
-      written = link.send({
-        type: item.kind,
-        body: { ...item.body, message_id: item.messageId },
-      });
+      written = link.send({ type, body });
     } catch (error) {
       if (!(error instanceof RangeError)) {
         throw error;
       }
       this.#count("message_too_large");
       this.#logger.error("ingest_message_dropped", {
-        message_type: item.kind,
-        message_id: item.messageId,
+        message_type: type,
+        message_id: messageId,
         error_code: "message_too_large",
       });
-      await this.#outbox.acknowledge(item.messageId, signal);
+      await this.#outbox.acknowledge(messageId, UNCANCELLED);
       return "sent";
     }
     return written;
+  }
+
+  async #backlog(signal: AbortSignal): Promise<{
+    readonly count: number;
+    readonly oldest_age_ms: number | null;
+  } | null> {
+    let backlog: EventBacklog;
+    try {
+      backlog = await this.#outbox.eventBacklog(signal);
+    } catch (error) {
+      // The depth's read, just before, already counted and logged an unreadable outbox.
+      if (!(error instanceof OutboxStoreError)) {
+        throw error;
+      }
+      return null;
+    }
+    return { count: backlog.count, oldest_age_ms: backlog.oldestAgeMs };
   }
 
   async #depth(signal: AbortSignal): Promise<number | null> {
@@ -564,6 +685,23 @@ function inventoryDraft(
     kind: "inventory",
     body: view.inventory(versions, sessionId()),
   });
+}
+
+// The link's `event` message for a normalized push, received at `receivedAt` on the home's clock.
+function eventBody(event: NormalizedEvent, receivedAt: number): EventMessage {
+  return {
+    event_id: event.event_id,
+    location_id: event.location_id,
+    kind: event.kind,
+    occurred_at: formatUtc(event.occurred_at),
+    received_at: formatUtc(receivedAt),
+    device_id: event.device_id,
+    summary: event.summary,
+    from_history: false,
+    ...(event.name === undefined ? {} : { name: event.name }),
+    ...(event.person === undefined ? {} : { person: event.person }),
+    ...(event.data === undefined ? {} : { data: { ...event.data } }),
+  };
 }
 
 function ringFailure(error: unknown): InventoryOutcome {
