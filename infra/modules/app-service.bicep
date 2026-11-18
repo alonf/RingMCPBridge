@@ -87,8 +87,6 @@ param agents string
 @description('New agent registrations accepted an hour; empty leaves the core\'s default of 10.')
 param registrationsPerHour string
 
-@description('true turns on the MCP Events probe on /mcp (T039); empty leaves it off.')
-param mcpEventsProbe string
 
 // The port the image listens on (bridge/Dockerfile's EXPOSE), told to App Service and the core.
 var port = '8080'
@@ -113,14 +111,9 @@ var settings = [
   { name: 'BRIDGE_OWNER_OBJECT_ID', value: ownerObjectId }
   { name: 'BRIDGE_AGENTS', value: agents }
 ]
-var registrationSettings = empty(registrationsPerHour)
+var optionalSettings = empty(registrationsPerHour)
   ? []
   : [{ name: 'BRIDGE_REGISTRATIONS_PER_HOUR', value: registrationsPerHour }]
-// The MCP Events probe (T039) is off unless the deploy names it: a test handler, not a feature.
-var probeSettings = empty(mcpEventsProbe)
-  ? []
-  : [{ name: 'BRIDGE_MCP_EVENTS_PROBE', value: mcpEventsProbe }]
-var optionalSettings = concat(registrationSettings, probeSettings)
 
 resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: '${namePrefix}-plan'

@@ -189,7 +189,7 @@ describe("mode H's core settings", () => {
         publicUrl: "https://bridge.example.test",
         port: 8080,
         trustProxy: false,
-        mcpEventsProbe: false,
+        callbackHosts: ["connectors.api.openai.com"],
         sqlServer: "bridge-sql.database.windows.net",
         sqlDatabase: "bridge",
         keyVaultUrl: "https://bridge-vault.vault.azure.net",
@@ -211,7 +211,7 @@ describe("mode H's core settings", () => {
       BRIDGE_PUBLIC_URL: "https://bridge.example.test/",
       BRIDGE_PORT: "3000",
       BRIDGE_TRUST_PROXY: "true",
-      BRIDGE_MCP_EVENTS_PROBE: "true",
+      BRIDGE_CALLBACK_HOSTS: " Hooks.Example.test, connectors.api.openai.com ",
       BRIDGE_OWNER_OBJECT_ID: "owner-object-1",
       BRIDGE_REGISTRATIONS_PER_HOUR: "25",
       BRIDGE_AGENTS: JSON.stringify([
@@ -229,7 +229,7 @@ describe("mode H's core settings", () => {
         publicUrl: "https://bridge.example.test",
         port: 3000,
         trustProxy: true,
-        mcpEventsProbe: true,
+        callbackHosts: ["hooks.example.test", "connectors.api.openai.com"],
         ownerObjectId: "owner-object-1",
         registrationsPerHour: 25,
         agents: [
@@ -285,9 +285,14 @@ describe("mode H's core settings", () => {
       "BRIDGE_TRUST_PROXY",
     ],
     [
-      "an events probe flag other than true or false",
-      { BRIDGE_MCP_EVENTS_PROBE: "on" },
-      "BRIDGE_MCP_EVENTS_PROBE",
+      "a callback host that is not a host name",
+      { BRIDGE_CALLBACK_HOSTS: "https://hooks.example.test/path" },
+      "BRIDGE_CALLBACK_HOSTS",
+    ],
+    [
+      "a callback host list with nothing in it",
+      { BRIDGE_CALLBACK_HOSTS: " , " },
+      "BRIDGE_CALLBACK_HOSTS",
     ],
     [
       "a tenant named by its domain, which Entra's issuer never is",

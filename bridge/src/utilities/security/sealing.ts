@@ -17,10 +17,12 @@ const VERSION_BYTES = 1;
 const HEADER_BYTES = VERSION_BYTES + IV_BYTES;
 
 /**
- * What a sealed blob is for; it is bound into the additional data, so one file cannot be opened as
- * the other: the Secrets File at home, and the core's secrets file in mode A (T022).
+ * What a sealed blob is for; it is bound into the additional data, so one cannot be opened as
+ * another: the Secrets File at home, the core's secrets file in mode A (T022), and an MCP Events
+ * subscription's callback and signing secret in the core's database (T048).
  */
-export type SealPurpose = "secrets-file" | "core-secrets-file";
+export type SealPurpose =
+  "secrets-file" | "core-secrets-file" | "delivery-subscription";
 
 function additionalData(purpose: SealPurpose): Buffer {
   return Buffer.from(

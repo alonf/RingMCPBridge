@@ -12,17 +12,27 @@
 //   sign-in return, the Issuer's first and else the admin page's; the admin page under `/admin`
 //   (T029); the MCP endpoint and its protected-resource metadata; the home's link upgrade at
 //   `/link`; `/livez` and `/readyz`. Anything else is 404.
+// - **MCP Events** (T048): Delivery serves the endpoint's event methods and pushes each event the
+//   Event manager stores to the active webhook subscriptions. Until the owner sets
+//   `delivery-sealing-key`, subscribing is refused and `/readyz` reports the key missing; the core
+//   is still ready, since reading the home needs no key.
 // It reaches no Ring library (a dependency rule checks `core.ts`, which imports it).
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { getRequestListener } from "@hono/node-server";
 import type { CoreSecrets } from "../core/access/secrets/index.ts";
-import { Issuer, IssuerError } from "../core/clients/issuer/index.ts";
 import {
-  EventsProbe,
-  McpEndpoint,
-} from "../core/clients/mcp-endpoint/index.ts";
+  DeliveryKeySource,
+  SubscriptionsStore,
+} from "../core/access/subscriptions/index.ts";
+import {
+  Delivery,
+  httpsCallbackTransport,
+} from "../core/clients/delivery/index.ts";
+import type { CallbackTransport } from "../core/clients/delivery/index.ts";
+import { Issuer, IssuerError } from "../core/clients/issuer/index.ts";
+import { McpEndpoint } from "../core/clients/mcp-endpoint/index.ts";
 import {
   ADMIN_PATH,
   SIGN_IN_RETURN_PATH,
@@ -56,6 +66,10 @@ export const AUTHORIZATION_SERVER_METADATA_PATH =
   "/.well-known/oauth-authorization-server/oauth";
 /** How often the Issuer's start is tried again while its signing keys are missing [P]. */
 export const SIGNING_KEYS_RETRY_MS = 60_000;
+/** How long one exchange with an MCP Events callback may take [P]. */
+export const CALLBACK_TIMEOUT_MS = 5_000;
+/** How much of a callback's answer is read [P]. */
+export const CALLBACK_RESPONSE_LIMIT_BYTES = 65_536;
 
 const PROTECTED_RESOURCE_METADATA_PREFIX =
   "/.well-known/oauth-protected-resource";
@@ -83,6 +97,8 @@ export interface CoreServiceResources {
   readonly leaseHolder?: string;
   /** The retry of the Issuer's start while its keys are missing; `SIGNING_KEYS_RETRY_MS` by default. */
   readonly signingKeysRetryMs?: number;
+  /** How MCP Events callbacks are sent; the bounded HTTPS fetch unless a test hands in its own. */
+  readonly callbackTransport?: CallbackTransport;
 }
 
 /** Whether each thing the core needs is in place, as `/readyz` reports it. */
@@ -93,6 +109,8 @@ export interface Readiness {
     readonly lease: string;
     readonly signing_keys: "loaded" | "missing" | "unreadable";
     readonly owner: "configured" | "missing";
+    /** The key that seals MCP Events subscriptions; reported, but not needed to be ready (T048). */
+    readonly delivery_key: "loaded" | "missing";
   };
 }
 
@@ -157,10 +175,32 @@ export async function startCoreService(
   );
   await keys.start();
 
-  // The MCP Events probe (T039) answers only while its switch is on.
-  const eventsProbe = settings.core.mcpEventsProbe
-    ? new EventsProbe({ fetch: resources.fetch, clock, logger })
-    : undefined;
+  const deliveryKey = new DeliveryKeySource({ secrets: resources.secrets });
+  const delivery = new Delivery({
+    subscriptions: new SubscriptionsStore({ store, key: deliveryKey, clock }),
+    transport:
+      resources.callbackTransport ??
+      httpsCallbackTransport({
+        allowedHosts: settings.core.callbackHosts,
+        timeoutMs: CALLBACK_TIMEOUT_MS,
+        maxResponseBytes: CALLBACK_RESPONSE_LIMIT_BYTES,
+      }),
+    allowedHosts: settings.core.callbackHosts,
+    deviceLabel: async (deviceId, read) => {
+      const device = await core.state.device(deviceId, read);
+      return device === undefined
+        ? undefined
+        : {
+            name: device.name,
+            ...(device.room === undefined ? {} : { room: device.room }),
+          };
+    },
+    clock,
+    logger,
+  });
+  core.events.subscribe("event.stored", (stored) => {
+    delivery.eventStored(stored);
+  });
   const mcp = new McpEndpoint(
     {
       resource: `${publicUrl}${MCP_PATH}`,
@@ -174,7 +214,7 @@ export async function startCoreService(
       tokens: issuer,
       clock,
       logger,
-      ...(eventsProbe === undefined ? {} : { eventsProbe }),
+      events: delivery,
     },
   );
   const mcpListener = getRequestListener((request) => mcp.fetch(request));
@@ -207,6 +247,7 @@ export async function startCoreService(
       signing_keys: keys.state,
       owner:
         settings.core.ownerObjectId === undefined ? "missing" : "configured",
+      delivery_key: await deliveryKeyState(deliveryKey),
     } as const;
     const ready =
       database === "ok" &&
@@ -280,7 +321,7 @@ export async function startCoreService(
     stop: () => {
       stopping ??= (async () => {
         keys.stop();
-        eventsProbe?.stop();
+        await delivery.stop();
         // The server's close waits for every connection, and `closeAllConnections` leaves out the
         // upgraded ones: the home's link, which keeps up its heartbeats. So the links are closed
         // before the wait, or a stop with a home connected would never finish (CP-10 review).
@@ -300,6 +341,16 @@ export async function startCoreService(
       return stopping;
     },
   };
+}
+
+// Whether the delivery key is set: looked for again on each check until it is found.
+async function deliveryKeyState(
+  key: DeliveryKeySource,
+): Promise<"loaded" | "missing"> {
+  const found = await key
+    .key(AbortSignal.timeout(READINESS_DATABASE_TIMEOUT_MS))
+    .catch(() => undefined);
+  return found === undefined ? "missing" : "loaded";
 }
 
 /** The Issuer's start, tried again every so often while its signing keys are missing. */

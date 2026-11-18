@@ -24,13 +24,6 @@ export type { ReadAllowance } from "./read-limit.ts";
 export { TOOL_DEADLINE_MS, UNAVAILABLE_RETRY_AFTER_S } from "./read-tools.ts";
 export type { InquiryReads } from "./read-tools.ts";
 
-/** The MCP Events probe (T039): a test subscription handler, wired in only when its switch is on. */
-export {
-  CALLBACK_ENDPOINT_ERROR,
-  CALLBACK_TIMEOUT_MS,
-  EventsProbe,
-  PROBE_EVENT_DELAY_MS,
-  PROBE_EVENT_NAME,
-  PROBE_SUBSCRIPTION_TTL_MS,
-} from "./events-probe.ts";
-export type { CallbackFetch, EventsProbeDependencies } from "./events-probe.ts";
+/** MCP Events (T048): the event methods over Delivery, and the callback error's code. */
+export { CALLBACK_ENDPOINT_ERROR } from "./events-handler.ts";
+export type { EventSubscriptions } from "./events-handler.ts";

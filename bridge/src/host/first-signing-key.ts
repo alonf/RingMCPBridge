@@ -1,13 +1,16 @@
 // `first-signing-key <vault-url>` (T031): the bootstrap's after-deploy step runs it on the owner's
 // PC, as `node bridge/src/host/main.ts first-signing-key https://<vault>.vault.azure.net`, signed in
 // to Key Vault as the owner through the Azure CLI. It writes the Issuer's first signing key unless
-// one is there (writeFirstSigningKey), and says only what it did: the key never reaches the disk,
-// the console or the repository. It reads no run mode's settings, so it runs before any are set.
+// one is there (writeFirstSigningKey), and from T048 the delivery key that seals MCP Events
+// subscriptions, unless one is there (writeFirstDeliveryKey). It says only what it did: no key
+// reaches the disk, the console or the repository, and a rerun writes only what is missing. It
+// reads no run mode's settings, so it runs before any are set.
 import { KeyVaultSecrets, SecretsError } from "../core/access/secrets/index.ts";
 import type {
   CoreSecrets,
   KeyVaultSecretClient,
 } from "../core/access/secrets/index.ts";
+import { writeFirstDeliveryKey } from "../core/access/subscriptions/index.ts";
 import { writeFirstSigningKey } from "../core/clients/issuer/index.ts";
 
 const EXIT_OK = 0;
@@ -45,13 +48,22 @@ export async function runFirstSigningKeyCommand(
         ? "The first signing key is set in Key Vault as issuer-signing-keys. The core picks it up within a minute.\n"
         : "issuer-signing-keys is already set in Key Vault; nothing was written.\n",
     );
+    const delivery = await writeFirstDeliveryKey(
+      secrets,
+      AbortSignal.timeout(KEY_VAULT_TIMEOUT_MS),
+    );
+    io.output.write(
+      delivery === "written"
+        ? "The delivery key is set in Key Vault as delivery-sealing-key. ChatGPT can subscribe to events from now on.\n"
+        : "delivery-sealing-key is already set in Key Vault; nothing was written.\n",
+    );
     return EXIT_OK;
   } catch (error) {
     if (!(error instanceof SecretsError)) {
       throw error;
     }
     io.errors.write(
-      `The first signing key was not written. ${error.message} If your role on the vault was just granted, wait a few minutes and run the step again.\n`,
+      `A key was not written. ${error.message} If your role on the vault was just granted, wait a few minutes and run the step again; it writes only what is missing.\n`,
     );
     return EXIT_FAILURE;
   }

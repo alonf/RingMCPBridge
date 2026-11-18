@@ -174,13 +174,11 @@ describe("the deploy's parameters (scripts/deploy-parameters.mjs)", () => {
       ...everyVariable(),
       BRIDGE_AGENTS: "",
       BRIDGE_REGISTRATIONS_PER_HOUR: " ",
-      BRIDGE_MCP_EVENTS_PROBE: "",
       BRIDGE_LOG_LEVEL: "",
     });
 
     expect(Object.keys(file.parameters)).not.toContain("agents");
     expect(Object.keys(file.parameters)).not.toContain("registrationsPerHour");
-    expect(Object.keys(file.parameters)).not.toContain("mcpEventsProbe");
     expect(Object.keys(file.parameters)).not.toContain("logLevel");
     expect(file.parameters.imageTag).toEqual({ value: "value-of-IMAGE_TAG" });
   });

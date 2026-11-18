@@ -60,8 +60,11 @@ export interface CoreHostSettings {
   readonly agents: readonly ListedAgentSetting[];
   /** New agent registrations (DCR) the Issuer accepts in an hour, across all agents (CP-17's review). */
   readonly registrationsPerHour: number;
-  /** Whether the MCP Events probe answers on `/mcp` (T039). Off unless set. */
-  readonly mcpEventsProbe: boolean;
+  /**
+   * The hosts an MCP Events callback may use (T048): ChatGPT's `connectors.api.openai.com` unless
+   * set, the host T039 observed. A comma-separated list of host names.
+   */
+  readonly callbackHosts: readonly string[];
 }
 
 /** The home part (connector). */
@@ -103,7 +106,7 @@ export const CORE_HOST_VARIABLES = {
   ownerObjectId: "BRIDGE_OWNER_OBJECT_ID",
   agents: "BRIDGE_AGENTS",
   registrationsPerHour: "BRIDGE_REGISTRATIONS_PER_HOUR",
-  mcpEventsProbe: "BRIDGE_MCP_EVENTS_PROBE",
+  callbackHosts: "BRIDGE_CALLBACK_HOSTS",
 } as const;
 
 /** The variable behind each of the connector's settings. */
@@ -182,6 +185,25 @@ const FLAG_SCHEMA = z
   .optional()
   .transform((flag) => flag === "true");
 
+/** ChatGPT's callback host, which T039 observed: the default allowlist. */
+export const DEFAULT_CALLBACK_HOSTS: readonly string[] = [
+  "connectors.api.openai.com",
+];
+const HOST_NAME =
+  /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+const CALLBACK_HOSTS_SCHEMA = z
+  .string()
+  .transform((list) =>
+    list
+      .split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter((host) => host !== ""),
+  )
+  .pipe(z.array(z.string().regex(HOST_NAME)).min(1))
+  .optional()
+  .transform((hosts): readonly string[] => hosts ?? DEFAULT_CALLBACK_HOSTS);
+
 export const CORE_HOST_SCHEMA: z.ZodType<CoreHostSettings> = z
   .object({
     publicUrl: ORIGIN_SCHEMA,
@@ -208,7 +230,7 @@ export const CORE_HOST_SCHEMA: z.ZodType<CoreHostSettings> = z
       .pipe(z.number().int().min(1).max(MAX_REGISTRATIONS_PER_HOUR))
       .optional()
       .transform((limit) => limit ?? REGISTRATIONS_PER_HOUR_DEFAULT),
-    mcpEventsProbe: FLAG_SCHEMA,
+    callbackHosts: CALLBACK_HOSTS_SCHEMA,
   })
   .transform(({ ownerObjectId, ...core }): CoreHostSettings => ({
     ...core,

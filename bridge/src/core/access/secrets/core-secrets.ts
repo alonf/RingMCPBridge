@@ -3,10 +3,14 @@
 import type { Secret } from "../../../utilities/security/index.ts";
 
 /**
- * The secrets the core keeps. Iteration 001 has one: the Issuer's signing keys, a JSON document
- * the Issuer writes and reads (PT-04). `pin-hash` and the others join in later iterations.
+ * The secrets the core keeps:
+ * - `issuer-signing-keys`: the Issuer's signing keys, a JSON document the Issuer reads (PT-04);
+ * - `delivery-sealing-key` (T048): the key that seals each MCP Events subscription's callback and
+ *   signing secret in the database, 32 random bytes in base64. Delivery only reads it.
+ *
+ * `pin-hash` and the others join in later iterations.
  */
-export type CoreSecretName = "issuer-signing-keys";
+export type CoreSecretName = "issuer-signing-keys" | "delivery-sealing-key";
 
 /**
  * - `found`: the secret's value;

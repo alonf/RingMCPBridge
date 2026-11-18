@@ -77,12 +77,6 @@ export const PARAMETERS = [
     optional: true,
   },
   {
-    name: "mcpEventsProbe",
-    variable: "BRIDGE_MCP_EVENTS_PROBE",
-    from: "runbook",
-    optional: true,
-  },
-  {
     name: "logLevel",
     variable: "BRIDGE_LOG_LEVEL",
     from: "runbook",

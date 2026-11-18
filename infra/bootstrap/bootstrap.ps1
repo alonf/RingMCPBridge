@@ -36,8 +36,9 @@ their tenant or their subscription; the values are typed when it runs.
      minutes to honour a new role, so the key is written last.
  10. Print the T-SQL for the core's database user, which the owner runs as a member of the SQL
      break-glass group (infra/bootstrap/entra-app-registration.md), then restart the core.
- 11. Write the first signing key (node bridge/src/host/main.ts first-signing-key), unless one is
-     there. The core's Issuer picks it up within a minute.
+ 11. Write the first signing key and, from iteration 002, the delivery key that seals MCP Events
+     subscriptions (node bridge/src/host/main.ts first-signing-key), each unless it is there. The
+     core's Issuer picks the first up within a minute; Delivery reads the second when it is needed.
 
 .EXAMPLE
 pwsh infra/bootstrap/bootstrap.ps1 -SubscriptionName '<subscription>' -GitHubRepo '<owner>/<repo>' -RegistryName '<registry>'
@@ -427,10 +428,10 @@ function Invoke-AfterDeploy {
     Invoke-AzQuiet webapp restart --resource-group $ResourceGroup --name $outputs.appName.value
     Write-Detail 'The core restarted.'
 
-    Write-Step 11 'The first signing key'
+    Write-Step 11 'The first signing key and the delivery key'
     & node (Join-Path $RepoRoot 'bridge/src/host/main.ts') first-signing-key $vault.uri.TrimEnd('/')
     if ($LASTEXITCODE -ne 0) {
-        throw 'The first signing key was not written; see the message above. Rerunning this stage repeats only what is missing.'
+        throw 'A key was not written; see the message above. Rerunning this stage repeats only what is missing.'
     }
     Write-Detail "Its smoke test, within a minute: $publicUrl/readyz"
 }

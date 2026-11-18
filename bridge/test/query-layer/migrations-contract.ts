@@ -157,6 +157,14 @@ const EXPECTED_TABLES: Readonly<
     ["result", false],
     ["ts", true],
   ],
+  webhook_subscription: [
+    ["sub_id", true],
+    ["client_id", true],
+    ["event_name", true],
+    ["delivery", true],
+    ["created_at", true],
+    ["expires_at", true],
+  ],
 };
 
 const LOCATION = {

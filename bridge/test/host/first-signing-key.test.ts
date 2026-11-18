@@ -82,6 +82,10 @@ describe("the first-signing-key command", () => {
     expect(code).toBe(0);
     expect(vault.vaults).toEqual([VAULT]);
     expect(output).toContain("The first signing key is set");
+    expect(output).toContain("The delivery key is set");
+    const delivery = vault.secrets.get("delivery-sealing-key") ?? "";
+    expect(Buffer.from(delivery, "base64")).toHaveLength(32);
+    expect(`${output}${errors}`).not.toContain(delivery);
     const written = vault.secrets.get("issuer-signing-keys") ?? "";
     const [key] = parseSigningKeys(written).keys;
     for (const field of PRIVATE_FIELDS) {
@@ -91,17 +95,24 @@ describe("the first-signing-key command", () => {
     }
   });
 
-  it("leaves keys already there alone", async () => {
+  it("leaves keys already there alone, and writes only the one that is missing", async () => {
     const vault = new StandInVault();
     vault.secrets.set("issuer-signing-keys", "the keys the Issuer signs with");
 
-    const { code, output } = await run([VAULT], vault);
+    const first = await run([VAULT], vault);
 
-    expect(code).toBe(0);
-    expect(output).toContain("already set");
+    expect(first.code).toBe(0);
+    expect(first.output).toContain("issuer-signing-keys is already set");
+    expect(first.output).toContain("The delivery key is set");
     expect(vault.secrets.get("issuer-signing-keys")).toBe(
       "the keys the Issuer signs with",
     );
+    const delivery = vault.secrets.get("delivery-sealing-key");
+
+    const second = await run([VAULT], vault);
+
+    expect(second.output).toContain("delivery-sealing-key is already set");
+    expect(vault.secrets.get("delivery-sealing-key")).toBe(delivery);
   });
 
   it("says what Key Vault refused, and what to do, without writing", async () => {

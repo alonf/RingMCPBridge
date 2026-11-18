@@ -84,7 +84,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - it runs on the owner's home connector for at least one doorbell press and one motion event. The home update needs the owner's OK.
 
   Finding: push arrives or not, its delay from Ring's timestamp, and the payload kinds seen (Trace: FR-008, FR-042; CP-08b)
-- [ ] T039 [P] [assigned_to: Implementer] [effort: 0.9] The MCP Events probe on the owner's ChatGPT plan:
+- [x] T039 [P] [assigned_to: Implementer] [effort: 0.9] The MCP Events probe on the owner's ChatGPT plan:
   - read OpenAI's current draft for MCP Events: the subscription call, the webhook's signature, who issues the signing secret, the retry rules, and the callback hosts;
   - a stub subscription handler behind a configuration switch in `bridge/src/core/clients/mcp-endpoint/`, which accepts a test subscription and records its shape with identifiers only;
   - one test event sent by hand to the recorded callback, to see whether ChatGPT accepts it and whether the dot lights;
@@ -179,7 +179,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
 **Independent test**: a doorbell press at the owner's home lights ChatGPT's dot. The core's log shows the time from Ring's trigger to ChatGPT accepting the webhook, per event.
 **Depends on**: Phase 3 and T039's finding. T049 needs T048 deployed, with the owner's OK. T050 follows T049.
 
-- [ ] T048 [US2] [assigned_to: Implementer] [effort: 1.8] Delivery to ChatGPT, in `bridge/src/core/access/delivery/` and `bridge/src/core/clients/mcp-endpoint/`:
+- [x] T048 [US2] [assigned_to: Implementer] [effort: 1.8] Delivery to ChatGPT, in `bridge/src/core/access/delivery/` and `bridge/src/core/clients/mcp-endpoint/`:
   - the subscription call as OpenAI's draft publishes it, for clients with the read scope only;
   - each subscription's callback address and signing secret stored in the database, encrypted, through `bridge/src/core/access/subscriptions/` (the store's cursor fields come in T051);
   - callbacks go out through the bounded fetch: only the hosts T039 found, HTTPS only, with a time limit and a size limit, and no redirects;

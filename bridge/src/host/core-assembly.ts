@@ -56,6 +56,8 @@ export interface CoreAssembly {
   readonly lease: Lease;
   /** The connector link, run only while the lease is held: `accept` is the `LinkServer`'s `onLink`. */
   readonly links: LeasedLinks;
+  /** What the Event manager publishes: `health.changed`, and `event.stored` for Delivery (T048). */
+  readonly events: PubSub<EventTopics>;
   /** The event priorities and the late limit, checked at start (T045); the Event manager's from T047. */
   readonly priorityPolicy: PriorityPolicy;
   /** Takes the lease, and runs the link while it is held. */
@@ -128,6 +130,7 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
     admin,
     lease,
     links,
+    events,
     priorityPolicy,
     start: () => {
       lease.start();

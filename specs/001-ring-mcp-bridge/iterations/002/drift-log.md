@@ -22,11 +22,30 @@
 
 ## Summary
 
-**Total drift events**: 14
-**Resolution rate**: 100% (14/14 resolved or decided)
+**Total drift events**: 15
+**Resolution rate**: 100% (15/15 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-15: T048's choices: where Delivery lives, the delivery key, the allowlist, and what "at least once" covers
+
+- **Detected**: 2026-11-18, building T048, the delivery of events to ChatGPT.
+- **Kind**: decisions inside the decided design, and one task wording that differs from a recorded rule.
+- **Observed**:
+  1. **Where Delivery lives.** `tasks.md` T048 names `bridge/src/core/access/delivery/`. The dependency rules (`.dependency-cruiser.cjs`, CD4 Q1) already reserve `core/clients/delivery/` as the only place besides the MCP Endpoint allowed to use the Public Contract, which Delivery needs for the event's shape. Delivery is built there. The subscriptions are stored in `core/access/subscriptions/` as the task says.
+  2. **The delivery key.** "Stored in the database, encrypted" needs a key. The core reads Key Vault but cannot write it, so a new secret, `delivery-sealing-key`, is added. The bootstrap's `first-signing-key` step now also writes it when it is missing, and never prints it. It is not derived from the Issuer's keys, which would tie the stored subscriptions to the Issuer's key rotation. Until the owner sets it, subscribing is refused with a clear error, `/readyz` reports `delivery_key: missing`, and the core is still ready, since reading the home needs no key.
+  3. **The allowlist.** The new core setting `BRIDGE_CALLBACK_HOSTS` lists the hosts a callback may use, and defaults to `connectors.api.openai.com`, the host T039 observed. This is the implementer's recommendation while the owner chooses between pinning it and OpenAI's public-address rule; either is a configuration change. Every callback also goes only to public addresses, over HTTPS, with a 5-second limit, a 64 KiB answer limit and no redirects. Each transport keeps its own connection pool, because Node's shared pool would reuse a connection made without the address check (found by the tests).
+  4. **What is pushed, and how often.** HIGH and MEDIUM events that are not late. Each subscription is sent to on its own, so one slow callback never holds another or the next event: this is the planning addition from T037, built as written. A failed send is tried again with the same event id after 1, 2, 4 and 8 seconds; never after 410 or 413, and 410 ends the subscription. "At least once" holds while the process runs: an event committed just before the core stops is not pushed after it restarts. The client reads it with `get_events` (T052), and delivery state that survives restarts comes with T051.
+  5. **Expiry.** A subscription lasts a day unless the client asks for less (at least a minute). ChatGPT's pause sends nothing (T039 part 2), so expiry is the end. Expired rows are skipped at once; deleting them waits for a scheduled purge.
+  6. **Storage.** The table is `webhook_subscription`, keyed by a hash of the client, the event type and the callback, so a renewal updates its row and never doubles a delivery. The data model's `subscription` table, with the cursors, comes with T051.
+  7. **Mode A** serves agents over stdio, which no webhook client reaches, so it has no Delivery and no event methods.
+  8. **The probe is removed**, with its setting and its deploy parameter. The repository variable `BRIDGE_MCP_EVENTS_PROBE` is still set; the deploy no longer reads it, and removing it is the owner's.
+  9. **The log** names a client by `client_ref`, a 16-character hash of its id, since ChatGPT's client id is a URL that the identifier form redacts (T039 part 2).
+- **Requirement citation**: FR-010, FR-012, FR-013, FR-033, FR-034, SC-001; `tasks.md` T048; `.dependency-cruiser.cjs` "public-contract-only-in-mcp-endpoint-and-delivery"; research.md T039 parts 1 and 2.
+- **Resolution**: implementer-decision, reported to the owner with the deploy request. The allowlist and the delivery key need the owner: the allowlist's final form, and one bootstrap command.
+- **Carry-forward**: T049 needs the delivery key set and the deploy. T051 adds the cursor table and delivery state that survives restarts; T052 adds `get_events`. A scheduled purge of expired subscriptions joins T051.
+- **Class closure**: NONE - decisions the design left to implementation.
 
 ### DRIFT-002-14: T044's choices: the heartbeat's backlog field, how an unusable push counts, and how "the core stopped before its ack" is tested
 

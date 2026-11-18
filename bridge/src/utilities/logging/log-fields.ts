@@ -16,6 +16,8 @@ export const LOG_FIELD_KINDS = {
   request_id: "identifier",
   command_id: "identifier",
   client_id: "identifier",
+  /** A short hash of a client id, which can itself be a URL (T048). */
+  client_ref: "identifier",
   event_id: "identifier",
   message_id: "identifier",
   location_id: "identifier",

@@ -58,6 +58,8 @@ describe("mode H's core service", () => {
           lease: "held",
           signing_keys: "loaded",
           owner: "configured",
+          // Reported, not needed to be ready: reading the home needs no delivery key (T048).
+          delivery_key: "missing",
         },
       },
     });

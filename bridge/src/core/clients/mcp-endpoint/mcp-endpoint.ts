@@ -34,7 +34,8 @@ import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 import type { Hono } from "hono";
 import type { Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
-import type { EventsProbe } from "./events-probe.ts";
+import { registerEventMethods } from "./events-handler.ts";
+import type { EventSubscriptions } from "./events-handler.ts";
 import { ReadLimit } from "./read-limit.ts";
 import { registerReadTools } from "./read-tools.ts";
 import type { InquiryReads } from "./read-tools.ts";
@@ -96,8 +97,8 @@ export interface McpEndpointDependencies {
   readonly tokens: AccessTokens;
   readonly clock: Clock;
   readonly logger: Logger;
-  /** The MCP Events probe (T039), when its switch is on; without it no events method is served. */
-  readonly eventsProbe?: EventsProbe;
+  /** MCP Events through Delivery (T048), in mode H; without it no events method is served. */
+  readonly events?: EventSubscriptions;
 }
 
 /** The Issuer could not check a token; the agent is asked to try again, not to link again. */
@@ -275,7 +276,10 @@ export class McpEndpoint {
       },
       (signal) => ({ clientId, signal }),
     );
-    this.#dependencies.eventsProbe?.register(server, clientId);
+    const { events } = this.#dependencies;
+    if (events !== undefined) {
+      registerEventMethods(server, events, clientId);
+    }
     return server;
   }
 
