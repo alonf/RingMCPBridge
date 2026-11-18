@@ -72,6 +72,7 @@ import {
   alarmEvent,
   armedAt,
   deviceChangeEvents,
+  fromSharedHome,
   modeChangeEvent,
   normalizePush,
 } from "../../engines/normalize/index.ts";
@@ -433,8 +434,8 @@ export class Ingest {
 
   /**
    * The events a hub change makes (T062), from the entry it replaces in the view, so read before the
-   * view takes the change in. None before the first read, when nothing is known to have changed,
-   * and none from a location the account does not own: a shared home's alarms come with T063.
+   * view takes the change in. None before the first read, when nothing is known to have changed.
+   * From a shared home, only its alarm and water, named by the home (T063).
    */
   #hubEvents({ change, at }: TimedChange): NormalizedEvent[] {
     const view = this.#latest?.view;
@@ -443,23 +444,37 @@ export class Ingest {
     }
     const owned = (locationId: string): boolean =>
       view.location(locationId)?.ownership === "owned";
+    // An owned home's events as they are; a shared home's filtered and named; none from a location
+    // the view does not hold.
+    const asSent = (
+      locationId: string,
+      events: readonly NormalizedEvent[],
+    ): NormalizedEvent[] => {
+      const location = view.location(locationId);
+      if (location === undefined) {
+        return [];
+      }
+      return location.ownership === "owned"
+        ? [...events]
+        : fromSharedHome(events, location.name);
+    };
     switch (change.kind) {
       case "device": {
         const { location_id: locationId } = change.device;
-        if (!owned(locationId)) {
-          return [];
-        }
-        return deviceChangeEvents(
-          view.device(change.device.device_id),
-          change.device,
-          {
-            at,
-            armed: armedAt(
-              view.location(locationId),
-              view.panel(locationId),
+        return asSent(
+          locationId,
+          deviceChangeEvents(
+            view.device(change.device.device_id),
+            change.device,
+            {
               at,
-            ),
-          },
+              armed: armedAt(
+                view.location(locationId),
+                view.panel(locationId),
+                at,
+              ),
+            },
+          ),
         );
       }
       case "location": {
@@ -476,14 +491,11 @@ export class Ingest {
       }
       case "panel": {
         const { panel } = change;
-        if (!owned(panel.location_id)) {
-          return [];
-        }
         const event = alarmEvent(view.panel(panel.location_id), panel, {
           at,
           nameOf: (deviceId) => view.device(deviceId)?.name,
         });
-        return event === undefined ? [] : [event];
+        return asSent(panel.location_id, event === undefined ? [] : [event]);
       }
       case "device_list":
       case "session":

@@ -138,9 +138,14 @@ export interface DeliveryOptions {
     deviceId: string,
     signal: AbortSignal,
   ) => Promise<DeviceLabel | undefined>;
-  /** Whether State holds the location as owned; anything else is not pushed. */
-  readonly locationOwned: (
+  /**
+   * Whether an event of `kind` from the location is pushed: any from a location State holds as
+   * owned; from a shared one, only the kinds the policy keeps there (T063); none from a location
+   * State does not hold.
+   */
+  readonly pushedFrom: (
     locationId: string,
+    kind: string,
     signal: AbortSignal,
   ) => Promise<boolean>;
   /** Whether the client may still read: the Issuer's own check of a listed, unrevoked agent. */
@@ -381,11 +386,13 @@ export class Delivery {
 
   async #deliverEvent(event: StoredEvent): Promise<void> {
     const signal = this.#stopping.signal;
-    if (!(await this.#options.locationOwned(event.location_id, signal))) {
+    if (
+      !(await this.#options.pushedFrom(event.location_id, event.kind, signal))
+    ) {
       this.#logger.info("delivery_skipped", {
         event_id: event.event_id,
         location_id: event.location_id,
-        outcome: "location_not_owned",
+        outcome: "location_not_pushed",
       });
       return;
     }

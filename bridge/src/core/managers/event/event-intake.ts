@@ -140,6 +140,8 @@ export type EventOutcome =
       readonly needs_inventory: boolean;
     }
   | { readonly kind: "duplicate" }
+  /** From a shared location, of a kind the policy does not keep there (T063): acked, not stored. */
+  | { readonly kind: "withheld" }
   /** An id or kind too long to store: it never can be, so it is acked and logged. */
   | { readonly kind: "refused" };
 

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   highestPriority,
   isLate,
+  keptFromSharedLocation,
   parsePriorityPolicy,
   priorityOf,
   PRIORITY_POLICY_FILE,
@@ -169,6 +170,46 @@ describe("the Classify engine's late rule (FR-013, PT-25)", () => {
 
   it("is not late when the home's clock is ahead of the core's", () => {
     expect(arriving(-5_000)).toBe(false);
+  });
+});
+
+// T063 (FR-036, US8; DRIFT-002-20): what is kept from a shared home is data too.
+describe("the Classify engine's shared-location kinds", () => {
+  it("keeps a shared home's alarm and water by the shipped policy, and nothing else", () => {
+    expect(
+      [
+        "alarm.triggered",
+        "flood",
+        "doorbell.ding",
+        "motion",
+        "contact.open",
+      ].map((kind) => keptFromSharedLocation(policy, kind)),
+    ).toEqual([true, true, false, false, false]);
+  });
+
+  it("keeps nothing from a shared home when the policy names no kinds, or has no such entry", () => {
+    const withoutEntry = Object.fromEntries(
+      Object.entries(shippedFile()).filter(
+        ([key]) => key !== "shared_locations",
+      ),
+    );
+    const none = parsePriorityPolicy({
+      ...shippedFile(),
+      shared_locations: { kinds: [] },
+    });
+    const absent = parsePriorityPolicy(withoutEntry);
+
+    expect(keptFromSharedLocation(none, "alarm.triggered")).toBe(false);
+    expect(keptFromSharedLocation(absent, "alarm.triggered")).toBe(false);
+  });
+
+  it("refuses a kind a shared home never sends", () => {
+    expect(
+      refusal({
+        ...shippedFile(),
+        shared_locations: { kinds: ["doorbell.ding"] },
+      }),
+    ).toContain('"shared_locations.kinds.0"');
   });
 });
 

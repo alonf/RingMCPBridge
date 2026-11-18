@@ -8,7 +8,9 @@ export {
   alarmEvent,
   armedAt,
   deviceChangeEvents,
+  fromSharedHome,
   modeChangeEvent,
+  SHARED_HOME_KINDS,
 } from "./hub-events.ts";
 export type { HubDevice, HubLocation, HubPanel } from "./hub-events.ts";
 export type {

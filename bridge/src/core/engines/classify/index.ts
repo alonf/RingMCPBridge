@@ -6,11 +6,13 @@
 export {
   highestPriority,
   isLate,
+  keptFromSharedLocation,
   parsePriorityPolicy,
   priorityOf,
   PRIORITY_ORDER,
   PRIORITY_POLICY_VERSION,
   PriorityPolicyError,
+  SHARED_LOCATION_KINDS,
 } from "./classify-engine.ts";
 export type {
   EventPriority,

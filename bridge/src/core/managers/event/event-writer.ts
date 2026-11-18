@@ -13,6 +13,10 @@
 // - **The work may run twice.** The Query layer retries a transaction once after a passing
 //   failure, so the work changes nothing outside the transaction: it only returns what it wrote.
 //   The caller publishes after the commit.
+// - **Withheld** (T063; FR-036, US8): an event from a location State holds as shared is kept only
+//   when the policy keeps its kind there; any other is not written, and is acked like a stored one,
+//   so the home does not send it again. A location State does not hold is not withheld: the home
+//   already sends nothing from a shared home but the kinds a shared home may send.
 // - **Refused.** An id or kind longer than its column can never be stored. Such an event is
 //   reported as refused, so it is acked and logged instead of being sent again forever.
 import type { Audit } from "../../access/audit/index.ts";
@@ -22,7 +26,11 @@ import type {
   StoredEvent,
 } from "../../access/event-log/index.ts";
 import type { DeviceApplied, StateStore } from "../../access/state/index.ts";
-import { isLate, priorityOf } from "../../engines/classify/index.ts";
+import {
+  isLate,
+  keptFromSharedLocation,
+  priorityOf,
+} from "../../engines/classify/index.ts";
 import type { PriorityPolicy } from "../../engines/classify/index.ts";
 import type { SqlSession } from "../../../utilities/query-layer/index.ts";
 import type { IncomingEvent } from "./event-intake.ts";
@@ -61,6 +69,7 @@ export type EventWritten =
       readonly device?: DeviceApplied;
     }
   | { readonly kind: "duplicate" }
+  | { readonly kind: "withheld" }
   | { readonly kind: "refused" };
 
 function fits(event: IncomingEvent): boolean {
@@ -103,7 +112,18 @@ export class EventWriter {
     applyState: boolean,
     signal: AbortSignal,
   ): Promise<EventWritten> {
-    const record = await this.#classified(session, event, signal);
+    const location = await this.#options.state.locationIn(
+      session,
+      event.location_id,
+      signal,
+    );
+    if (
+      location?.ownership === "shared" &&
+      !keptFromSharedLocation(this.#options.priorityPolicy, event.kind)
+    ) {
+      return { kind: "withheld" };
+    }
+    const record = await this.#classified(session, event, location, signal);
     const appended = await this.#options.eventLog.append(
       session,
       record,
@@ -138,10 +158,10 @@ export class EventWriter {
   async #classified(
     session: SqlSession,
     event: IncomingEvent,
+    location: Awaited<ReturnType<StateStore["locationIn"]>>,
     signal: AbortSignal,
   ): Promise<EventRecord> {
     const { state, priorityPolicy } = this.#options;
-    const location = await state.locationIn(session, event.location_id, signal);
     const deviceType =
       event.device_state?.type ??
       event.device_type ??

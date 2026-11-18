@@ -33,6 +33,7 @@ import {
 import type { CallbackTransport } from "../core/clients/delivery/index.ts";
 import { Issuer, IssuerError } from "../core/clients/issuer/index.ts";
 import { McpEndpoint } from "../core/clients/mcp-endpoint/index.ts";
+import { keptFromSharedLocation } from "../core/engines/classify/index.ts";
 import {
   ADMIN_PATH,
   SIGN_IN_RETURN_PATH,
@@ -186,8 +187,15 @@ export async function startCoreService(
         maxResponseBytes: CALLBACK_RESPONSE_LIMIT_BYTES,
       }),
     allowedHosts: settings.core.callbackHosts,
-    locationOwned: async (locationId, read) =>
-      (await core.state.location(locationId, read))?.ownership === "owned",
+    pushedFrom: async (locationId, kind, read) => {
+      const ownership = (await core.state.location(locationId, read))
+        ?.ownership;
+      return (
+        ownership === "owned" ||
+        (ownership === "shared" &&
+          keptFromSharedLocation(core.priorityPolicy, kind))
+      );
+    },
     clientAllowed: (clientId, read) => issuer.allowsClient(clientId, read),
     deviceLabel: async (deviceId, read) => {
       const device = await core.state.device(deviceId, read);

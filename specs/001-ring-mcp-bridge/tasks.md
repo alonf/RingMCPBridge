@@ -259,8 +259,8 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - how ring-client-api reports an alarm going off is read first and recorded in `research.md`.
 
   Tests: each kind from a simulated hub change; a contact while armed is HIGH and while disarmed MEDIUM; a repeated change is one event; an alarm going off reaches Delivery as HIGH (Trace: FR-008, FR-009, SC-002; CP-RW)
-- [ ] T063 [US2] [assigned_to: Implementer] [effort: 0.7] Shared homes, alarms only, as policy data (DRIFT-002-20; FR-036, US8):
-  - from a location Ring marks as shared, only the kinds the owner chose are stored and pushed (`alarm.triggered`; whether `flood` too is the owner's answer); every other event from a shared home is neither stored nor pushed;
+- [x] T063 [US2] [assigned_to: Implementer] [effort: 0.7] Shared homes, alarms only, as policy data (DRIFT-002-20; FR-036, US8):
+  - from a location Ring marks as shared, only the kinds the owner chose are stored and pushed (`alarm.triggered` and `flood` by default, a setting by the owner's answer); every other event from a shared home is neither stored nor pushed;
   - the kinds are data beside the priority policy, checked when the core starts, so a change needs no code;
   - an event from a shared home names the home in its summary, since devices in different homes share names;
   - the owner's choice is recorded as the agreement US8 asks for before a shared location is shown.

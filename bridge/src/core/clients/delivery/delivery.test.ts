@@ -126,7 +126,13 @@ async function harness(): Promise<Harness> {
       Promise.resolve(
         deviceId === "d-door" ? { name: DOOR_NAME, room: "Hall" } : undefined,
       ),
-    locationOwned: (locationId) => Promise.resolve(owned.has(locationId)),
+    // As the core decides (core-service.ts): any kind from an owned location, and from the shared
+    // one only its alarm (T063).
+    pushedFrom: (locationId, kind) =>
+      Promise.resolve(
+        owned.has(locationId) ||
+          (locationId === "loc-shared" && kind === "alarm.triggered"),
+      ),
     clientAllowed: (clientId) => Promise.resolve(!disallowed.has(clientId)),
     clock,
     logger: new Logger({
@@ -516,7 +522,26 @@ describe("Delivery: pushing events", () => {
     await settle();
 
     expect(test.eventsTo("/hook")).toHaveLength(0);
-    expect(test.lines.join("\n")).toContain('"outcome":"location_not_owned"');
+    expect(test.lines.join("\n")).toContain('"outcome":"location_not_pushed"');
+  });
+
+  // T063: the location rule is asked with the event's kind, so a shared home's alarm goes out.
+  it("pushes a shared home's event of a kind the location rule allows", async () => {
+    const test = await harness();
+    await test.subscribe("/hook");
+
+    test.delivery.eventStored({
+      event: stored({
+        event_id: "alarm-1",
+        location_id: "loc-shared",
+        kind: "alarm.triggered",
+        summary: "The burglar alarm is going off.",
+      }),
+      epoch: 1,
+    });
+    await settle();
+
+    expect(test.eventsTo("/hook")).toHaveLength(1);
   });
 
   // T050's review (DRIFT-002-19): revoking or unlisting an agent ends its deliveries at once.

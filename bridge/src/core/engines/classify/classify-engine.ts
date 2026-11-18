@@ -11,6 +11,9 @@
 //   reaches the core more than the policy's limit after the home received it. Both times are
 //   compared as given; the home's and the core's clocks are assumed synced (CD-A4).
 // - The recovery summary's priority is the highest among the late events: `highestPriority`.
+// - **Shared locations** (T063; FR-036, US8): from a location the account was given a share of,
+//   only the kinds the policy's `shared_locations` names are kept, and those only among the kinds
+//   a shared home may send: its alarm going off and its water sensors. An empty list keeps none.
 import { z } from "zod";
 
 /** The priorities, lowest first. */
@@ -51,11 +54,18 @@ const rule = z.strictObject({
   priority,
 });
 
+/** The kinds a shared home may send at all (T063); the policy chooses among them. */
+export const SHARED_LOCATION_KINDS = ["alarm.triggered", "flood"] as const;
+
 const policyFile = z.strictObject({
   version: z.literal(PRIORITY_POLICY_VERSION),
   late_after_s: z.int().min(1).max(MAX_LATE_AFTER_S),
   default_priority: priority,
   rules: z.array(rule).min(1),
+  /** Absent keeps nothing from a shared location: the safe side. */
+  shared_locations: z
+    .strictObject({ kinds: z.array(z.enum(SHARED_LOCATION_KINDS)) })
+    .optional(),
 });
 
 /** One rule of the policy: the kinds it covers, its conditions, and the priority it gives. */
@@ -73,6 +83,8 @@ export interface PriorityPolicy {
   readonly lateAfterMs: number;
   readonly defaultPriority: EventPriority;
   readonly rules: readonly PriorityRule[];
+  /** The kinds kept from a shared location (T063); none is kept when it is empty. */
+  readonly sharedLocationKinds: readonly string[];
 }
 
 /** What the engine needs to know about an event to give it a priority. */
@@ -159,7 +171,18 @@ export function parsePriorityPolicy(raw: unknown): PriorityPolicy {
     lateAfterMs: parsed.data.late_after_s * MS_PER_SECOND,
     defaultPriority: parsed.data.default_priority,
     rules,
+    sharedLocationKinds: [
+      ...new Set(parsed.data.shared_locations?.kinds ?? []),
+    ],
   };
+}
+
+/** Whether an event of `kind` from a shared location is kept: stored and pushed (T063). */
+export function keptFromSharedLocation(
+  policy: PriorityPolicy,
+  kind: string,
+): boolean {
+  return policy.sharedLocationKinds.includes(kind);
 }
 
 function matches(candidate: PriorityRule, facts: PriorityFacts): boolean {

@@ -11,6 +11,9 @@
 //   restart is dropped as a duplicate by the outbox and by the core.
 // - **Armed** is what the home saw: the location's mode is `home` or `away` and no exit delay runs.
 //   During an entry delay the location is armed: that delay is what an arrival starts.
+// - **Shared homes** (T063; FR-036, US8): from a location the account was given a share of, only
+//   the alarm going off and water are sent, each summary starting with the home's name, since
+//   devices in different homes share names. The core keeps or withholds them by its policy.
 // - Ring's names are untrusted text, kept exactly as written; Ring's alarm state appears only when
 //   it is one of the known values.
 import type { HubDeviceType, NormalizedEvent } from "./normalize.ts";
@@ -43,6 +46,25 @@ export interface HubPanel {
 }
 
 const ENTRY_DELAY = "entry-delay";
+
+/** The kinds a shared home's events may have; the core's policy chooses among them (T063). */
+export const SHARED_HOME_KINDS: ReadonlySet<string> = new Set([
+  "alarm.triggered",
+  "flood",
+]);
+
+/**
+ * A shared home's events as they are sent: only the kinds in `SHARED_HOME_KINDS`, each summary
+ * starting with the home's name (untrusted text from Ring).
+ */
+export function fromSharedHome(
+  events: readonly NormalizedEvent[],
+  homeName: string,
+): NormalizedEvent[] {
+  return events
+    .filter((event) => SHARED_HOME_KINDS.has(event.kind))
+    .map((event) => ({ ...event, summary: `${homeName}: ${event.summary}` }));
+}
 
 /** What each known alarm state is called in a summary. */
 const ALARM_WORDS: Readonly<Record<string, string>> = {

@@ -366,6 +366,56 @@ describe("Event: the event path (T047)", () => {
     ).resolves.toBe("HIGH");
   });
 
+  // T063 (FR-036, US8; DRIFT-002-20): from a shared home, only the kinds the policy keeps there.
+  it("keeps a shared home's alarm and water, and withholds everything else from it, acked and unstored", async () => {
+    const test = await harness();
+    await test.event.inventory(
+      {
+        message_id: "m-1",
+        snapshot_version: 0,
+        locations: [
+          location("loc-1", "disarmed"),
+          { ...location("loc-shared", "away"), ownership: "shared" },
+        ],
+        devices: [DOOR],
+      },
+      SESSION,
+      never,
+    );
+
+    const outcomes = [];
+    for (const [id, kind] of [
+      ["s-1", "doorbell.ding"],
+      ["s-2", "motion"],
+      ["s-3", "contact.open"],
+      ["s-4", "alarm.triggered"],
+      ["s-5", "flood"],
+    ] as const) {
+      outcomes.push(
+        (
+          await test.event.event(
+            event(id, { location_id: "loc-shared", kind }),
+            SESSION,
+            never,
+          )
+        ).kind,
+      );
+    }
+
+    expect(outcomes).toEqual([
+      "withheld",
+      "withheld",
+      "withheld",
+      "stored",
+      "stored",
+    ]);
+    const stored = await eventsOf(test, "loc-shared");
+    expect(stored.map((entry) => [entry.event_id, entry.priority])).toEqual([
+      ["s-4", "HIGH"],
+      ["s-5", "HIGH"],
+    ]);
+  });
+
   it("treats a location State does not hold as not armed", async () => {
     const test = await harness();
 

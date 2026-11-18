@@ -617,6 +617,11 @@ export class CoreSession {
           event_id: eventId,
         });
         return;
+      case "withheld":
+        this.#logger.info("connector_link_event_withheld", {
+          event_id: eventId,
+        });
+        return;
       case "refused":
         this.#logger.warn("connector_link_event_refused", {
           event_id: eventId,
