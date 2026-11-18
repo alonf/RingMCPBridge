@@ -43,6 +43,7 @@ describe("the Classify engine's priorities, from the shipped policy (FR-009)", (
     ["a flood", { kind: "flood", armed: false }, "HIGH"],
     ["the alarm triggered", { kind: "alarm.triggered", armed: true }, "HIGH"],
     ["the doorbell", { kind: "doorbell.ding", armed: false }, "HIGH"],
+    ["an intercom ring", { kind: "intercom.ding", armed: false }, "HIGH"],
     [
       "a contact opening while armed",
       { kind: "contact.open", armed: true, deviceType: "contact" },

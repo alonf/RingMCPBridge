@@ -4,7 +4,7 @@
   "default_priority": "LOW",
   "rules": [
     {
-      "kinds": ["flood", "alarm.triggered", "doorbell.ding"],
+      "kinds": ["flood", "alarm.triggered", "doorbell.ding", "intercom.ding"],
       "priority": "HIGH"
     },
     {
