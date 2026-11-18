@@ -313,6 +313,24 @@ describe("Event: the event path (T047)", () => {
     },
   );
 
+  // T050's review: a person push that arrives before the first inventory (a new core, or a new
+  // key) was ranked LOW because State did not hold the camera yet (DRIFT-002-19).
+  it("ranks a person at a camera by the device type the push carries, before State holds the camera", async () => {
+    const test = await harness();
+
+    await expect(
+      storedPriority(
+        test,
+        event("evt-1", {
+          kind: "motion",
+          device_id: "d-new-camera",
+          device_type: "camera",
+          person: true,
+        }),
+      ),
+    ).resolves.toBe("MEDIUM");
+  });
+
   it("treats a location State does not hold as not armed", async () => {
     const test = await harness();
 

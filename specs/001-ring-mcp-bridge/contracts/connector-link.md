@@ -66,7 +66,7 @@ A connection the core refuses is closed with a reason [P]: version not accepted,
 
 ### EventMessage
 
-Fields [P names unless noted]: `event_id`, `location_id` (PT-24), `kind`, `occurred_at`, `received_at`, `device_id`, the device's `name` and `room` (untrusted), `summary` (untrusted-derived), `from_history`, `person`, `device_state`, `data`. Required: `event_id`, `location_id`, `kind`, `occurred_at`, `received_at`, `summary` and `from_history`. Declared in iteration 002 by T041 (`bridge/src/core/clients/connector-link/messages/`).
+Fields [P names unless noted]: `event_id`, `location_id` (PT-24), `kind`, `occurred_at`, `received_at`, `device_id`, the device's `name` and `room` (untrusted), `summary` (untrusted-derived), `from_history`, `person`, `device_type` (the camera's type as the home knows it, DRIFT-002-19), `device_state`, `data`. Required: `event_id`, `location_id`, `kind`, `occurred_at`, `received_at`, `summary` and `from_history`. Declared in iteration 002 by T041 (`bridge/src/core/clients/connector-link/messages/`).
 
 - Normalize builds it from Ring's payload as a tolerant reader. An unknown Ring kind becomes `ring.other`, with Ring's name kept as untrusted text (CD4).
 - Ring strings are marked untrusted at the edge (CD map v3 Normalize, FR-033).

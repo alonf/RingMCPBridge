@@ -109,6 +109,8 @@ export interface IncomingEvent {
   readonly from_history: boolean;
   /** Ring reported a person with it (Normalize decides from Ring's payload, T042). */
   readonly person?: boolean;
+  /** The camera's type as the home knows it; Classify uses it when State does not hold the device. */
+  readonly device_type?: "doorbell" | "camera";
   /** The device's full current entry, when the event changes its state. */
   readonly device_state?: IncomingDevice;
   readonly data?: Readonly<Record<string, unknown>>;

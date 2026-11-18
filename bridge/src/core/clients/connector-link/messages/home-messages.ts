@@ -119,6 +119,8 @@ export type DeviceStateMessage = z.infer<typeof deviceStateSchema>;
  * - `from_history` is true for an event read from Ring's history after a gap.
  * - `person` is true when Ring reported a person with it; Normalize decides it from Ring's
  *   payload (T042), so the core never reads Ring's own subtypes.
+ * - `device_type` is the camera's type as the home knows it, so the core ranks a person event
+ *   before it holds the camera (T050's review, DRIFT-002-19).
  * - `device_state` is the device's full current entry, with its `state_version`, when the event
  *   changes a device's state. State applies it latest-wins, as it does a `device_state` message.
  */
@@ -134,6 +136,7 @@ export const eventSchema = z.strictObject({
   summary: z.string().min(1),
   from_history: z.boolean(),
   person: z.boolean().optional(),
+  device_type: z.enum(["doorbell", "camera"]).optional(),
   device_state: deviceEntrySchema.optional(),
   data: z.record(z.string(), z.unknown()).optional(),
 });

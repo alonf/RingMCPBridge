@@ -983,6 +983,53 @@ describe("the Issuer", () => {
       expect(rig.signInsStarted()).toBe(0);
     });
 
+    // T050's review (DRIFT-002-19): Delivery asks this before every send, so it must agree with
+    // the token check for each kind of client.
+    it("says a client may still read only while its agent is listed and not revoked", async () => {
+      const metadata = await metadataOf(rig);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- the DCR fallback is what this tests
+      const registered = await registerClient(rig.issuerUrl, {
+        metadata,
+        clientMetadata: {
+          redirect_uris: REGISTERING_AGENT.redirect_uris.map(String),
+          token_endpoint_auth_method: "none",
+        },
+      });
+
+      await expect(
+        rig.issuer.allowsClient(DOCUMENT_AGENT.client_id, never()),
+      ).resolves.toBe(true);
+      await expect(
+        rig.issuer.allowsClient(registered.client_id, never()),
+      ).resolves.toBe(true);
+      await expect(
+        rig.issuer.allowsClient(
+          "https://unlisted.example.test/client.json",
+          never(),
+        ),
+      ).resolves.toBe(false);
+
+      for (const id of [
+        DOCUMENT_AGENT.client_id,
+        REGISTERING_AGENT.client_id,
+      ]) {
+        await rig.layer.run(
+          {
+            sql: "UPDATE agent SET revoked_at = @at WHERE client_id = @id",
+            params: { at: Date.now(), id },
+          },
+          never(),
+        );
+      }
+
+      await expect(
+        rig.issuer.allowsClient(DOCUMENT_AGENT.client_id, never()),
+      ).resolves.toBe(false);
+      await expect(
+        rig.issuer.allowsClient(registered.client_id, never()),
+      ).resolves.toBe(false);
+    });
+
     it("ends a registered client when its agent is revoked", async () => {
       const metadata = await metadataOf(rig);
       // eslint-disable-next-line @typescript-eslint/no-deprecated -- the DCR fallback is what this tests

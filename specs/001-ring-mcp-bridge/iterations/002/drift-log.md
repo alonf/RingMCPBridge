@@ -22,11 +22,26 @@
 
 ## Summary
 
-**Total drift events**: 18
-**Resolution rate**: 100% (18/18 resolved or decided)
+**Total drift events**: 19
+**Resolution rate**: 100% (19/19 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-19: the midpoint review's four findings, fixed under T060
+
+- **Detected**: 2026-11-18, T050's midpoint review, round 2 of the iteration's campaign (`run-20261118-162053445-009f3258`, anchored as `specrew-reviewed/run-20261118-162053445-009f3258`). Four findings, none blocking sign-off: three that the reviewer rated major were demoted to minor for lacking a concrete failure scenario. Each was read and found real.
+- **Kind**: defects in T044, T047 and T048, found by review.
+- **Findings and fixes**, each with a failing test first:
+  1. **A removed agent kept receiving events.** Delivery sent to every stored subscription without asking whether its client may still read, so a revoked or unlisted agent's callback received home events until the subscription expired (up to a day). The Issuer now offers `allowsClient`, the same check its token check makes (listed under its document or matched again by its redirect addresses, and not revoked). Delivery asks it before every send, retries included. The rows themselves expire within a day; deleting them when an agent is removed is housekeeping for T051's purge.
+  2. **Events from shared locations could be pushed.** The read tools hide shared locations, as FR-036 and US8 require until the owner turns them on, but the push path did not. Two layers now: the home's Ring Adapter subscribes only to cameras in the account's own locations, and Delivery pushes only events from a location State holds as owned; anything else is not pushed. The owner's account holds one owned and two shared locations. One shared-location motion event (LOW, not pushed) was stored on 2026-11-18. Whether any shared-location event reached ChatGPT before the fix is being checked with the owner.
+  3. **A person event before the first inventory was ranked LOW.** Classify knew a device's type only from State, so a person at a camera arriving before the core held the camera fell to the plain motion rule and was never pushed. The push now carries its camera's type from the Ring Adapter (`device_type` on the link's `event` message, additive), and Classify uses it when State does not hold the device.
+  4. **Retries ignored expiry and unsubscribe.** A retry used the subscription as read before the first send. Delivery now reads it again before every send, so nothing goes out after the subscription ends or expires.
+- **Also:** delivery log lines now carry the event's `location_id`.
+- **Requirement citation**: FR-010, FR-030, FR-033, FR-036, US8, SC-001; T050, T060; the design-analysis security decision that revoking an agent ends its subscriptions.
+- **Resolution**: implementer fixes under T060, the rework reserve. The review campaign stays paused: the owner decides the next round.
+- **Carry-forward**: T052's `get_events` applies the same owned-location filter. The fixes reach production with the next core deploy and home update (core first: the core's `event` schema must accept `device_type` before the home sends it). The next review round covers these fixes with Phase 5.
+- **Class closure**: NONE - review findings.
 
 ### DRIFT-002-18: the callback allowlist decided; the first event reached ChatGPT; the owner's requests for the future plan
 

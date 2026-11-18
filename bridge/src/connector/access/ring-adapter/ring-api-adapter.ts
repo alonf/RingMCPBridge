@@ -720,23 +720,41 @@ export class RingApiAdapter implements RingPort, RingPushPort {
     };
   }
 
-  #remember(location: RingClientLocation): void {
-    if (this.#locations.has(location.id)) {
+  // The library builds a location's cameras once, so each is subscribed to once, here. Only the
+  // account's own locations: a shared location stays off, push included, until the owner turns
+  // it on (FR-036, US8; T050's review, DRIFT-002-19). An unknown profile counts as not owned.
+  // Each push carries its camera's type, so the core can rank it before it holds the camera.
+  #watchCameraPush(location: RingClientLocation): void {
+    const owned =
+      this.#profileId !== undefined &&
+      location.locationDetails.owner_id === this.#profileId;
+    if (!owned) {
+      this.#logger.info("ring_push_shared_location_skipped", {
+        location_id: location.id,
+        count: location.cameras.length,
+      });
       return;
     }
-    this.#locations.set(location.id, location);
-    // The library builds a location's cameras once, so each is subscribed to once, here.
     for (const camera of location.cameras) {
       this.#subscriptions.push(
         camera.onNewNotification.subscribe((payload) => {
           this.#emitPush({
             device_id: String(camera.id),
             location_id: location.id,
+            device_type: camera.isDoorbot ? "doorbell" : "camera",
             payload,
           });
         }),
       );
     }
+  }
+
+  #remember(location: RingClientLocation): void {
+    if (this.#locations.has(location.id)) {
+      return;
+    }
+    this.#locations.set(location.id, location);
+    this.#watchCameraPush(location);
     if (location.hasHubs) {
       this.#subscriptions.push(this.#watchConnection(location));
       const hubs = new HubSessions(location, {

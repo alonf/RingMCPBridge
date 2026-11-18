@@ -4,8 +4,8 @@
 //
 // - **Classify** reads what it needs inside the same transaction: whether the event's location is
 //   armed (`home` or `away`; a location State does not hold is not armed), and the device's type
-//   (from the event's own device entry, else from State). The priority and the late flag come
-//   from the policy only.
+//   (from the event's own device entry, else the type the home sent with it, else State). The
+//   priority and the late flag come from the policy only.
 // - **Dedup.** An event the log already holds is a duplicate: nothing is written again.
 // - **State** takes the event's device entry latest-wins, as a `device_state` message does. An
 //   older entry, or one for a device or location State does not hold, leaves State as it is: the
@@ -144,6 +144,7 @@ export class EventWriter {
     const location = await state.locationIn(session, event.location_id, signal);
     const deviceType =
       event.device_state?.type ??
+      event.device_type ??
       (event.device_id === undefined
         ? undefined
         : (await state.deviceIn(session, event.device_id, signal))?.type);

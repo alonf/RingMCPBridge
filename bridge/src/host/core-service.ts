@@ -186,6 +186,9 @@ export async function startCoreService(
         maxResponseBytes: CALLBACK_RESPONSE_LIMIT_BYTES,
       }),
     allowedHosts: settings.core.callbackHosts,
+    locationOwned: async (locationId, read) =>
+      (await core.state.location(locationId, read))?.ownership === "owned",
+    clientAllowed: (clientId, read) => issuer.allowsClient(clientId, read),
     deviceLabel: async (deviceId, read) => {
       const device = await core.state.device(deviceId, read);
       return device === undefined

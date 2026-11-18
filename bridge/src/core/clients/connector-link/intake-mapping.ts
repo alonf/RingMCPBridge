@@ -82,6 +82,9 @@ export function incomingEvent(
     ...(message.name === undefined ? {} : { name: message.name }),
     ...(message.room === undefined ? {} : { room: message.room }),
     ...(message.person === undefined ? {} : { person: message.person }),
+    ...(message.device_type === undefined
+      ? {}
+      : { device_type: message.device_type }),
     ...(message.device_state === undefined
       ? {}
       : { device_state: incomingDevice(message.device_state) }),

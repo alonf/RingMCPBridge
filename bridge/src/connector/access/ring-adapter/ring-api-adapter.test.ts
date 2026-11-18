@@ -1356,7 +1356,12 @@ describe("RingApiAdapter push", () => {
 
     camera.onNewNotification.emit(payload);
     expect(pushes).toEqual([
-      { device_id: "42", location_id: "loc-1", payload },
+      {
+        device_id: "42",
+        location_id: "loc-1",
+        device_type: "doorbell",
+        payload,
+      },
     ]);
 
     stop();
@@ -1366,6 +1371,27 @@ describe("RingApiAdapter push", () => {
     adapter.watchPush((push) => pushes.push(push));
     adapter.close();
     expect(camera.onNewNotification.listeners).toBe(0);
+  });
+
+  // T050's review: a push from a shared location must not leave the home while shared locations
+  // are off (FR-036, US8), and the camera's type travels with its push, so the core can rank a
+  // person event before it holds the camera (DRIFT-002-19).
+  it("hands on pushes only from the locations the account owns, each with its camera's type", async () => {
+    const { clock, client, adapter, lines } = setup();
+    const pushes: RingPush[] = [];
+    adapter.watchPush((push) => pushes.push(push));
+    await driveFakeClock(clock, adapter.locations(never()));
+    const owned = client.locationsList[0]?.cameras[0] as FakeCamera;
+    const shared = client.locationsList[1]?.cameras[0] as FakeCamera;
+
+    shared.onNewNotification.emit({ android_config: { category: "x" } });
+    owned.onNewNotification.emit({ android_config: { category: "x" } });
+
+    expect(pushes.map((push) => [push.location_id, push.device_type])).toEqual([
+      ["loc-1", "doorbell"],
+    ]);
+    expect(shared.onNewNotification.listeners).toBe(0);
+    expect(lines.join("\n")).toContain("ring_push_shared_location_skipped");
   });
 
   it("logs a failing push watcher by name only and still calls the next one", async () => {

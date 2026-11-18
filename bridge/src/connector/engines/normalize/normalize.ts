@@ -27,6 +27,8 @@ export interface RingPushInput {
   /** The device the push is about, as State knows it (`String(camera.id)`). */
   readonly device_id: string;
   readonly location_id: string;
+  /** The device's type, as the Ring Adapter knows it from the camera; absent when it does not. */
+  readonly device_type?: "doorbell" | "camera";
   /** Ring's payload: untrusted. */
   readonly payload: unknown;
 }
@@ -36,6 +38,8 @@ export interface NormalizedEvent {
   readonly event_id: string;
   readonly location_id: string;
   readonly device_id: string;
+  /** The device's type, carried from the Ring Adapter, so the core can rank the event at once. */
+  readonly device_type?: "doorbell" | "camera";
   readonly kind: string;
   readonly occurred_at: number;
   /** The device's name as Ring gave it: untrusted text. */
@@ -232,6 +236,9 @@ export function normalizePush(
       event_id: `${eventId}-${code}`,
       location_id: push.location_id,
       device_id: push.device_id,
+      ...(push.device_type === undefined
+        ? {}
+        : { device_type: push.device_type }),
       occurred_at: occurredAt(ding.data, receivedAtMs),
       ...(name === undefined ? {} : { name }),
       ...what,

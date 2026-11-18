@@ -1164,6 +1164,7 @@ describe("Ingest: Ring's push", () => {
     return {
       device_id: pushDevice,
       location_id: "loc-1",
+      device_type: "doorbell",
       payload: {
         android_config: { category: "com.ring.pn.live-event.ding" },
         analytics: { triggered_at: START },
@@ -1220,6 +1221,7 @@ describe("Ingest: Ring's push", () => {
     ingest.pushReceived({
       device_id: pushDevice,
       location_id: "loc-1",
+      device_type: "doorbell",
       payload: { note: "Front Door ajar" },
     });
     await ingest.flush();

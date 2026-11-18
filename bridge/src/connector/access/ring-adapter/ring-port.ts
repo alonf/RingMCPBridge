@@ -108,6 +108,8 @@ export interface RingPort {
 export interface RingPush {
   readonly device_id: string;
   readonly location_id: string;
+  /** The camera's type: a doorbell or another camera (T050's review, DRIFT-002-19). */
+  readonly device_type: "doorbell" | "camera";
   /** Ring's payload as sent: untrusted, read tolerantly by its reader, and never logged. */
   readonly payload: unknown;
 }

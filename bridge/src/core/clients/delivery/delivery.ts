@@ -9,8 +9,12 @@
 //   else `SUBSCRIPTION_TTL_MS`. A paused subscription sends nothing to the bridge (T039 part 2), so
 //   expiry is the end; after it nothing is delivered.
 // - **What is pushed.** Every event the Event manager stored whose priority is HIGH or MEDIUM and
-//   that is not late (FR-009, FR-013). LOW and late events are read with `get_events`; one
-//   recovery summary for late events comes with T054.
+//   that is not late (FR-009, FR-013), from a location State holds as owned: shared locations stay
+//   off for push as for reads (FR-036, US8), and a location State does not hold is not pushed.
+//   LOW and late events are read with `get_events`; one recovery summary comes with T054.
+// - **Who still receives.** Before every send, retries included, the subscription is read again
+//   and its client is checked with the Issuer: a revoked or unlisted agent, an ended or expired
+//   subscription, receives nothing more (T050's review, DRIFT-002-19).
 // - **Each subscription on its own.** An event goes to every active subscription at once, and one
 //   callback's slowness or failure never holds another's, nor the next event.
 // - **At least once, while the process runs.** A failed send is tried again with the same event
@@ -134,6 +138,16 @@ export interface DeliveryOptions {
     deviceId: string,
     signal: AbortSignal,
   ) => Promise<DeviceLabel | undefined>;
+  /** Whether State holds the location as owned; anything else is not pushed. */
+  readonly locationOwned: (
+    locationId: string,
+    signal: AbortSignal,
+  ) => Promise<boolean>;
+  /** Whether the client may still read: the Issuer's own check of a listed, unrevoked agent. */
+  readonly clientAllowed: (
+    clientId: string,
+    signal: AbortSignal,
+  ) => Promise<boolean>;
   readonly clock: Clock;
   readonly logger: Logger;
 }
@@ -367,6 +381,14 @@ export class Delivery {
 
   async #deliverEvent(event: StoredEvent): Promise<void> {
     const signal = this.#stopping.signal;
+    if (!(await this.#options.locationOwned(event.location_id, signal))) {
+      this.#logger.info("delivery_skipped", {
+        event_id: event.event_id,
+        location_id: event.location_id,
+        outcome: "location_not_owned",
+      });
+      return;
+    }
     const subscriptions = await this.#options.subscriptions.active(
       EVENT_TYPE,
       signal,
@@ -442,7 +464,11 @@ export class Delivery {
   ): Promise<void> {
     const signal = this.#stopping.signal;
     for (let attempt = 1; attempt <= RETRY_DELAYS_MS.length + 1; attempt += 1) {
-      const outcome = await this.#attempt(subscription, event, body, attempt);
+      const current = await this.#stillReceiving(subscription, event, attempt);
+      if (current === undefined) {
+        return;
+      }
+      const outcome = await this.#attempt(current, event, body, attempt);
       if (outcome !== "retry") {
         if (outcome === "gone") {
           await this.#options.subscriptions
@@ -459,6 +485,35 @@ export class Delivery {
     }
   }
 
+  // The subscription as it stands, when it has not ended or expired and its client may still
+  // read; otherwise nothing more is sent to it, and the reason is logged.
+  async #stillReceiving(
+    subscription: WebhookSubscription,
+    event: StoredEvent,
+    attempt: number,
+  ): Promise<WebhookSubscription | undefined> {
+    const signal = this.#stopping.signal;
+    const current = await this.#options.subscriptions.current(
+      subscription.sub_id,
+      signal,
+    );
+    const allowed =
+      current !== undefined &&
+      (await this.#options.clientAllowed(current.client_id, signal));
+    if (current !== undefined && allowed) {
+      return current;
+    }
+    this.#logger.info("delivery_webhook", {
+      event_id: event.event_id,
+      location_id: event.location_id,
+      client_ref: clientRef(subscription.client_id),
+      attempt,
+      outcome:
+        current === undefined ? "subscription_ended" : "client_not_allowed",
+    });
+    return undefined;
+  }
+
   async #attempt(
     subscription: WebhookSubscription,
     event: StoredEvent,
@@ -467,6 +522,7 @@ export class Delivery {
   ): Promise<"done" | "gone" | "retry"> {
     const fields = {
       event_id: event.event_id,
+      location_id: event.location_id,
       client_ref: clientRef(subscription.client_id),
       host: subscription.callback.hostname,
       attempt,

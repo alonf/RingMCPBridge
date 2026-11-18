@@ -696,6 +696,9 @@ function eventBody(event: NormalizedEvent, receivedAt: number): EventMessage {
     occurred_at: formatUtc(event.occurred_at),
     received_at: formatUtc(receivedAt),
     device_id: event.device_id,
+    ...(event.device_type === undefined
+      ? {}
+      : { device_type: event.device_type }),
     summary: event.summary,
     from_history: false,
     ...(event.name === undefined ? {} : { name: event.name }),

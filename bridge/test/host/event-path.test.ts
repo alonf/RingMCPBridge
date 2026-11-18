@@ -95,6 +95,7 @@ class DoorbellPush implements RingPushPort {
       listener({
         device_id: deviceId,
         location_id: STANDARD_LOCATION_ID,
+        device_type: "doorbell",
         payload,
       });
     }

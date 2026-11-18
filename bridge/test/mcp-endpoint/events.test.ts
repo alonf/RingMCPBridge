@@ -154,6 +154,8 @@ async function start(
     },
     allowedHosts: [HOST],
     deviceLabel: () => Promise.resolve(undefined),
+    locationOwned: () => Promise.resolve(true),
+    clientAllowed: () => Promise.resolve(true),
     clock,
     logger,
   });

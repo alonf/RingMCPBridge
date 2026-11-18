@@ -536,6 +536,20 @@ export class Issuer {
     };
   }
 
+  /**
+   * Whether a client may still read: listed under its document or, when it registered itself,
+   * matched to a listed agent again now, and not revoked. Delivery asks before every send, so the
+   * rule that ends a client's tokens also ends its deliveries (T050's review, DRIFT-002-19).
+   */
+  async allowsClient(clientId: string, signal: AbortSignal): Promise<boolean> {
+    const agent =
+      (await this.#agents.byDocument(clientId, signal)) ??
+      (await this.#registeredAgent(clientId, signal));
+    return (
+      agent !== undefined && grantableScopes(agent).includes(RESOURCE_SCOPE)
+    );
+  }
+
   // A self-registered client is found only while it matches a listed agent (grants-adapter.ts).
   async #registeredAgent(
     clientId: string,

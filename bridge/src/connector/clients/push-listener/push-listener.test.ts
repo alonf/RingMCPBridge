@@ -31,7 +31,12 @@ class PushSource implements RingPushPort {
 
   send(payload: unknown): void {
     for (const listener of this.#listeners) {
-      listener({ device_id: DEVICE_ID, location_id: "loc-1", payload });
+      listener({
+        device_id: DEVICE_ID,
+        location_id: "loc-1",
+        device_type: "doorbell",
+        payload,
+      });
     }
   }
 }

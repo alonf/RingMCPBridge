@@ -197,7 +197,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - the samples go in the pilot journal; the summary without home details goes in `specs/001-ring-mcp-bridge/iterations/002/state.md`.
 
   (Trace: FR-010, FR-012, SC-001; CP-21b)
-- [ ] T050 [assigned_to: Reviewer] [effort: 1.8] Midpoint independent review, after the dot (iteration 001's Lesson 6): one co-review run through specrew-review over Phases 2 to 4, on the owner's "approved for review round". Findings go to T060 before Phase 5 builds on the path (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-MR)
+- [x] T050 [assigned_to: Reviewer] [effort: 1.8] Midpoint independent review, after the dot (iteration 001's Lesson 6): one co-review run through specrew-review over Phases 2 to 4, on the owner's "approved for review round". Findings go to T060 before Phase 5 builds on the path (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-MR)
 
 **Verification**: `npx vitest run bridge/src/core/access/delivery bridge/src/core/clients/mcp-endpoint`, the deploy workflow's smoke test, and the pilot journal entries
 

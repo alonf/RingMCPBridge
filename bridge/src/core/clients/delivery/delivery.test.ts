@@ -86,6 +86,10 @@ interface Harness {
   readonly lines: string[];
   /** How each callback, by its path, answers; `echo` unless a test says otherwise. */
   readonly answers: Map<string, Answer>;
+  /** The locations State holds as owned; `loc-1` unless a test changes it. */
+  readonly owned: Set<string>;
+  /** The clients no longer allowed, as a revoked or unlisted agent's are. */
+  readonly disallowed: Set<string>;
   subscribe(path: string, changes?: Partial<SubscribeRequest>): Promise<string>;
   eventsTo(path: string): CallbackRequest[];
 }
@@ -105,6 +109,8 @@ async function harness(): Promise<Harness> {
   const lines: string[] = [];
   const sent: CallbackRequest[] = [];
   const answers = new Map<string, Answer>();
+  const owned = new Set(["loc-1"]);
+  const disallowed = new Set<string>();
   const delivery = new Delivery({
     subscriptions: new SubscriptionsStore({
       store: layer,
@@ -120,6 +126,8 @@ async function harness(): Promise<Harness> {
       Promise.resolve(
         deviceId === "d-door" ? { name: DOOR_NAME, room: "Hall" } : undefined,
       ),
+    locationOwned: (locationId) => Promise.resolve(owned.has(locationId)),
+    clientAllowed: (clientId) => Promise.resolve(!disallowed.has(clientId)),
     clock,
     logger: new Logger({
       sink: (line) => lines.push(line),
@@ -137,6 +145,8 @@ async function harness(): Promise<Harness> {
     sent,
     lines,
     answers,
+    owned,
+    disallowed,
     subscribe: async (path, changes = {}) =>
       (
         await delivery.subscribe(
@@ -489,6 +499,80 @@ describe("Delivery: pushing events", () => {
     await settle();
 
     expect(test.eventsTo("/hook")).toHaveLength(0);
+  });
+
+  // T050's review (DRIFT-002-19): shared locations stay off for push as for reads (FR-036, US8),
+  // and a location State does not hold is not pushed: the check fails closed.
+  it("does not push an event from a shared location, nor from one State does not hold", async () => {
+    const test = await harness();
+    await test.subscribe("/hook");
+
+    test.delivery.eventStored({
+      event: stored({ location_id: "loc-shared" }),
+      epoch: 1,
+    });
+    test.owned.delete("loc-1");
+    test.delivery.eventStored({ event: stored({ event_id: "e-2" }), epoch: 1 });
+    await settle();
+
+    expect(test.eventsTo("/hook")).toHaveLength(0);
+    expect(test.lines.join("\n")).toContain('"outcome":"location_not_owned"');
+  });
+
+  // T050's review (DRIFT-002-19): revoking or unlisting an agent ends its deliveries at once.
+  it("sends nothing to a client that is no longer allowed", async () => {
+    const test = await harness();
+    await test.subscribe("/revoked");
+    await test.subscribe("/kept");
+    test.disallowed.add("client-/revoked");
+
+    test.delivery.eventStored({ event: stored(), epoch: 1 });
+
+    await expect.poll(() => test.eventsTo("/kept").length).toBe(1);
+    expect(test.eventsTo("/revoked")).toHaveLength(0);
+  });
+
+  it("stops retrying a client that is no longer allowed during the wait", async () => {
+    const test = await harness();
+    await test.subscribe("/hook");
+    test.answers.set("/hook", () => Promise.resolve({ status: 503, body: "" }));
+
+    test.delivery.eventStored({ event: stored(), epoch: 1 });
+    await expect.poll(() => test.eventsTo("/hook").length).toBe(1);
+    test.disallowed.add("client-/hook");
+    await test.clock.advance(60_000);
+    await settle();
+
+    expect(test.eventsTo("/hook")).toHaveLength(1);
+  });
+
+  // T050's review (DRIFT-002-19): nothing is delivered after a subscription ends, retries included.
+  it("stops retrying when the subscription is ended during the wait", async () => {
+    const test = await harness();
+    const id = await test.subscribe("/hook");
+    test.answers.set("/hook", () => Promise.resolve({ status: 503, body: "" }));
+
+    test.delivery.eventStored({ event: stored(), epoch: 1 });
+    await expect.poll(() => test.eventsTo("/hook").length).toBe(1);
+    await test.delivery.unsubscribe("client-/hook", id, never);
+    await test.clock.advance(60_000);
+    await settle();
+
+    expect(test.eventsTo("/hook")).toHaveLength(1);
+  });
+
+  it("stops retrying when the subscription expires during the wait", async () => {
+    const test = await harness();
+    await test.subscribe("/hook", { ttlMs: 60_000 });
+    test.answers.set("/hook", () => Promise.resolve({ status: 503, body: "" }));
+    await test.clock.advance(59_500);
+
+    test.delivery.eventStored({ event: stored(), epoch: 1 });
+    await expect.poll(() => test.eventsTo("/hook").length).toBe(1);
+    await test.clock.advance(60_000);
+    await settle();
+
+    expect(test.eventsTo("/hook")).toHaveLength(1);
   });
 
   it("ends a client's subscription on unsubscribe", async () => {

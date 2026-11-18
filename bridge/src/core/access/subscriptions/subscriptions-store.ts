@@ -89,6 +89,8 @@ const ROW = z.object({
 });
 const SEALED = z.object({ url: z.url(), key: z.string() });
 
+const SELECT_CURRENT =
+  "SELECT sub_id, client_id, event_name, delivery, expires_at FROM webhook_subscription WHERE sub_id = @sub_id AND expires_at > @now";
 const SELECT_ACTIVE =
   "SELECT sub_id, client_id, event_name, delivery, expires_at FROM webhook_subscription WHERE event_name = @event_name AND expires_at > @now ORDER BY sub_id";
 const DELETE_OWN =
@@ -185,6 +187,30 @@ export class SubscriptionsStore {
       ),
     );
     return rows.flatMap((row) => opened(row, key));
+  }
+
+  /**
+   * The subscription as it stands now, or `undefined` when it has ended, expired, or does not open.
+   * Delivery reads it again before every retry (T050's review).
+   */
+  async current(
+    subId: string,
+    signal: AbortSignal,
+  ): Promise<WebhookSubscription | undefined> {
+    const key = await this.#key.key(signal);
+    if (key === undefined) {
+      return undefined;
+    }
+    const row = await this.#guard(signal, () =>
+      this.#store.get(
+        {
+          sql: SELECT_CURRENT,
+          params: { sub_id: subId, now: this.#clock.now() },
+        },
+        signal,
+      ),
+    );
+    return row === undefined ? undefined : opened(row, key)[0];
   }
 
   /** Ends a client's own subscription. Ending one that is not there is not an error. */
