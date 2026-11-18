@@ -22,11 +22,25 @@
 
 ## Summary
 
-**Total drift events**: 15
-**Resolution rate**: 100% (15/15 resolved or decided)
+**Total drift events**: 16
+**Resolution rate**: 100% (16/16 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-16: Ring's push failed to decrypt at home; the push library is pinned to 4.3.1, and the licence gate reads the lockfile for that one edge
+
+- **Detected**: 2026-11-18, the owner's home run of the push probe (T038 part 2): a doorbell press and a camera walk-by each logged `ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY` from `@eneris/push-receiver`, and the bridge saw no push at all.
+- **Kind**: an upstream bug in a pinned dependency, and a dependency decision by the owner.
+- **Observed**:
+  1. **The cause.** FCM's `crypto-key` header now carries more than the sender's key (`dh=…; p256ecdsa=…`). push-receiver 4.3.0, which `ring-client-api` 14.3.0 pins exactly, cuts the `dh=` prefix by length and keeps the rest as part of the key. 4.3.1 reads the header's parameters by name. Its only other change is one more socket close; the rest is compiler output, with the same API, dependencies and MIT licence. A regression test (`bridge/test/ring-boundary/push-decrypt.test.ts`) builds a push in FCM's current form: it fails on 4.3.0 with the owner's error and passes on 4.3.1.
+  2. **The options the owner weighed:** pin 4.3.1; move to `ring-client-api` 15.0.0-beta.0, which pulls push-receiver 4.4.0; or wait. The beta was installed and tested in a throwaway worktree. It also moves `undici` 7 to 8 (all Ring calls and the hub's live connection), breaks the setup's sign-in tests (it calls undici's own `fetch`, so the tests' stub no longer intercepts it), and pulls `mediabunny` 1.66.0, outside the owner's MPL-2.0 exception for 1.62.1. In that run, the 5 unintercepted sign-in tests reached Ring's real sign-in address with the tests' made-up credentials and were refused; no owner account was involved.
+  3. **How it is pinned.** A root `overrides` entry, `@eneris/push-receiver: 4.3.1`. npm 11.9.0 does not apply it to the existing lockfile entry, so the entry was set by hand (version, tarball and the registry's integrity hash), as for `mediabunny` in DRIFT-001-17. `npm ci` installs 4.3.1, and the Docker image installs from the same lockfile.
+  4. **The licence gate.** npm 11.9.0 still calls the overridden edge invalid (it requires 4.3.0), even after a clean install from scratch, and `npm sbom` then refuses to run. The edge is listed in `scripts/npm-tree-exceptions.json`. When every problem npm reports is a listed edge, `scripts/license-gate.mjs` reads the same facts from `package-lock.json`: each package's name, version, licence and whether it is development-only. Any other problem still stops the gate. The lockfile reading is stricter than npm's list: it treats 226 packages as runtime where `npm sbom --omit dev` counted 126, and it also checks the optional packages for other platforms.
+- **Requirement citation**: FR-008, FR-042, SC-002 (no event without push); `implementation-rules.yml` dependency policy and `project.supply-chain-policy`; T038.
+- **Resolution**: human-decision, by the owner's typed "OK, Option 1" on 2026-11-18, after the beta's review.
+- **Carry-forward**: when a stable `ring-client-api` depends on push-receiver 4.3.1 or later, upgrade to it as a planned task (the owner asked to be reminded), and remove the override, the lockfile hand-edit and the `npm-tree-exceptions.json` entry. The beta review's findings are its checklist. The home connector needs the new image before the push probe can finish (T038 part 2), and T042 is checked against the real push layout only then.
+- **Class closure**: NONE - an upstream bug; the regression test keeps it from returning unseen.
 
 ### DRIFT-002-15: T048's choices: where Delivery lives, the delivery key, the allowlist, and what "at least once" covers
 

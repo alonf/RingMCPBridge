@@ -35,6 +35,7 @@
     "secrets:scan": "node scripts/run-gitleaks.mjs git --redact --no-banner --config .gitleaks.toml"
   },
   "overrides": {
+    "@eneris/push-receiver": "4.3.1",
     "werift-common": "0.0.3",
     "werift-dtls": "0.5.8",
     "werift-ice": "0.2.3",

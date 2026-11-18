@@ -1004,3 +1004,10 @@ The probe was deployed with the owner's OK on 2026-11-18 (commit `8957bcd`, DRIF
 - **Pausing sends nothing yet.** The owner paused the subscription in ChatGPT afterwards, and the core received no `events/unsubscribe` for it. The subscription ends at its `refreshBefore`, one hour after it was made, unless ChatGPT renews it. So T048 must rely on expiry, and must not assume a paused subscription tells the server.
 - **One finding for the log:** the subscribing client's id was written as `[redacted]`, because the client ids the Issuer gives agents are longer than the allow-list's short-id form. The log cannot tell two agents apart until that form takes them. This is noted for T048, which logs per-client deliveries.
 - **The probe is gone** (T048, DRIFT-002-15). Delivery serves the event methods for real, with one event type, `ring.event`. Whether the dot lights is measured with real events in T049.
+
+## Iteration 002 addendum: the push probe (T038), part 2, the first home run (2026-11-18)
+
+- **Push reaches the home.** A doorbell press and a camera walk-by each arrived, 9 seconds apart, as the owner did them.
+- **Neither could be decrypted.** The push library (`@eneris/push-receiver` 4.3.0, which `ring-client-api` 14.3.0 pins) failed with `ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY`, so the bridge saw nothing and the payload-shape file stayed empty. FCM's `crypto-key` header now carries a second parameter, and 4.3.0 reads it by position. The fix is 4.3.1 (DRIFT-002-16).
+- **The library drops such a push silently.** The bridge cannot see the failure, so its heartbeat still says push is `ok`. The catch-up from Ring's history (T053) is the safety net, and a check for "push wired but silent too long" is worth adding.
+- **Still to come:** the run again on the image with 4.3.1, for the delay from Ring's trigger, the categories Ring sends, and the payload layout that T042's fixtures must match.
