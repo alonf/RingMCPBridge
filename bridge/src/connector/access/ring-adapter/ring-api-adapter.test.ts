@@ -552,6 +552,44 @@ describe("RingApiAdapter token and changes", () => {
           alarm_mode: "away",
         }) as unknown,
       },
+      {
+        kind: "panel",
+        panel: { location_id: "loc-1", faulted_device_ids: [] },
+      },
+    ]);
+  });
+
+  // T062: the panel's alarm state reaches Ingest, which makes the alarm's event from it. The field
+  // names are ring-client-api 14.3's `RingDeviceData` (research.md, T062).
+  it("reports the panel's alarm and its delay as Ring gives them, keeping only the fields it knows", async () => {
+    const { clock, client, adapter, changes } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+
+    client.panel.stream.emit({
+      ...client.panel.data,
+      mode: "all",
+      transitionDelayEndTimestamp: 1_763_492_430_000,
+      alarmInfo: {
+        state: "burglar-alarm",
+        faultedDevices: ["z-contact", 7],
+        timestamp: 1_763_492_400,
+        uuid: "alarm-uuid-1",
+        extra: "ignored",
+      },
+    });
+
+    expect(changes.filter((change) => change.kind === "panel")).toEqual([
+      {
+        kind: "panel",
+        panel: {
+          location_id: "loc-1",
+          alarm_state: "burglar-alarm",
+          alarm_id: "alarm-uuid-1",
+          alarm_at: 1_763_492_400_000,
+          faulted_device_ids: ["z-contact"],
+          delay_until: 1_763_492_430_000,
+        },
+      },
     ]);
   });
 

@@ -1273,3 +1273,184 @@ describe("Ingest: Ring's push", () => {
     });
   });
 });
+
+// T062 (FR-008, FR-009; DRIFT-002-20): the alarm hub's changes become events, from transitions
+// only, never from a read; none from a shared home until T063 opens its alarms.
+describe("Ingest: the alarm hub's events", () => {
+  const door = "device-002";
+
+  async function queuedEvents(
+    store: OutboxStore,
+  ): Promise<Record<string, unknown>[]> {
+    const items = await store.takeDueEvents(signal);
+    for (const item of items) {
+      expect(eventSchema.safeParse(item.body).success).toBe(true);
+    }
+    return items.map((item) => item.body as Record<string, unknown>);
+  }
+
+  it("queues an event when a contact opens after the first read, with the arm state the home saw", async () => {
+    const { engine, store, ingest } = await setup();
+    await ingest.inventoryRequested(signal);
+
+    engine.apply({
+      kind: "alarm_mode",
+      locationId: STANDARD_LOCATION_ID,
+      mode: "away",
+    });
+    engine.apply({
+      kind: "device",
+      deviceId: door,
+      changes: { state: { open: true } },
+    });
+    await ingest.flush();
+
+    const events = await queuedEvents(store);
+    expect(
+      events.map((event) => [event.kind, event.device_id, event.armed]),
+    ).toEqual([
+      ["mode.changed", undefined, true],
+      ["contact.open", door, true],
+    ]);
+    expect(events[1]).toMatchObject({
+      device_type: "contact",
+      summary: "Contact 2 opened.",
+      from_history: false,
+    });
+    expect(lines.join("\n")).not.toContain("Contact 2");
+  });
+
+  it("queues nothing for a change before the first read, or one that changes no value it reports", async () => {
+    const { engine, store, ingest } = await setup();
+
+    engine.apply({
+      kind: "device",
+      deviceId: door,
+      changes: { state: { open: true } },
+    });
+    await ingest.inventoryRequested(signal);
+    engine.apply({
+      kind: "device",
+      deviceId: door,
+      changes: { battery_pct: 50 },
+    });
+    await ingest.flush();
+
+    await expect(queuedEvents(store)).resolves.toEqual([]);
+  });
+
+  it("stamps a door opened during the exit delay as not armed", async () => {
+    const { engine, store, ingest } = await setup();
+    await ingest.inventoryRequested(signal);
+
+    engine.apply({
+      kind: "alarm_mode",
+      locationId: STANDARD_LOCATION_ID,
+      mode: "away",
+    });
+    engine.apply({
+      kind: "panel",
+      panel: {
+        location_id: STANDARD_LOCATION_ID,
+        faulted_device_ids: [],
+        delay_until: START + 60_000,
+      },
+    });
+    engine.apply({
+      kind: "device",
+      deviceId: door,
+      changes: { state: { open: true } },
+    });
+    await ingest.flush();
+
+    const events = await queuedEvents(store);
+    expect(events.map((event) => [event.kind, event.armed])).toEqual([
+      ["mode.changed", true],
+      ["contact.open", false],
+    ]);
+  });
+
+  it("queues the alarm going off under Ring's id, naming what set it off, and nothing for the entry delay", async () => {
+    const { engine, store, ingest } = await setup();
+    await ingest.inventoryRequested(signal);
+
+    engine.apply({
+      kind: "panel",
+      panel: {
+        location_id: STANDARD_LOCATION_ID,
+        alarm_state: "entry-delay",
+        faulted_device_ids: [door],
+        delay_until: START + 30_000,
+      },
+    });
+    engine.apply({
+      kind: "panel",
+      panel: {
+        location_id: STANDARD_LOCATION_ID,
+        alarm_state: "burglar-alarm",
+        alarm_id: "uuid-1",
+        faulted_device_ids: [door],
+      },
+    });
+    await ingest.flush();
+
+    const events = await queuedEvents(store);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      event_id: "alarm-uuid-1-burglar-alarm",
+      kind: "alarm.triggered",
+      summary: "The burglar alarm is going off: Contact 2.",
+      armed: true,
+    });
+  });
+
+  it("queues nothing from a shared home's sensors or panel", async () => {
+    const home = standardHome();
+    const shared: RingLocation = {
+      location_id: "loc-shared",
+      name: "Family home",
+      time_zone: "Asia/Tokyo",
+      alarm_mode: "away",
+      ownership: "shared",
+    };
+    const sharedDoor: RingDevice = {
+      device_id: "shared-door",
+      location_id: "loc-shared",
+      name: "Front Door",
+      type: "contact",
+      power_mode: "battery",
+      online: true,
+      state: { open: false },
+    };
+    const engine = new ScenarioEngine(clock, {
+      locations: [...home.locations, shared],
+      devices: [...home.devices, sharedDoor],
+    });
+    const store = await openStore();
+    const ingest = startIngest(engine, store);
+    await ingest.inventoryRequested(signal);
+
+    engine.apply({
+      kind: "device",
+      deviceId: "shared-door",
+      changes: { state: { open: true } },
+    });
+    engine.apply({
+      kind: "alarm_mode",
+      locationId: "loc-shared",
+      mode: "disarmed",
+    });
+    engine.apply({
+      kind: "panel",
+      panel: {
+        location_id: "loc-shared",
+        alarm_state: "burglar-alarm",
+        alarm_id: "uuid-shared",
+        faulted_device_ids: ["shared-door"],
+      },
+    });
+    await ingest.flush();
+
+    await expect(queuedEvents(store)).resolves.toEqual([]);
+  });
+});

@@ -68,7 +68,13 @@ import type {
   RingPush,
   StopWatching,
 } from "../../access/ring-adapter/index.ts";
-import { normalizePush } from "../../engines/normalize/index.ts";
+import {
+  alarmEvent,
+  armedAt,
+  deviceChangeEvents,
+  modeChangeEvent,
+  normalizePush,
+} from "../../engines/normalize/index.ts";
 import type { NormalizedEvent } from "../../engines/normalize/index.ts";
 import { deviceEntry, HomeView } from "./home-view.ts";
 import type { TimedChange } from "./home-view.ts";
@@ -232,10 +238,16 @@ export class Ingest {
       });
       return;
     }
-    const body = eventBody(normalized.event, receivedAt);
+    this.#queueEvent(normalized.event, receivedAt);
+  }
+
+  // Writes an event to the outbox under its id, then sends what is due. It never throws.
+  #queueEvent(event: NormalizedEvent, receivedAt: number): void {
+    const body = eventBody(event, receivedAt);
     const fields: LogFields = {
       event_id: body.event_id,
-      device_id: push.device_id,
+      ...(event.device_id === undefined ? {} : { device_id: event.device_id }),
+      location_id: event.location_id,
       kind: body.kind,
     };
     void this.#step(() =>
@@ -357,6 +369,9 @@ export class Ingest {
     for (const change of seenDuringRead) {
       view.apply(change);
     }
+    if (this.#latest !== undefined) {
+      view.keepPanelsOf(this.#latest.view);
+    }
     this.#latest = { view, read, readFor };
     try {
       await this.#write(inventoryDraft(view, this.#nameFor(readFor)), signal);
@@ -388,10 +403,14 @@ export class Ingest {
       return;
     }
     const timed: TimedChange = { change, at: this.#clock.now() };
+    const events = this.#hubEvents(timed);
     for (const seen of this.#readsRunning) {
       seen.push(timed);
     }
     this.#latest?.view.apply(timed);
+    for (const event of events) {
+      this.#queueEvent(event, timed.at);
+    }
     if (change.kind === "device") {
       const { device } = change;
       this.#writeChange(
@@ -403,12 +422,72 @@ export class Ingest {
       );
       return;
     }
-    if (this.#latest !== undefined) {
+    if (change.kind === "location" && this.#latest !== undefined) {
       const { view, readFor } = this.#latest;
       this.#writeChange(inventoryDraft(view, this.#nameFor(readFor)), {
         message_type: "inventory",
         location_id: change.location.location_id,
       });
+    }
+  }
+
+  /**
+   * The events a hub change makes (T062), from the entry it replaces in the view, so read before the
+   * view takes the change in. None before the first read, when nothing is known to have changed,
+   * and none from a location the account does not own: a shared home's alarms come with T063.
+   */
+  #hubEvents({ change, at }: TimedChange): NormalizedEvent[] {
+    const view = this.#latest?.view;
+    if (view === undefined) {
+      return [];
+    }
+    const owned = (locationId: string): boolean =>
+      view.location(locationId)?.ownership === "owned";
+    switch (change.kind) {
+      case "device": {
+        const { location_id: locationId } = change.device;
+        if (!owned(locationId)) {
+          return [];
+        }
+        return deviceChangeEvents(
+          view.device(change.device.device_id),
+          change.device,
+          {
+            at,
+            armed: armedAt(
+              view.location(locationId),
+              view.panel(locationId),
+              at,
+            ),
+          },
+        );
+      }
+      case "location": {
+        const { location } = change;
+        if (location.ownership !== "owned" || !owned(location.location_id)) {
+          return [];
+        }
+        const event = modeChangeEvent(
+          view.location(location.location_id),
+          location,
+          at,
+        );
+        return event === undefined ? [] : [event];
+      }
+      case "panel": {
+        const { panel } = change;
+        if (!owned(panel.location_id)) {
+          return [];
+        }
+        const event = alarmEvent(view.panel(panel.location_id), panel, {
+          at,
+          nameOf: (deviceId) => view.device(deviceId)?.name,
+        });
+        return event === undefined ? [] : [event];
+      }
+      case "device_list":
+      case "session":
+        return [];
     }
   }
 
@@ -695,7 +774,7 @@ function eventBody(event: NormalizedEvent, receivedAt: number): EventMessage {
     kind: event.kind,
     occurred_at: formatUtc(event.occurred_at),
     received_at: formatUtc(receivedAt),
-    device_id: event.device_id,
+    ...(event.device_id === undefined ? {} : { device_id: event.device_id }),
     ...(event.device_type === undefined
       ? {}
       : { device_type: event.device_type }),
@@ -704,6 +783,7 @@ function eventBody(event: NormalizedEvent, receivedAt: number): EventMessage {
     ...(event.name === undefined ? {} : { name: event.name }),
     ...(event.person === undefined ? {} : { person: event.person }),
     ...(event.data === undefined ? {} : { data: { ...event.data } }),
+    ...(event.armed === undefined ? {} : { armed: event.armed }),
   };
 }
 

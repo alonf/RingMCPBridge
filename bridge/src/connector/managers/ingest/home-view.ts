@@ -11,6 +11,7 @@ import type {
   RingChange,
   RingDevice,
   RingLocation,
+  RingPanel,
 } from "../../access/ring-adapter/index.ts";
 
 /** A change Ring reported, and when the home received it. */
@@ -37,6 +38,8 @@ export function deviceEntry(
 export class HomeView {
   readonly #locations = new Map<string, Seen<RingLocation>>();
   readonly #devices = new Map<string, Seen<RingDevice>>();
+  // Each location's alarm panel, for events only: never part of an inventory (T062).
+  readonly #panels = new Map<string, RingPanel>();
 
   /** The view a read of every location and its devices gives, seen at `at`. */
   static fromRead(
@@ -75,9 +78,41 @@ export class HomeView {
           at,
         });
         return;
+      case "panel":
+        if (this.#locations.has(change.panel.location_id)) {
+          this.#panels.set(change.panel.location_id, change.panel);
+        }
+        return;
       case "device_list":
       case "session":
         return;
+    }
+  }
+
+  /** A device as the view holds it, if it does. */
+  device(deviceId: string): RingDevice | undefined {
+    return this.#devices.get(deviceId)?.entry;
+  }
+
+  /** A location as the view holds it, if it does. */
+  location(locationId: string): RingLocation | undefined {
+    return this.#locations.get(locationId)?.entry;
+  }
+
+  /** A location's alarm panel as last reported, if it was. */
+  panel(locationId: string): RingPanel | undefined {
+    return this.#panels.get(locationId);
+  }
+
+  /**
+   * Takes the panels of the view this one replaces: a read lists no panel, and without them an
+   * exit delay running across a read would be forgotten.
+   */
+  keepPanelsOf(previous: HomeView): void {
+    for (const [locationId, panel] of previous.#panels) {
+      if (this.#locations.has(locationId) && !this.#panels.has(locationId)) {
+        this.#panels.set(locationId, panel);
+      }
     }
   }
 

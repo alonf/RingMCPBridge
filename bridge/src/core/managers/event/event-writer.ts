@@ -150,7 +150,7 @@ export class EventWriter {
         : (await state.deviceIn(session, event.device_id, signal))?.type);
     const priority = priorityOf(priorityPolicy, {
       kind: event.kind,
-      armed: ARMED_MODES.has(location?.alarm_mode ?? ""),
+      armed: event.armed ?? ARMED_MODES.has(location?.alarm_mode ?? ""),
       ...(deviceType === undefined ? {} : { deviceType }),
       ...(event.person === undefined ? {} : { person: event.person }),
     });

@@ -47,6 +47,7 @@ import {
   cameraEntry,
   deviceEntry,
   locationEntry,
+  panelEntry,
 } from "./ring-mapping.ts";
 import type {
   RingChange,
@@ -806,6 +807,7 @@ export class RingApiAdapter implements RingPort, RingPushPort {
           ),
         });
       }
+      this.#emit({ kind: "panel", panel: panelEntry(location.id, data) });
       return;
     }
     const device = deviceEntry(data, location.id, this.#roomOf(hub, data));

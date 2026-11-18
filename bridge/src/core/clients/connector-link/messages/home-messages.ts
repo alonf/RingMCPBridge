@@ -64,22 +64,25 @@ export const inventoryLocationSchema = z.strictObject({
 });
 export type InventoryLocation = z.infer<typeof inventoryLocationSchema>;
 
+/** The device types the bridge knows (data-model "Device"). */
+const deviceType = z.enum([
+  "contact",
+  "motion",
+  "flood",
+  "keypad",
+  "base_station",
+  "camera",
+  "doorbell",
+  "light",
+  "other",
+]);
+
 /** A device's full current entry, as `inventory` and `device_state` carry it (never a delta). */
 export const deviceEntrySchema = z.strictObject({
   device_id: z.string().min(1),
   location_id: z.string().min(1),
   name: z.string(),
-  type: z.enum([
-    "contact",
-    "motion",
-    "flood",
-    "keypad",
-    "base_station",
-    "camera",
-    "doorbell",
-    "light",
-    "other",
-  ]),
+  type: deviceType,
   room: z.string().optional(),
   battery_pct: z.number().int().min(0).max(100).optional(),
   battery_low: z.boolean().optional(),
@@ -136,7 +139,10 @@ export const eventSchema = z.strictObject({
   summary: z.string().min(1),
   from_history: z.boolean(),
   person: z.boolean().optional(),
-  device_type: z.enum(["doorbell", "camera"]).optional(),
+  /** The device's type as the home knows it (DRIFT-002-19; every type from T062). */
+  device_type: deviceType.optional(),
+  /** Whether the home saw its location armed, past any exit delay, as it happened (T062). */
+  armed: z.boolean().optional(),
   device_state: deviceEntrySchema.optional(),
   data: z.record(z.string(), z.unknown()).optional(),
 });

@@ -15,6 +15,7 @@ import type {
   RingDeviceState,
   RingDeviceType,
   RingLocation,
+  RingPanel,
   RingPowerMode,
 } from "./ring-port.ts";
 
@@ -68,6 +69,48 @@ export function alarmModeOf(
   ringMode: string | undefined,
 ): RingAlarmMode | undefined {
   return ringMode === undefined ? undefined : ALARM_MODES.get(ringMode);
+}
+
+/**
+ * The security panel's alarm and delay (T062), from ring-client-api 14.3's `alarmInfo` and
+ * `transitionDelayEndTimestamp`. Read tolerantly: a field of another shape is left out.
+ */
+export function panelEntry(
+  locationId: string,
+  data: RingClientDeviceData,
+): RingPanel {
+  const alarm: Readonly<Record<string, unknown>> =
+    typeof data.alarmInfo === "object" && data.alarmInfo !== null
+      ? (data.alarmInfo as Readonly<Record<string, unknown>>)
+      : {};
+  const text = (value: unknown): string | undefined =>
+    typeof value === "string" && value !== "" ? value : undefined;
+  const faulted = Array.isArray(alarm.faultedDevices)
+    ? alarm.faultedDevices.filter(
+        (id): id is string => typeof id === "string" && id !== "",
+      )
+    : [];
+  return {
+    location_id: locationId,
+    ...defined({
+      alarm_state: text(alarm.state),
+      alarm_id: text(alarm.uuid),
+      alarm_at: epochMs(alarm.timestamp),
+    }),
+    faulted_device_ids: faulted,
+    ...defined({ delay_until: epochMs(data.transitionDelayEndTimestamp) }),
+  };
+}
+
+// Ring gives times in seconds in some places and milliseconds in others: a time before 2001 in
+// milliseconds is taken as seconds.
+const SECONDS_BEFORE = 1_000_000_000_000;
+
+function epochMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return value < SECONDS_BEFORE ? value * 1000 : value;
 }
 
 /** The fields that are not `undefined`. */

@@ -9,6 +9,7 @@ import type {
   RingChange,
   RingDevice,
   RingLocation,
+  RingPanel,
   RingPort,
   RingSessionStatus,
   StopWatching,
@@ -51,6 +52,8 @@ export type ScenarioAction =
       readonly locationId: string;
       readonly mode: RingAlarmMode;
     }
+  /** The alarm panel reports its alarm or delay (T062), as the Ring Adapter passes it on. */
+  | { readonly kind: "panel"; readonly panel: RingPanel }
   | { readonly kind: "device_added"; readonly device: RingDevice }
   | { readonly kind: "device_removed"; readonly deviceId: string }
   | { readonly kind: "fault"; readonly fault: RingFault }
@@ -153,6 +156,9 @@ export class ScenarioEngine implements RingPort {
         return;
       case "alarm_mode":
         this.#changeAlarmMode(action.locationId, action.mode);
+        return;
+      case "panel":
+        this.#report({ kind: "panel", panel: action.panel });
         return;
       case "device_added":
         this.#addDevice(action.device);

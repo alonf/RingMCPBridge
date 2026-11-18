@@ -252,7 +252,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
 
   Tests: the third independent test above; flapping under 2 minutes raises nothing; the purge keeps day 30 and removes day 31; `get_health`'s new fields on a stale home (Trace: FR-005, FR-008, FR-015, SC-005; CP-11b)
 
-- [ ] T062 [US2] [assigned_to: Implementer] [effort: 1.8] Alarm-system events from the hub, in `bridge/src/connector/managers/ingest/` and `bridge/src/connector/engines/normalize/` (DRIFT-002-20):
+- [x] T062 [US2] [assigned_to: Implementer] [effort: 1.8] Alarm-system events from the hub, in `bridge/src/connector/managers/ingest/` and `bridge/src/connector/engines/normalize/` (DRIFT-002-20):
   - a change the hub's live connection reports becomes an event: the alarm going off (`alarm.triggered`), a flood or freeze sensor (`flood`), a contact opening or closing (`contact.open`, `contact.closed`), a motion sensor seeing motion (`motion`), and the alarm mode changing (`mode.changed`);
   - each event carries the device's full entry, so State and the event commit together (T047), and Classify ranks it by the existing policy (armed or not);
   - the event id is stable for one change, so a repeat is dropped;

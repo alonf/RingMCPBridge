@@ -85,6 +85,7 @@ export function incomingEvent(
     ...(message.device_type === undefined
       ? {}
       : { device_type: message.device_type }),
+    ...(message.armed === undefined ? {} : { armed: message.armed }),
     ...(message.device_state === undefined
       ? {}
       : { device_state: incomingDevice(message.device_state) }),

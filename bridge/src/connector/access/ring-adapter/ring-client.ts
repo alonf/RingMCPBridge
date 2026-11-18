@@ -25,6 +25,10 @@ export interface RingClientDeviceData {
   readonly on?: boolean;
   readonly level?: number;
   readonly mode?: string;
+  /** The security panel's alarm, while it goes off or counts down (T062): untrusted, read tolerantly. */
+  readonly alarmInfo?: unknown;
+  /** When the security panel's exit or entry delay ends, in epoch milliseconds. */
+  readonly transitionDelayEndTimestamp?: number | null;
   /** The room in its hub's room list (`getRoomList`); absent when Ring gives it none. */
   readonly roomId?: number;
 }

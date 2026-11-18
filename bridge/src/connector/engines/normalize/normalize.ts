@@ -33,13 +33,26 @@ export interface RingPushInput {
   readonly payload: unknown;
 }
 
+/** The device types the bridge knows (data-model "Device"). */
+export type HubDeviceType =
+  | "contact"
+  | "motion"
+  | "flood"
+  | "keypad"
+  | "base_station"
+  | "camera"
+  | "doorbell"
+  | "light"
+  | "other";
+
 /** The bridge's event, before Ingest stamps when the home received it. Times are epoch ms. */
 export interface NormalizedEvent {
   readonly event_id: string;
   readonly location_id: string;
-  readonly device_id: string;
+  /** Absent for a location's own event: its alarm mode or its alarm (T062). */
+  readonly device_id?: string;
   /** The device's type, carried from the Ring Adapter, so the core can rank the event at once. */
-  readonly device_type?: "doorbell" | "camera";
+  readonly device_type?: HubDeviceType;
   readonly kind: string;
   readonly occurred_at: number;
   /** The device's name as Ring gave it: untrusted text. */
@@ -50,6 +63,8 @@ export interface NormalizedEvent {
   readonly person?: boolean;
   /** Kind-specific detail from Ring: untrusted. */
   readonly data?: Readonly<Record<string, unknown>>;
+  /** Whether the home saw the location armed when it happened (hub events, T062). */
+  readonly armed?: boolean;
 }
 
 /** Why a push gives no event. */

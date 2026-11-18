@@ -1,7 +1,7 @@
 schema: "v1"
 feature: "001-ring-mcp-bridge"
 iteration: "002"
-updated_at: "2026-11-18T03:20:00Z"
+updated_at: "2026-11-18T19:30:00Z"
 tasks:
   CP-08b:
     title: "Home event intake: the push probe first; Push Listener, Normalize (Ring text marked untrusted) and Ingest; events into the Outbox with a send window of about 50 and backoff on the oldest (10 s doubling to 5 min, with jitter), held until the core acks after its commit; the backlog in the heartbeat; catch-up up to 24 hours through the shared Ring limiter, marked late; the link's event messages in version 1"
@@ -47,9 +47,9 @@ tasks:
     blocked_reason: ""
   CP-MR:
     title: "Midpoint independent review, after the dot (iteration 001's Lesson 6)"
-    status: "pending"
-    started_at: ""
-    completed_at: ""
+    status: "completed"
+    started_at: "2026-11-18T16:20:00Z"
+    completed_at: "2026-11-18T16:31:00Z"
     blocked_reason: ""
   CP-RV:
     title: "Review: codex review runs and the hardening review"
@@ -59,8 +59,8 @@ tasks:
     blocked_reason: ""
   CP-RW:
     title: "Expected rework"
-    status: "pending"
-    started_at: ""
+    status: "in-progress"
+    started_at: "2026-11-18T16:40:00Z"
     completed_at: ""
     blocked_reason: ""
   CP-PJ:

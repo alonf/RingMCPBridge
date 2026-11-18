@@ -70,13 +70,35 @@ export interface RingDevice {
 }
 
 /**
- * Something Ring reported: a device's full current entry, a location's (an alarm mode change), a
- * location's device list (a device added or removed: read the location again), or the session
- * status.
+ * What a location's alarm panel says beyond its mode (T062): whether the alarm is going off, and
+ * whether an exit delay is running. Never sent to the core as state; Ingest reads events from it.
+ */
+export interface RingPanel {
+  readonly location_id: string;
+  /**
+   * Ring's alarm state, such as `burglar-alarm`, `fire-alarm` or `entry-delay`; absent while the
+   * alarm is quiet. Untrusted: compared against known values, never shown.
+   */
+  readonly alarm_state?: string;
+  /** Ring's id for this alarm, stable while it lasts; absent when Ring gives none. */
+  readonly alarm_id?: string;
+  /** When the alarm began, by Ring's clock, in epoch milliseconds; absent when Ring gives none. */
+  readonly alarm_at?: number;
+  /** The devices Ring names as having set the alarm off. */
+  readonly faulted_device_ids: readonly string[];
+  /** When a running exit or entry delay ends, in epoch milliseconds; absent when none runs. */
+  readonly delay_until?: number;
+}
+
+/**
+ * Something Ring reported: a device's full current entry, a location's (an alarm mode change), its
+ * alarm panel's (T062), a location's device list (a device added or removed: read the location
+ * again), or the session status.
  */
 export type RingChange =
   | { readonly kind: "device"; readonly device: RingDevice }
   | { readonly kind: "location"; readonly location: RingLocation }
+  | { readonly kind: "panel"; readonly panel: RingPanel }
   | { readonly kind: "device_list"; readonly location_id: string }
   | { readonly kind: "session"; readonly status: RingSessionStatus };
 

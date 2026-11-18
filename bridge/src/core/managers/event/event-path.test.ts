@@ -331,6 +331,41 @@ describe("Event: the event path (T047)", () => {
     ).resolves.toBe("MEDIUM");
   });
 
+  // T062: events are sent before state, so an arm just before a door opens can reach State after
+  // the door's event. The home stamps what it saw, and Classify prefers it.
+  it("ranks a contact by the armed state the home stamped, over the alarm mode State holds", async () => {
+    const disarmed = await withHome("disarmed");
+    const armed = await withHome("away");
+
+    await expect(
+      storedPriority(
+        disarmed,
+        event("evt-1", { kind: "contact.open", armed: true }),
+      ),
+    ).resolves.toBe("HIGH");
+    await expect(
+      storedPriority(
+        armed,
+        event("evt-2", { kind: "contact.open", armed: false }),
+      ),
+    ).resolves.toBe("MEDIUM");
+  });
+
+  it("ranks a motion sensor by the device type the home sends, before State holds the sensor", async () => {
+    const test = await withHome("away");
+
+    await expect(
+      storedPriority(
+        test,
+        event("evt-1", {
+          kind: "motion",
+          device_id: "d-new-sensor",
+          device_type: "motion",
+        }),
+      ),
+    ).resolves.toBe("HIGH");
+  });
+
   it("treats a location State does not hold as not armed", async () => {
     const test = await harness();
 

@@ -15,6 +15,7 @@ export type {
   RingDeviceType,
   RingLocation,
   RingOwnership,
+  RingPanel,
   RingPort,
   RingPowerMode,
   RingPush,
