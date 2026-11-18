@@ -28,7 +28,10 @@ import { z } from "zod";
 import { eventShape } from "../../../contract/index.ts";
 import type { BridgeEvent } from "../../../contract/index.ts";
 import type { StoredEvent } from "../../access/event-log/index.ts";
-import { SubscriptionsError } from "../../access/subscriptions/index.ts";
+import {
+  subscriptionId,
+  SubscriptionsError,
+} from "../../access/subscriptions/index.ts";
 import type {
   SubscriptionsStore,
   WebhookSubscription,
@@ -210,8 +213,10 @@ export class Delivery {
     }
     const signingKey = new Secret(key);
     const expiresAt = this.#options.clock.now() + this.#ttl(request.ttlMs);
+    // The id the store will give it, so the verification, the answer and every delivery carry the
+    // same `X-MCP-Subscription-Id`, as the probe ChatGPT accepted did (T039 part 2).
     const pending: WebhookSubscription = {
-      sub_id: randomUUID(),
+      sub_id: subscriptionId(request.clientId, EVENT_TYPE, callback),
       client_id: request.clientId,
       event_name: EVENT_TYPE,
       callback,

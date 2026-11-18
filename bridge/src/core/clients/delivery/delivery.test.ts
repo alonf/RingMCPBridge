@@ -215,6 +215,19 @@ describe("Delivery: subscribing", () => {
     expect(verification?.headers["x-mcp-subscription-id"]).toBeDefined();
   });
 
+  it("carries one subscription id in the verification, the answer and every delivery", async () => {
+    const test = await harness();
+
+    const id = await test.subscribe("/hook");
+    test.delivery.eventStored({ event: stored(), epoch: 1 });
+    await expect.poll(() => test.eventsTo("/hook").length).toBe(1);
+
+    const ids = test.sent.map(
+      (request) => request.headers["x-mcp-subscription-id"],
+    );
+    expect(ids).toEqual([id, id]);
+  });
+
   it.each([
     [{ ttlMs: 600_000 }, 600_000],
     [{ ttlMs: 1_000 }, 60_000],
