@@ -1,1 +1,0 @@
-../../../.specify/extensions/specrew-speckit/.specify-dev/agent-commands/codex/speckit-specrew-speckit-sync-specify/SKILL.md
