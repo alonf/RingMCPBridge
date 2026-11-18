@@ -2,6 +2,8 @@
 // stores, the managers, the single-instance lease, and the connector link with Event while the
 // lease is held. It reaches no Azure library, oidc-provider or SQL Server driver: those are mode
 // H's, wired in core.ts. Hand-wired, with no container (CD3, CD5).
+import { Audit } from "../core/access/audit/index.ts";
+import { EventLog } from "../core/access/event-log/index.ts";
 import { GrantsStore } from "../core/access/grants/index.ts";
 import { Lease } from "../core/access/lease/index.ts";
 import type { LeaseStore, LeaseTiming } from "../core/access/lease/index.ts";
@@ -94,6 +96,8 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
   const events = new PubSub<EventTopics>((topic, error) => {
     logger.error("pub_sub_handler_failed", { kind: topic }, error);
   });
+  const eventLog = new EventLog({ clock });
+  const audit = new Audit({ clock });
   const admin = new AdminManager({ settings });
   const links = new LeasedLinks({
     lease,
@@ -108,6 +112,10 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
         reportFailure: (error) => {
           logger.error("event_silence_check_failed", undefined, error);
         },
+        store,
+        eventLog,
+        audit,
+        priorityPolicy,
       }),
     link: { admin, clock, logger },
   });

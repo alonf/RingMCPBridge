@@ -27,8 +27,17 @@
 //   is owed does not end it, since the inventory that pays it may still be on its way. A debt that
 //   an inventory this session already stored has paid is ignored. Both are kept in memory: a core
 //   restart drops the link, and the next session owes its own refresh.
+// - **Events** (T047) go through the same queue, each in one transaction across Classify, the
+//   Event Log, State and the Audit (`EventWriter`). The outcome returns only after the commit,
+//   so Connector Link acks only then; `event.stored` is published after it, and a failed delivery
+//   never undoes the write. An event on a session whose key is no longer current is still
+//   written, since dropping it could lose a HIGH event; only its State change is skipped.
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { PubSub } from "../../../utilities/pub-sub/index.ts";
+import { AuditError } from "../../access/audit/index.ts";
+import type { Audit } from "../../access/audit/index.ts";
+import { EventLogError } from "../../access/event-log/index.ts";
+import type { EventLog } from "../../access/event-log/index.ts";
 import { StateStoreError } from "../../access/state/index.ts";
 import type { DeviceApplied, StateStore } from "../../access/state/index.ts";
 import {
@@ -39,18 +48,24 @@ import {
   healthChanges,
   settled,
 } from "../../engines/health/index.ts";
+import type { PriorityPolicy } from "../../engines/classify/index.ts";
 import type { HealthView } from "../../engines/health/index.ts";
+import { QueryLayerError } from "../../../utilities/query-layer/index.ts";
 import { EventError } from "./event-error.ts";
 import type {
   DeviceChangeOutcome,
   EventIntake,
+  EventOutcome,
   EventTopics,
   HomeLinkSession,
+  IncomingEvent,
   IncomingDeviceState,
   IncomingHeartbeat,
   IncomingInventory,
   InventoryOutcome,
 } from "./event-intake.ts";
+import { EventWriter } from "./event-writer.ts";
+import type { EventTransactions } from "./event-writer.ts";
 
 /** What the Event manager is wired with. */
 export interface EventManagerOptions {
@@ -61,6 +76,12 @@ export interface EventManagerOptions {
   readonly homeOfflineAfterMs: number;
   /** Where a failure of the background silence check goes; the Host wires it to the logger. */
   readonly reportFailure: (error: unknown) => void;
+  /** The core's database, for one transaction per event (T047). */
+  readonly store: EventTransactions;
+  readonly eventLog: EventLog;
+  readonly audit: Audit;
+  /** The event priorities and the late limit, checked when the core started (T045). */
+  readonly priorityPolicy: PriorityPolicy;
 }
 
 const NOT_CURRENT: InventoryOutcome = { kind: "not_current" };
@@ -76,6 +97,7 @@ const DEVICE_OUTCOMES: Readonly<Record<DeviceApplied, DeviceChangeOutcome>> = {
 /** Event's intake. One per core process. */
 export class EventManager implements EventIntake {
   readonly #options: EventManagerOptions;
+  readonly #writer: EventWriter;
   readonly #stopping = new AbortController();
   #steps: Promise<unknown> = Promise.resolve();
   #currentKey: string | undefined;
@@ -90,6 +112,13 @@ export class EventManager implements EventIntake {
       throw new RangeError("The offline threshold must be a positive time.");
     }
     this.#options = options;
+    this.#writer = new EventWriter({
+      store: options.store,
+      state: options.state,
+      eventLog: options.eventLog,
+      audit: options.audit,
+      priorityPolicy: options.priorityPolicy,
+    });
   }
 
   async homeSessionOpened(
@@ -181,6 +210,36 @@ export class EventManager implements EventIntake {
       if (owedAfter !== undefined) {
         this.#owedAfter = Math.max(this.#owedAfter ?? owedAfter, owedAfter);
       }
+    });
+  }
+
+  async event(
+    event: IncomingEvent,
+    session: HomeLinkSession,
+    signal: AbortSignal,
+  ): Promise<EventOutcome> {
+    return this.#serially(signal, async (): Promise<EventOutcome> => {
+      const applyState = this.#isCurrent(session);
+      const written = await this.#guard(
+        signal,
+        "The event could not be committed.",
+        () => this.#writer.write(event, applyState, signal),
+      );
+      if (written.kind !== "stored") {
+        return written;
+      }
+      // Committed: a handler's failure is Pub/Sub's to report, and never undoes the write.
+      this.#options.events.publish("event.stored", {
+        event: written.event,
+        epoch: written.epoch,
+      });
+      return {
+        kind: "stored",
+        seq: written.event.seq,
+        needs_inventory:
+          written.device === "unknown_device" ||
+          written.device === "unknown_location",
+      };
     });
   }
 
@@ -342,7 +401,7 @@ export class EventManager implements EventIntake {
     return step;
   }
 
-  // State's failures become Event's own; an abort and anything else pass through unchanged.
+  // The stores' failures become Event's own; an abort and anything else pass through unchanged.
   async #guard<T>(
     signal: AbortSignal,
     message: string,
@@ -354,6 +413,13 @@ export class EventManager implements EventIntake {
       signal.throwIfAborted();
       if (error instanceof StateStoreError) {
         throw new EventError(error.kind, message, { cause: error });
+      }
+      if (error instanceof QueryLayerError) {
+        const kind = error.kind === "store_down" ? "unavailable" : "failed";
+        throw new EventError(kind, message, { cause: error });
+      }
+      if (error instanceof EventLogError || error instanceof AuditError) {
+        throw new EventError("failed", message, { cause: error });
       }
       throw error;
     }

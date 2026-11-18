@@ -355,6 +355,72 @@ export class StateStore {
     }
   }
 
+  // The event path's reads and write (T047) run on the session of a transaction the Event manager
+  // opened, with its Event Log and Audit writes. State opens none of its own there, and the Query
+  // layer's errors pass through unchanged, so the transaction's owner sees them and its one retry
+  // still works.
+
+  /** One location, read inside the caller's transaction. */
+  async locationIn(
+    session: SqlSession,
+    locationId: string,
+    signal: AbortSignal,
+  ): Promise<LocationState | undefined> {
+    const row = await session.get(
+      statement(SELECT_LOCATION, { location_id: locationId }),
+      signal,
+    );
+    return row === undefined ? undefined : locationOf(row);
+  }
+
+  /** One device, read inside the caller's transaction. */
+  async deviceIn(
+    session: SqlSession,
+    deviceId: string,
+    signal: AbortSignal,
+  ): Promise<StoredDevice | undefined> {
+    const row = await session.get(
+      statement(SELECT_DEVICE, { device_id: deviceId }),
+      signal,
+    );
+    return row === undefined ? undefined : deviceOf(row);
+  }
+
+  /**
+   * Applies one device's full entry inside the caller's transaction, latest-wins, as `applyDevice`
+   * does. The location is looked up first, so no foreign-key error is ever raised inside the
+   * caller's transaction: a location State does not hold is `unknown_location`.
+   */
+  async applyDeviceIn(
+    session: SqlSession,
+    device: DeviceState,
+    signal: AbortSignal,
+  ): Promise<DeviceApplied> {
+    if (!fitsDevice(device)) {
+      return "refused";
+    }
+    if (
+      (await this.locationIn(session, device.location_id, signal)) === undefined
+    ) {
+      return "unknown_location";
+    }
+    const changed = await session.run(
+      statement(UPDATE_DEVICE, {
+        ...deviceValues(device),
+        in_motion: inMotion(device),
+      }),
+      signal,
+    );
+    if (changed > 0) {
+      return "applied";
+    }
+    const held = await session.get(
+      statement(SELECT_DEVICE_ID, { device_id: device.device_id }),
+      signal,
+    );
+    return held === undefined ? "unknown_device" : "older";
+  }
+
   /** Every location, ordered by id. */
   async locations(signal: AbortSignal): Promise<readonly LocationState[]> {
     const rows = await this.#guard(

@@ -117,6 +117,8 @@ export type DeviceStateMessage = z.infer<typeof deviceStateSchema>;
  * - It carries no priority and no `late` flag: the core's Classify engine sets both.
  * - `name`, `room`, `summary` and `data` are untrusted text from Ring (FR-033).
  * - `from_history` is true for an event read from Ring's history after a gap.
+ * - `person` is true when Ring reported a person with it; Normalize decides it from Ring's
+ *   payload (T042), so the core never reads Ring's own subtypes.
  * - `device_state` is the device's full current entry, with its `state_version`, when the event
  *   changes a device's state. State applies it latest-wins, as it does a `device_state` message.
  */
@@ -131,6 +133,7 @@ export const eventSchema = z.strictObject({
   room: z.string().optional(),
   summary: z.string().min(1),
   from_history: z.boolean(),
+  person: z.boolean().optional(),
   device_state: deviceEntrySchema.optional(),
   data: z.record(z.string(), z.unknown()).optional(),
 });

@@ -14,6 +14,7 @@ import {
   runMigrations,
 } from "../../../utilities/query-layer/index.ts";
 import type { QueryLayer } from "../../../utilities/query-layer/index.ts";
+import { eventPathParts } from "../../../../test/support/index.ts";
 import { EventError, EventManager } from "./index.ts";
 import type {
   EventTopics,
@@ -172,6 +173,7 @@ async function harness(
     clock,
     homeOfflineAfterMs: OFFLINE_AFTER_MS,
     reportFailure: (error) => failures.push(error),
+    ...eventPathParts(store, clock),
   });
   stops.push(() => event.stop());
   return { clock, layer, state, event, published, failures, events, failNext };
@@ -734,6 +736,10 @@ describe("Event: failures", () => {
           clock: new FakeClock(START),
           homeOfflineAfterMs: 0,
           reportFailure: () => undefined,
+          ...eventPathParts(
+            openSqliteQueryLayer(":memory:", { clock: new FakeClock(START) }),
+            new FakeClock(START),
+          ),
         }),
     ).toThrow(RangeError);
   });

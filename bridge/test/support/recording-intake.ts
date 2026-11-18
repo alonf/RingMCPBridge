@@ -4,13 +4,14 @@
 import type {
   DeviceChangeOutcome,
   EventIntake,
+  EventOutcome,
   HomeLinkSession,
   InventoryOutcome,
 } from "../../src/core/managers/event/index.ts";
 
 /** The intake operations, by name. */
 export type IntakeMethod =
-  "homeSessionOpened" | "inventory" | "deviceState" | "heartbeat";
+  "homeSessionOpened" | "inventory" | "deviceState" | "heartbeat" | "event";
 
 /** One call Event's stand-in received. */
 export interface IntakeCall {
@@ -33,6 +34,9 @@ export class RecordingIntake implements EventIntake {
     refused: 0,
     removed: 0,
   };
+  /** What the next events are answered with, in order; stored at the next seq once they run out. */
+  readonly eventOutcomes: EventOutcome[] = [];
+  #nextSeq = 1;
   #failuresLeft = 0;
   #held: (() => void)[] = [];
 
@@ -70,6 +74,17 @@ export class RecordingIntake implements EventIntake {
 
   heartbeat(body: unknown, session: HomeLinkSession): Promise<void> {
     return this.#record("heartbeat", body, session);
+  }
+
+  async event(body: unknown, session: HomeLinkSession): Promise<EventOutcome> {
+    await this.#record("event", body, session);
+    const outcome = this.eventOutcomes.shift();
+    if (outcome !== undefined) {
+      return outcome;
+    }
+    const seq = this.#nextSeq;
+    this.#nextSeq += 1;
+    return { kind: "stored", seq, needs_inventory: false };
   }
 
   methods(): IntakeMethod[] {

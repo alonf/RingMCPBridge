@@ -34,6 +34,7 @@ import type {
 } from "../../managers/admin/index.ts";
 import type {
   DeviceChangeOutcome,
+  EventOutcome,
   EventIntake,
   HomeLinkSession,
   InventoryOutcome,
@@ -51,6 +52,7 @@ import type {
 } from "../../../connector/clients/core-link/messages/index.ts";
 import {
   incomingDeviceState,
+  incomingEvent,
   incomingHeartbeat,
   incomingInventory,
 } from "./intake-mapping.ts";
@@ -554,9 +556,19 @@ export class CoreSession {
         );
         return;
       }
-      // Until the Event manager's event path takes it (T047), an event is logged and left
-      // unacked, as any message this core does not handle: the home keeps it and sends it again.
-      case "event":
+      case "event": {
+        const event = incomingEvent(message.body, receivedAt);
+        const outcome = await this.#toEvent(
+          "event",
+          (signal) => this.#context.intake.event(event, session, signal),
+          event.event_id,
+        );
+        if (outcome !== NOT_COMMITTED) {
+          this.#ack(event.event_id);
+          this.#noteEvent(outcome, event.event_id);
+        }
+        return;
+      }
       case "hello":
       case "challenge_response":
       case "enroll":
@@ -590,6 +602,26 @@ export class CoreSession {
       this.#logger.info("connector_link_inventory_removed", {
         count: outcome.removed,
       });
+    }
+  }
+
+  #noteEvent(outcome: EventOutcome, eventId: string): void {
+    switch (outcome.kind) {
+      case "stored":
+        if (outcome.needs_inventory) {
+          this.#askForInventory();
+        }
+        return;
+      case "duplicate":
+        this.#logger.info("connector_link_event_duplicate", {
+          event_id: eventId,
+        });
+        return;
+      case "refused":
+        this.#logger.warn("connector_link_event_refused", {
+          event_id: eventId,
+        });
+        return;
     }
   }
 

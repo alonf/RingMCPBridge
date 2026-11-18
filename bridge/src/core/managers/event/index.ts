@@ -10,6 +10,8 @@ export type { EventManagerOptions } from "./event-manager.ts";
 export type {
   DeviceChangeOutcome,
   EventIntake,
+  EventOutcome,
+  EventStored,
   EventTopics,
   HealthChanged,
   HomeDeviceType,
@@ -17,11 +19,24 @@ export type {
   HomeLinkSession,
   IncomingDevice,
   IncomingDeviceState,
+  IncomingEvent,
   IncomingHeartbeat,
   IncomingInventory,
   IncomingLocation,
   InventoryOutcome,
 } from "./event-intake.ts";
+
+/** The event path's one transaction (T047), and its column limits. */
+export {
+  EventWriter,
+  MAX_EVENT_ID_LENGTH,
+  MAX_EVENT_KIND_LENGTH,
+} from "./event-writer.ts";
+export type {
+  EventTransactions,
+  EventWriterOptions,
+  EventWritten,
+} from "./event-writer.ts";
 
 /** The error every use case throws: `unavailable` or `failed`. */
 export { EventError } from "./event-error.ts";

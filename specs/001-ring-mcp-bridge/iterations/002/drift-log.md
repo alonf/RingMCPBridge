@@ -22,11 +22,29 @@
 
 ## Summary
 
-**Total drift events**: 12
-**Resolution rate**: 100% (12/12 resolved or decided)
+**Total drift events**: 13
+**Resolution rate**: 100% (13/13 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-13: T047's core side built before the home side, and the decisions the event path needed
+
+- **Detected**: 2026-11-18, building T047 while the home run waits for daylight.
+- **Kind**: task order, and five decisions inside the decided design.
+- **Observed**:
+  1. **Order.** DRIFT-002-09 said T047 keeps its planned order. Its core side reads no Ring payload, so it was built now: Connector Link takes `event`, and the Event manager writes each event in one transaction across Classify, the Event Log, State and the Audit, then acks.
+     - Tested now: a failed State write rolls back the Event Log and the Audit; the same event after a restart (the core stopped between its commit and its ack) is found and not written again; two locations in parallel keep their own order; the ack waits for the commit.
+     - Not yet tested: the three end-to-end tests in `tasks.md`. They need the home side (T044), so they come with it. T047 stays unticked until then.
+  2. **`person`.** FR-009's MEDIUM row needs "a person" for camera motion. The link's `event` message gains an optional `person` flag (additive; link version 1 is not released). Normalize (T042) sets it from Ring's payload, so the core never reads Ring's own subtypes.
+  3. **A session whose key is no longer current.** Its event is still written, because dropping it could lose a HIGH event. Only its State change is skipped, since State's versions belong to the current key (PT-30).
+  4. **An event whose device entry is older, or names a device or location State does not hold.** The event is still written: an event is a fact, not versioned state. For an unknown device or location, Connector Link asks the home for an inventory, as it does for `device_state`.
+  5. **What can never be stored.** An event whose id or kind is longer than its column is answered `refused`: acked and logged by id, not sent again forever. A summary over 1,000 characters is cut to fit.
+  6. **The arrival time** for the late rule is stamped when the frame reaches the core, not when the queue reaches the event, so a backlog in the core never makes an event late.
+- **Requirement citation**: FR-008, FR-009, FR-013, FR-033, FR-034, SC-002; PT-23, PT-25, PT-30; `tasks.md` T047; `contracts/connector-link.md` "EventMessage".
+- **Resolution**: implementer-decision inside the decided design, reported to the owner at the next checkpoint.
+- **Carry-forward**: T042 produces `person`. T044 adds the end-to-end tests and ticks T047 with them.
+- **Class closure**: NONE - decisions the design left to implementation.
 
 ### DRIFT-002-12: the probes' deploy: a payload-shape capture in the home image, and the MCP Events switch as a deploy setting
 
@@ -80,7 +98,7 @@
   - T042 (Normalize) stays behind T038 part 2, as planned: its fixtures must be the real payloads.
 - **Requirement citation**: `tasks.md` "Phase Dependencies" and "Inside Phase 3"; the owner's standing instruction to continue with approved work when nothing is pending.
 - **Resolution**: implementer-decision, reported to the owner at the next checkpoint. It changes no scope and no design, and the owner can reverse it.
-- **Carry-forward**: T043, T045 and T046 also read no Ring payload and may follow in the same way. T042, T044 and T047 keep their planned order.
+- **Carry-forward**: T043, T045 and T046 also read no Ring payload and may follow in the same way. T042, T044 and T047 keep their planned order. Updated 2026-11-18: T047's core side was built as well, with its end-to-end tests left for T044 (DRIFT-002-13).
 - **Class closure**: NONE - an ordering choice inside one iteration.
 
 ### DRIFT-002-08: a second audit exception, for a new picomatch advisory in the development tools

@@ -11,6 +11,7 @@
 // Field names are the link contract's (contracts/connector-link.md); times are UTC milliseconds
 // since 1970. Names, rooms, time zones and a device's `state` come from Ring: untrusted text, never
 // logged (FR-033, FR-034).
+import type { StoredEvent } from "../../access/event-log/index.ts";
 
 /** A device's type, as the home reports it. */
 export type HomeDeviceType =
@@ -88,6 +89,60 @@ export interface IncomingHeartbeat {
   readonly received_at: number;
 }
 
+/**
+ * One normalized event from the home (T041, T047). It carries no priority and no `late` flag: the
+ * core's Classify engine sets both. `name`, `room`, `summary` and `data` are Ring's untrusted text.
+ */
+export interface IncomingEvent {
+  readonly event_id: string;
+  readonly location_id: string;
+  readonly kind: string;
+  /** When it happened, by Ring's time. */
+  readonly occurred_at: number;
+  /** When the home received it, on the home's clock: the late rule measures from it (PT-25). */
+  readonly received_at: number;
+  readonly device_id?: string;
+  readonly name?: string;
+  readonly room?: string;
+  readonly summary: string;
+  /** Read from Ring's history after a gap: always late. */
+  readonly from_history: boolean;
+  /** Ring reported a person with it (Normalize decides from Ring's payload, T042). */
+  readonly person?: boolean;
+  /** The device's full current entry, when the event changes its state. */
+  readonly device_state?: IncomingDevice;
+  readonly data?: Readonly<Record<string, unknown>>;
+  /**
+   * When the core received its frame, on the core's clock: the late rule's arrival time, stamped
+   * as the frame arrives so a queue in the core never makes an event late.
+   */
+  readonly arrived_at: number;
+}
+
+/**
+ * What became of an event; each ends the message, so Connector Link acks it:
+ * - `stored`: committed at `seq` in its location's log, with its State change and its audit
+ *   entry; `needs_inventory` when its device entry named a device or location State does not
+ *   hold, so Connector Link asks the home for an inventory;
+ * - `duplicate`: the log already holds it; nothing was written again.
+ */
+export type EventOutcome =
+  | {
+      readonly kind: "stored";
+      readonly seq: number;
+      readonly needs_inventory: boolean;
+    }
+  | { readonly kind: "duplicate" }
+  /** An id or kind too long to store: it never can be, so it is acked and logged. */
+  | { readonly kind: "refused" };
+
+/** An event the log has just committed, published on Pub/Sub for delivery (T048). */
+export interface EventStored {
+  readonly event: StoredEvent;
+  /** The location log's epoch the event's `seq` belongs to. */
+  readonly epoch: number;
+}
+
 /** The home's session the messages came on: the connector proved its key for it. */
 export interface HomeLinkSession {
   /** The connector's session id, on every log line (OR2). */
@@ -155,6 +210,8 @@ export interface HealthChanged {
 /** The Pub/Sub topics Event publishes. */
 export interface EventTopics extends Record<string, unknown> {
   readonly "health.changed": HealthChanged;
+  /** Published after the event's transaction commits; a failed delivery never undoes it. */
+  readonly "event.stored": EventStored;
 }
 
 /**
@@ -183,4 +240,10 @@ export interface EventIntake {
     session: HomeLinkSession,
     signal: AbortSignal,
   ): Promise<void>;
+  /** One event: classified and written once, with its State change and audit entry (T047). */
+  event(
+    event: IncomingEvent,
+    session: HomeLinkSession,
+    signal: AbortSignal,
+  ): Promise<EventOutcome>;
 }

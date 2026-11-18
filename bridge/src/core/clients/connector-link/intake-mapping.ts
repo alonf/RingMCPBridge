@@ -4,6 +4,7 @@
 import type {
   IncomingDevice,
   IncomingDeviceState,
+  IncomingEvent,
   IncomingHeartbeat,
   IncomingInventory,
   IncomingLocation,
@@ -11,6 +12,7 @@ import type {
 import type {
   DeviceEntry,
   DeviceStateMessage,
+  EventMessage,
   HeartbeatMessage,
   InventoryLocation,
   InventoryMessage,
@@ -55,6 +57,36 @@ export function incomingHeartbeat(
     error_counts: { ...message.error_counts },
     as_of: Date.parse(message.as_of),
     received_at: receivedAt,
+  };
+}
+
+/**
+ * An `event` as Event takes it, arrived at `arrivedAt` on the core's clock: the time its frame
+ * arrived, so a queue in the core never makes it late (PT-25).
+ */
+export function incomingEvent(
+  message: EventMessage,
+  arrivedAt: number,
+): IncomingEvent {
+  return {
+    event_id: message.event_id,
+    location_id: message.location_id,
+    kind: message.kind,
+    occurred_at: Date.parse(message.occurred_at),
+    received_at: Date.parse(message.received_at),
+    summary: message.summary,
+    from_history: message.from_history,
+    ...(message.device_id === undefined
+      ? {}
+      : { device_id: message.device_id }),
+    ...(message.name === undefined ? {} : { name: message.name }),
+    ...(message.room === undefined ? {} : { room: message.room }),
+    ...(message.person === undefined ? {} : { person: message.person }),
+    ...(message.device_state === undefined
+      ? {}
+      : { device_state: incomingDevice(message.device_state) }),
+    ...(message.data === undefined ? {} : { data: { ...message.data } }),
+    arrived_at: arrivedAt,
   };
 }
 

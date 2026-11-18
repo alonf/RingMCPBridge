@@ -27,6 +27,8 @@ import type {
 export const FIRST_LOG_EPOCH = 1;
 /** The most events one read returns. */
 export const MAX_EVENTS_PER_READ = 500;
+/** The longest summary the log keeps, in UTF-16 units (its SQL Server column); a longer one is cut. */
+export const MAX_SUMMARY_LENGTH = 1000;
 
 const PRIORITIES = ["HIGH", "MEDIUM", "LOW"] as const;
 const EVENT_COLUMNS = [
@@ -159,6 +161,21 @@ function storedEvent(row: SqlRow): StoredEvent {
   };
 }
 
+// A summary cut to the column's size, never in the middle of a character.
+function fittedSummary(summary: string): string {
+  if (summary.length <= MAX_SUMMARY_LENGTH) {
+    return summary;
+  }
+  let fitted = "";
+  for (const character of summary) {
+    if (fitted.length + character.length > MAX_SUMMARY_LENGTH) {
+      break;
+    }
+    fitted += character;
+  }
+  return fitted;
+}
+
 /** The Event Log. One per core process; it holds no connection of its own. */
 export class EventLog {
   readonly #clock: Clock;
@@ -202,7 +219,7 @@ export class EventLog {
           received_at: event.received_at,
           stored_at: storedAt,
           device_id: event.device_id ?? null,
-          summary: event.summary,
+          summary: fittedSummary(event.summary),
           late: event.late ? 1 : 0,
           data: event.data === undefined ? null : JSON.stringify(event.data),
         },

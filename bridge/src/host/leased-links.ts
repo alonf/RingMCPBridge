@@ -167,5 +167,7 @@ export function leasedIntake(
       leased(() => event.deviceState(change, session, signal)),
     heartbeat: (heartbeat, session, signal) =>
       leased(() => event.heartbeat(heartbeat, session, signal)),
+    event: (incoming, session, signal) =>
+      leased(() => event.event(incoming, session, signal)),
   };
 }

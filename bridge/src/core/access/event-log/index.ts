@@ -8,6 +8,7 @@ export {
   EventLogError,
   FIRST_LOG_EPOCH,
   MAX_EVENTS_PER_READ,
+  MAX_SUMMARY_LENGTH,
 } from "./event-log.ts";
 export type {
   AppendOutcome,

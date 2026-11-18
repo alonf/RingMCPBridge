@@ -629,23 +629,14 @@ describe("ConnectorLink: the home's messages", () => {
     expect(test.lines.join("\n")).not.toContain(RING_NAME);
   });
 
-  // T041: `event` joins link version 1 with no version bump. A core that does not take events
-  // yet, or that has never heard of a message type, keeps the link and leaves the message unacked.
-  it("keeps the link on an event it does not take yet and on a message type it does not know, acking neither", async () => {
+  // T041: messages join link version 1 with no version bump, because a core that has never heard
+  // of a message type keeps the link and leaves the message unacked.
+  it("keeps the link on a message type it does not know, and leaves it unacked", async () => {
     const test = await harness();
     const key = await enrolledKey(test);
     const home = connect(test);
     await openSession(home, key);
 
-    send(home, "event", {
-      event_id: "evt-1",
-      location_id: "loc-1",
-      kind: "doorbell.ding",
-      occurred_at: "2026-11-17T09:00:00Z",
-      received_at: "2026-11-17T09:00:01Z",
-      summary: RING_NAME,
-      from_history: false,
-    });
     send(home, "message_from_a_later_version", { text: RING_NAME });
     send(home, "inventory", inventory("m-2"));
 
@@ -656,8 +647,124 @@ describe("ConnectorLink: the home's messages", () => {
       test.lines.filter((line) =>
         line.includes("connector_link_message_refused"),
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(test.lines.join("\n")).not.toContain(RING_NAME);
+  });
+});
+
+/** An `event` message, as the home sends it (T041). */
+function eventMessage(eventId: string): Record<string, unknown> {
+  return {
+    event_id: eventId,
+    location_id: "loc-1",
+    kind: "doorbell.ding",
+    occurred_at: "2026-11-17T09:00:00Z",
+    received_at: "2026-11-17T09:00:01.250Z",
+    device_id: "d-door",
+    name: RING_NAME,
+    summary: RING_NAME,
+    from_history: false,
+    person: true,
+  };
+}
+
+describe("ConnectorLink: events (T047)", () => {
+  it("hands an event to Event and acks its event id only after Event has committed it", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    test.intake.heldMethod = "event";
+
+    send(home, "event", eventMessage("evt-1"));
+    await until(() => test.intake.methods().includes("event"));
+    await settle();
+    expect(messagesOf(home, "ack")).toHaveLength(0);
+
+    test.intake.release();
+    expect(await frameOf(home, "ack")).toEqual({ message_id: "evt-1" });
+    const call = test.intake.calls.find((entry) => entry.method === "event");
+    expect(call?.body).toMatchObject({
+      event_id: "evt-1",
+      kind: "doorbell.ding",
+      occurred_at: Date.parse("2026-11-17T09:00:00Z"),
+      received_at: Date.parse("2026-11-17T09:00:01.250Z"),
+      person: true,
+      from_history: false,
+    });
+    expect(test.lines.join("\n")).not.toContain(RING_NAME);
+  });
+
+  it("stamps an event's arrival as its frame arrives, though Event takes it minutes later", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    test.intake.holding = true;
+    send(home, "inventory", inventory("m-1"));
+    await until(() => test.intake.calls.length === 2);
+
+    const arrivedAt = test.clock.now();
+    send(home, "event", eventMessage("evt-1"));
+    await settle();
+    await test.clock.advance(3 * 60_000);
+    test.intake.release();
+
+    await until(() => test.intake.methods().includes("event"));
+    const call = test.intake.calls.find((entry) => entry.method === "event");
+    expect(call?.body).toMatchObject({ arrived_at: arrivedAt });
+  });
+
+  it("leaves an event unacked when Event cannot commit it, keeping the link, so the home sends it again", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    test.intake.failNext(1);
+
+    send(home, "event", eventMessage("evt-1"));
+    send(home, "inventory", inventory("m-2"));
+
+    expect(await frameOf(home, "ack")).toEqual({ message_id: "m-2" });
+    expect(messagesOf(home, "ack")).toHaveLength(1);
+    expect(home.link.closed).toBeUndefined();
+    expect(test.lines.join("\n")).toContain("connector_link_intake_failed");
+
+    send(home, "event", eventMessage("evt-1"));
+    await until(() =>
+      messagesOf(home, "ack").some(
+        (ack) => (ack as { message_id: string }).message_id === "evt-1",
+      ),
+    );
+  });
+
+  it("acks a duplicate and a refused event too, and asks for an inventory for a device State does not hold", async () => {
+    const test = await harness();
+    const key = await enrolledKey(test);
+    const home = connect(test);
+    await openSession(home, key);
+    test.intake.eventOutcomes.push(
+      { kind: "duplicate" },
+      { kind: "refused" },
+      { kind: "stored", seq: 1, needs_inventory: true },
+    );
+
+    send(home, "event", eventMessage("evt-1"));
+    send(home, "event", eventMessage("evt-2"));
+    send(home, "event", eventMessage("evt-3"));
+
+    await until(() => messagesOf(home, "ack").length === 3);
+    expect(messagesOf(home, "ack")).toEqual([
+      { message_id: "evt-1" },
+      { message_id: "evt-2" },
+      { message_id: "evt-3" },
+    ]);
+    expect(await frameOf(home, "inventory_request")).toMatchObject({
+      request_id: expect.any(String) as string,
+    });
+    const written = test.lines.join("\n");
+    expect(written).toContain("connector_link_event_duplicate");
+    expect(written).toContain("connector_link_event_refused");
   });
 });
 

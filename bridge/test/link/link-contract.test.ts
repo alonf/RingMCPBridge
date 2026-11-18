@@ -67,6 +67,7 @@ import {
   ScenarioEngine,
 } from "../scenarios/index.ts";
 import {
+  eventPathParts,
   makeThrowawayCertificate,
   OPENSSL_AVAILABLE,
   RecordingIntake,
@@ -193,6 +194,7 @@ async function realEvent(clock: FakeClock): Promise<{
     clock,
     homeOfflineAfterMs: OFFLINE_AFTER_MS,
     reportFailure: () => undefined,
+    ...eventPathParts(store, clock),
   });
   stops.push(
     () => layer.close(),
@@ -216,6 +218,7 @@ async function realEvent(clock: FakeClock): Promise<{
       event.deviceState(change, session, sent),
     heartbeat: (heartbeat, session, sent) =>
       event.heartbeat(heartbeat, session, sent),
+    event: (incoming, session, sent) => event.event(incoming, session, sent),
   };
   return {
     intake,
