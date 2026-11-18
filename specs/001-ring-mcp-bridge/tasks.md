@@ -47,7 +47,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
 | CP-21b The dot and latency samples | 1.8 | T049 | 1.8 |
 | CP-MR Midpoint review | 1.8 | T050 | 1.8 |
 | CP-RV Review | 3.6 | T037, T058, T059 | 0.9 + 1.8 + 0.9 = 3.6 |
-| CP-RW Rework | 3.6 | T060 | 3.6 |
+| CP-RW Rework | 3.6 | T060, T062, T063 | 1.1 + 1.8 + 0.7 = 3.6 |
 | CP-PJ Carried pilot reads | 0.9 | T061 | 0.9 |
 | **Total** | **33.75** | **25 tasks** | **33.75** |
 
@@ -252,6 +252,21 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
 
   Tests: the third independent test above; flapping under 2 minutes raises nothing; the purge keeps day 30 and removes day 31; `get_health`'s new fields on a stale home (Trace: FR-005, FR-008, FR-015, SC-005; CP-11b)
 
+- [ ] T062 [US2] [assigned_to: Implementer] [effort: 1.8] Alarm-system events from the hub, in `bridge/src/connector/managers/ingest/` and `bridge/src/connector/engines/normalize/` (DRIFT-002-20):
+  - a change the hub's live connection reports becomes an event: the alarm going off (`alarm.triggered`), a flood or freeze sensor (`flood`), a contact opening or closing (`contact.open`, `contact.closed`), a motion sensor seeing motion (`motion`), and the alarm mode changing (`mode.changed`);
+  - each event carries the device's full entry, so State and the event commit together (T047), and Classify ranks it by the existing policy (armed or not);
+  - the event id is stable for one change, so a repeat is dropped;
+  - how ring-client-api reports an alarm going off is read first and recorded in `research.md`.
+
+  Tests: each kind from a simulated hub change; a contact while armed is HIGH and while disarmed MEDIUM; a repeated change is one event; an alarm going off reaches Delivery as HIGH (Trace: FR-008, FR-009, SC-002; CP-RW)
+- [ ] T063 [US2] [assigned_to: Implementer] [effort: 0.7] Shared homes, alarms only, as policy data (DRIFT-002-20; FR-036, US8):
+  - from a location Ring marks as shared, only the kinds the owner chose are stored and pushed (`alarm.triggered`; whether `flood` too is the owner's answer); every other event from a shared home is neither stored nor pushed;
+  - the kinds are data beside the priority policy, checked when the core starts, so a change needs no code;
+  - an event from a shared home names the home in its summary, since devices in different homes share names;
+  - the owner's choice is recorded as the agreement US8 asks for before a shared location is shown.
+
+  Tests: a shared home's alarm is stored and pushed with the home's name; its doorbell, person and motion are neither; the owned home is unchanged (Trace: FR-036, FR-009; CP-RW)
+
 **Verification**: `tsc --noEmit`, `npx vitest run --coverage`, the schema snapshot check, `npx depcruise bridge shim --config .dependency-cruiser.cjs`
 
 **Checkpoint**: US2's acceptance scenarios pass on the simulated home, and SC-002's kill-and-restart and dropped-link tests read every event from the cursor.
@@ -298,7 +313,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - a walk through the iteration 002 rows of quickstart.md.
 
   (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048, SC-001, SC-002, SC-005, SC-010; CP-RV)
-- [ ] T060 [assigned_to: Implementer] [effort: 3.6] Rework reserve: fixes for the midpoint review's and the co-review's findings, each with its failing test first. Points left unused are reported at the retro, never spent on new scope (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-RW)
+- [ ] T060 [assigned_to: Implementer] [effort: 1.1] Rework reserve: fixes for the midpoint review's and the co-review's findings, each with its failing test first. Points left unused are reported at the retro, never spent on new scope, except as the owner decides: 2.5 of the reserve's 3.6 points fund T062 and T063 (DRIFT-002-20), and the midpoint review's four fixes (DRIFT-002-19) used about 1.0, so about 0.1 is left for the final review's findings (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-RW)
 - [ ] T061 [assigned_to: Implementer, with the owner] [effort: 0.9] The carried pilot reads:
   - about 2026-11-21: the 7-day soak's result and the clock check at its end, including the Ring session's re-establishment on 2026-11-16, against SC-003;
   - at month end: the month's bill against SC-011's $30 ceiling;

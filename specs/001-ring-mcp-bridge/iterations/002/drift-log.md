@@ -22,11 +22,27 @@
 
 ## Summary
 
-**Total drift events**: 19
-**Resolution rate**: 100% (19/19 resolved or decided)
+**Total drift events**: 20
+**Resolution rate**: 100% (20/20 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-20: the owner's decisions on shared homes: alarms only now, an event-filter page in iteration 003
+
+- **Detected**: 2026-11-18, after the privacy finding in DRIFT-002-19 and the owner's account of the three Ring systems the account holds: the owner's home and two shared homes of family members.
+- **Kind**: scope added by the owner, and a gap in the tasks closed.
+- **Observed**:
+  1. **The gap.** The plan for this iteration includes FR-009's HIGH events from the alarm system (an alarm going off, a flood, a contact or motion sensor while armed), but no task built them: only camera and doorbell pushes became events. Alarm-system changes reached the core only as device state.
+  2. **The owner's wish:** from the shared homes, only alarms, never their doorbells, people or motion; per home and per kind; on the admin page.
+  3. **The owner's decision, "split it"** (typed 2026-11-18):
+     - **This iteration:** T062 adds alarm-system events from the hub; T063 adds the shared-home rule as policy data (alarms only, named by home). The fix that blocks shared homes entirely (DRIFT-002-19) is deployed first.
+     - **Iteration 003:** an "Event filters" section on the admin page: per home and per kind, blocked meaning neither stored nor pushed, safe defaults (everything from the owned home, alarms only from a shared one, nothing from a home Ring adds later), and every change logged. It is built with iteration 003's per-agent push choices (FR-010), which use the same machinery.
+  4. **ChatGPT's advice**, which the owner relayed and which the design follows: filter by Ring's location id and by event kind, never by device name or by priority; log what is withheld; test each home.
+- **Requirement citation**: FR-008, FR-009, FR-010, FR-036, US8; plan.md iteration 002 and 003 rows.
+- **Resolution**: human-decision by the owner's typed "split it". The owner's choice to receive alarms from the shared homes is the agreement US8 asks for before a shared location is shown.
+- **Carry-forward**: T062 and T063 in Phase 5, together 2.5 points, funded by the rework reserve (T060 goes from 3.6 to 1.1 points). The four fixes of DRIFT-002-19 used about 1.0 of the reserve, so about 0.1 is left for the final review's findings: if that review finds more, something moves to iteration 003, the owner's choice then. The event-filter page joins iteration 003's planning. Whether a flood in a shared home also comes through is the owner's answer.
+- **Class closure**: NONE - owner decisions.
 
 ### DRIFT-002-19: the midpoint review's four findings, fixed under T060
 
