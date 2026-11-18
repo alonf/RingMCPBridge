@@ -986,3 +986,19 @@ The result is one of three: registration and linking both work (the official pat
   - logs the client, the event name, the delivery mode, the callback's host and each answer's status. The secret stays in memory and is never logged, and neither are the callback's path or the arguments.
 - **What the probe does not do**, and T048 must: resolve the callback's address and refuse private ones, apply the host allowlist, limit the answer's size, retry, store subscriptions, and expire them. The probe follows no redirect and gives a callback five seconds. It is reachable only with an access token the owner's own sign-in issued.
 - **Part 2**, with the owner's OK for one production deploy: set the switch, connect from the owner's ChatGPT, and read from the log whether a subscription arrives, which host its callback names, and whether the verification and the test event are accepted.
+
+## Iteration 002 addendum: the MCP Events probe (T039), part 2, the test from the owner's ChatGPT (2026-11-18)
+
+The probe was deployed with the owner's OK on 2026-11-18 (commit `8957bcd`, DRIFT-002-12), and the owner connected from a ChatGPT Work chat. What the core's log shows:
+
+| Time (UTC) | Step | Result |
+| --- | --- | --- |
+| 01:15:28.27 | `events/subscribe` for `bridge.probe`, webhook delivery | accepted; callback host `connectors.api.openai.com` |
+| 01:15:28.77 | the signed verification challenge to the callback | 200, challenge echoed (about 0.5 s) |
+| 01:15:34.41 | the signed test event, 5 s later | 200 |
+
+- **The owner's plan offers MCP Events.** ChatGPT read the event list and presented the test event as an "automation subscription". It subscribed when asked to.
+- **The callback host is `connectors.api.openai.com`**, over HTTPS. This is the host the allowlist decision (T048) is about.
+- **The signature scheme is accepted as built:** Standard Webhooks, `v1,` and HMAC-SHA256 over `webhook-id.webhook-timestamp.body`, keyed by the base64 part of ChatGPT's `whsec_` secret, plus `X-MCP-Subscription-Id`. Both the challenge and the event were accepted.
+- **Still to record from the owner:** whether the test event showed in the chat, and whether the dot lit.
+- **One finding for the log:** the subscribing client's id was written as `[redacted]`, because the client ids the Issuer gives agents are longer than the allow-list's short-id form. The log cannot tell two agents apart until that form takes them. This is noted for T048, which logs per-client deliveries.
