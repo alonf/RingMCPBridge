@@ -5,6 +5,7 @@
 // ring-client-api's own objects crosses the port.
 import { isValidTimeZone } from "../../../utilities/clock/index.ts";
 import type {
+  RingClientCameraEvent,
   RingClientCameraFields,
   RingClientDeviceData,
   RingClientLocationDetails,
@@ -14,6 +15,7 @@ import type {
   RingDevice,
   RingDeviceState,
   RingDeviceType,
+  RingHistoryEntry,
   RingLocation,
   RingPanel,
   RingPowerMode,
@@ -111,6 +113,35 @@ function epochMs(value: unknown): number | undefined {
     return undefined;
   }
   return value < SECONDS_BEFORE ? value * 1000 : value;
+}
+
+/**
+ * One camera history event as the bridge's entry, or `undefined` when its id or time cannot be
+ * read (T053). Ring's kinds other than motion and ding are `other`.
+ */
+export function historyEntry(
+  event: RingClientCameraEvent,
+  camera: RingClientCameraFields,
+  locationId: string,
+): RingHistoryEntry | undefined {
+  const at = Date.parse(event.created_at);
+  const id = typeof event.ding_id_str === "string" ? event.ding_id_str : "";
+  if (!Number.isFinite(at) || id === "") {
+    return undefined;
+  }
+  const kind =
+    event.kind === "motion" || event.kind === "ding" ? event.kind : "other";
+  const detected = event.cv_properties?.person_detected;
+  return {
+    device_id: String(camera.id),
+    location_id: locationId,
+    device_type: camera.isDoorbot ? "doorbell" : "camera",
+    ring_event_id: id,
+    kind,
+    person: detected !== undefined && detected !== null && detected !== false,
+    occurred_at: at,
+    ...(camera.name === "" ? {} : { name: camera.name }),
+  };
 }
 
 /** The fields that are not `undefined`. */

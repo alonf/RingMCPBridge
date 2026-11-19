@@ -2,6 +2,7 @@
 
 /** The client the Host starts and stops, its wiring, and its two intervals. */
 export {
+  CATCHUP_CHECK_MS,
   HEARTBEAT_INTERVAL_MS,
   HomeScheduler,
   RESEND_TICK_MS,

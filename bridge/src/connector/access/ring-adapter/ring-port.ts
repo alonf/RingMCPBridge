@@ -136,6 +136,46 @@ export interface RingPush {
   readonly payload: unknown;
 }
 
+/**
+ * One event from a camera's or doorbell's history (T053): what the push channel would have
+ * brought. Ring's text is not in it, but the id, which the bridge reads as an opaque string.
+ */
+export interface RingHistoryEntry {
+  readonly device_id: string;
+  readonly location_id: string;
+  readonly device_type: "doorbell" | "camera";
+  /** Ring's id for the event: the push's own id, so a recovered event has the push's event id. */
+  readonly ring_event_id: string;
+  /** `motion`, `ding`, or `other` for a kind the bridge does not know. */
+  readonly kind: "motion" | "ding" | "other";
+  /** Whether Ring reported a person with it. */
+  readonly person: boolean;
+  /** When it happened, in UTC milliseconds, by Ring's time. */
+  readonly occurred_at: number;
+  /** The camera's name as Ring gave it: untrusted text, never logged. */
+  readonly name?: string;
+}
+
+/** What a history read found: the entries newest first, and whether it stopped short. */
+export interface RingHistoryRead {
+  readonly entries: readonly RingHistoryEntry[];
+  /** True when the read stopped before it reached the time asked: events may be missing. */
+  readonly truncated: boolean;
+}
+
+/** Ring's history of its cameras, apart from `RingPort` so a reader of state need not carry it. */
+export interface RingHistoryPort {
+  /**
+   * The owned cameras' events newer than `sinceMs`, through the shared gate, a page at a time.
+   * Throws `RingAdapterError` as `RingPort.locations` does.
+   */
+  cameraHistory(
+    sinceMs: number,
+    signal: AbortSignal,
+    options?: { readonly maxPages?: number },
+  ): Promise<RingHistoryRead>;
+}
+
 /** Ring's push notifications, apart from `RingPort` so a reader of state need not carry it. */
 export interface RingPushPort {
   /** Calls `listener` with each push notification Ring delivers, in order, until stopped. */

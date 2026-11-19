@@ -7,6 +7,8 @@ import type {
   RingClientAssetSession,
   RingClientCamera,
   RingClientCameraData,
+  RingClientCameraEvent,
+  RingClientCameraEvents,
   RingClientDevice,
   RingClientDeviceData,
   RingClientDeviceList,
@@ -129,6 +131,10 @@ export const FAKE_DOORBELL: FakeCameraData = {
 export class FakeCamera implements RingClientCamera {
   /** Ring's push notifications about the camera: a test emits what Ring would send. */
   readonly onNewNotification = new FakeRingStream<unknown>();
+  /** The camera's history as Ring would list it, newest first; a test sets it. */
+  history: readonly RingClientCameraEvent[] = [];
+  /** How many pages were asked for, and with which key. */
+  readonly pageRequests: (string | undefined)[] = [];
   #data: FakeCameraData;
 
   constructor(data: FakeCameraData) {
@@ -137,6 +143,21 @@ export class FakeCamera implements RingClientCamera {
 
   get id(): number {
     return this.#data.id;
+  }
+
+  getEvents(
+    options: { readonly limit?: number; readonly pagination_key?: string } = {},
+  ): Promise<RingClientCameraEvents> {
+    this.pageRequests.push(options.pagination_key);
+    const size = options.limit ?? 50;
+    const from =
+      options.pagination_key === undefined ? 0 : Number(options.pagination_key);
+    const events = this.history.slice(from, from + size);
+    const next = from + size;
+    return Promise.resolve({
+      events,
+      meta: { pagination_key: String(next) },
+    });
   }
 
   get name(): string {

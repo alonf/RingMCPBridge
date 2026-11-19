@@ -48,6 +48,7 @@ export async function openRingHome(
   return {
     ring,
     push: ring,
+    history: ring,
     key: secrets.connectorKey,
     ...(secrets.enrollmentCode === undefined
       ? {}

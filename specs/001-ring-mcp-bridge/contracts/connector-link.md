@@ -68,6 +68,7 @@ A connection the core refuses is closed with a reason [P]: version not accepted,
 
 Fields [P names unless noted]: `event_id`, `location_id` (PT-24), `kind`, `occurred_at`, `received_at`, `device_id`, the device's `name` and `room` (untrusted), `summary` (untrusted-derived), `from_history`, `person`, `device_type` (the device's type as the home knows it: a camera's from DRIFT-002-19, every type from T062), `armed` (whether the home saw the location armed, past any exit delay, when it happened; T062), `device_state`, `data`. Required: `event_id`, `location_id`, `kind`, `occurred_at`, `received_at`, `summary` and `from_history`. Declared in iteration 002 by T041 (`bridge/src/core/clients/connector-link/messages/`).
 
+- **Recovered events** (T053): after a gap the home reads Ring's camera history from its catch-up mark and sends what is missing as `event` messages with `from_history: true`, under the ids their pushes have; the core stores them late and does not push them one by one (FR-013).
 - Normalize builds it from Ring's payload as a tolerant reader. An unknown Ring kind becomes `ring.other`, with Ring's name kept as untrusted text (CD4).
 - Ring strings are marked untrusted at the edge (CD map v3 Normalize, FR-033).
 - It carries no priority: Classify sets the priority in the core from policy data (FR-009, CD map v3 Classify).

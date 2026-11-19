@@ -74,12 +74,37 @@ export interface RingClientCameraFields {
   readonly isOffline: boolean;
 }
 
+/** One event in a camera's history, as Ring lists it (T053). Read tolerantly: the shape is the library's. */
+export interface RingClientCameraEvent {
+  /** When Ring made it: an ISO time. */
+  readonly created_at: string;
+  /** Ring's id for the event, as text: the push's own id. */
+  readonly ding_id_str: string;
+  /** `motion`, `ding`, or another kind Ring names. */
+  readonly kind: string;
+  readonly cv_properties?: {
+    readonly person_detected?: unknown;
+    readonly detection_type?: unknown;
+  };
+}
+
+/** A page of a camera's history, newest first, and where the next page starts. */
+export interface RingClientCameraEvents {
+  readonly events: readonly RingClientCameraEvent[];
+  readonly meta?: { readonly pagination_key?: string };
+}
+
 /**
  * A camera or doorbell. ring-client-api builds it once, with the data of the first read, and
  * changes it only when its data is replaced: the adapter does that on each read (`updateData`).
  */
 export interface RingClientCamera extends RingClientCameraFields {
   updateData(data: RingClientCameraData): void;
+  /** A page of the camera's history, newest first (T053). */
+  getEvents(options?: {
+    readonly limit?: number;
+    readonly pagination_key?: string;
+  }): Promise<RingClientCameraEvents>;
   /**
    * Each push notification Ring sends about the device, as the library parsed it (no replay). The
    * library drops what arrives in its first two seconds and any format it does not know.

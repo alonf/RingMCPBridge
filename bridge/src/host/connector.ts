@@ -87,6 +87,7 @@ export async function startConnector(
   }
   const homeSide = assembleHome({
     ring: home.ring,
+    ...(home.history === undefined ? {} : { history: home.history }),
     ...(home.push === undefined
       ? {}
       : {

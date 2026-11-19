@@ -33,6 +33,14 @@
 // message is sent when it is written, and the 10 s tick sends again what has waited 10 s without
 // its ack (T016).
 //
+// Catch-up (T053; FR-013, FR-042): the outbox keeps the time of the newest Ring camera event it
+// has written (the push's or history's, never a hub event, which would hide a push gap). After a gap
+// (the first run of a process, then at most once an hour) Ring's history is read from that mark,
+// up to 24 hours back, and what the gap lost goes to the outbox as late events under the ids their
+// pushes would have had, so an event seen both ways is stored once. A first run with no mark only
+// starts tracking: it does not fill the log with history. A read that stops short, or a gap over 24
+// hours, is logged as limited. Ring down changes nothing, and the next run reads the same gap.
+//
 // Events (T044; FR-008, FR-042): each push the Push Listener hands over is normalized (T042) and
 // written to the outbox under its event id, held there until the core's ack for it, then sent.
 // Events go before state messages, as the link contract orders them, within the outbox's send
@@ -64,6 +72,7 @@ import { RingAdapterError } from "../../access/ring-adapter/index.ts";
 import type {
   RingChange,
   RingDevice,
+  RingHistoryPort,
   RingPort,
   RingPush,
   StopWatching,
@@ -73,6 +82,7 @@ import {
   armedAt,
   deviceChangeEvents,
   fromSharedHome,
+  historyEvent,
   modeChangeEvent,
   normalizePush,
 } from "../../engines/normalize/index.ts";
@@ -105,7 +115,27 @@ export interface IngestOptions {
   readonly logger: Logger;
   /** Whether Ring's push reaches the home (the Push Listener is wired): the heartbeat says so. */
   readonly pushOn?: boolean;
+  /** Ring's camera history, for the catch-up after a gap (T053); none: no catch-up. */
+  readonly history?: RingHistoryPort;
 }
+
+/** What a catch-up run did. */
+export type CatchUpOutcome =
+  | { readonly outcome: "started" }
+  | { readonly outcome: "no_history" }
+  | { readonly outcome: "ring_unavailable" }
+  | { readonly outcome: "outbox_unavailable" }
+  | {
+      readonly outcome: "recovered";
+      readonly recovered: number;
+      readonly duplicates: number;
+      /** True when the gap was over 24 hours or Ring's history stopped short: events may be missing. */
+      readonly limited: boolean;
+    };
+
+/** How far back a catch-up reads (FR-042), and how often it is due after its first run. */
+const CATCHUP_WINDOW_MS = 24 * 3_600_000;
+const CATCHUP_EVERY_MS = 3_600_000;
 
 // The newest picture of the home: the number of the read it came from, in the order reads began,
 // and the session open as that read began.
@@ -129,6 +159,9 @@ export class Ingest {
   readonly #clock: Clock;
   readonly #logger: Logger;
   readonly #pushOn: boolean;
+  readonly #history: RingHistoryPort | undefined;
+  // When the catch-up last ran in this process; none yet.
+  #lastCatchUpAt: number | undefined;
   // When the last push was received, on the home's clock; none yet.
   #lastPushAt: number | undefined;
   readonly #readsRunning = new Set<TimedChange[]>();
@@ -159,6 +192,7 @@ export class Ingest {
     this.#clock = options.clock;
     this.#logger = options.logger.with({ component: "ingest" });
     this.#pushOn = options.pushOn ?? false;
+    this.#history = options.history;
   }
 
   /** Starts taking Ring's changes. The Host calls it before the first session starts. */
@@ -239,11 +273,103 @@ export class Ingest {
       });
       return;
     }
-    this.#queueEvent(normalized.event, receivedAt);
+    this.#queueEvent(normalized.event, receivedAt, true);
   }
 
-  // Writes an event to the outbox under its id, then sends what is due. It never throws.
-  #queueEvent(event: NormalizedEvent, receivedAt: number): void {
+  /**
+   * Catch-up when it is due: at the first check of a process, then at most once an hour. The
+   * scheduler calls it on a short tick; it never throws.
+   */
+  async catchUpIfDue(signal: AbortSignal): Promise<void> {
+    const now = this.#clock.now();
+    if (
+      this.#lastCatchUpAt !== undefined &&
+      now - this.#lastCatchUpAt < CATCHUP_EVERY_MS
+    ) {
+      return;
+    }
+    this.#lastCatchUpAt = now;
+    await this.catchUp(signal);
+  }
+
+  /**
+   * Reads Ring's camera history from the catch-up mark and queues what the gap lost as late
+   * events. With no mark it only starts tracking. It never throws: Ring's and the outbox's failures
+   * are logged and returned, and change nothing the next run cannot repeat.
+   */
+  async catchUp(signal: AbortSignal): Promise<CatchUpOutcome> {
+    const history = this.#history;
+    if (history === undefined) {
+      return { outcome: "no_history" };
+    }
+    const now = this.#clock.now();
+    try {
+      const mark = await this.#outbox.catchupMark(signal);
+      if (mark === undefined) {
+        await this.#outbox.advanceCatchupMark(now, signal);
+        return { outcome: "started" };
+      }
+      const floor = now - CATCHUP_WINDOW_MS;
+      const since = Math.max(mark, floor);
+      const read = await history.cameraHistory(since, signal);
+      const limited = mark < floor || read.truncated;
+      if (limited) {
+        this.#logger.warn("ingest_catchup_limited", {
+          gap_hours: Math.round((now - mark) / 3_600_000),
+          history_short: read.truncated ? 1 : 0,
+        });
+      }
+      let recovered = 0;
+      let duplicates = 0;
+      for (const found of [...read.entries].sort(
+        (a, b) => a.occurred_at - b.occurred_at,
+      )) {
+        const event = historyEvent(found);
+        if (event === undefined) {
+          this.#count("push_unusable");
+          continue;
+        }
+        const body = eventBody(event, now, true);
+        const written = await this.#step(() =>
+          this.#outbox.appendEvent(body.event_id, () => body, signal),
+        );
+        await this.#outbox.advanceCatchupMark(found.occurred_at, signal);
+        if (written === "written") {
+          recovered += 1;
+        } else {
+          duplicates += 1;
+        }
+      }
+      if (recovered + duplicates > 0) {
+        this.#logger.info("ingest_catchup_done", { recovered, duplicates });
+        await this.#sendDueSafely(signal);
+      }
+      return { outcome: "recovered", recovered, duplicates, limited };
+    } catch (error) {
+      signal.throwIfAborted();
+      if (error instanceof RingAdapterError) {
+        this.#logger.warn("ingest_catchup_failed", {
+          error_code: error.kind,
+        });
+        return { outcome: "ring_unavailable" };
+      }
+      this.#count("outbox_unavailable");
+      this.#logger.error(
+        "ingest_catchup_failed",
+        { error_code: "outbox_unavailable" },
+        error,
+      );
+      return { outcome: "outbox_unavailable" };
+    }
+  }
+
+  // Writes an event to the outbox under its id, then sends what is due. It never throws. A Ring
+  // camera event (a push) also moves the catch-up mark: the time Ring made it.
+  #queueEvent(
+    event: NormalizedEvent,
+    receivedAt: number,
+    marksCatchUp = false,
+  ): void {
     const body = eventBody(event, receivedAt);
     const fields: LogFields = {
       event_id: body.event_id,
@@ -251,9 +377,17 @@ export class Ingest {
       location_id: event.location_id,
       kind: body.kind,
     };
-    void this.#step(() =>
-      this.#outbox.appendEvent(body.event_id, () => body, UNCANCELLED),
-    ).then(
+    void this.#step(async () => {
+      const written = await this.#outbox.appendEvent(
+        body.event_id,
+        () => body,
+        UNCANCELLED,
+      );
+      if (marksCatchUp) {
+        await this.#outbox.advanceCatchupMark(event.occurred_at, UNCANCELLED);
+      }
+      return written;
+    }).then(
       (written) => {
         this.#logger.info("ingest_event_queued", {
           ...fields,
@@ -779,7 +913,11 @@ function inventoryDraft(
 }
 
 // The link's `event` message for a normalized push, received at `receivedAt` on the home's clock.
-function eventBody(event: NormalizedEvent, receivedAt: number): EventMessage {
+function eventBody(
+  event: NormalizedEvent,
+  receivedAt: number,
+  fromHistory = false,
+): EventMessage {
   return {
     event_id: event.event_id,
     location_id: event.location_id,
@@ -791,7 +929,7 @@ function eventBody(event: NormalizedEvent, receivedAt: number): EventMessage {
       ? {}
       : { device_type: event.device_type }),
     summary: event.summary,
-    from_history: false,
+    from_history: fromHistory,
     ...(event.name === undefined ? {} : { name: event.name }),
     ...(event.person === undefined ? {} : { person: event.person }),
     ...(event.data === undefined ? {} : { data: { ...event.data } }),

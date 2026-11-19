@@ -5,6 +5,7 @@
 //   order they were written. `kind` has no CHECK, so a later release can add kinds (events and
 //   `catchup_done` in iteration 002) without rebuilding the table. Times are UTC milliseconds.
 // - `state_counter`: one row, the last `state_version` handed out (PT-30).
+// - `catchup_mark` (migration 3): the newest Ring event written, where the catch-up resumes.
 import type { Migration } from "../../../utilities/query-layer/index.ts";
 
 export const OUTBOX_MIGRATIONS: readonly Migration<"sqlite">[] = [
@@ -44,6 +45,23 @@ export const OUTBOX_MIGRATIONS: readonly Migration<"sqlite">[] = [
       sqlite: [
         "ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE outbox ADD COLUMN due_at INTEGER",
+      ],
+    },
+  },
+  // Migration 3 (T053): the catch-up mark, one row: the time of the newest Ring event the home has
+  // written to the outbox, in UTC milliseconds. After a gap, Ring's history is read from it. It
+  // only moves forward. Additive: one new table, so the release before still runs on this file.
+  {
+    version: 3,
+    name: "catchup-mark",
+    statements: {
+      sqlite: [
+        `CREATE TABLE catchup_mark (
+          mark_id INTEGER NOT NULL,
+          last_event_at INTEGER NOT NULL,
+          CONSTRAINT catchup_mark_pk PRIMARY KEY (mark_id),
+          CONSTRAINT catchup_mark_single_row CHECK (mark_id = 1)
+        ) STRICT`,
       ],
     },
   },

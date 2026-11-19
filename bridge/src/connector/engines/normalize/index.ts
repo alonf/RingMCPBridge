@@ -4,6 +4,8 @@
 
 /** The rule, its input and its result. */
 export { MAX_RING_EVENT_ID_LENGTH, normalizePush } from "./normalize.ts";
+export { historyEvent } from "./history-events.ts";
+export type { HistoryInput } from "./history-events.ts";
 export {
   alarmEvent,
   armedAt,

@@ -1,6 +1,7 @@
 // Home Scheduler (CP-09, T016): the home's clock-driven work. Every 10 s it has Ingest send what is
 // due (resends after 10 s without an ack, and a session's inventory still owed); every 15 s it has
-// Ingest send the heartbeat (OR5). Each tick starts when the last one has finished, so ticks never
+// Ingest send the heartbeat (OR5); every minute it asks Ingest whether the catch-up after a gap is due
+// (T053), which runs it at the first check and then at most once an hour. Each tick starts when the last one has finished, so ticks never
 // overlap. Due auto-off timers join it with Execute (iteration 003).
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
@@ -11,6 +12,9 @@ export const RESEND_TICK_MS = 10_000;
 
 /** How often the heartbeat goes (connector-link.md "Heartbeat and home offline"). */
 export const HEARTBEAT_INTERVAL_MS = 15_000;
+
+/** How often Ingest is asked whether the catch-up is due (T053); Ingest keeps the hour itself. */
+export const CATCHUP_CHECK_MS = 60_000;
 
 /** What the Home Scheduler is wired with. */
 export interface HomeSchedulerOptions {
@@ -50,6 +54,9 @@ export class HomeScheduler {
       "heartbeat",
       controller.signal,
       (signal) => ingest.sendHeartbeat(signal),
+    );
+    this.#every(CATCHUP_CHECK_MS, "catch_up", controller.signal, (signal) =>
+      ingest.catchUpIfDue(signal),
     );
   }
 

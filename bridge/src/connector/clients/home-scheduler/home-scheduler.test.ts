@@ -6,6 +6,7 @@ import type { Clock } from "../../../utilities/clock/index.ts";
 import { Logger } from "../../../utilities/logging/index.ts";
 import type { Ingest } from "../../managers/ingest/index.ts";
 import {
+  CATCHUP_CHECK_MS,
   HEARTBEAT_INTERVAL_MS,
   HomeScheduler,
   RESEND_TICK_MS,
@@ -16,6 +17,7 @@ const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 interface Calls {
   sendDue: number[];
   heartbeat: number[];
+  catchUp: number[];
 }
 
 function setup(failing = false): {
@@ -25,7 +27,7 @@ function setup(failing = false): {
   scheduler: HomeScheduler;
 } {
   const clock = new FakeClock(START);
-  const calls: Calls = { sendDue: [], heartbeat: [] };
+  const calls: Calls = { sendDue: [], heartbeat: [], catchUp: [] };
   const lines: string[] = [];
   const ingest = {
     sendDue: () => {
@@ -36,6 +38,10 @@ function setup(failing = false): {
     },
     sendHeartbeat: () => {
       calls.heartbeat.push(clock.now() - START);
+      return Promise.resolve();
+    },
+    catchUpIfDue: () => {
+      calls.catchUp.push(clock.now() - START);
       return Promise.resolve();
     },
   } as unknown as Ingest;
@@ -65,8 +71,18 @@ describe("HomeScheduler", () => {
     await advance(clock, 30_000);
     expect(calls.sendDue).toEqual([10_000, 20_000, 30_000]);
     expect(calls.heartbeat).toEqual([15_000, 30_000]);
+    expect(calls.catchUp).toEqual([]);
     expect(RESEND_TICK_MS).toBe(10_000);
     expect(HEARTBEAT_INTERVAL_MS).toBe(15_000);
+    await scheduler.stop();
+  });
+
+  it("asks Ingest every minute whether the catch-up is due (T053)", async () => {
+    const { clock, calls, scheduler } = setup();
+    scheduler.start();
+    await advance(clock, 120_000);
+    expect(calls.catchUp).toEqual([60_000, 120_000]);
+    expect(CATCHUP_CHECK_MS).toBe(60_000);
     await scheduler.stop();
   });
 
@@ -109,6 +125,7 @@ describe("HomeScheduler", () => {
     const ingest = {
       sendDue: () => Promise.resolve(),
       sendHeartbeat: () => Promise.resolve(),
+      catchUpIfDue: () => Promise.resolve(),
     } as unknown as Ingest;
     const scheduler = new HomeScheduler({
       ingest,
@@ -124,6 +141,6 @@ describe("HomeScheduler", () => {
     await advance(fake, 10 * 60_000);
     await scheduler.stop();
 
-    expect(cancelled).toBe(2);
+    expect(cancelled).toBe(3);
   });
 });

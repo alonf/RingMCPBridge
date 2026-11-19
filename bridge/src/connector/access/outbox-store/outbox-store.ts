@@ -342,6 +342,33 @@ export class OutboxStore {
     );
   }
 
+  /** The time of the newest Ring event written to the outbox, or `undefined` before any (T053). */
+  async catchupMark(signal: AbortSignal): Promise<number | undefined> {
+    const row = await this.#guard(signal, "The outbox could not be read.", () =>
+      this.#layer.get(
+        statement("SELECT last_event_at FROM catchup_mark WHERE mark_id = 1"),
+        signal,
+      ),
+    );
+    const at = row?.last_event_at;
+    return typeof at === "number" ? at : undefined;
+  }
+
+  /** Moves the catch-up mark forward to `at`; an earlier time leaves it as it is (T053). */
+  async advanceCatchupMark(at: number, signal: AbortSignal): Promise<void> {
+    await this.#guard(signal, "The outbox could not be written.", () =>
+      this.#layer.run(
+        statement(
+          `INSERT INTO catchup_mark (mark_id, last_event_at) VALUES (1, @at)
+           ON CONFLICT (mark_id) DO UPDATE SET last_event_at = excluded.last_event_at
+           WHERE excluded.last_event_at > catchup_mark.last_event_at`,
+          { at },
+        ),
+        signal,
+      ),
+    );
+  }
+
   /** The events waiting for their ack, and how long the oldest has waited (the heartbeat's backlog). */
   async eventBacklog(signal: AbortSignal): Promise<EventBacklog> {
     const row = await this.#guard(signal, "The outbox could not be read.", () =>

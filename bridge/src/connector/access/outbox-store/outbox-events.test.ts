@@ -288,3 +288,21 @@ describe("the Outbox Store's events", () => {
     ]);
   });
 });
+
+// T053: where the catch-up resumes.
+describe("the catch-up mark", () => {
+  it("is empty before any event, moves only forward, and survives a restart", async () => {
+    const store = await open();
+    await expect(store.catchupMark(signal)).resolves.toBeUndefined();
+
+    await store.advanceCatchupMark(START, signal);
+    await store.advanceCatchupMark(START - 5_000, signal);
+    await expect(store.catchupMark(signal)).resolves.toBe(START);
+    await store.advanceCatchupMark(START + 7_000, signal);
+    await store.close();
+    opened.pop();
+
+    const again = await open();
+    await expect(again.catchupMark(signal)).resolves.toBe(START + 7_000);
+  });
+});

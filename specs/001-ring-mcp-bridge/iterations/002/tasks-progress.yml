@@ -1,13 +1,13 @@
 schema: "v1"
 feature: "001-ring-mcp-bridge"
 iteration: "002"
-updated_at: "2026-11-19T11:30:00Z"
+updated_at: "2026-11-19T15:00:00Z"
 tasks:
   CP-08b:
     title: "Home event intake: the push probe first; Push Listener, Normalize (Ring text marked untrusted) and Ingest; events into the Outbox with a send window of about 50 and backoff on the oldest (10 s doubling to 5 min, with jitter), held until the core acks after its commit; the backlog in the heartbeat; catch-up up to 24 hours through the shared Ring limiter, marked late; the link's event messages in version 1"
-    status: "in-progress"
+    status: "completed"
     started_at: "2026-11-17T20:00:00Z"
-    completed_at: ""
+    completed_at: "2026-11-19T15:00:00Z"
     blocked_reason: ""
   CP-11b:
     title: "Core event path: Classify (FR-009's table as a data file, the late-event rule); Event Log, State and Audit in one transaction, dedup by event id, then the ack home; the recovery summary; Ring-down and recovery events through the event path; `get_health` adds push reception, the last event and the backlog; 30-day retention; the CI 0.5 s latency check extended to events"

@@ -230,7 +230,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - checked against `specs/001-ring-mcp-bridge/contracts/iteration-002-tools.schema.json`; `schemas/` regenerated; `specs/001-ring-mcp-bridge/contracts/mcp-tools.md` updated.
 
   Tests: the first independent test above; paging to the end; a filter that matches nothing; the 601st read in an hour is refused; a token without the read scope is refused (Trace: FR-011, FR-026, FR-030, FR-047, FR-048, SC-002; CP-12)
-- [ ] T053 [US2] [assigned_to: Implementer] [effort: 1.35] Catch-up at home, in `bridge/src/connector/managers/ingest/` and `bridge/src/connector/access/outbox-store/`:
+- [x] T053 [US2] [assigned_to: Implementer] [effort: 1.35] Catch-up at home, in `bridge/src/connector/managers/ingest/` and `bridge/src/connector/access/outbox-store/`:
   - the catch-up mark: the last Ring event known to be in the Outbox;
   - after a push gap or a restart, Ring's history is read from the mark, up to 24 hours back, through the shared Ring limiter with backoff, never in a burst;
   - recovered events go through Normalize and the Outbox with the same event ids as their pushes would have had, marked late;

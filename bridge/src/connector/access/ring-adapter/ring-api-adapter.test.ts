@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { FakeClock } from "../../../utilities/clock/index.ts";
 import { Logger } from "../../../utilities/logging/index.ts";
+import type { RingClientCameraEvent } from "./ring-client.ts";
 import type { Secret } from "../../../utilities/security/index.ts";
 import { RING_CALL_LIMITS, RingCallGate } from "./call-limits.ts";
 import {
@@ -1449,5 +1450,129 @@ describe("RingApiAdapter push", () => {
     );
     expect(failures).toHaveLength(1);
     expect(lines.join("\n")).not.toContain("Front Door");
+  });
+});
+
+// T053: Ring's history, for the events a gap lost.
+describe("RingApiAdapter camera history", () => {
+  const sinceMs = Date.UTC(2026, 10, 19, 8, 0, 0);
+
+  function past(minutes: number): string {
+    return new Date(sinceMs + minutes * 60_000).toISOString();
+  }
+
+  function eventOf(
+    id: string,
+    minutes: number,
+    kind = "motion",
+    person = false,
+  ): RingClientCameraEvent {
+    return {
+      created_at: past(minutes),
+      ding_id_str: id,
+      kind,
+      cv_properties: { person_detected: person ? true : null },
+    };
+  }
+
+  it("reads the owned cameras' history newer than the time asked, newest first, as the bridge's own entries", async () => {
+    const { clock, client, adapter } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+    const camera = client.locationsList[0]?.cameras[0] as FakeCamera;
+    camera.history = [
+      eventOf("900003", 30, "ding"),
+      eventOf("900002", 20, "motion", true),
+      eventOf("900001", 10),
+      eventOf("900000", -5),
+    ];
+
+    const read = await driveFakeClock(
+      clock,
+      adapter.cameraHistory(sinceMs, never()),
+    );
+
+    expect(read.truncated).toBe(false);
+    expect(read.entries).toEqual([
+      {
+        device_id: "42",
+        location_id: "loc-1",
+        device_type: "doorbell",
+        ring_event_id: "900003",
+        kind: "ding",
+        person: false,
+        occurred_at: sinceMs + 30 * 60_000,
+        name: expect.any(String) as unknown,
+      },
+      {
+        device_id: "42",
+        location_id: "loc-1",
+        device_type: "doorbell",
+        ring_event_id: "900002",
+        kind: "motion",
+        person: true,
+        occurred_at: sinceMs + 20 * 60_000,
+        name: expect.any(String) as unknown,
+      },
+      expect.objectContaining({
+        ring_event_id: "900001",
+        kind: "motion",
+      }) as unknown,
+    ]);
+  });
+
+  it("never reads a shared location's cameras", async () => {
+    const { clock, client, adapter } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+    const shared = client.locationsList[1]?.cameras[0] as FakeCamera;
+    shared.history = [eventOf("800001", 10)];
+
+    const read = await driveFakeClock(
+      clock,
+      adapter.cameraHistory(sinceMs, never()),
+    );
+
+    expect(read.entries).toEqual([]);
+    expect(shared.pageRequests).toEqual([]);
+  });
+
+  it("pages until it reaches the time asked, and says so when it stops short of it", async () => {
+    const { clock, client, adapter } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+    const camera = client.locationsList[0]?.cameras[0] as FakeCamera;
+    camera.history = Array.from({ length: 120 }, (_, n) =>
+      eventOf(String(700000 + n), 1_000 - n),
+    );
+
+    const read = await driveFakeClock(
+      clock,
+      adapter.cameraHistory(sinceMs, never(), { maxPages: 2 }),
+    );
+
+    expect(camera.pageRequests).toEqual([undefined, "50"]);
+    expect(read.entries).toHaveLength(100);
+    expect(read.truncated).toBe(true);
+  });
+
+  it("keeps a unit of Ring's text out of its entries other than the id, and leaves out an event it cannot read", async () => {
+    const { clock, client, adapter } = setup();
+    await driveFakeClock(clock, adapter.locations(never()));
+    const camera = client.locationsList[0]?.cameras[0] as FakeCamera;
+    camera.history = [
+      eventOf("900010", 10, "something_new"),
+      { created_at: "not a time", ding_id_str: "900011", kind: "motion" },
+      { created_at: past(11), ding_id_str: "", kind: "motion" },
+    ];
+
+    const read = await driveFakeClock(
+      clock,
+      adapter.cameraHistory(sinceMs, never()),
+    );
+
+    expect(read.entries).toEqual([
+      expect.objectContaining({
+        ring_event_id: "900010",
+        kind: "other",
+      }) as unknown,
+    ]);
   });
 });

@@ -3,4 +3,8 @@
 
 /** The manager and what it is wired with. */
 export { Ingest } from "./ingest.ts";
-export type { IngestOptions, InventoryOutcome } from "./ingest.ts";
+export type {
+  CatchUpOutcome,
+  IngestOptions,
+  InventoryOutcome,
+} from "./ingest.ts";

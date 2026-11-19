@@ -4,6 +4,7 @@
 // the scenario engine in development and tests. Hand-wired, with no container (CD3, CD5).
 import type { OutboxStore } from "../connector/access/outbox-store/index.ts";
 import type {
+  RingHistoryPort,
   RingPort,
   RingPushPort,
 } from "../connector/access/ring-adapter/index.ts";
@@ -27,6 +28,8 @@ export interface LocalHome {
    * which sends no push until the event path uses it (T044).
    */
   readonly push?: RingPushPort;
+  /** Ring's camera history, for the catch-up after a gap (T053): the Ring Adapter in production. */
+  readonly history?: RingHistoryPort;
   readonly key: SigningKeyPair;
   /** The code the Setup CLI printed for the key; the connector sends it with `enroll` (T028). */
   readonly enrollmentCode?: string;
@@ -38,6 +41,8 @@ export interface HomeAssemblyOptions {
   readonly ring: RingPort;
   /** Ring's push notifications; with none, no Push Listener is built. */
   readonly push?: RingPushPort;
+  /** Ring's camera history for the catch-up; with none, no catch-up runs. */
+  readonly history?: RingHistoryPort;
   /** Where the Push Listener hands distinct payload shapes (T038 part 2); none kept when left out. */
   readonly pushShapes?: PushShapeSink;
   /** The open outbox; the caller closes it after `stop`. */
@@ -71,6 +76,7 @@ export function assembleHome(options: HomeAssemblyOptions): HomeAssembly {
     clock,
     logger,
     pushOn: options.push !== undefined,
+    ...(options.history === undefined ? {} : { history: options.history }),
   });
   const coreLink = new CoreLink({
     dial: options.dial,

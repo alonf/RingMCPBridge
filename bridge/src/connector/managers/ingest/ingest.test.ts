@@ -25,6 +25,9 @@ import { RingAdapterError } from "../../access/ring-adapter/index.ts";
 import type {
   RingChange,
   RingDevice,
+  RingHistoryEntry,
+  RingHistoryPort,
+  RingHistoryRead,
   RingLocation,
   RingPort,
   RingPush,
@@ -1486,5 +1489,233 @@ describe("Ingest: the alarm hub's events", () => {
     expect([...SHARED_HOME_KINDS].sort()).toEqual(
       [...SHARED_LOCATION_KINDS].sort(),
     );
+  });
+});
+
+// T053 (FR-013, FR-042): after a gap, Ring's history is read from the catch-up mark, and the events
+// the gap lost go to the outbox as late ones, under the ids their pushes would have had.
+describe("Ingest: the catch-up", () => {
+  const hour = 3_600_000;
+
+  function entry(
+    id: string,
+    at: number,
+    changes: Partial<RingHistoryEntry> = {},
+  ): RingHistoryEntry {
+    return {
+      device_id: "42",
+      location_id: "loc-1",
+      device_type: "doorbell",
+      ring_event_id: id,
+      kind: "motion",
+      person: false,
+      occurred_at: at,
+      name: "Front Door",
+      ...changes,
+    };
+  }
+
+  class FakeHistory implements RingHistoryPort {
+    entries: readonly RingHistoryEntry[] = [];
+    truncated = false;
+    fails = false;
+    readonly asked: number[] = [];
+
+    cameraHistory(sinceMs: number): Promise<RingHistoryRead> {
+      this.asked.push(sinceMs);
+      if (this.fails) {
+        return Promise.reject(
+          new RingAdapterError("ring_unavailable", "Ring is down."),
+        );
+      }
+      return Promise.resolve({
+        entries: this.entries.filter((found) => found.occurred_at > sinceMs),
+        truncated: this.truncated,
+      });
+    }
+  }
+
+  function catchUpIngest(store: OutboxStore, history: RingHistoryPort): Ingest {
+    const ingest = new Ingest({
+      ring: new ScenarioEngine(clock),
+      outbox: store,
+      link: new LinkSlot(),
+      clock,
+      logger: new Logger({
+        sink: (line) => lines.push(line),
+        now: () => clock.now(),
+        minLevel: "debug",
+      }),
+      pushOn: true,
+      history,
+    });
+    ingests.push(ingest);
+    return ingest;
+  }
+
+  it("starts tracking at its first run, and recovers nothing then", async () => {
+    const store = await openStore();
+    const history = new FakeHistory();
+    history.entries = [entry("9000001", START - hour)];
+    const ingest = catchUpIngest(store, history);
+
+    await expect(ingest.catchUp(signal)).resolves.toEqual({
+      outcome: "started",
+    });
+
+    expect(await store.catchupMark(signal)).toBe(START);
+    await expect(store.eventBacklog(signal)).resolves.toMatchObject({
+      count: 0,
+    });
+    expect(history.asked).toEqual([]);
+  });
+
+  it("recovers what a 3-hour gap lost, oldest first, as late events under their push ids, and moves the mark", async () => {
+    const store = await openStore();
+    const history = new FakeHistory();
+    const ingest = catchUpIngest(store, history);
+    await store.advanceCatchupMark(START - 3 * hour, signal);
+    history.entries = [
+      entry("9000003", START - 10 * 60_000, { kind: "ding" }),
+      entry("9000002", START - hour, { person: true }),
+      entry("9000001", START - 2 * hour),
+      entry("9000000", START - 4 * hour),
+    ];
+
+    const result = await ingest.catchUp(signal);
+
+    expect(result).toEqual({
+      outcome: "recovered",
+      recovered: 3,
+      duplicates: 0,
+      limited: false,
+    });
+    const events = await store.takeDueEvents(signal);
+    expect(events.map((event) => event.eventId)).toEqual([
+      "9000001-m",
+      "9000002-p",
+      "9000003-d",
+    ]);
+    for (const event of events) {
+      expect(eventSchema.safeParse(event.body).success).toBe(true);
+      expect(event.body).toMatchObject({
+        from_history: true,
+        received_at: formatUtc(START),
+      });
+    }
+    expect(events[1]?.body).toMatchObject({
+      kind: "motion",
+      person: true,
+      device_type: "doorbell",
+      occurred_at: formatUtc(START - hour),
+    });
+    expect(history.asked).toEqual([START - 3 * hour]);
+    expect(await store.catchupMark(signal)).toBe(START - 10 * 60_000);
+    expect(lines.join("\n")).not.toContain("Front Door");
+  });
+
+  it("stores an event seen both by push and by catch-up once, even when the mark did not move with the push", async () => {
+    const store = await openStore();
+    const history = new FakeHistory();
+    const ingest = catchUpIngest(store, history);
+    await store.advanceCatchupMark(START - hour, signal);
+    // The push was written, but the process ended before the mark moved.
+    await store.appendEvent(
+      "9000005-m",
+      () => ({ event_id: "9000005-m" }),
+      signal,
+    );
+    history.entries = [
+      entry("9000005", START - 30 * 60_000),
+      entry("9000004", START - 40 * 60_000),
+    ];
+
+    const result = await ingest.catchUp(signal);
+
+    expect(result).toMatchObject({ recovered: 1, duplicates: 1 });
+    const events = await store.takeDueEvents(signal);
+    expect(events.map((event) => event.eventId).sort()).toEqual([
+      "9000004-m",
+      "9000005-m",
+    ]);
+  });
+
+  it("recovers only 24 hours of a 30-hour gap and says so", async () => {
+    const store = await openStore();
+    const history = new FakeHistory();
+    const ingest = catchUpIngest(store, history);
+    await store.advanceCatchupMark(START - 30 * hour, signal);
+
+    const result = await ingest.catchUp(signal);
+
+    expect(history.asked).toEqual([START - 24 * hour]);
+    expect(result).toMatchObject({ outcome: "recovered", limited: true });
+    expect(lines.join("\n")).toContain("ingest_catchup_limited");
+  });
+
+  it("says so when Ring's history stopped short, keeps what it found, and leaves the mark at the newest recovered", async () => {
+    const store = await openStore();
+    const history = new FakeHistory();
+    history.truncated = true;
+    history.entries = [entry("9000001", START - hour)];
+    const ingest = catchUpIngest(store, history);
+    await store.advanceCatchupMark(START - 2 * hour, signal);
+
+    const result = await ingest.catchUp(signal);
+
+    expect(result).toMatchObject({ recovered: 1, limited: true });
+    expect(await store.catchupMark(signal)).toBe(START - hour);
+  });
+
+  it("changes nothing when Ring is down, so the next run reads the same gap", async () => {
+    const store = await openStore();
+    const history = new FakeHistory();
+    history.fails = true;
+    const ingest = catchUpIngest(store, history);
+    await store.advanceCatchupMark(START - hour, signal);
+
+    await expect(ingest.catchUp(signal)).resolves.toEqual({
+      outcome: "ring_unavailable",
+    });
+
+    expect(await store.catchupMark(signal)).toBe(START - hour);
+    await expect(store.eventBacklog(signal)).resolves.toMatchObject({
+      count: 0,
+    });
+  });
+
+  it("moves the mark when a push arrives, so only a push camera event counts, never a hub event", async () => {
+    const store = await openStore();
+    const ingest = catchUpIngest(store, new FakeHistory());
+
+    ingest.pushReceived({
+      device_id: "42",
+      location_id: "loc-1",
+      device_type: "doorbell",
+      payload: {
+        android_config: { category: "com.ring.pn.live-event.motion" },
+        analytics: { triggered_at: START - 5_000 },
+        data: { event: { ding: { id: "9000009" } } },
+      },
+    });
+    await ingest.flush();
+
+    expect(await store.catchupMark(signal)).toBe(START - 5_000);
+  });
+
+  it("runs when due: at the first check, then at most once an hour", async () => {
+    const store = await openStore();
+    const history = new FakeHistory();
+    const ingest = catchUpIngest(store, history);
+    await store.advanceCatchupMark(START - hour, signal);
+
+    await ingest.catchUpIfDue(signal);
+    await clock.advance(30 * 60_000);
+    await ingest.catchUpIfDue(signal);
+    expect(history.asked).toHaveLength(1);
+
+    await clock.advance(31 * 60_000);
+    await ingest.catchUpIfDue(signal);
+    expect(history.asked).toHaveLength(2);
   });
 });

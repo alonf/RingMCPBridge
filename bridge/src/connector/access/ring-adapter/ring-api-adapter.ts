@@ -46,6 +46,7 @@ import {
   alarmModeOf,
   cameraEntry,
   deviceEntry,
+  historyEntry,
   locationEntry,
   panelEntry,
 } from "./ring-mapping.ts";
@@ -53,6 +54,9 @@ import type {
   RingChange,
   RingDevice,
   RingLocation,
+  RingHistoryEntry,
+  RingHistoryPort,
+  RingHistoryRead,
   RingPort,
   RingPush,
   RingPushPort,
@@ -84,6 +88,10 @@ export const RING_CONNECTION_STUCK_MS = 5 * 60_000;
 export const RING_RECOVERY_PROBE_MS = RING_CALL_LIMITS.circuit.probeIntervalMs;
 
 const SECURITY_PANEL = "security-panel";
+
+/** How many history events one page asks for, and how many pages one camera is read for. */
+const HISTORY_PAGE_SIZE = 50;
+const HISTORY_MAX_PAGES = 20;
 /** A read the library answers from its own memory: `#call`'s `reachesRing` set to false. */
 const FROM_MEMORY = false;
 /** A room list's answer, or its absence, says nothing about Ring: `reachesRing` set to false. */
@@ -135,7 +143,7 @@ function isDevice(entry: RingDevice | undefined): entry is RingDevice {
 }
 
 /** The Ring port over the owner's Ring account. */
-export class RingApiAdapter implements RingPort, RingPushPort {
+export class RingApiAdapter implements RingPort, RingPushPort, RingHistoryPort {
   readonly #client: RingClient;
   readonly #gate: RingCallGate;
   readonly #clock: Clock;
@@ -726,10 +734,7 @@ export class RingApiAdapter implements RingPort, RingPushPort {
   // it on (FR-036, US8; T050's review, DRIFT-002-19). An unknown profile counts as not owned.
   // Each push carries its camera's type, so the core can rank it before it holds the camera.
   #watchCameraPush(location: RingClientLocation): void {
-    const owned =
-      this.#profileId !== undefined &&
-      location.locationDetails.owner_id === this.#profileId;
-    if (!owned) {
+    if (!this.#owns(location)) {
       this.#logger.info("ring_push_shared_location_skipped", {
         location_id: location.id,
         count: location.cameras.length,
@@ -748,6 +753,86 @@ export class RingApiAdapter implements RingPort, RingPushPort {
         }),
       );
     }
+  }
+
+  /**
+   * The owned cameras' history newer than `sinceMs`, newest first (T053). Each page is one call
+   * through the gate, so history never reaches Ring faster than the other reads. A camera's
+   * history ends at the first event not newer than `sinceMs`; a camera that still has newer events
+   * after `maxPages` pages makes the read `truncated`. An event with no usable id or time is left
+   * out.
+   */
+  async cameraHistory(
+    sinceMs: number,
+    signal: AbortSignal,
+    options: { readonly maxPages?: number } = {},
+  ): Promise<RingHistoryRead> {
+    if (this.#locations.size === 0) {
+      await this.locations(signal);
+    }
+    const maxPages = options.maxPages ?? HISTORY_MAX_PAGES;
+    const entries: RingHistoryEntry[] = [];
+    let truncated = false;
+    for (const location of this.#locations.values()) {
+      if (!this.#owns(location)) {
+        continue;
+      }
+      for (const camera of location.cameras) {
+        const found = await this.#cameraPages(
+          camera,
+          location.id,
+          sinceMs,
+          maxPages,
+          signal,
+        );
+        entries.push(...found.entries);
+        truncated ||= found.truncated;
+      }
+    }
+    entries.sort((a, b) => b.occurred_at - a.occurred_at);
+    return { entries, truncated };
+  }
+
+  async #cameraPages(
+    camera: RingClientCamera,
+    locationId: string,
+    sinceMs: number,
+    maxPages: number,
+    signal: AbortSignal,
+  ): Promise<RingHistoryRead> {
+    const entries: RingHistoryEntry[] = [];
+    let key: string | undefined;
+    for (let page = 0; page < maxPages; page += 1) {
+      const answer = await this.#call(signal, () =>
+        camera.getEvents({
+          limit: HISTORY_PAGE_SIZE,
+          ...(key === undefined ? {} : { pagination_key: key }),
+        }),
+      );
+      let reached = answer.events.length === 0;
+      for (const event of answer.events) {
+        const entry = historyEntry(event, camera, locationId);
+        if (entry !== undefined && entry.occurred_at <= sinceMs) {
+          reached = true;
+          break;
+        }
+        if (entry !== undefined) {
+          entries.push(entry);
+        }
+      }
+      key = answer.meta?.pagination_key;
+      if (reached || key === undefined || key === "") {
+        return { entries, truncated: false };
+      }
+    }
+    return { entries, truncated: true };
+  }
+
+  #owns(location: RingClientLocation): boolean {
+    return (
+      this.#profileId !== undefined &&
+      location.locationDetails.owner_id === this.#profileId
+    );
   }
 
   #remember(location: RingClientLocation): void {
