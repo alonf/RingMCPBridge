@@ -32,6 +32,10 @@
 //   so Connector Link acks only then; `event.stored` is published after it, and a failed delivery
 //   never undoes the write. An event on a session whose key is no longer current is still
 //   written, since dropping it could lose a HIGH event; only its State change is skipped.
+import { randomUUID } from "node:crypto";
+import { formatUtc } from "../../../utilities/clock/index.ts";
+import type { EventRecord } from "../../access/event-log/index.ts";
+import type { SqlSession } from "../../../utilities/query-layer/index.ts";
 import type { EventRule } from "../../../utilities/config/index.ts";
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { PubSub } from "../../../utilities/pub-sub/index.ts";
@@ -49,7 +53,10 @@ import {
   healthChanges,
   settled,
 } from "../../engines/health/index.ts";
-import type { PriorityPolicy } from "../../engines/classify/index.ts";
+import {
+  PRIORITY_ORDER,
+  type PriorityPolicy,
+} from "../../engines/classify/index.ts";
 import type { HealthView } from "../../engines/health/index.ts";
 import { QueryLayerError } from "../../../utilities/query-layer/index.ts";
 import { EventError } from "./event-error.ts";
@@ -58,6 +65,7 @@ import type {
   EventIntake,
   EventOutcome,
   EventTopics,
+  EventStored,
   HomeLinkSession,
   IncomingEvent,
   IncomingDeviceState,
@@ -75,6 +83,7 @@ export interface EventManagerOptions {
   readonly events: PubSub<EventTopics>;
   readonly clock: Clock;
   /** How long the home may be silent before it shows offline: the Config utility's `staleAfterMs`. */
+  readonly eventRetentionDays?: number;
   readonly homeOfflineAfterMs: number;
   /** Where a failure of the background silence check goes; the Host wires it to the logger. */
   readonly reportFailure: (error: unknown) => void;
@@ -86,6 +95,16 @@ export interface EventManagerOptions {
   readonly priorityPolicy: PriorityPolicy;
 }
 
+const RING_ALERT_DELAY_MS = 120_000;
+const DAY_MS = 86_400_000;
+const HEALTH_MESSAGES: Readonly<Record<string, string>> = {
+  "health.home_offline": "The home connector is offline.",
+  "health.home_online": "The home connector is online.",
+  "health.ring_unavailable":
+    "Ring has been unavailable for more than two minutes.",
+  "health.ring_restored": "Ring is available again.",
+  "ring.session_lost": "Ring sign-in is required.",
+};
 const NOT_CURRENT: InventoryOutcome = { kind: "not_current" };
 
 const DEVICE_OUTCOMES: Readonly<Record<DeviceApplied, DeviceChangeOutcome>> = {
@@ -203,6 +222,11 @@ export class EventManager implements EventIntake {
       const owedAfter = this.#unpaid(heartbeat.inventory_owed_after);
       const reading = {
         ring_session: heartbeat.ring_session,
+        push: heartbeat.push,
+        last_ring_event_at: heartbeat.last_ring_event_at,
+        ...(heartbeat.event_backlog === undefined
+          ? {}
+          : { event_backlog: heartbeat.event_backlog }),
         outbox_depth: heartbeat.outbox_depth,
         inventory_owed: owedAfter !== undefined,
       };
@@ -246,6 +270,99 @@ export class EventManager implements EventIntake {
           written.device === "unknown_location",
       };
     });
+  }
+
+  async catchupDone(
+    marker: string,
+    session: HomeLinkSession,
+    signal: AbortSignal,
+  ): Promise<void> {
+    await this.#serially(signal, async () => {
+      if (!this.#isCurrent(session)) return;
+      const summaries = await this.#guard(
+        signal,
+        "The recovery batch could not be closed.",
+        () =>
+          this.#options.store.transaction(async (sql) => {
+            const result: EventStored[] = [];
+            const batches = await this.#options.eventLog.finishRecovery(
+              sql,
+              marker,
+              signal,
+            );
+            const now = this.#options.clock.now();
+            for (const batch of batches) {
+              const record: EventRecord = {
+                event_id: randomUUID(),
+                location_id: batch.location_id,
+                kind: "bridge.events_recovered",
+                priority: PRIORITY_ORDER[batch.rank_value] ?? "LOW",
+                occurred_at: now,
+                received_at: now,
+                summary:
+                  batch.total === 1
+                    ? "1 event recovered."
+                    : `${String(batch.total)} events recovered.`,
+                late: false,
+                data: {
+                  recovered: {
+                    count: batch.total,
+                    oldest_at: formatUtc(batch.oldest),
+                    newest_at: formatUtc(batch.newest),
+                    seq_from: batch.seq_from,
+                    seq_to: batch.seq_to,
+                  },
+                },
+              };
+              const written = await this.#systemEvent(
+                sql,
+                record,
+                signal,
+                batch.ownership,
+              );
+              if (written) result.push(written);
+            }
+            return result;
+          }, signal),
+      );
+      for (const item of summaries)
+        this.#options.events.publish("event.stored", item);
+    });
+  }
+
+  async #systemEvent(
+    sql: SqlSession,
+    record: EventRecord,
+    signal: AbortSignal,
+    expectedOwnership?: "owned" | "shared",
+  ): Promise<EventStored | undefined> {
+    const location = await this.#options.state.locationIn(
+      sql,
+      record.location_id,
+      signal,
+    );
+    if (
+      !location ||
+      (expectedOwnership && location.ownership !== expectedOwnership)
+    )
+      return undefined;
+    const stored = await this.#options.eventLog.append(sql, record, signal);
+    if (stored.kind === "duplicate") return undefined;
+    await this.#options.audit.recordEventIngested(
+      sql,
+      {
+        event_id: record.event_id,
+        location_id: record.location_id,
+        event_seq: stored.seq,
+      },
+      signal,
+    );
+    return {
+      event: { ...record, seq: stored.seq, stored_at: stored.stored_at },
+      epoch: stored.epoch,
+      shared: location.ownership === "shared",
+      action: "push",
+    };
   }
 
   /** Cancels the silence check and lets the step already running finish. */
@@ -331,9 +448,51 @@ export class EventManager implements EventIntake {
     after: HealthView,
     signal: AbortSignal,
   ): Promise<void> {
-    await this.#guard(signal, "The health could not be saved.", () =>
-      this.#options.state.saveHealth(after, signal),
+    const events = await this.#guard(
+      signal,
+      "The health could not be saved.",
+      () =>
+        this.#options.store.transaction(async (sql) => {
+          const events: EventStored[] = [];
+          if (
+            before?.home_link_status === "down" &&
+            after.home_link_status === "up"
+          ) {
+            // A returning heartbeat can beat the queued silence check.
+            await this.#incident(
+              sql,
+              "home",
+              "health.home_offline",
+              before.home_link_since ?? before.as_of,
+              events,
+              signal,
+            );
+          }
+          if (
+            before &&
+            before.ring_session_status !== after.ring_session_status
+          ) {
+            await this.#ringIncident(sql, before, after.as_of, events, signal);
+          }
+          await this.#ringIncident(sql, after, after.as_of, events, signal);
+          if (after.home_link_status) {
+            await this.#incident(
+              sql,
+              "home",
+              after.home_link_status === "down"
+                ? "health.home_offline"
+                : undefined,
+              after.home_link_since ?? after.as_of,
+              events,
+              signal,
+            );
+          }
+          await this.#options.state.saveHealthIn(sql, after, signal);
+          return events;
+        }, signal),
     );
+    for (const message of events)
+      this.#options.events.publish("event.stored", message);
     const changed = healthChanges(before, after);
     if (changed.length > 0) {
       this.#options.events.publish("health.changed", {
@@ -341,6 +500,90 @@ export class EventManager implements EventIntake {
         health: after,
       });
     }
+  }
+
+  async #ringIncident(
+    sql: SqlSession,
+    view: HealthView,
+    at: number,
+    events: EventStored[],
+    signal: AbortSignal,
+  ): Promise<void> {
+    const since = view.ring_session_since;
+    if (since === undefined || !view.ring_session_status) return;
+    if (
+      view.ring_session_status === "unavailable" &&
+      at - since <= RING_ALERT_DELAY_MS
+    )
+      return;
+    const kind =
+      view.ring_session_status === "unavailable"
+        ? "health.ring_unavailable"
+        : view.ring_session_status === "lost"
+          ? "ring.session_lost"
+          : undefined;
+    await this.#incident(sql, "ring", kind, since, events, signal);
+  }
+
+  async #incident(
+    sql: SqlSession,
+    part: "home" | "ring",
+    failure: string | undefined,
+    since: number,
+    events: EventStored[],
+    signal: AbortSignal,
+  ): Promise<void> {
+    const locationId = await this.#options.state.incidentChange(
+      sql,
+      part,
+      failure,
+      since,
+      signal,
+    );
+    if (locationId === undefined) return;
+    const kind =
+      failure ??
+      (part === "home" ? "health.home_online" : "health.ring_restored");
+    const now = this.#options.clock.now();
+    const message = await this.#systemEvent(
+      sql,
+      {
+        event_id: randomUUID(),
+        location_id: locationId,
+        kind,
+        priority: "HIGH",
+        occurred_at: since,
+        received_at: now,
+        summary: HEALTH_MESSAGES[kind] ?? kind,
+        late: false,
+      },
+      signal,
+    );
+    if (message) events.push(message);
+  }
+
+  async maintenance(signal: AbortSignal): Promise<void> {
+    await this.#serially(signal, async () => {
+      const now = this.#options.clock.now();
+      const stored = await this.#options.state.health(signal);
+      if (stored) {
+        const view = asOf(stored, now, this.#policy);
+        if (healthChanges(stored, view).length)
+          await this.#saveHealth(stored, view, signal);
+        const updates = await this.#options.store.transaction(async (sql) => {
+          const messages: EventStored[] = [];
+          await this.#ringIncident(sql, view, now, messages, signal);
+          return messages;
+        }, signal);
+        for (const message of updates)
+          this.#options.events.publish("event.stored", message);
+      }
+      const cutoff = now - (this.#options.eventRetentionDays ?? 30) * DAY_MS;
+      await this.#options.store.transaction(async (sql) => {
+        await this.#options.eventLog.purgeBefore(sql, cutoff, signal);
+        await this.#options.audit.purgeEventsBefore(sql, cutoff, signal);
+      }, signal);
+    });
   }
 
   #scheduleSilenceCheck(lastSignOfLife: number): void {

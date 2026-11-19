@@ -30,6 +30,16 @@ const LATER = AS_OF + 60_000;
 const EXPECTED_TABLES: Readonly<
   Record<string, readonly (readonly [string, boolean])[]>
 > = {
+  recovery_marker: [
+    ["marker_id", true],
+    ["completed_at", true],
+  ],
+  health_incident: [
+    ["part", true],
+    ["since_ms", true],
+    ["kind", true],
+    ["location_id", true],
+  ],
   schema_migration: [
     ["version", true],
     ["name", true],
@@ -73,6 +83,8 @@ const EXPECTED_TABLES: Readonly<
     ["connector_version", false],
     ["as_of", true],
     ["refresh_owed_since", false],
+    ["event_backlog_count", false],
+    ["event_backlog_oldest_age_ms", false],
   ],
   setting: [
     ["name", true],
@@ -139,6 +151,7 @@ const EXPECTED_TABLES: Readonly<
     ["media_id", false],
     ["late", true],
     ["data", false],
+    ["recovery_pending", false],
   ],
   audit_chain: [
     ["chain", true],

@@ -23,6 +23,7 @@ import type {
 } from "../core/managers/event/index.ts";
 import type { Cancel, Clock } from "../utilities/clock/index.ts";
 import type { LinkConnection } from "../utilities/link-transport/index.ts";
+import { startCoreScheduler } from "../core/clients/scheduler/index.ts";
 import type { Logger } from "../utilities/logging/index.ts";
 
 /** How often the lease's hold is checked: a fraction of the 15 s between the end of a hold and its row's. */
@@ -30,6 +31,7 @@ export const LEASE_CHECK_MS = 1_000;
 
 /** What one lease term runs. */
 export interface LinkTerm {
+  readonly stopScheduler: () => void;
   readonly link: ConnectorLink;
   readonly event: EventManager;
 }
@@ -115,7 +117,17 @@ export class LeasedLinks {
       ...this.#options.link,
       intake: leasedIntake(event, this.#options.lease),
     });
-    return { link, event };
+    const stopScheduler = startCoreScheduler(
+      this.#options.clock,
+      (signal) =>
+        this.#options.lease.held
+          ? event.maintenance(signal)
+          : Promise.resolve(),
+      (error) => {
+        this.#options.logger.error("core_maintenance_failed", undefined, error);
+      },
+    );
+    return { link, event, stopScheduler };
   }
 
   #endTerm(): void {
@@ -123,6 +135,7 @@ export class LeasedLinks {
     if (term === undefined) {
       return;
     }
+    term.stopScheduler();
     this.#term = undefined;
     const previous = this.#ending ?? Promise.resolve();
     this.#ending = previous
@@ -159,6 +172,8 @@ export function leasedIntake(
           ),
         );
   return {
+    catchupDone: (marker, session, signal) =>
+      leased(() => event.catchupDone(marker, session, signal)),
     homeSessionOpened: (session, signal) =>
       leased(() => event.homeSessionOpened(session, signal)),
     inventory: (inventory, session, signal) =>

@@ -15,6 +15,7 @@ export const HOME_MESSAGE_TYPES = {
   deviceState: "device_state",
   heartbeat: "heartbeat",
   event: "event",
+  catchupDone: "catchup_done",
 } as const;
 
 const utcTime = z.iso.datetime();
@@ -191,6 +192,10 @@ export type HomeMessage =
   | { readonly type: "inventory"; readonly body: InventoryMessage }
   | { readonly type: "device_state"; readonly body: DeviceStateMessage }
   | { readonly type: "heartbeat"; readonly body: HeartbeatMessage }
+  | {
+      readonly type: "catchup_done";
+      readonly body: { readonly message_id: string };
+    }
   | { readonly type: "event"; readonly body: EventMessage };
 
 /**
@@ -228,6 +233,11 @@ export function readHomeMessage(frame: LinkFrame): HomeMessage | undefined {
     case HOME_MESSAGE_TYPES.heartbeat:
       return read(heartbeatSchema, body, (data) => ({
         type: "heartbeat",
+        body: data,
+      }));
+    case HOME_MESSAGE_TYPES.catchupDone:
+      return read(z.strictObject({ message_id: z.uuid() }), body, (data) => ({
+        type: "catchup_done",
         body: data,
       }));
     case HOME_MESSAGE_TYPES.event:

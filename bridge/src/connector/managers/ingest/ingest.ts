@@ -163,8 +163,8 @@ export class Ingest {
   readonly #history: RingHistoryPort | undefined;
   // When the catch-up last ran in this process; none yet.
   #lastCatchUpAt: number | undefined;
-  // When the last push was received, on the home's clock; none yet.
-  #lastPushAt: number | undefined;
+  // When the home last received a live event from a camera or hub.
+  #lastRingEventAt: number | undefined;
   readonly #readsRunning = new Set<TimedChange[]>();
   readonly #errorCounts = new Map<string, number>();
   #latest: LatestView | undefined;
@@ -218,6 +218,7 @@ export class Ingest {
    */
   async sessionOpened(sessionId: string, signal: AbortSignal): Promise<void> {
     this.#sessionId = sessionId;
+    this.#lastCatchUpAt = undefined;
     this.#inventoryOwed = true;
     this.#sessionStarting = true;
     try {
@@ -265,7 +266,6 @@ export class Ingest {
    */
   pushReceived(push: RingPush): void {
     const receivedAt = this.#clock.now();
-    this.#lastPushAt = receivedAt;
     const normalized = normalizePush(push, receivedAt);
     if (!normalized.ok) {
       this.#count("push_unusable");
@@ -292,7 +292,20 @@ export class Ingest {
       return;
     }
     this.#lastCatchUpAt = now;
-    await this.catchUp(signal);
+    const result = await this.catchUp(signal);
+    if (result.outcome === "outbox_unavailable") {
+      this.#lastCatchUpAt = undefined;
+      return;
+    }
+    try {
+      await this.#step(() => this.#outbox.finishCatchup(signal));
+    } catch (error) {
+      signal.throwIfAborted();
+      this.#lastCatchUpAt = undefined;
+      this.#outboxFailed("ingest_recovery_marker_failed", error);
+      return;
+    }
+    await this.#sendDueSafely(signal);
   }
 
   /**
@@ -385,6 +398,7 @@ export class Ingest {
 
   // Writes an event to the outbox under its id, then sends what is due. It never throws.
   #queueEvent(event: NormalizedEvent, receivedAt: number): void {
+    this.#lastRingEventAt = receivedAt;
     const body = eventBody(event, receivedAt);
     const fields: LogFields = {
       event_id: body.event_id,
@@ -428,7 +442,9 @@ export class Ingest {
       event_backlog: await this.#backlog(signal),
       inventory_owed_after: this.#owedAfter ?? null,
       last_ring_event_at:
-        this.#lastPushAt === undefined ? null : formatUtc(this.#lastPushAt),
+        this.#lastRingEventAt === undefined
+          ? null
+          : formatUtc(this.#lastRingEventAt),
       error_counts: Object.fromEntries(this.#errorCounts),
       as_of: formatUtc(this.#clock.now()),
     };

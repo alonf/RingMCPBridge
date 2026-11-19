@@ -34,6 +34,8 @@ export interface HealthView {
   readonly ring_session_since?: number;
   readonly push_status?: "ok" | "down";
   readonly push_since?: number;
+  readonly event_backlog_count?: number;
+  readonly event_backlog_oldest_age_ms?: number;
   readonly last_event_at?: number;
   readonly stale_since?: number;
   readonly outbox_depth?: number;
@@ -49,6 +51,12 @@ export interface HealthView {
 
 /** What a heartbeat says about the home. */
 export interface HeartbeatReading {
+  readonly push?: "off" | "ok" | "failing";
+  readonly last_ring_event_at?: number | null;
+  readonly event_backlog?: {
+    readonly count: number;
+    readonly oldest_age_ms: number | null;
+  } | null;
   readonly ring_session: "ok" | "unavailable" | "lost";
   /** `null` when the home could not read its outbox. */
   readonly outbox_depth: number | null;
@@ -105,6 +113,23 @@ export function afterHeartbeat(
         ? up.ring_session_since
         : now,
   };
+  if (heartbeat.push !== undefined) {
+    const status = heartbeat.push === "ok" ? "ok" : "down";
+    next.push_status = status;
+    next.push_since = up.push_status === status ? (up.push_since ?? now) : now;
+  }
+  if (heartbeat.last_ring_event_at != null)
+    next.last_event_at = Math.max(
+      next.last_event_at ?? heartbeat.last_ring_event_at,
+      heartbeat.last_ring_event_at,
+    );
+  delete next.event_backlog_count;
+  delete next.event_backlog_oldest_age_ms;
+  if (heartbeat.event_backlog) {
+    next.event_backlog_count = heartbeat.event_backlog.count;
+    if (heartbeat.event_backlog.oldest_age_ms !== null)
+      next.event_backlog_oldest_age_ms = heartbeat.event_backlog.oldest_age_ms;
+  }
   if (heartbeat.inventory_owed) {
     next.refresh_owed_since = knownTrueUntil(view, now);
   }

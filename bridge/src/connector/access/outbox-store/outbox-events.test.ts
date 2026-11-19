@@ -76,6 +76,27 @@ function idsOf(events: readonly OutboxEvent[]): string[] {
 }
 
 describe("the Outbox Store's events", () => {
+  it("resumes a recovery batch in order across a reconnect and a lost marker acknowledgement", async () => {
+    const store = await open();
+    await write(store, "first");
+    await store.finishCatchup(signal);
+    await store.finishCatchup(signal);
+    await write(store, "next");
+    expect(idsOf(await store.takeDueEvents(signal))).toEqual(["first"]);
+    expect(await store.takeDue(10, signal)).toEqual([]);
+    await store.acknowledge("first", signal);
+    const [marker] = await store.takeDue(10, signal);
+    expect(marker?.kind).toBe("catchup_done");
+    expect(await store.takeDueEvents(signal)).toEqual([]);
+    await store.close();
+    const restarted = await open();
+    await clock.advance(EVENT_RESEND_MAX_MS);
+    expect(await restarted.takeDue(10, signal)).toEqual([marker]);
+    if (!marker) throw new Error("The batch marker was never sent.");
+    await restarted.acknowledge(marker.messageId, signal);
+    expect(idsOf(await restarted.takeDueEvents(signal))).toEqual(["next"]);
+  });
+
   it("holds an event until the ack for its event id, sending it with its body as written", async () => {
     const store = await open();
     await expect(write(store, "evt-1")).resolves.toBe("written");

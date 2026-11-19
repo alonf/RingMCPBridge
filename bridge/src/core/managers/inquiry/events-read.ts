@@ -50,6 +50,7 @@ export interface InquiryEvent {
   };
   readonly summary: string;
   readonly late?: true;
+  readonly recovered?: NonNullable<StoredEvent["recovered"]>;
   readonly ring_kind?: string;
 }
 
@@ -313,6 +314,7 @@ async function toEvent(
             ...(label.room === undefined ? {} : { room: label.room }),
           },
         }),
+    ...(row.recovered && { recovered: row.recovered }),
     summary: row.summary,
     ...(row.late ? { late: true as const } : {}),
     ...(row.kind === "ring.other" && typeof ringKind === "string"

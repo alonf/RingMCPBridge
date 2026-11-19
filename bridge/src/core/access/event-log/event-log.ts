@@ -66,6 +66,7 @@ export interface EventRecord {
 
 /** An event as the log holds it. */
 export interface StoredEvent extends EventRecord {
+  readonly recovered?: z.infer<typeof RECOVERED_DETAIL>;
   readonly seq: number;
   /** When the core stored it, on the core's clock. */
   readonly stored_at: number;
@@ -96,6 +97,16 @@ const COUNTER_ROW = z.object({
   epoch: z.number().int(),
   next_seq: z.number().int(),
 });
+const RECOVERY_ROW = z.object({
+  location_id: z.string(),
+  total: z.number(),
+  oldest: z.number(),
+  newest: z.number(),
+  seq_from: z.number(),
+  seq_to: z.number(),
+  rank_value: z.number(),
+  ownership: z.enum(["owned", "shared"]),
+});
 const EVENT_ROW = z.object({
   location_id: z.string(),
   seq: z.number().int(),
@@ -110,6 +121,13 @@ const EVENT_ROW = z.object({
   // SQL Server's driver gives a BIT as a boolean or as 0 or 1.
   late: z.union([z.boolean(), z.number()]),
   data: z.string().nullable(),
+});
+const RECOVERED_DETAIL = z.object({
+  count: z.int().positive(),
+  oldest_at: z.iso.datetime(),
+  newest_at: z.iso.datetime(),
+  seq_from: z.int().positive(),
+  seq_to: z.int().positive(),
 });
 const DATA = z.record(z.string(), z.unknown());
 
@@ -146,6 +164,9 @@ function storedEvent(row: SqlRow): StoredEvent {
       ? undefined
       : parsed(DATA, JSON.parse(event.data) as SqlRow, "event");
   return {
+    ...(event.kind === "bridge.events_recovered"
+      ? { recovered: RECOVERED_DETAIL.parse(data?.recovered) }
+      : {}),
     event_id: event.event_id,
     location_id: event.location_id,
     seq: event.seq,
@@ -227,6 +248,84 @@ export class EventLog {
       signal,
     );
     return { kind: "appended", seq, epoch, stored_at: storedAt };
+  }
+
+  async purgeBefore(
+    session: SqlSession,
+    cutoff: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    await session.run(
+      {
+        sql: "DELETE FROM event WHERE stored_at < @cutoff",
+        params: { cutoff },
+      },
+      signal,
+    );
+    await session.run(
+      {
+        sql: "DELETE FROM recovery_marker WHERE completed_at < @cutoff",
+        params: { cutoff },
+      },
+      signal,
+    );
+  }
+
+  async markForRecovery(
+    session: SqlSession,
+    eventId: string,
+    ownership: "owned" | "shared",
+    signal: AbortSignal,
+  ): Promise<void> {
+    await session.run(
+      {
+        sql: "UPDATE event SET recovery_pending=@ownership WHERE event_id=@eventId",
+        params: { eventId, ownership },
+      },
+      signal,
+    );
+  }
+
+  /** Claim the pending batch and its marker in the caller's transaction. On a retry the old
+   * marker must never consume newly arrived events. Group only events eligible for notification. */
+  async finishRecovery(
+    session: SqlSession,
+    marker: string,
+    signal: AbortSignal,
+  ) {
+    const receipt = await session.get(
+      {
+        sql: "SELECT marker_id FROM recovery_marker WHERE marker_id=@marker",
+        params: { marker },
+      },
+      signal,
+    );
+    if (receipt) return [];
+    const rows = await session.all(
+      {
+        sql: `SELECT location_id, recovery_pending AS ownership, COUNT(*) AS total, MIN(occurred_at) AS oldest,
+      MAX(occurred_at) AS newest, MIN(seq) AS seq_from, MAX(seq) AS seq_to,
+      MAX(CASE priority WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 1 ELSE 0 END) AS rank_value
+      FROM event WHERE recovery_pending IS NOT NULL GROUP BY location_id, recovery_pending`,
+        params: {},
+      },
+      signal,
+    );
+    await session.run(
+      {
+        sql: "UPDATE event SET recovery_pending=NULL WHERE recovery_pending IS NOT NULL",
+        params: {},
+      },
+      signal,
+    );
+    await session.run(
+      {
+        sql: "INSERT INTO recovery_marker(marker_id,completed_at) VALUES(@marker,@now)",
+        params: { marker, now: this.#clock.now() },
+      },
+      signal,
+    );
+    return rows.map((row) => RECOVERY_ROW.parse(row));
   }
 
   /**

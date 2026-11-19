@@ -48,6 +48,9 @@ export function incomingHeartbeat(
   return {
     ring_session: message.ring_session,
     push: message.push,
+    ...(message.event_backlog === undefined
+      ? {}
+      : { event_backlog: message.event_backlog }),
     outbox_depth: message.outbox_depth,
     inventory_owed_after: message.inventory_owed_after,
     last_ring_event_at:

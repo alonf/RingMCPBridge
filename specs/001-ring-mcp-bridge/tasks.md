@@ -238,13 +238,13 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - the link reconnects within 60 seconds of a drop, with growing, randomised delays.
 
   Tests, on the fake clock: a 3-hour gap; a 30-hour gap recovers only 24 hours and says so; an event seen both by push and by catch-up is stored once; the limiter is never exceeded (Trace: FR-013, FR-026, FR-042; CP-08b)
-- [ ] T054 [US2] [assigned_to: Implementer] [effort: 0.9] Late events and the recovery summary, in `bridge/src/core/managers/event/`:
+- [x] T054 [US2] [assigned_to: Implementer] [effort: 0.9] Late events and the recovery summary, in `bridge/src/core/managers/event/`:
   - a late event is stored with its late marker and its priority, and is never pushed by itself;
   - when a batch of late events ends, one recovery summary is pushed: the count, the time range, the sequence range and the highest priority among them;
   - `get_events` returns late events in their place in the order, with the marker.
 
   Tests: the second independent test above; a single late event still gives one summary; a HIGH late event shows in the summary's highest priority (Trace: FR-013; CP-11b)
-- [ ] T055 [P] [US1] [assigned_to: Implementer] [effort: 1.35] Health completed, in `bridge/src/core/engines/health/`, `bridge/src/core/managers/inquiry/` and a new `bridge/src/core/clients/scheduler/`:
+- [x] T055 [P] [US1] [assigned_to: Implementer] [effort: 1.35] Health completed, in `bridge/src/core/engines/health/`, `bridge/src/core/managers/inquiry/` and a new `bridge/src/core/clients/scheduler/`:
   - Ring down for more than 2 minutes raises one HIGH health event through the event path; its return raises one recovery event;
   - `get_health` adds push reception, the last event received and the home's backlog (size and the oldest's age);
   - the core's Scheduler: minute ticks for the home-offline check and the purge of events older than 30 days;

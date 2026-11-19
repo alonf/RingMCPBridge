@@ -549,6 +549,16 @@ export class CoreSession {
         }
         return;
       }
+      case "catchup_done": {
+        const id = message.body.message_id;
+        const result = await this.#toEvent(
+          message.type,
+          (signal) => this.#context.intake.catchupDone(id, session, signal),
+          id,
+        );
+        if (result !== NOT_COMMITTED) this.#ack(id);
+        return;
+      }
       case "heartbeat": {
         const heartbeat = incomingHeartbeat(message.body, receivedAt);
         await this.#toEvent("heartbeat", (signal) =>

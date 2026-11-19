@@ -383,6 +383,52 @@ describe("Event: versions belong to one connector key", () => {
 });
 
 describe("Event: the home's health", () => {
+  it("ignores short Ring outages and records one HIGH outage and one restoration across a restart", async () => {
+    const test = await harness();
+    await test.event.homeSessionOpened(SESSION_A, never);
+    await test.event.inventory(
+      inventory("inventory", [HOME], [DOOR]),
+      SESSION_A,
+      never,
+    );
+    async function report(
+      manager: EventManager,
+      status: IncomingHeartbeat["ring_session"],
+    ) {
+      await manager.heartbeat(
+        beat(test.clock.now(), { ring_session: status }),
+        SESSION_A,
+        never,
+      );
+    }
+    await report(test.event, "unavailable");
+    await test.clock.advance(60_000);
+    await report(test.event, "ok");
+    await report(test.event, "unavailable");
+    await test.clock.advance(60_000);
+    await report(test.event, "unavailable");
+    await test.clock.advance(60_000);
+    await test.event.maintenance(never);
+    const incidents = () =>
+      test.layer.all(
+        { sql: "SELECT kind,priority FROM event ORDER BY seq", params: {} },
+        never,
+      );
+    expect(await incidents()).toEqual([]);
+    await test.clock.advance(1);
+    await test.event.maintenance(never);
+    await test.event.stop();
+    const resumed = await harness(test.layer, test.clock);
+    await resumed.event.homeSessionOpened(SESSION_A, never);
+    await resumed.event.maintenance(never);
+    await report(resumed.event, "ok");
+    await report(resumed.event, "ok");
+    expect(await incidents()).toEqual([
+      { kind: "health.ring_unavailable", priority: "HIGH" },
+      { kind: "health.ring_restored", priority: "HIGH" },
+    ]);
+  });
+
   it("shows the home up from its session, takes the Ring session and outbox depth from heartbeats, and publishes each change", async () => {
     const test = await harness();
     await test.event.homeSessionOpened(SESSION_A, never);
@@ -400,6 +446,8 @@ describe("Event: the home's health", () => {
       ring_session_status: "ok",
       ring_session_since: START + 15_000,
       outbox_depth: 4,
+      push_status: "down",
+      push_since: START + 15_000,
       connector_version: "0.1.0",
       as_of: START + 15_000,
       refresh_owed_since: START,
@@ -467,7 +515,7 @@ describe("Event: the home's health", () => {
   it("reports a silence check that fails, and nothing once stopped", async () => {
     const test = await harness();
     await test.event.homeSessionOpened(SESSION_A, never);
-    test.failNext("run");
+    test.failNext("transaction");
 
     await test.clock.advance(OFFLINE_AFTER_MS);
     await test.events.drain();

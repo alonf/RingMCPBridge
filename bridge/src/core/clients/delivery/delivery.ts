@@ -30,7 +30,7 @@
 import type { EventAction } from "../../../utilities/config/index.ts";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { eventShape } from "../../../contract/index.ts";
+import { eventShape, recoveredSummary } from "../../../contract/index.ts";
 import type { BridgeEvent } from "../../../contract/index.ts";
 import type { StoredEvent } from "../../access/event-log/index.ts";
 import {
@@ -449,6 +449,9 @@ export class Delivery {
       kind: event.kind,
       occurred_at: formatUtc(event.occurred_at),
       received_at: formatUtc(event.received_at),
+      ...(event.kind === "bridge.events_recovered"
+        ? { recovered: recoveredSummary.parse(event.data?.recovered) }
+        : {}),
       summary: event.summary,
       late: event.late,
       ...(event.device_id === undefined || label === undefined

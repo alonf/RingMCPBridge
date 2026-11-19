@@ -105,7 +105,7 @@ export class EventWriter {
     applyState: boolean,
     signal: AbortSignal,
   ): Promise<EventWritten> {
-    if (!fits(event)) {
+    if (!fits(event) || event.kind === "bridge.events_recovered") {
       return { kind: "refused" };
     }
     return this.#options.store.transaction(
@@ -153,6 +153,13 @@ export class EventWriter {
     if (appended.kind === "duplicate") {
       return { kind: "duplicate" };
     }
+    if (record.late && location && action !== "store_only")
+      await this.#options.eventLog.markForRecovery(
+        session,
+        record.event_id,
+        location.ownership,
+        signal,
+      );
     const entry = event.device_state;
     const device =
       entry === undefined || !applyState

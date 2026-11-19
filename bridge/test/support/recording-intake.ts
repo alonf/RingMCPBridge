@@ -11,7 +11,12 @@ import type {
 
 /** The intake operations, by name. */
 export type IntakeMethod =
-  "homeSessionOpened" | "inventory" | "deviceState" | "heartbeat" | "event";
+  | "homeSessionOpened"
+  | "inventory"
+  | "deviceState"
+  | "heartbeat"
+  | "event"
+  | "catchupDone";
 
 /** One call Event's stand-in received. */
 export interface IntakeCall {
@@ -70,6 +75,10 @@ export class RecordingIntake implements EventIntake {
   ): Promise<DeviceChangeOutcome> {
     await this.#record("deviceState", body, session);
     return this.deviceOutcomes.shift() ?? "applied";
+  }
+
+  catchupDone(id: string, session: HomeLinkSession): Promise<void> {
+    return this.#record("catchupDone", id, session);
   }
 
   heartbeat(body: unknown, session: HomeLinkSession): Promise<void> {

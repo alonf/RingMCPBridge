@@ -431,6 +431,28 @@ describe("the Inquiry manager: which location", () => {
     expect(reply.as_of_local).toBe("2026-11-07T09:00:00.000+00:00");
   });
 
+  it("returns the last sampled push reception, backlog and last event when the home is stale", async () => {
+    const test = await harness([HOME], [], {
+      ...UP,
+      push_status: "ok",
+      push_since: START,
+      last_event_at: START,
+      event_backlog_count: 7,
+      event_backlog_oldest_age_ms: 13_000,
+    });
+    await test.clock.advance(OFFLINE_AFTER_MS);
+    const reply = await test.inquiry.getHealth(never);
+    expect(reply).toMatchObject({
+      freshness: "stale",
+      data: {
+        home_link: { status: "down" },
+        push: { status: "ok" },
+        last_event_at: new Date(START).toISOString(),
+        event_backlog: { count: 7, oldest_age_ms: 13_000 },
+      },
+    });
+  });
+
   it("writes the health's local time in UTC before the home has reported a location", async () => {
     const test = await harness([], [], "never_reported");
 

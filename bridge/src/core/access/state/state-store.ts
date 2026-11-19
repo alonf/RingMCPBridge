@@ -171,6 +171,8 @@ export interface HealthSnapshot {
   readonly push_status?: (typeof PUSH_STATUSES)[number];
   readonly push_since?: number;
   /** From iteration 002, when events arrive. */
+  readonly event_backlog_count?: number;
+  readonly event_backlog_oldest_age_ms?: number;
   readonly last_event_at?: number;
   /** Since when the home's data has been stale (FR-005). */
   readonly stale_since?: number;
@@ -192,7 +194,7 @@ const LOCATION_COLUMNS =
 const DEVICE_COLUMNS =
   "device_id, location_id, name, kind, room, battery_pct, battery_low, power_mode, online, state, as_of, state_version, motion_since";
 const HEALTH_COLUMNS =
-  "home_link_status, home_link_since, ring_session_status, ring_session_since, push_status, push_since, last_event_at, stale_since, outbox_depth, connector_version, as_of, refresh_owed_since";
+  "home_link_status, home_link_since, ring_session_status, ring_session_since, push_status, push_since, event_backlog_count, event_backlog_oldest_age_ms, last_event_at, stale_since, outbox_depth, connector_version, as_of, refresh_owed_since";
 
 const SELECT_LOCATIONS = `SELECT ${LOCATION_COLUMNS} FROM location ORDER BY location_id`;
 const SELECT_LOCATION = `SELECT ${LOCATION_COLUMNS} FROM location WHERE location_id = @location_id`;
@@ -257,6 +259,8 @@ const HEALTH_ROW = z.object({
   ring_session_since: storedTime.nullable(),
   push_status: z.enum(PUSH_STATUSES).nullable(),
   push_since: storedTime.nullable(),
+  event_backlog_count: storedTime.nullable(),
+  event_backlog_oldest_age_ms: storedTime.nullable(),
   last_event_at: storedTime.nullable(),
   stale_since: storedTime.nullable(),
   outbox_depth: z.number().int().nullable(),
@@ -488,6 +492,59 @@ export class StateStore {
    * the column's size.
    */
   async saveHealth(health: HealthSnapshot, signal: AbortSignal): Promise<void> {
+    return this.saveHealthIn(this.#store, health, signal);
+  }
+
+  /** Change the incident in the same transaction as its alert. Keep its original household on recovery. */
+  async incidentChange(
+    sql: SqlSession,
+    part: string,
+    failure: string | undefined,
+    since: number,
+    signal: AbortSignal,
+  ): Promise<string | undefined> {
+    const previous = await sql.get(
+      statement(
+        "SELECT kind,location_id FROM health_incident WHERE part=@part",
+        { part },
+      ),
+      signal,
+    );
+    if (previous?.kind === failure) return undefined;
+    if (failure === undefined) {
+      await sql.run(
+        statement("DELETE FROM health_incident WHERE part=@part", { part }),
+        signal,
+      );
+      return String(previous?.location_id);
+    }
+    const locations = await sql.all(statement(SELECT_LOCATIONS), signal);
+    const home =
+      locations.find((row) => row.ownership === "owned") ?? locations[0];
+    if (!home) return undefined;
+    const locationId = String(previous?.location_id ?? home.location_id);
+    await sql.run(
+      upsertStatement(sql.dialect, {
+        table: "health_incident",
+        key: ["part"],
+        values: {
+          part,
+          kind: failure,
+          since_ms: since,
+          location_id: locationId,
+        },
+        onConflict: "update",
+      }),
+      signal,
+    );
+    return locationId;
+  }
+
+  async saveHealthIn(
+    session: SqlSession,
+    health: HealthSnapshot,
+    signal: AbortSignal,
+  ): Promise<void> {
     if (
       health.connector_version !== undefined &&
       health.connector_version.length > MAX_VERSION_LENGTH
@@ -495,8 +552,8 @@ export class StateStore {
       throw new RangeError("A connector version is at most 64 characters.");
     }
     await this.#guard(signal, "The health could not be saved.", () =>
-      this.#store.run(
-        upsertStatement(this.#store.dialect, {
+      session.run(
+        upsertStatement(session.dialect, {
           table: "health_snapshot",
           key: ["snapshot_id"],
           values: healthValues(health),
@@ -784,6 +841,8 @@ function healthValues(health: HealthSnapshot): SqlParams {
     ring_session_since: health.ring_session_since ?? null,
     push_status: health.push_status ?? null,
     push_since: health.push_since ?? null,
+    event_backlog_count: health.event_backlog_count ?? null,
+    event_backlog_oldest_age_ms: health.event_backlog_oldest_age_ms ?? null,
     last_event_at: health.last_event_at ?? null,
     stale_since: health.stale_since ?? null,
     outbox_depth: health.outbox_depth ?? null,
@@ -840,6 +899,11 @@ function healthOf(row: SqlRow): HealthSnapshot {
     ...present("ring_session_since", health.ring_session_since),
     ...present("push_status", health.push_status),
     ...present("push_since", health.push_since),
+    ...present("event_backlog_count", health.event_backlog_count),
+    ...present(
+      "event_backlog_oldest_age_ms",
+      health.event_backlog_oldest_age_ms,
+    ),
     ...present("last_event_at", health.last_event_at),
     ...present("stale_since", health.stale_since),
     ...present("outbox_depth", health.outbox_depth),

@@ -72,6 +72,10 @@ export interface IncomingDeviceState {
 
 /** The home's health summary, every 15 s. */
 export interface IncomingHeartbeat {
+  readonly event_backlog?: {
+    readonly count: number;
+    readonly oldest_age_ms: number | null;
+  } | null;
   readonly ring_session: "ok" | "unavailable" | "lost";
   readonly push: "off" | "ok" | "failing";
   /** `null` when the home could not read its outbox. */
@@ -203,6 +207,8 @@ export interface HomeHealth {
   readonly ring_session_since?: number;
   readonly push_status?: "ok" | "down";
   readonly push_since?: number;
+  readonly event_backlog_count?: number;
+  readonly event_backlog_oldest_age_ms?: number;
   readonly last_event_at?: number;
   readonly stale_since?: number;
   readonly outbox_depth?: number;
@@ -232,6 +238,11 @@ export interface EventTopics extends Record<string, unknown> {
  * link closes.
  */
 export interface EventIntake {
+  catchupDone(
+    marker: string,
+    session: HomeLinkSession,
+    signal: AbortSignal,
+  ): Promise<void>;
   /** A session opened: the home link is up, at this connector version, for this key. */
   homeSessionOpened(
     session: HomeLinkSession,

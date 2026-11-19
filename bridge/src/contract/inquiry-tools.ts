@@ -61,6 +61,16 @@ export const healthData = z.object({
       description: "Push reception from Ring. Absent until events arrive.",
     })
     .optional(),
+  event_backlog: z
+    .object({
+      count: z.number().int().nonnegative(),
+      oldest_age_ms: z.number().int().nonnegative().nullable(),
+    })
+    .optional()
+    .meta({
+      description:
+        "Unacknowledged events and the oldest event’s age in milliseconds at the last heartbeat. Absent when unknown.",
+    }),
   last_event_at: utcTime(
     "When the last event was received, in UTC. Absent until events arrive.",
   ).optional(),

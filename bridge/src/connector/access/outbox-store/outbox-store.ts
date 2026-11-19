@@ -43,7 +43,7 @@ export const EVENT_RESEND_MAX_MS = 300_000;
 export const EVENT_RESEND_JITTER = 0.2;
 
 /** The state messages that go through the outbox; `takeDue` hands these out. */
-export type OutboxKind = "inventory" | "device_state";
+export type OutboxKind = "inventory" | "device_state" | "catchup_done";
 
 /** An event waiting for its ack. Its `eventId` is the link's `message_id` for it. */
 export interface OutboxEvent {
@@ -101,11 +101,17 @@ const PRIMARY_CODE_MASK = 0xff;
 const KNOWN_KINDS: ReadonlySet<string> = new Set<OutboxKind>([
   "inventory",
   "device_state",
+  "catchup_done",
 ]);
 
 // A row of a kind this release does not know (a newer release wrote it, then was rolled back) stays
 // in place: it is counted in the depth but never sent by this code (code N-1 on schema N, DS5).
-const IS_KNOWN_KIND = "kind IN ('inventory', 'device_state')";
+// A marker closes only the events before it. It waits for their acks; following events wait
+// for its own ack. Inventory may still pass either barrier, including during a reconnect.
+const IS_KNOWN_KIND = `(kind IN ('inventory','device_state') OR (kind = 'catchup_done' AND NOT EXISTS
+  (SELECT 1 FROM outbox AS older WHERE older.seq < outbox.seq AND older.kind IN ('event','catchup_done'))))`;
+const BEFORE_MARKER =
+  "NOT EXISTS (SELECT 1 FROM outbox AS marker WHERE marker.kind='catchup_done' AND marker.seq < outbox.seq)";
 const IS_DUE = "(sent_at IS NULL OR sent_at <= @cutoff)";
 
 const READ_LAST_VERSION =
@@ -129,8 +135,7 @@ const SELECT_EVENTS_TO_RESEND =
   "SELECT seq, message_id, body, attempts FROM outbox WHERE kind = 'event' AND sent_at IS NOT NULL AND due_at <= @now ORDER BY seq";
 const COUNT_EVENTS_IN_FLIGHT =
   "SELECT COUNT(*) AS in_flight FROM outbox WHERE kind = 'event' AND sent_at IS NOT NULL";
-const SELECT_NEW_EVENTS =
-  "SELECT seq, message_id, body, attempts FROM outbox WHERE kind = 'event' AND sent_at IS NULL ORDER BY seq LIMIT @limit";
+const SELECT_NEW_EVENTS = `SELECT seq, message_id, body, attempts FROM outbox WHERE kind = 'event' AND sent_at IS NULL AND ${BEFORE_MARKER} ORDER BY seq LIMIT @limit`;
 const MARK_EVENT_SENT =
   "UPDATE outbox SET sent_at = @now, attempts = @attempts, due_at = @due_at WHERE seq = @seq";
 const MARK_EVENT_WRITTEN =
@@ -362,6 +367,21 @@ export class OutboxStore {
           `INSERT INTO catchup_mark (mark_id, last_event_at) VALUES (1, @at)
            ON CONFLICT (mark_id) DO NOTHING`,
           { at },
+        ),
+        signal,
+      ),
+    );
+  }
+
+  /** Coalesce repeated checks while a marker already covers the tail of the event queue. */
+  async finishCatchup(signal: AbortSignal): Promise<void> {
+    await this.#guard(signal, "The recovery marker could not be written.", () =>
+      this.#layer.run(
+        statement(
+          `INSERT INTO outbox (message_id,kind,body,created_at)
+         SELECT @id,'catchup_done','{}',@now WHERE COALESCE(
+          (SELECT kind FROM outbox WHERE kind IN ('event','catchup_done') ORDER BY seq DESC LIMIT 1),'') <> 'catchup_done'`,
+          { id: randomUUID(), now: this.#clock.now() },
         ),
         signal,
       ),

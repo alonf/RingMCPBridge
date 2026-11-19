@@ -77,6 +77,8 @@ export interface SummaryHealth {
   readonly ring_session_since?: number;
   readonly push_status?: "ok" | "down";
   readonly push_since?: number;
+  readonly event_backlog_count?: number;
+  readonly event_backlog_oldest_age_ms?: number;
   readonly last_event_at?: number;
   readonly stale_since?: number;
 }
@@ -125,6 +127,10 @@ export interface HealthData {
     readonly since: string;
   };
   readonly push?: { readonly status: "ok" | "down"; readonly since: string };
+  readonly event_backlog?: {
+    readonly count: number;
+    readonly oldest_age_ms: number | null;
+  };
   readonly last_event_at?: string;
   readonly stale_since?: string;
   readonly database: { readonly status: "ok" | "down" };
@@ -227,6 +233,14 @@ export function healthData(
           push: {
             status: health.push_status,
             since: formatUtc(health.push_since ?? now),
+          },
+        }),
+    ...(health?.event_backlog_count === undefined
+      ? {}
+      : {
+          event_backlog: {
+            count: health.event_backlog_count,
+            oldest_age_ms: health.event_backlog_oldest_age_ms ?? null,
           },
         }),
     ...(health?.last_event_at === undefined

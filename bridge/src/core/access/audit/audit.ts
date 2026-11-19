@@ -103,6 +103,20 @@ export class Audit {
     this.#clock = options.clock;
   }
 
+  async purgeEventsBefore(
+    session: SqlSession,
+    cutoff: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    await session.run(
+      {
+        sql: "DELETE FROM audit_entry WHERE chain=@chain AND ts < @cutoff",
+        params: { chain: EVENTS_CHAIN, cutoff },
+      },
+      signal,
+    );
+  }
+
   /** Writes the entry for an event the log has just taken, inside the caller's transaction. */
   async recordEventIngested(
     session: SqlSession,

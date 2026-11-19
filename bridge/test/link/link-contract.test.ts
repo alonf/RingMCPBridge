@@ -66,6 +66,7 @@ import {
   HEBREW_DEVICE_ID,
   HEBREW_DEVICE_NAME,
   ScenarioEngine,
+  STANDARD_LOCATION_ID,
 } from "../scenarios/index.ts";
 import {
   eventPathParts,
@@ -75,6 +76,7 @@ import {
   requireOpensslInCi,
 } from "../support/index.ts";
 import { inquiryEventParts } from "../support/index.ts";
+import type { RingHistoryPort } from "../../src/connector/access/ring-adapter/index.ts";
 import type { ThrowawayCertificate } from "../support/index.ts";
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
@@ -205,6 +207,8 @@ async function realEvent(clock: FakeClock): Promise<{
   );
   const inventories = { failNext: false, refused: 0 };
   const intake: EventIntake = {
+    catchupDone: (marker, session, signal) =>
+      event.catchupDone(marker, session, signal),
     homeSessionOpened: (session, opened) =>
       event.homeSessionOpened(session, opened),
     inventory: (inventory, session, sent) => {
@@ -239,7 +243,10 @@ async function realEvent(clock: FakeClock): Promise<{
   };
 }
 
-async function both(useRealEvent = false): Promise<Both> {
+async function both(
+  useRealEvent = false,
+  history?: RingHistoryPort,
+): Promise<Both> {
   const clock = new FakeClock(START);
   const homeLines: string[] = [];
   const homeLogger = loggerOn(clock, homeLines);
@@ -252,6 +259,7 @@ async function both(useRealEvent = false): Promise<Both> {
   const slot = new LinkSlot();
   const ingest = new Ingest({
     ring: engine,
+    ...(history && { history }),
     outbox: fullWhen(outbox, disk),
     link: slot,
     clock,
@@ -522,6 +530,89 @@ describe("the link, version 1, both ends", () => {
       device: { device_id: HEBREW_DEVICE_ID, battery_pct: 7 },
     });
     expect(test.homeLines.join("\n")).not.toContain("core_link_work_failed");
+  });
+
+  it("recovers a three-hour gap through the home link and reads the two late events and their single summary", async () => {
+    const hour = 3_600_000;
+    const history: RingHistoryPort = {
+      cameraHistory: (since) => {
+        expect(typeof since === "number" ? since : since("42")).toBe(
+          START - 3 * hour,
+        );
+        return Promise.resolve({
+          truncated: false,
+          completeCameras: ["42"],
+          entries: [1, 2].map((n) => ({
+            ring_event_id: String(9000000 + n),
+            kind: "ding" as const,
+            person: false,
+            name: "Front door",
+            device_id: "42",
+            device_type: "doorbell" as const,
+            location_id: STANDARD_LOCATION_ID,
+            occurred_at: START - n * hour,
+          })),
+        });
+      },
+    };
+    const test = await both(true, history);
+    const real = test.real;
+    if (!real) throw new Error("The real Event manager was not built.");
+    await enrolled(test);
+    await test.outbox.startCatchup(START - 3 * hour, signal);
+    test.start(inMemoryCore(test).dial);
+    const inquiry = new InquiryManager({
+      state: real.state,
+      settings: test.settings,
+      clock: test.clock,
+      homeOfflineAfterMs: OFFLINE_AFTER_MS,
+      ...inquiryEventParts(real.layer, test.clock),
+    });
+    await driveUntil(
+      test.clock,
+      async () =>
+        Boolean(
+          await real.layer.get(
+            {
+              sql: "SELECT seq FROM event WHERE kind='bridge.events_recovered'",
+              params: {},
+            },
+            signal,
+          ),
+        ) && (await outboxEmpty(test)),
+    );
+    const reply = await inquiry.getEvents(
+      { location_id: STANDARD_LOCATION_ID },
+      undefined,
+      signal,
+    );
+    expect(reply.data.events).toMatchObject([
+      {
+        seq: 1,
+        kind: "doorbell.ding",
+        late: true,
+        location_id: STANDARD_LOCATION_ID,
+      },
+      {
+        seq: 2,
+        kind: "doorbell.ding",
+        late: true,
+        location_id: STANDARD_LOCATION_ID,
+      },
+      {
+        seq: 3,
+        kind: "bridge.events_recovered",
+        priority: "HIGH",
+        location_id: STANDARD_LOCATION_ID,
+        recovered: {
+          count: 2,
+          seq_from: 1,
+          seq_to: 2,
+          oldest_at: new Date(START - 2 * hour).toISOString(),
+          newest_at: new Date(START - hour).toISOString(),
+        },
+      },
+    ]);
   });
 
   it("with the real Event manager and State: a session whose start cannot be recorded closes, the next opens, and the inventory lands in State (T018)", async () => {

@@ -1,7 +1,7 @@
 schema: "v1"
 feature: "001-ring-mcp-bridge"
 iteration: "002"
-updated_at: "2026-11-19T15:00:00Z"
+updated_at: "2026-11-19T19:26:19Z"
 tasks:
   CP-08b:
     title: "Home event intake: the push probe first; Push Listener, Normalize (Ring text marked untrusted) and Ingest; events into the Outbox with a send window of about 50 and backoff on the oldest (10 s doubling to 5 min, with jitter), held until the core acks after its commit; the backlog in the heartbeat; catch-up up to 24 hours through the shared Ring limiter, marked late; the link's event messages in version 1"
@@ -11,9 +11,9 @@ tasks:
     blocked_reason: ""
   CP-11b:
     title: "Core event path: Classify (FR-009's table as a data file, the late-event rule); Event Log, State and Audit in one transaction, dedup by event id, then the ack home; the recovery summary; Ring-down and recovery events through the event path; `get_health` adds push reception, the last event and the backlog; 30-day retention; the CI 0.5 s latency check extended to events"
-    status: "in-progress"
+    status: "completed"
     started_at: "2026-11-18T00:15:00Z"
-    completed_at: ""
+    completed_at: "2026-11-19T19:26:19Z"
     blocked_reason: ""
   CP-12:
     title: "Subscriptions and cursors: cursors with epochs that never skip and survive restarts; each client's delivery state; `get_events` after a cursor with filters and a next cursor, flat input, read scope and read limit"
@@ -52,7 +52,7 @@ tasks:
     completed_at: "2026-11-18T16:31:00Z"
     blocked_reason: ""
   CP-RV:
-    title: "Review: codex review runs and the hardening review"
+    title: "Review: independent review rounds and the hardening review"
     status: "pending"
     started_at: ""
     completed_at: ""

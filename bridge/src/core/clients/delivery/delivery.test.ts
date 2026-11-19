@@ -390,6 +390,31 @@ describe("Delivery: pushing events", () => {
     expect(test.eventsTo("/hook")).toHaveLength(0);
   });
 
+  it("pushes one household summary even when every recovered event has LOW priority", async () => {
+    const test = await harness();
+    await test.subscribe("/hook");
+    const recovered = {
+      count: 2,
+      oldest_at: new Date(START - 3000).toISOString(),
+      newest_at: new Date(START).toISOString(),
+      seq_from: 3,
+      seq_to: 4,
+    };
+    test.delivery.eventStored({
+      event: stored({
+        kind: "bridge.events_recovered",
+        priority: "LOW",
+        data: { recovered },
+      }),
+      epoch: 1,
+      action: "push",
+    });
+    await expect.poll(() => test.eventsTo("/hook").length).toBe(1);
+    expect(JSON.parse(test.eventsTo("/hook")[0]?.body ?? "{}")).toMatchObject({
+      data: { location_id: "loc-1", priority: "LOW", recovered },
+    });
+  });
+
   it("pushes a MEDIUM event", async () => {
     const test = await harness();
     await test.subscribe("/hook");

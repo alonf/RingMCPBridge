@@ -247,10 +247,7 @@ async function storedPriority(
   return entry?.priority;
 }
 
-async function eventsOf(
-  test: Harness,
-  locationId: string,
-): Promise<readonly { priority: string; late: boolean; event_id: string }[]> {
+async function eventsOf(test: Harness, locationId: string) {
   const parts = eventPathParts(test.layer, test.clock);
   return parts.eventLog.after(
     test.layer,
@@ -434,6 +431,125 @@ describe("Event: the event path (T047)", () => {
       ["s-5", "HIGH"],
       ["s-6", "LOW"],
       ["s-7", "HIGH"],
+    ]);
+  });
+
+  it("keeps the 30-day boundary, removes older events and preserves the sequence after purge", async () => {
+    const test = await withHome();
+    const day = 86_400_000;
+    await test.event.event(event("old"), SESSION, never);
+    await test.event.event(event("boundary"), SESSION, never);
+    for (const [id, age] of [
+      ["old", 31],
+      ["boundary", 30],
+    ] as const) {
+      await test.layer.run(
+        {
+          sql: "UPDATE event SET stored_at=@time WHERE event_id=@id",
+          params: { time: START - age * day, id },
+        },
+        never,
+      );
+      await test.layer.run(
+        {
+          sql: "UPDATE audit_entry SET ts=@at WHERE event_id=@id",
+          params: { at: START - age * day, id },
+        },
+        never,
+      );
+    }
+    await test.event.maintenance(never);
+    expect(await test.auditCount()).toBe(1);
+    await test.event.event(event("new"), SESSION, never);
+    expect(
+      (await eventsOf(test, "loc-1")).map((row) => [row.event_id, row.seq]),
+    ).toEqual([
+      ["boundary", 2],
+      ["new", 3],
+    ]);
+  });
+
+  it("keeps p95 event-write latency within 0.5 seconds (bridge-latency-budget)", async () => {
+    const test = await withHome();
+    const durations: number[] = [];
+    for (let n = 0; n < 40; n++) {
+      const start = performance.now();
+      const result = await test.event.event(
+        event("latency-" + String(n)),
+        SESSION,
+        never,
+      );
+      durations.push(performance.now() - start);
+      expect(result.kind).toBe("stored");
+    }
+    expect(durations.sort((a, b) => a - b)[37]).toBeLessThanOrEqual(500);
+  });
+
+  it("withholds a recovery summary after a home changes from owned to shared", async () => {
+    const test = await withHome();
+    await test.event.event(
+      event("old-camera", { from_history: true }),
+      SESSION,
+      never,
+    );
+    await test.layer.run(
+      {
+        sql: "UPDATE location SET ownership='shared' WHERE location_id=@id",
+        params: { id: "loc-1" },
+      },
+      never,
+    );
+    await test.event.catchupDone("marker", SESSION, never);
+    expect((await eventsOf(test, "loc-1")).map((e) => e.event_id)).toEqual([
+      "old-camera",
+    ]);
+  });
+
+  it("closes a late batch once, with its time and sequence ranges and highest priority", async () => {
+    const test = await withHome();
+    await test.event.event(
+      event("late-low", {
+        from_history: true,
+        kind: "ring.other",
+        occurred_at: START - 30_000,
+      }),
+      SESSION,
+      never,
+    );
+    await test.event.event(
+      event("late-high", { from_history: true }),
+      SESSION,
+      never,
+    );
+    await test.event.catchupDone("marker-1", SESSION, never);
+    await test.event.event(
+      event("late-single", { from_history: true, kind: "ring.other" }),
+      SESSION,
+      never,
+    );
+    await test.event.catchupDone("marker-1", SESSION, never);
+    await test.event.catchupDone("marker-2", SESSION, never);
+    const summaries = (await eventsOf(test, "loc-1")).filter(
+      (e) => e.kind === "bridge.events_recovered",
+    );
+    expect(summaries).toMatchObject([
+      {
+        priority: "HIGH",
+        late: false,
+        data: {
+          recovered: {
+            count: 2,
+            seq_from: 1,
+            seq_to: 2,
+            oldest_at: new Date(START - 30_000).toISOString(),
+            newest_at: new Date(START - 2_000).toISOString(),
+          },
+        },
+      },
+      {
+        priority: "LOW",
+        data: { recovered: { count: 1, seq_from: 4, seq_to: 4 } },
+      },
     ]);
   });
 
