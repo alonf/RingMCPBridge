@@ -1,7 +1,7 @@
 schema: "v1"
 feature: "001-ring-mcp-bridge"
 iteration: "002"
-updated_at: "2026-11-19T20:11:45Z"
+updated_at: "2026-11-19T22:24:24Z"
 tasks:
   CP-08b:
     title: "Home event intake: the push probe first; Push Listener, Normalize (Ring text marked untrusted) and Ingest; events into the Outbox with a send window of about 50 and backoff on the oldest (10 s doubling to 5 min, with jitter), held until the core acks after its commit; the backlog in the heartbeat; catch-up up to 24 hours through the shared Ring limiter, marked late; the link's event messages in version 1"
@@ -41,8 +41,8 @@ tasks:
     blocked_reason: ""
   CP-21b:
     title: "The dot and the first end-to-end latency samples: SC-001 measured from Ring's trigger to ChatGPT accepting the webhook, logged per event; the owner's stopwatch samples of the dot; the agent read from ChatGPT on the new core"
-    status: "pending"
-    started_at: ""
+    status: "in-progress"
+    started_at: "2026-11-19T22:24:24Z"
     completed_at: ""
     blocked_reason: ""
   CP-MR:

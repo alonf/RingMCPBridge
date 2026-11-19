@@ -4,19 +4,21 @@
 **Current Phase**: before-implement
 **Iteration Status**: executing
 **Last Completed Task**: CP-13
-**Tasks Remaining**: CP-21b, CP-RV, CP-PJ
-**In Progress**: CP-18, CP-20, CP-RW
+**Tasks Remaining**: CP-RV, CP-PJ
+**In Progress**: CP-18, CP-20, CP-21b, CP-RW
 **Baseline Ref**: c9618ddc79cb7f5e3d94dffe1ae4c2bc3d16ea7c
-**Updated**: 2026-11-19T22:05:43Z
+**Updated**: 2026-11-19T22:24:24Z
 
 ## Execution Summary
 
 <!-- specrew:task-progress-summary:begin -->
 - Execution is in progress.
-- Task progress: 5 complete, 3 in-progress, 3 pending, 0 blocked.
+- Task progress: 5 complete, 4 in-progress, 2 pending, 0 blocked.
 - Latest completed task: CP-13
 <!-- specrew:task-progress-summary:end -->
 ## Notes
+
+- T049 resumed with 51 distinct device events from earlier pilot builds. Two HIGH doorbell callbacks were accepted in 1.096 and 1.250 seconds. For 49 MEDIUM person detections, the 95th percentile was 1.978 seconds and the maximum was 2.232 seconds. The private pilot journal holds the samples. These times measure webhook acceptance. A read via the Ring MCP integration in Codex succeeded on the current core. The home connector update and a timed observation of the ChatGPT notification are pending.
 
 - T057 passed local HTTP tests for both protocol versions, including reconnect by cursor and revocation during a stream. T056 was deployed from `b444d18`. During the live connector outage on 2026-11-19, Azure fired the health alert at 21:33:31 UTC and triggered the action group one second later. The home link reopened at 21:34:41 UTC and Azure resolved the alert at 21:49:33 UTC. The owner confirmed both SMS messages. T056 remains in progress for email delivery. The address matched, and Azure rejected the isolated email test before providing a send receipt. The fourth review round remains paused.
 
