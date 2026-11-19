@@ -36,6 +36,8 @@ Event paging accounts for the UTF-8 size of structured data and escaped JSON tex
 
 The owner accepted push, store only and drop, with household rules by sensor type and individual camera. The owner chose drop for shared cameras, store only for sensors, and owned-home behavior for alarm status and alarm events. FR-036 records Ring sharing as read permission. Every queried and pushed event carries its source location ID. Deployment overrides use BRIDGE_EVENT_RULES. The settings page remains in iteration 003.
 
+- **Class closure**: Ingest regression tests exercise two camera checkpoints and retry after a partial history read. Inquiry tests page through verbose events and resume at the first omitted match. The VM seed test checks the updater content and permissions. Shared-household tests cover capture, storage, source IDs, notification suppression and rule precedence.
+
 ### DRIFT-002-21: a contact while disarmed is LOW, by the owner's choice
 
 - **Detected**: 2026-11-19, when T062 made contact events real and the priority table was read against them.
