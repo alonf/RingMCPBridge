@@ -165,6 +165,13 @@ const EXPECTED_TABLES: Readonly<
     ["created_at", true],
     ["expires_at", true],
   ],
+  event_cursor: [
+    ["client_id", true],
+    ["location_id", true],
+    ["epoch", true],
+    ["seq", true],
+    ["updated_at", true],
+  ],
 };
 
 const LOCATION = {

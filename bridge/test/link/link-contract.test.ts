@@ -55,6 +55,7 @@ import {
   QueryLayerError,
   runMigrations,
 } from "../../src/utilities/query-layer/index.ts";
+import type { QueryLayer } from "../../src/utilities/query-layer/index.ts";
 import {
   generateSigningKeyPair,
   signingKeyId,
@@ -73,6 +74,7 @@ import {
   RecordingIntake,
   requireOpensslInCi,
 } from "../support/index.ts";
+import { inquiryEventParts } from "../support/index.ts";
 import type { ThrowawayCertificate } from "../support/index.ts";
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
@@ -159,6 +161,7 @@ function loggerOn(clock: FakeClock, lines: string[]): Logger {
  */
 interface RealEvent {
   readonly state: StateStore;
+  readonly layer: QueryLayer;
   readonly failNextTransaction: () => void;
   readonly failNextInventory: () => void;
   /** How many inventories were refused that way. */
@@ -224,6 +227,7 @@ async function realEvent(clock: FakeClock): Promise<{
     intake,
     real: {
       state,
+      layer,
       failNextTransaction: () => {
         failing = true;
       },
@@ -562,6 +566,7 @@ describe("the link, version 1, both ends", () => {
       settings: test.settings,
       clock: test.clock,
       homeOfflineAfterMs: OFFLINE_AFTER_MS,
+      ...inquiryEventParts(real.layer, test.clock),
     });
     const freshness = async (): Promise<string> =>
       (await inquiry.getOverview({}, signal)).freshness;
@@ -609,6 +614,7 @@ describe("the link, version 1, both ends", () => {
       settings: test.settings,
       clock: test.clock,
       homeOfflineAfterMs: OFFLINE_AFTER_MS,
+      ...inquiryEventParts(real.layer, test.clock),
     });
     const freshness = async (): Promise<string> =>
       (await inquiry.getOverview({}, signal)).freshness;
@@ -649,6 +655,7 @@ describe("the link, version 1, both ends", () => {
       settings: test.settings,
       clock: test.clock,
       homeOfflineAfterMs: OFFLINE_AFTER_MS,
+      ...inquiryEventParts(real.layer, test.clock),
     });
     const freshness = async (): Promise<string> =>
       (await inquiry.getOverview({}, signal)).freshness;

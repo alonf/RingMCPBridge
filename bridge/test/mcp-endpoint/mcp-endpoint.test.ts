@@ -167,6 +167,9 @@ async function startEndpoint(readsPerHour = READS_PER_HOUR): Promise<Harness> {
       instead?.() ?? decorate(core.inquiry.getDevice(request, signal)),
     getHealth: (signal) =>
       instead?.() ?? decorate(core.inquiry.getHealth(signal)),
+    getEvents: (request, clientId, signal) =>
+      instead?.() ??
+      decorate(core.inquiry.getEvents(request, clientId, signal)),
   };
   // The endpoint needs its own URL, so it is built once the server listens, before any request.
   const routes: { endpoint?: McpEndpoint } = {};
@@ -300,7 +303,7 @@ describe.each(ERAS)("the MCP endpoint in the %s era", (era) => {
     return agent.client.callTool({ name: tool, arguments: args });
   }
 
-  it("lists the four read tools, read-only, with the inputs and replies the contract publishes", async () => {
+  it("lists the read tools, read-only, with the inputs and replies the contract publishes", async () => {
     const { tools } = await agent.client.listTools();
     const inputs = published("tool-inputs.schema.json");
     const replies = published("tool-replies.schema.json");
@@ -793,7 +796,7 @@ function iteration001Codes(): {
   const codes = new Set<string>(["INTERNAL", "BRIDGE_UNAVAILABLE"]);
   for (const line of lines) {
     const cells = line.split("|").map((cell) => cell.trim());
-    const name = /^`([a-z_]+)` \(001\)$/.exec(cells[1] ?? "")?.[1];
+    const name = /^`([a-z_]+)` \(00[12]\)$/.exec(cells[1] ?? "")?.[1];
     if (name === undefined) {
       continue;
     }
@@ -811,7 +814,7 @@ function iteration001Codes(): {
 const PENDING_CODES: ReadonlyMap<string, string> = new Map();
 
 describe("the MCP endpoint's completeness check (T024)", () => {
-  it("sees every iteration 001 tool answer in both eras, and every iteration 001 error code errors.md lists", () => {
+  it("sees every iteration 001 and 002 tool answer in both eras, and every error code errors.md lists for them", () => {
     const contract = iteration001Codes();
 
     expect(contract.tools).toEqual(TOOL_CATALOG.map((tool) => tool.name));
@@ -826,5 +829,39 @@ describe("the MCP endpoint's completeness check (T024)", () => {
     expect(new Set([...seenCodes, ...PENDING_CODES.keys()])).toEqual(
       contract.codes,
     );
+  });
+});
+
+// T052 (FR-011, FR-030, FR-047, FR-048): get_events through the endpoint, as every read tool is.
+describe("get_events through the endpoint", () => {
+  let harness: Harness;
+
+  beforeAll(async () => {
+    harness = await startEndpoint(5);
+  });
+
+  afterAll(async () => {
+    await harness.close();
+  });
+
+  it("counts against the agent's hourly reads like every read tool, and refuses an input the contract does not allow", async () => {
+    const agent = await connectOverHttp(harness.url, {
+      accessToken: "good",
+      era: "modern",
+    });
+    try {
+      const events = (args: Record<string, unknown>) =>
+        agent.client.callTool({ name: "get_events", arguments: args });
+
+      failureOf(await events({ limit: 0 }), "INVALID_ARGUMENT");
+      failureOf(await events({ min_priority: "URGENT" }), "INVALID_ARGUMENT");
+      failureOf(await events({ extra: true }), "INVALID_ARGUMENT");
+      expect((await events({})).isError).toBeFalsy();
+      expect((await events({ limit: 5 })).isError).toBeFalsy();
+
+      failureOf(await events({}), "RATE_LIMITED");
+    } finally {
+      await agent.close();
+    }
   });
 });

@@ -63,6 +63,7 @@ const NO_READS: InquiryReads = {
   listDevices: notCalled,
   getDevice: notCalled,
   getHealth: notCalled,
+  getEvents: notCalled,
 };
 
 function hourFromNow(): number {

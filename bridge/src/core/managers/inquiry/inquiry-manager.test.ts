@@ -4,7 +4,9 @@
 // the store down as `unavailable`, and the whole reply within the budget on the 100-device home.
 import { afterEach, describe, expect, it } from "vitest";
 import { standardHome } from "../../../../test/scenarios/index.ts";
+import { EventLog } from "../../access/event-log/index.ts";
 import { SettingsStore } from "../../access/settings/index.ts";
+import { CursorStore } from "../../access/subscriptions/index.ts";
 import { StateStore, StateStoreError } from "../../access/state/index.ts";
 import type { DeviceState, LocationState } from "../../access/state/index.ts";
 import {
@@ -22,6 +24,7 @@ import {
   runMigrations,
 } from "../../../utilities/query-layer/index.ts";
 import type { QueryLayer } from "../../../utilities/query-layer/index.ts";
+import { inquiryEventParts } from "../../../../test/support/index.ts";
 import { InquiryError, InquiryManager } from "./index.ts";
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
@@ -114,6 +117,8 @@ interface Harness {
   readonly settings: SettingsStore;
   readonly inquiry: InquiryManager;
   readonly cut: () => void;
+  readonly layer: QueryLayer;
+  readonly events: EventLog;
 }
 
 const stops: (() => Promise<void>)[] = [];
@@ -152,8 +157,19 @@ async function harness(
     settings,
     clock,
     homeOfflineAfterMs: OFFLINE_AFTER_MS,
+    store,
+    eventLog: new EventLog({ clock }),
+    cursors: new CursorStore({ store, clock }),
   });
-  return { clock, state, settings, inquiry, cut };
+  return {
+    clock,
+    state,
+    settings,
+    inquiry,
+    cut,
+    layer,
+    events: new EventLog({ clock }),
+  };
 }
 
 async function rejection(work: Promise<unknown>): Promise<InquiryError> {
@@ -601,6 +617,7 @@ describe("the Inquiry manager: one picture per reply", () => {
       settings: test.settings,
       clock: test.clock,
       homeOfflineAfterMs: OFFLINE_AFTER_MS,
+      ...inquiryEventParts(test.layer, test.clock),
     });
     switch (tool) {
       case "getOverview":

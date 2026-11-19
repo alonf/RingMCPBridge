@@ -116,12 +116,13 @@ describe("the tool data", () => {
 });
 
 describe("the tool catalog", () => {
-  it("lists the four iteration 001 read tools, all with the read scope", () => {
+  it("lists the four iteration 001 read tools and iteration 002's get_events, all with the read scope", () => {
     expect(TOOL_CATALOG.map((tool) => [tool.name, tool.scope])).toEqual([
       ["get_overview", "read"],
       ["list_devices", "read"],
       ["get_device", "read"],
       ["get_health", "read"],
+      ["get_events", "read"],
     ]);
   });
 });

@@ -23,9 +23,15 @@ import {
   isValidTimeZone,
 } from "../../../utilities/clock/index.ts";
 import type { Clock } from "../../../utilities/clock/index.ts";
+import { QueryLayerError } from "../../../utilities/query-layer/index.ts";
+import type { QueryLayer } from "../../../utilities/query-layer/index.ts";
+import { EventLogError } from "../../access/event-log/index.ts";
+import type { EventLog } from "../../access/event-log/index.ts";
 import { SettingsStoreError } from "../../access/settings/index.ts";
 import type { SettingsStore } from "../../access/settings/index.ts";
 import { StateStoreError } from "../../access/state/index.ts";
+import { SubscriptionsError } from "../../access/subscriptions/index.ts";
+import type { CursorStore } from "../../access/subscriptions/index.ts";
 import type {
   DeviceType,
   HealthSnapshot,
@@ -47,6 +53,8 @@ import type {
   HealthData,
   OverviewData,
 } from "../../engines/summary/index.ts";
+import { cursorLocation, readEvents } from "./events-read.ts";
+import type { EventsData, EventsRequest } from "./events-read.ts";
 import { InquiryError } from "./inquiry-error.ts";
 
 /** The zone a reply's local time falls back to when a location's own is not one Intl knows. */
@@ -83,6 +91,9 @@ export type DeviceList = DeviceListData;
 export type DeviceDetail = DeviceDetailData;
 /** `get_health`'s data. */
 export type Health = HealthData;
+/** `get_events`' data and request (T052). */
+export type Events = EventsData;
+export type EventsReadRequest = EventsRequest;
 
 /** How fresh a reply's data is (FR-006). */
 export type Freshness = "live" | "cached" | "stale";
@@ -122,6 +133,10 @@ export interface InquiryManagerOptions {
   readonly clock: Clock;
   /** How long a silent home still counts as up: Config `staleAfterMs`, as Event uses it. */
   readonly homeOfflineAfterMs: number;
+  /** What `get_events` reads: the database, the event log and the clients' read marks (T052). */
+  readonly store: QueryLayer;
+  readonly eventLog: EventLog;
+  readonly cursors: CursorStore;
 }
 
 /** The read tools' use cases. One per core process. */
@@ -130,8 +145,14 @@ export class InquiryManager {
   readonly #settings: SettingsStore;
   readonly #clock: Clock;
   readonly #policy: HealthPolicy;
+  readonly #store: QueryLayer;
+  readonly #eventLog: EventLog;
+  readonly #cursors: CursorStore;
 
   constructor(options: InquiryManagerOptions) {
+    this.#store = options.store;
+    this.#eventLog = options.eventLog;
+    this.#cursors = options.cursors;
     this.#state = options.state;
     this.#settings = options.settings;
     this.#clock = options.clock;
@@ -171,6 +192,67 @@ export class InquiryManager {
         { batteryThresholdPct: thresholdPct, budgetTokens: DATA_BUDGET_TOKENS },
       ),
     );
+  }
+
+  /**
+   * The events after a cursor, filtered, in order, with the cursor for the next read (FR-011). Of
+   * one owned location: the named one, else the cursor's, else the only one. `clientId` is the
+   * agent's; with it, the read also advances the client's read mark.
+   */
+  async getEvents(
+    request: EventsRequest,
+    clientId: string | undefined,
+    signal: AbortSignal,
+  ): Promise<InquiryReply<Events>> {
+    const named = request.location_id ?? cursorLocation(request);
+    if (
+      request.location_id !== undefined &&
+      named !== undefined &&
+      cursorLocation(request) !== undefined &&
+      cursorLocation(request) !== request.location_id
+    ) {
+      throw new InquiryError(
+        "invalid_argument",
+        "The cursor belongs to another location.",
+      );
+    }
+    const [stored, zones] = await this.#guard(
+      signal,
+      "The events could not be read.",
+      () =>
+        Promise.all([
+          this.#state.health(signal),
+          this.#settings.locationTimeZones(signal),
+        ]),
+    );
+    const location = await this.#ownedLocation(named, signal);
+    const timeZone = zoneOf(location, zones).zone;
+    const data = await this.#guard(
+      signal,
+      "The events could not be read.",
+      () =>
+        readEvents({
+          events: this.#eventLog,
+          cursors: this.#cursors,
+          session: this.#store,
+          locationId: location.location_id,
+          timeZone,
+          clientId,
+          request,
+          deviceLabel: async (deviceId) => {
+            const device = await this.#state.device(deviceId, signal);
+            return device === undefined
+              ? undefined
+              : {
+                  name: device.name,
+                  ...(device.room === undefined ? {} : { room: device.room }),
+                };
+          },
+          signal,
+        }),
+    );
+    const now = this.#clock.now();
+    return reply(timeZone, this.#healthAsOf(stored, now), now, data);
   }
 
   /** The location's devices, filtered by type and room (FR-002). */
@@ -343,6 +425,19 @@ export class InquiryManager {
         error instanceof SettingsStoreError
       ) {
         throw new InquiryError(error.kind, message, { cause: error });
+      }
+      if (
+        error instanceof EventLogError ||
+        error instanceof SubscriptionsError ||
+        error instanceof QueryLayerError
+      ) {
+        throw new InquiryError(
+          error instanceof QueryLayerError && error.kind !== "store_down"
+            ? "failed"
+            : "unavailable",
+          message,
+          { cause: error },
+        );
       }
       throw error;
     }

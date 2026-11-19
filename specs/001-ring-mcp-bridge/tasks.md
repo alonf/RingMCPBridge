@@ -216,14 +216,14 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
 
 **Depends on**: Phase 3. T051 before T052. T053 before T054. T055 can run beside them.
 
-- [ ] T051 [US2] [assigned_to: Implementer] [effort: 0.9] Subscriptions store's cursors in `bridge/src/core/access/subscriptions/`:
+- [x] T051 [US2] [assigned_to: Implementer] [effort: 0.9] Subscriptions store's cursors in `bridge/src/core/access/subscriptions/`:
   - each client's cursor per location, with the epoch, and its last-read mark;
   - each client's delivery state (opt-ins come in iteration 003);
   - a cursor never skips an event and survives a restart; an epoch change is reported to the reader, never hidden;
   - a migration for both dialects.
 
   Tests: restart; two clients with separate cursors; an old-epoch cursor (Trace: FR-010, FR-011; CP-12)
-- [ ] T052 [US2] [assigned_to: Implementer] [effort: 0.9] `get_events`, in `bridge/src/contract/`, `bridge/src/core/managers/inquiry/` and `bridge/src/core/clients/mcp-endpoint/`:
+- [x] T052 [US2] [assigned_to: Implementer] [effort: 0.9] `get_events`, in `bridge/src/contract/`, `bridge/src/core/managers/inquiry/` and `bridge/src/core/clients/mcp-endpoint/`:
   - input: a cursor, filters by priority, kind and device, and a limit. The input schema is flat: enums and optional fields only;
   - output: events after the cursor, in order, and a next cursor; Ring's text is marked untrusted in the tool's description and schema;
   - the read scope is required, and each call counts against the read limit;

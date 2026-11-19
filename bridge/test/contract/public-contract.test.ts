@@ -46,6 +46,7 @@ const BRIDGE_TEXT: ReadonlySet<string> = new Set([
   "location_id",
   "device_id",
   "event_id",
+  "next_cursor",
   "kind",
   "media_id",
   "message",

@@ -72,6 +72,49 @@
       "additionalProperties": false,
       "title": "get_health input",
       "description": "Scope: read. The bridge's own health: the home link, the Ring session, push reception, the last event received, and since when data has been stale. Takes no input."
+    },
+    "get_events": {
+      "type": "object",
+      "properties": {
+        "location_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The location. Omitted: the cursor's location, else the owned location when there is exactly one. When a cursor is also given, it must be the cursor's location, or INVALID_ARGUMENT."
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "description": "An opaque cursor from a previous next_cursor. Omitted: events after this client's last-read mark in the location, or from the start of the log on a first read. A cursor from an older log epoch returns events from the start of the current epoch, with epoch_changed: true. Malformed or foreign: INVALID_ARGUMENT."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The most events to return. The default is 50; the server caps it at 200."
+        },
+        "min_priority": {
+          "type": "string",
+          "enum": [
+            "HIGH",
+            "MEDIUM",
+            "LOW"
+          ],
+          "description": "Only events of this priority or higher."
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only events of this kind, for example contact.open. The kind list is open."
+        },
+        "device_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only events from this device."
+        }
+      },
+      "additionalProperties": false,
+      "title": "get_events input",
+      "description": "Scope: read. Events after a cursor, filtered, in seq order, with next_cursor for the next read. The cursor never skips and survives restarts. The log is the truth and push is a hint."
     }
   }
 }

@@ -9,7 +9,9 @@ import {
   PRIORITY_POLICY_FILE,
 } from "../../src/core/engines/classify/index.ts";
 import type { EventTransactions } from "../../src/core/managers/event/index.ts";
+import { CursorStore } from "../../src/core/access/subscriptions/index.ts";
 import type { Clock } from "../../src/utilities/clock/index.ts";
+import type { QueryLayer } from "../../src/utilities/query-layer/index.ts";
 
 /** The event path's parts of `EventManagerOptions`, over `store`. */
 export function eventPathParts(
@@ -28,5 +30,21 @@ export function eventPathParts(
     priorityPolicy: parsePriorityPolicy(
       JSON.parse(readFileSync(PRIORITY_POLICY_FILE, "utf8")),
     ),
+  };
+}
+
+/** What `InquiryManager` needs to read events, over `store` (T052). */
+export function inquiryEventParts(
+  store: QueryLayer,
+  clock: Clock,
+): {
+  readonly store: QueryLayer;
+  readonly eventLog: EventLog;
+  readonly cursors: CursorStore;
+} {
+  return {
+    store,
+    eventLog: new EventLog({ clock }),
+    cursors: new CursorStore({ store, clock }),
   };
 }

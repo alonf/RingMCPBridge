@@ -24,6 +24,7 @@ import type { z } from "zod";
 import {
   errorEnvelope,
   getDeviceTool,
+  getEventsTool,
   getHealthTool,
   getOverviewTool,
   listDevicesTool,
@@ -51,7 +52,7 @@ export const LOCAL_CLIENT = "local";
 /** The Inquiry reads the tools make. */
 export type InquiryReads = Pick<
   InquiryManager,
-  "getOverview" | "listDevices" | "getDevice" | "getHealth"
+  "getOverview" | "listDevices" | "getDevice" | "getHealth" | "getEvents"
 >;
 
 /** What a tool call has besides its input. */
@@ -82,6 +83,7 @@ interface ReadTool {
     inquiry: InquiryReads,
     input: unknown,
     signal: AbortSignal,
+    clientId: string | undefined,
   ): Promise<{ readonly reply: unknown; readonly summary: string }>;
 }
 
@@ -97,6 +99,7 @@ function readTool<Input extends z.ZodObject, Reply extends z.ZodType>(
     inquiry: InquiryReads,
     input: z.output<Input>,
     signal: AbortSignal,
+    clientId: string | undefined,
   ) => Promise<InquiryReply<unknown>>,
   summarize: (reply: z.output<Reply>) => string,
 ): ReadTool {
@@ -105,8 +108,13 @@ function readTool<Input extends z.ZodObject, Reply extends z.ZodType>(
     description: contract.description,
     input: contract.input,
     reply: contract.reply,
-    call: async (inquiry, input, signal) => {
-      const answer = await read(inquiry, contract.input.parse(input), signal);
+    call: async (inquiry, input, signal, clientId) => {
+      const answer = await read(
+        inquiry,
+        contract.input.parse(input),
+        signal,
+        clientId,
+      );
       const reply = contract.reply.parse(answer);
       return { reply, summary: summarize(reply) };
     },
@@ -175,6 +183,13 @@ export const READ_TOOLS: readonly ReadTool[] = [
     (inquiry, _input, signal) => inquiry.getHealth(signal),
     (reply) =>
       `Home link ${reply.data.home_link.status}, Ring session ${reply.data.ring_session.status}, ${asOf(reply)}.`,
+  ),
+  readTool(
+    getEventsTool,
+    (inquiry, input, signal, clientId) =>
+      inquiry.getEvents(present(input), clientId, signal),
+    (reply) =>
+      `${String(reply.data.events.length)} events${reply.data.has_more ? ", more follow" : ", up to date"}${reply.data.epoch_changed === true ? ", the log's epoch changed: read from the start and dedupe by event_id" : ""} ${asOf(reply)}.`,
   ),
 ];
 
@@ -281,6 +296,7 @@ async function outcomeOf(
         options.inquiry,
         parsed.data,
         AbortSignal.any([call.signal, deadline.signal]),
+        call.clientId,
       ),
       deadline.signal,
     );

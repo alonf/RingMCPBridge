@@ -9,6 +9,7 @@ import {
   afterSessionOpened,
 } from "../../src/core/engines/health/index.ts";
 import { InquiryManager } from "../../src/core/managers/inquiry/index.ts";
+import { inquiryEventParts } from "../support/index.ts";
 import type { Clock } from "../../src/utilities/clock/index.ts";
 import {
   CORE_MIGRATIONS,
@@ -70,6 +71,7 @@ export async function startCoreReads(clock: Clock): Promise<CoreReads> {
       settings,
       clock,
       homeOfflineAfterMs: OFFLINE_AFTER_MS,
+      ...inquiryEventParts(layer, clock),
     }),
     close: () => layer.close(),
   };

@@ -16,6 +16,8 @@ import {
   roomName,
   utcTime,
 } from "./shapes.ts";
+import { getEventsTool } from "./events-tool.ts";
+import type { ToolContract } from "./tool-contract.ts";
 import { ringObject, toolDescription } from "./untrusted.ts";
 
 const locationIdInput = z.string().min(1).meta({
@@ -209,20 +211,7 @@ export const deviceData = z.object({
 
 // The tools
 
-/** One tool of the public contract: what MCP Endpoint registers. */
-export interface ToolContract<
-  Input extends z.ZodObject = z.ZodObject,
-  Reply extends z.ZodType = z.ZodType,
-> {
-  readonly name: string;
-  /** The OAuth scope the caller's token needs. */
-  readonly scope: "read" | "media" | "control";
-  /** The MCP tool description; it ends with the untrusted-content sentence. */
-  readonly description: string;
-  readonly input: Input;
-  /** The reply envelope around the tool's data. */
-  readonly reply: Reply;
-}
+export type { ToolContract } from "./tool-contract.ts";
 
 export const getOverviewTool = {
   name: "get_overview",
@@ -268,4 +257,5 @@ export const TOOL_CATALOG: readonly ToolContract[] = [
   listDevicesTool,
   getDeviceTool,
   getHealthTool,
+  getEventsTool,
 ];

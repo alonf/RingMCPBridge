@@ -19,6 +19,15 @@ export {
 } from "./inquiry-tools.ts";
 export type { ToolContract } from "./inquiry-tools.ts";
 
+/** `get_events` (T052). */
+export {
+  DEFAULT_EVENTS_PER_READ,
+  eventsData,
+  getEventsInput,
+  getEventsTool,
+  MAX_EVENTS_PER_REPLY,
+} from "./events-tool.ts";
+
 /** The reply envelope, the error envelope and their enumerations. */
 export {
   ERROR_CODES,

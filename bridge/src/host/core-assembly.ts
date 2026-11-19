@@ -4,6 +4,7 @@
 // H's, wired in core.ts. Hand-wired, with no container (CD3, CD5).
 import { Audit } from "../core/access/audit/index.ts";
 import { EventLog } from "../core/access/event-log/index.ts";
+import { CursorStore } from "../core/access/subscriptions/index.ts";
 import { GrantsStore } from "../core/access/grants/index.ts";
 import { Lease } from "../core/access/lease/index.ts";
 import type { LeaseStore, LeaseTiming } from "../core/access/lease/index.ts";
@@ -78,11 +79,15 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
     defaultBatteryThresholdPct: options.settings.batteryThresholdPct,
   });
   const grants = new GrantsStore({ store, clock });
+  const eventLog = new EventLog({ clock });
   const inquiry = new InquiryManager({
     state,
     settings,
     clock,
     homeOfflineAfterMs: options.settings.staleAfterMs,
+    store,
+    eventLog,
+    cursors: new CursorStore({ store, clock }),
   });
   const lease = new Lease({
     store: options.leaseStore ?? store,
@@ -98,7 +103,6 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
   const events = new PubSub<EventTopics>((topic, error) => {
     logger.error("pub_sub_handler_failed", { kind: topic }, error);
   });
-  const eventLog = new EventLog({ clock });
   const audit = new Audit({ clock });
   const admin = new AdminManager({ settings });
   const links = new LeasedLinks({

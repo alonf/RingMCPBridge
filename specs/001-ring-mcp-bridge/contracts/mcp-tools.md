@@ -166,7 +166,7 @@ Events after a cursor, filtered, in `seq` order, with a cursor for the next read
 |---|---|---|---|
 | `location_id` | string | no | must match the cursor's location when both are given [P] |
 | `cursor` | string, opaque | no | from a previous `next_cursor` |
-| `limit` | integer, minimum 1 | no | [P]; the server caps it to the reply token budget |
+| `limit` | integer, minimum 1 | no | [P]; 50 when omitted, at most 200 (the reply token budget, T052) |
 | `min_priority` | enum `HIGH`, `MEDIUM`, `LOW` | no | [P] filter |
 | `kind` | string | no | [P] filter; the kind list is open |
 | `device_id` | string | no | [P] filter |
@@ -179,6 +179,8 @@ Events after a cursor, filtered, in `seq` order, with a cursor for the next read
 | `epoch_changed` | boolean, present and `true` only when the cursor was from an older epoch | the reply then starts at the beginning of the current epoch; dedupe by `event_id`; nothing is skipped (PT-28, DS5) |
 
 Errors: as `get_overview`; `INVALID_ARGUMENT` for a malformed or foreign cursor.
+
+Built in T052: the cursor is the location, the log epoch and the `seq`, encoded; a cursor from an epoch the log has not reached is `INVALID_ARGUMENT`. A read without a cursor starts after the client's read mark, and every read by an agent moves its mark to the position the reply's `next_cursor` names, so a client that must not lose a reply keeps its own cursor. Only owned locations are read: a shared location is `NOT_FOUND`. Each read counts against the hourly read limit, as every read tool does.
 
 ### `set_push_filter` (iteration 003)
 

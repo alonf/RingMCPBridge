@@ -8,6 +8,7 @@ import { SNAPSHOT_ORDER } from "./0005-snapshot-order.ts";
 import { MOTION_SINCE } from "./0006-motion-since.ts";
 import { EVENT_LOG_AND_AUDIT } from "./0007-event-log-and-audit.ts";
 import { WEBHOOK_SUBSCRIPTIONS } from "./0008-webhook-subscriptions.ts";
+import { EVENT_CURSORS } from "./0009-event-cursors.ts";
 import type { Migration } from "./migration.ts";
 
 export const CORE_MIGRATIONS: readonly Migration[] = [
@@ -19,4 +20,5 @@ export const CORE_MIGRATIONS: readonly Migration[] = [
   MOTION_SINCE,
   EVENT_LOG_AND_AUDIT,
   WEBHOOK_SUBSCRIPTIONS,
+  EVENT_CURSORS,
 ];

@@ -259,6 +259,24 @@ export class EventLog {
     return rows.map(storedEvent);
   }
 
+  /**
+   * The log's current epoch for the location: the first one before any event is stored. A reader's
+   * cursor from an earlier epoch is told so, never silently served (PT-28).
+   */
+  async epoch(
+    session: SqlSession,
+    locationId: string,
+    signal: AbortSignal,
+  ): Promise<number> {
+    const row = await session.get(
+      { sql: SELECT_COUNTER, params: { location_id: locationId } },
+      signal,
+    );
+    return row === undefined
+      ? FIRST_LOG_EPOCH
+      : parsed(COUNTER_ROW, row, "log_meta").epoch;
+  }
+
   // Takes the location's next `seq`. The counter's row is made on the location's first event;
   // the update then locks it until the caller's transaction ends.
   async #nextPlace(

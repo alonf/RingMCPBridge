@@ -11,6 +11,8 @@ export type {
   DeviceList,
   DeviceListRequest,
   DeviceRequest,
+  Events,
+  EventsReadRequest,
   Freshness,
   Health,
   InquiryDeviceType,

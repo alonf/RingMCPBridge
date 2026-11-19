@@ -36,7 +36,7 @@ export {
 export type { ThrowawayCertificate } from "./throwaway-certificate.ts";
 
 /** The Event manager's event path over a test's database (T047). */
-export { eventPathParts } from "./event-path.ts";
+export { eventPathParts, inquiryEventParts } from "./event-path.ts";
 
 /** Event's intake as a recorder, until the Event manager exists (T017, T018). */
 export { RecordingIntake } from "./recording-intake.ts";
