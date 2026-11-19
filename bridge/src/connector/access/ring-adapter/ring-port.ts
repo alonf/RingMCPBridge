@@ -170,10 +170,10 @@ export interface RingHistoryPort {
    * Throws `RingAdapterError` as `RingPort.locations` does.
    */
   cameraHistory(
-    sinceMs: number,
+    sinceMs: number | ((cameraId: string) => number),
     signal: AbortSignal,
     options?: { readonly maxPages?: number },
-  ): Promise<RingHistoryRead>;
+  ): Promise<RingHistoryRead & { readonly completeCameras: readonly string[] }>;
 }
 
 /** Ring's push notifications, apart from `RingPort` so a reader of state need not carry it. */

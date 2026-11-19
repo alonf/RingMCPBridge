@@ -128,6 +128,8 @@ type Changes = Partial<{
   device_id: string;
   location_id: string;
   late: boolean;
+  summary: string;
+  ringKind: string;
 }>;
 
 async function store(
@@ -149,7 +151,10 @@ async function store(
           ...(changes.device_id === undefined
             ? {}
             : { device_id: changes.device_id }),
-          summary: `Event ${id}`,
+          ...(changes.ringKind
+            ? { data: { ring_kind: changes.ringKind } }
+            : {}),
+          summary: changes.summary ?? `Event ${id}`,
           late: changes.late ?? false,
         },
         never,
@@ -352,6 +357,45 @@ describe("the Inquiry manager: get_events", () => {
     );
 
     expect(error.kind).toBe("not_found");
+  });
+
+  it("retains the event and device ids when one Ring field alone exceeds the page budget", async () => {
+    const test = await harness();
+    await store(test, "e-1", {
+      device_id: DOOR.device_id,
+      kind: "ring.other",
+      ringKind: "a".repeat(24_000),
+    });
+    const page = await test.inquiry.getEvents({}, AGENT_A, never);
+    expect(page.data.events[0]).toMatchObject({
+      event_id: "e-1",
+      device: { id: DOOR.device_id },
+    });
+    expect(page.data.events[0]?.ring_kind?.endsWith("…")).toBe(true);
+    expect(page.data.has_more).toBe(false);
+  });
+
+  it("pages verbose events without losing the first omitted event", async () => {
+    const test = await harness();
+    for (let n = 1; n <= 30; n++) {
+      await store(test, String(n), { summary: "שלום".repeat(240) });
+    }
+    const first = await test.inquiry.getEvents({}, AGENT_A, never);
+    expect(first.data.has_more).toBe(true);
+    expect(first.data.events.length).toBeGreaterThan(0);
+    const json = JSON.stringify(first);
+    expect(
+      Buffer.byteLength(json) + Buffer.byteLength(JSON.stringify(json)),
+    ).toBeLessThanOrEqual(24000);
+    const next = await test.inquiry.getEvents(
+      { cursor: first.data.next_cursor },
+      AGENT_B,
+      never,
+    );
+    expect(next.data.events[0]?.seq).toBe(first.data.events.length + 1);
+    expect((await test.inquiry.getEvents({}, AGENT_A, never)).data).toEqual(
+      next.data,
+    );
   });
 
   it("caps the limit, and fails as unavailable when the store is down", async () => {

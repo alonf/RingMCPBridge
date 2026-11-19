@@ -27,7 +27,6 @@ import type {
   RingDevice,
   RingHistoryEntry,
   RingHistoryPort,
-  RingHistoryRead,
   RingLocation,
   RingPort,
   RingPush,
@@ -1521,16 +1520,30 @@ describe("Ingest: the catch-up", () => {
     fails = false;
     readonly asked: number[] = [];
 
-    cameraHistory(sinceMs: number): Promise<RingHistoryRead> {
-      this.asked.push(sinceMs);
+    cameraHistory(
+      sinceMs: number | ((id: string) => number),
+    ): ReturnType<RingHistoryPort["cameraHistory"]> {
+      const cameras = new Set([
+        "42",
+        ...this.entries.map((entry) => entry.device_id),
+      ]);
+      const marks = new Map<string, number>();
+      for (const camera of cameras) {
+        const mark = typeof sinceMs === "number" ? sinceMs : sinceMs(camera);
+        this.asked.push(mark);
+        marks.set(camera, mark);
+      }
       if (this.fails) {
         return Promise.reject(
           new RingAdapterError("ring_unavailable", "Ring is down."),
         );
       }
       return Promise.resolve({
-        entries: this.entries.filter((found) => found.occurred_at > sinceMs),
+        entries: this.entries.filter(
+          (found) => found.occurred_at > (marks.get(found.device_id) ?? 0),
+        ),
         truncated: this.truncated,
+        completeCameras: this.truncated ? [] : [...cameras],
       });
     }
   }
@@ -1563,7 +1576,7 @@ describe("Ingest: the catch-up", () => {
       outcome: "started",
     });
 
-    expect(await store.catchupMark(signal)).toBe(START);
+    expect(await store.catchupStart(signal)).toBe(START);
     await expect(store.eventBacklog(signal)).resolves.toMatchObject({
       count: 0,
     });
@@ -1574,7 +1587,7 @@ describe("Ingest: the catch-up", () => {
     const store = await openStore();
     const history = new FakeHistory();
     const ingest = catchUpIngest(store, history);
-    await store.advanceCatchupMark(START - 3 * hour, signal);
+    await store.startCatchup(START - 3 * hour, signal);
     history.entries = [
       entry("9000003", START - 10 * 60_000, { kind: "ding" }),
       entry("9000002", START - hour, { person: true }),
@@ -1610,7 +1623,7 @@ describe("Ingest: the catch-up", () => {
       occurred_at: formatUtc(START - hour),
     });
     expect(history.asked).toEqual([START - 3 * hour]);
-    expect(await store.catchupMark(signal)).toBe(START - 10 * 60_000);
+    expect((await store.cameraCheckpoints(signal)).get("42")).toBe(START);
     expect(lines.join("\n")).not.toContain("Front Door");
   });
 
@@ -1618,7 +1631,7 @@ describe("Ingest: the catch-up", () => {
     const store = await openStore();
     const history = new FakeHistory();
     const ingest = catchUpIngest(store, history);
-    await store.advanceCatchupMark(START - hour, signal);
+    await store.startCatchup(START - hour, signal);
     // The push was written, but the process ended before the mark moved.
     await store.appendEvent(
       "9000005-m",
@@ -1644,7 +1657,7 @@ describe("Ingest: the catch-up", () => {
     const store = await openStore();
     const history = new FakeHistory();
     const ingest = catchUpIngest(store, history);
-    await store.advanceCatchupMark(START - 30 * hour, signal);
+    await store.startCatchup(START - 30 * hour, signal);
 
     const result = await ingest.catchUp(signal);
 
@@ -1653,18 +1666,39 @@ describe("Ingest: the catch-up", () => {
     expect(lines.join("\n")).toContain("ingest_catchup_limited");
   });
 
-  it("says so when Ring's history stopped short, keeps what it found, and leaves the mark at the newest recovered", async () => {
+  it("says so when Ring's history stopped short, keeps what it found, and recovers the older unread event on retry", async () => {
     const store = await openStore();
     const history = new FakeHistory();
     history.truncated = true;
     history.entries = [entry("9000001", START - hour)];
     const ingest = catchUpIngest(store, history);
-    await store.advanceCatchupMark(START - 2 * hour, signal);
+    await store.startCatchup(START - 2 * hour, signal);
 
     const result = await ingest.catchUp(signal);
 
     expect(result).toMatchObject({ recovered: 1, limited: true });
-    expect(await store.catchupMark(signal)).toBe(START - hour);
+    history.truncated = false;
+    history.entries = [
+      entry("9000002", START - 1.5 * hour),
+      ...history.entries,
+    ];
+    expect(await ingest.catchUp(signal)).toMatchObject({
+      recovered: 1,
+      duplicates: 1,
+    });
+  });
+
+  it("recovers an earlier missed event on another camera", async () => {
+    const store = await openStore();
+    const history = new FakeHistory();
+    const ingest = catchUpIngest(store, history);
+    await store.startCatchup(START - 2 * hour, signal);
+    history.entries = [entry("9000001", START - hour)];
+    await ingest.catchUp(signal);
+    history.entries = [
+      entry("9000002", START - 1.5 * hour, { device_id: "43" }),
+    ];
+    expect(await ingest.catchUp(signal)).toMatchObject({ recovered: 1 });
   });
 
   it("changes nothing when Ring is down, so the next run reads the same gap", async () => {
@@ -1672,19 +1706,19 @@ describe("Ingest: the catch-up", () => {
     const history = new FakeHistory();
     history.fails = true;
     const ingest = catchUpIngest(store, history);
-    await store.advanceCatchupMark(START - hour, signal);
+    await store.startCatchup(START - hour, signal);
 
     await expect(ingest.catchUp(signal)).resolves.toEqual({
       outcome: "ring_unavailable",
     });
 
-    expect(await store.catchupMark(signal)).toBe(START - hour);
+    expect(await store.catchupStart(signal)).toBe(START - hour);
     await expect(store.eventBacklog(signal)).resolves.toMatchObject({
       count: 0,
     });
   });
 
-  it("moves the mark when a push arrives, so only a push camera event counts, never a hub event", async () => {
+  it("leaves the history checkpoint alone when a live push arrives", async () => {
     const store = await openStore();
     const ingest = catchUpIngest(store, new FakeHistory());
 
@@ -1700,14 +1734,15 @@ describe("Ingest: the catch-up", () => {
     });
     await ingest.flush();
 
-    expect(await store.catchupMark(signal)).toBe(START - 5_000);
+    expect(await store.catchupStart(signal)).toBeUndefined();
+    expect((await store.cameraCheckpoints(signal)).size).toBe(0);
   });
 
   it("runs when due: at the first check, then at most once an hour", async () => {
     const store = await openStore();
     const history = new FakeHistory();
     const ingest = catchUpIngest(store, history);
-    await store.advanceCatchupMark(START - hour, signal);
+    await store.startCatchup(START - hour, signal);
 
     await ingest.catchUpIfDue(signal);
     await clock.advance(30 * 60_000);

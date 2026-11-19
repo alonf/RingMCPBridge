@@ -360,6 +360,14 @@ describe.runIf(HAS_PWSH)(
         join(vmFolder, "first-boot", "meta-data"),
         "utf8",
       );
+      const updater = readFileSync(
+        new URL("../../../infra/home/ring-bridge-update.sh", import.meta.url),
+        "utf8",
+      ).replaceAll("\r\n", "\n");
+      expect(userData).toContain(
+        "  - path: /usr/local/bin/ring-bridge-update\n    permissions: '0755'\n    encoding: b64\n    content: " +
+          Buffer.from(updater).toString("base64"),
+      );
       expect(userData.startsWith("#cloud-config\n")).toBe(true);
       expect(userData).not.toMatch(/\r|\t/);
       // The key's type and body only: its comment, with its quote, is left out.

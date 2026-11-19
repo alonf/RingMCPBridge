@@ -763,10 +763,11 @@ export class RingApiAdapter implements RingPort, RingPushPort, RingHistoryPort {
    * out.
    */
   async cameraHistory(
-    sinceMs: number,
+    sinceMs: number | ((cameraId: string) => number),
     signal: AbortSignal,
     options: { readonly maxPages?: number } = {},
-  ): Promise<RingHistoryRead> {
+  ): ReturnType<RingHistoryPort["cameraHistory"]> {
+    const completeCameras: string[] = [];
     if (this.#locations.size === 0) {
       await this.locations(signal);
     }
@@ -781,16 +782,17 @@ export class RingApiAdapter implements RingPort, RingPushPort, RingHistoryPort {
         const found = await this.#cameraPages(
           camera,
           location.id,
-          sinceMs,
+          typeof sinceMs === "number" ? sinceMs : sinceMs(String(camera.id)),
           maxPages,
           signal,
         );
         entries.push(...found.entries);
+        if (!found.truncated) completeCameras.push(String(camera.id));
         truncated ||= found.truncated;
       }
     }
     entries.sort((a, b) => b.occurred_at - a.occurred_at);
-    return { entries, truncated };
+    return { entries, truncated, completeCameras };
   }
 
   async #cameraPages(

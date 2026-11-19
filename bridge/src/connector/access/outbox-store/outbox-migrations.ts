@@ -65,4 +65,18 @@ export const OUTBOX_MIGRATIONS: readonly Migration<"sqlite">[] = [
       ],
     },
   },
+  {
+    version: 4,
+    name: "camera-history-checkpoints",
+    statements: {
+      sqlite: [
+        `CREATE TABLE camera_history_checkpoint (
+          camera_id TEXT PRIMARY KEY NOT NULL,
+          scanned_at INTEGER NOT NULL
+        ) STRICT`,
+        // A legacy push may have advanced past unseen events. Replay the bounded window on upgrade.
+        "UPDATE catchup_mark SET last_event_at = 0",
+      ],
+    },
+  },
 ];

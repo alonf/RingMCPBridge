@@ -21,7 +21,7 @@ With -Apply:
      - Docker and Hyper-V's guest tools from Ubuntu's archive, all packages updated, and Ubuntu's
        automatic security updates (on by default);
      - the connector's folders, owned by the user the container runs as (uid 1000);
-     - two commands, ring-bridge-setup and ring-bridge-start, and a pull of -Image.
+     - ring-bridge-setup, ring-bridge-start and ring-bridge-update, and a pull of -Image.
   5. Create the VM: generation 2, Secure Boot with the Microsoft UEFI CA template, -ProcessorCount
      vCPU, -MemoryGB of static memory, checkpoints off (its disk will hold the Ring token), started
      with the host and shut down with it.
@@ -123,6 +123,8 @@ function Read-SshPublicKey {
 
 # cloud-init's user-data: the first boot's settings. Every value in it was checked by a pattern.
 function Get-UserData([string] $Key) {
+    $updater = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'ring-bridge-update.sh')).Replace("`r`n", "`n")
+    $encodedUpdater = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($updater))
     $lines = @(
         '#cloud-config'
         '# The Ring MCP Bridge home connector VM (infra/home/new-connector-vm.ps1), applied once, at first boot.'
@@ -179,6 +181,10 @@ function Get-UserData([string] $Key) {
         '        -v /srv/ring-bridge/data:/data -v /srv/ring-bridge/secrets:/run/secrets \'
         '        "$IMAGE"'
         '      echo "Started. Its enrollment code: docker logs ring-bridge-connector"'
+        '  - path: /usr/local/bin/ring-bridge-update'
+        "    permissions: '0755'"
+        '    encoding: b64'
+        "    content: $encodedUpdater"
         'runcmd:'
         '  # The guest tools for the running kernel, so Hyper-V sees the address before any reboot.'
         '  - [sh, -c, ''apt-get install -y "linux-cloud-tools-$(uname -r)"'']'
@@ -234,7 +240,7 @@ function Show-Plan {
     Write-Step 1 "Check that Hyper-V answers, that the switch '$SwitchName' exists, and that no VM is named '$VMName'. Get-VMSwitch lists the switches."
     Write-Step 2 "Download $ImageUrl and check it against SHA256SUMS."
     Write-Step 3 "Convert it to a dynamic VHDX of $DiskGB GB."
-    Write-Step 4 "Write the first-boot settings: the user '$AdminUser' with the SSH key in '$SshPublicKeyPath', Docker, the guest tools, the connector's folders, ring-bridge-setup and ring-bridge-start, and a pull of $Image."
+    Write-Step 4 "Write the first-boot settings: the user '$AdminUser' with the SSH key in '$SshPublicKeyPath', Docker, the guest tools, the connector's folders, ring-bridge-setup, ring-bridge-start and ring-bridge-update, and a pull of $Image."
     Write-Step 5 "Create the VM '$VMName': generation 2, Secure Boot (Microsoft UEFI CA), $ProcessorCount vCPU, $MemoryGB GB static memory, checkpoints off, started with the host$(if ($VlanId) { ", VLAN $VlanId" })."
     Write-Step 6 'Start it, and wait for its address.'
     Write-Host ''

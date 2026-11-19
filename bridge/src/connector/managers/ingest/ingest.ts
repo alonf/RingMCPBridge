@@ -33,13 +33,9 @@
 // message is sent when it is written, and the 10 s tick sends again what has waited 10 s without
 // its ack (T016).
 //
-// Catch-up (T053; FR-013, FR-042): the outbox keeps the time of the newest Ring camera event it
-// has written (the push's or history's, never a hub event, which would hide a push gap). After a gap
-// (the first run of a process, then at most once an hour) Ring's history is read from that mark,
-// up to 24 hours back, and what the gap lost goes to the outbox as late events under the ids their
-// pushes would have had, so an event seen both ways is stored once. A first run with no mark only
-// starts tracking: it does not fill the log with history. A read that stops short, or a gap over 24
-// hours, is logged as limited. Ring down changes nothing, and the next run reads the same gap.
+// Catch-up (T053): each owned camera resumes from its last complete history scan. The first
+// run sets the installation's starting time. Recovery is bounded to 24 hours and event IDs
+// deduplicate overlapping reads. Pushes and incomplete scans cannot advance a camera checkpoint.
 //
 // Events (T044; FR-008, FR-042): each push the Push Listener hands over is normalized (T042) and
 // written to the outbox under its event id, held there until the core's ack for it, then sent.
@@ -273,7 +269,7 @@ export class Ingest {
       });
       return;
     }
-    this.#queueEvent(normalized.event, receivedAt, true);
+    this.#queueEvent(normalized.event, receivedAt);
   }
 
   /**
@@ -304,18 +300,23 @@ export class Ingest {
     }
     const now = this.#clock.now();
     try {
-      const mark = await this.#outbox.catchupMark(signal);
+      const mark = await this.#outbox.catchupStart(signal);
       if (mark === undefined) {
-        await this.#outbox.advanceCatchupMark(now, signal);
+        await this.#outbox.startCatchup(now, signal);
         return { outcome: "started" };
       }
       const floor = now - CATCHUP_WINDOW_MS;
-      const since = Math.max(mark, floor);
-      const read = await history.cameraHistory(since, signal);
-      const limited = mark < floor || read.truncated;
+      const checkpoints = await this.#outbox.cameraCheckpoints(signal);
+      let oldest = now;
+      const read = await history.cameraHistory((cameraId) => {
+        const since = checkpoints.get(cameraId) ?? mark;
+        oldest = Math.min(oldest, since);
+        return Math.max(since, floor);
+      }, signal);
+      const limited = oldest < floor || read.truncated;
       if (limited) {
         this.#logger.warn("ingest_catchup_limited", {
-          gap_hours: Math.round((now - mark) / 3_600_000),
+          gap_hours: Math.round((now - oldest) / 3_600_000),
           history_short: read.truncated ? 1 : 0,
         });
       }
@@ -333,12 +334,15 @@ export class Ingest {
         const written = await this.#step(() =>
           this.#outbox.appendEvent(body.event_id, () => body, signal),
         );
-        await this.#outbox.advanceCatchupMark(found.occurred_at, signal);
         if (written === "written") {
           recovered += 1;
         } else {
           duplicates += 1;
         }
+      }
+      // All entries are durable before any checkpoint moves, including same-time siblings.
+      for (const cameraId of read.completeCameras) {
+        await this.#outbox.checkpointCamera(cameraId, now, signal);
       }
       if (recovered + duplicates > 0) {
         this.#logger.info("ingest_catchup_done", { recovered, duplicates });
@@ -363,13 +367,8 @@ export class Ingest {
     }
   }
 
-  // Writes an event to the outbox under its id, then sends what is due. It never throws. A Ring
-  // camera event (a push) also moves the catch-up mark: the time Ring made it.
-  #queueEvent(
-    event: NormalizedEvent,
-    receivedAt: number,
-    marksCatchUp = false,
-  ): void {
+  // Writes an event to the outbox under its id, then sends what is due. It never throws.
+  #queueEvent(event: NormalizedEvent, receivedAt: number): void {
     const body = eventBody(event, receivedAt);
     const fields: LogFields = {
       event_id: body.event_id,
@@ -377,17 +376,9 @@ export class Ingest {
       location_id: event.location_id,
       kind: body.kind,
     };
-    void this.#step(async () => {
-      const written = await this.#outbox.appendEvent(
-        body.event_id,
-        () => body,
-        UNCANCELLED,
-      );
-      if (marksCatchUp) {
-        await this.#outbox.advanceCatchupMark(event.occurred_at, UNCANCELLED);
-      }
-      return written;
-    }).then(
+    void this.#step(() =>
+      this.#outbox.appendEvent(body.event_id, () => body, UNCANCELLED),
+    ).then(
       (written) => {
         this.#logger.info("ingest_event_queued", {
           ...fields,

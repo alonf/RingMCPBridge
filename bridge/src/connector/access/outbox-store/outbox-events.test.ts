@@ -3,6 +3,11 @@
 // with jitter, an ack clears exactly one event, the backlog is reported, and the queue survives a
 // restart.
 import { mkdtemp, rm } from "node:fs/promises";
+import {
+  openSqliteQueryLayer,
+  runMigrations,
+} from "../../../utilities/query-layer/index.ts";
+import { OUTBOX_MIGRATIONS } from "./outbox-migrations.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -291,18 +296,51 @@ describe("the Outbox Store's events", () => {
 
 // T053: where the catch-up resumes.
 describe("the catch-up mark", () => {
-  it("is empty before any event, moves only forward, and survives a restart", async () => {
-    const store = await open();
-    await expect(store.catchupMark(signal)).resolves.toBeUndefined();
+  it("reopens a legacy database with the full recovery window available", async () => {
+    const legacy = openSqliteQueryLayer(join(folder, "outbox.db"), { clock });
+    try {
+      await runMigrations(
+        legacy,
+        OUTBOX_MIGRATIONS.filter((m) => m.version <= 3),
+        { clock },
+        signal,
+      );
+      await legacy.run(
+        {
+          sql: "INSERT INTO catchup_mark(mark_id, last_event_at) VALUES (1, @at)",
+          params: { at: START },
+        },
+        signal,
+      );
+    } finally {
+      await legacy.close();
+    }
+    const upgraded = await open();
+    expect(await upgraded.catchupStart(signal)).toBe(0);
+    expect((await upgraded.cameraCheckpoints(signal)).size).toBe(0);
+  });
 
-    await store.advanceCatchupMark(START, signal);
-    await store.advanceCatchupMark(START - 5_000, signal);
-    await expect(store.catchupMark(signal)).resolves.toBe(START);
-    await store.advanceCatchupMark(START + 7_000, signal);
+  it("keeps the initial baseline and independent monotone camera checkpoints across restart", async () => {
+    const store = await open();
+    await expect(store.catchupStart(signal)).resolves.toBeUndefined();
+
+    await store.startCatchup(START, signal);
+    await store.startCatchup(START - 5_000, signal);
+    await expect(store.catchupStart(signal)).resolves.toBe(START);
+    await store.startCatchup(START + 7_000, signal);
+    await store.checkpointCamera("42", START + 7_000, signal);
+    await store.checkpointCamera("42", START, signal);
+    await store.checkpointCamera("43", START, signal);
     await store.close();
     opened.pop();
 
     const again = await open();
-    await expect(again.catchupMark(signal)).resolves.toBe(START + 7_000);
+    await expect(again.catchupStart(signal)).resolves.toBe(START);
+    expect(await again.cameraCheckpoints(signal)).toEqual(
+      new Map([
+        ["42", START + 7_000],
+        ["43", START],
+      ]),
+    );
   });
 });

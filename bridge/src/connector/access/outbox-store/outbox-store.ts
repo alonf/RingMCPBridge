@@ -342,8 +342,8 @@ export class OutboxStore {
     );
   }
 
-  /** The time of the newest Ring event written to the outbox, or `undefined` before any (T053). */
-  async catchupMark(signal: AbortSignal): Promise<number | undefined> {
+  /** Installation baseline for cameras without a checkpoint, or undefined before tracking begins. */
+  async catchupStart(signal: AbortSignal): Promise<number | undefined> {
     const row = await this.#guard(signal, "The outbox could not be read.", () =>
       this.#layer.get(
         statement("SELECT last_event_at FROM catchup_mark WHERE mark_id = 1"),
@@ -354,15 +354,58 @@ export class OutboxStore {
     return typeof at === "number" ? at : undefined;
   }
 
-  /** Moves the catch-up mark forward to `at`; an earlier time leaves it as it is (T053). */
-  async advanceCatchupMark(at: number, signal: AbortSignal): Promise<void> {
+  /** Records the baseline once, including when two initial reads overlap. */
+  async startCatchup(at: number, signal: AbortSignal): Promise<void> {
     await this.#guard(signal, "The outbox could not be written.", () =>
       this.#layer.run(
         statement(
           `INSERT INTO catchup_mark (mark_id, last_event_at) VALUES (1, @at)
-           ON CONFLICT (mark_id) DO UPDATE SET last_event_at = excluded.last_event_at
-           WHERE excluded.last_event_at > catchup_mark.last_event_at`,
+           ON CONFLICT (mark_id) DO NOTHING`,
           { at },
+        ),
+        signal,
+      ),
+    );
+  }
+
+  /** The end of each camera's last complete history read, in UTC milliseconds. */
+  async cameraCheckpoints(
+    signal: AbortSignal,
+  ): Promise<ReadonlyMap<string, number>> {
+    const rows = await this.#guard(
+      signal,
+      "The outbox could not be read.",
+      () =>
+        this.#layer.all(
+          statement(
+            "SELECT camera_id, scanned_at FROM camera_history_checkpoint",
+          ),
+          signal,
+        ),
+    );
+    const checkpoints = new Map<string, number>();
+    for (const row of rows) {
+      if (
+        typeof row.camera_id !== "string" ||
+        typeof row.scanned_at !== "number"
+      )
+        throw unreadableRow();
+      checkpoints.set(row.camera_id, row.scanned_at);
+    }
+    return checkpoints;
+  }
+
+  async checkpointCamera(
+    cameraId: string,
+    at: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    await this.#guard(signal, "The outbox could not be written.", () =>
+      this.#layer.run(
+        statement(
+          `INSERT INTO camera_history_checkpoint(camera_id, scanned_at) VALUES (@cameraId, @at)
+         ON CONFLICT(camera_id) DO UPDATE SET scanned_at = MAX(scanned_at, excluded.scanned_at)`,
+          { cameraId, at },
         ),
         signal,
       ),

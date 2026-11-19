@@ -19,6 +19,7 @@ import type { CursorStore } from "../../access/subscriptions/index.ts";
 import { PRIORITY_ORDER } from "../../engines/classify/index.ts";
 import type { EventPriority } from "../../engines/classify/index.ts";
 import type { SqlSession } from "../../../utilities/query-layer/index.ts";
+import { DATA_BUDGET_TOKENS } from "../../engines/summary/index.ts";
 import { InquiryError } from "./inquiry-error.ts";
 
 /** What `get_events` asks for. */
@@ -64,6 +65,7 @@ export interface EventsData {
 export const MAX_EVENTS_PER_REPLY = 200;
 /** How many a reply holds when the agent names no limit. */
 export const DEFAULT_EVENTS_PER_REPLY = 50;
+const PAGE_BUDGET_BYTES = DATA_BUDGET_TOKENS * 3;
 
 /** A device's name and room, from State. */
 export type DeviceLabelOf = (
@@ -182,23 +184,44 @@ export async function readEvents(
     { location_id: locationId, afterSeq, limit: MAX_EVENTS_PER_READ },
     signal,
   );
-  const matched: StoredEvent[] = [];
+  const events: InquiryEvent[] = [];
+  // Reserve the envelope in both MCP representations. The bridge budgets three bytes per
+  // estimated token here, counting the UTF-8 bytes of structured JSON and escaped text.
+  const emptyPage = {
+    events: [],
+    next_cursor: encodeCursor(locationId, {
+      epoch: current,
+      seq: Number.MAX_SAFE_INTEGER,
+    }),
+    has_more: false,
+    epoch_changed: true,
+  };
+  let bytes = mcpBytes(emptyPage);
   let examined = 0;
   let lastSeq = afterSeq;
   for (const row of rows) {
-    if (matched.length === limit) {
-      break;
+    if (events.length === limit) break;
+    if (matches(row, request)) {
+      let event = await toEvent(row, options.timeZone, options.deviceLabel);
+      let nextBytes = bytes + mcpBytes(event) + 2; // comma in each representation
+      if (events.length === 0 && nextBytes > PAGE_BUDGET_BYTES) {
+        event = compactDisplayFields(event);
+        nextBytes = bytes + mcpBytes(event) + 2;
+      }
+      if (events.length === 0 && nextBytes > PAGE_BUDGET_BYTES) {
+        throw new InquiryError(
+          "failed",
+          "An event's identifiers exceed the reply size limit.",
+        );
+      }
+      if (nextBytes > PAGE_BUDGET_BYTES) break;
+      events.push(event);
+      bytes = nextBytes;
     }
     examined += 1;
     lastSeq = row.seq;
-    if (matches(row, request)) {
-      matched.push(row);
-    }
   }
   const hasMore = examined < rows.length || rows.length === MAX_EVENTS_PER_READ;
-  const events = await Promise.all(
-    matched.map((row) => toEvent(row, options.timeZone, options.deviceLabel)),
-  );
   if (options.clientId !== undefined && (examined > 0 || epochChanged)) {
     await options.cursors.advance(
       options.clientId,
@@ -213,6 +236,39 @@ export async function readEvents(
     has_more: hasMore,
     ...(epochChanged ? { epoch_changed: true as const } : {}),
   };
+}
+
+// Preserve identifiers and make shortening visible if one event's display text alone cannot fit.
+function compactDisplayFields(event: InquiryEvent): InquiryEvent {
+  const shorten = (text: string): string => {
+    const maxLength = 128;
+    if (text.length <= maxLength) return text;
+    let prefix = "";
+    for (const character of text) {
+      if (prefix.length + character.length >= maxLength) break;
+      prefix += character;
+    }
+    return prefix + "…";
+  };
+  return {
+    ...event,
+    summary: shorten(event.summary),
+    ...(event.device
+      ? {
+          device: {
+            ...event.device,
+            name: shorten(event.device.name),
+            ...(event.device.room ? { room: shorten(event.device.room) } : {}),
+          },
+        }
+      : {}),
+    ...(event.ring_kind ? { ring_kind: shorten(event.ring_kind) } : {}),
+  };
+}
+
+function mcpBytes(value: unknown): number {
+  const json = JSON.stringify(value);
+  return Buffer.byteLength(json) + Buffer.byteLength(JSON.stringify(json));
 }
 
 function matches(row: StoredEvent, request: EventsRequest): boolean {
