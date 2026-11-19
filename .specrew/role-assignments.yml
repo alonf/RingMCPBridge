@@ -25,7 +25,7 @@ roles:
   - name: "Implementer"
     type: "baseline"
     assigned_to: "unassigned"
-    preferred_agent: "copilot"
+    preferred_agent: "codex"
     responsibilities: >-
       Executes tasks from the iteration plan. Implements features,
       writes tests, and produces deliverables per spec.

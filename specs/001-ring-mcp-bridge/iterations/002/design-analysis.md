@@ -85,7 +85,7 @@ How the options address each selected area:
 - **observability-resilience**
   - Addressed: Option B's Approach, step 4: Ring-down events, the health fields, catch-up and the recovery summary. Option A's Approach, step 3: the same, after the thin slice.
 
-The coding rules carry over from the feature's implementation rules; a new dependency would come up under integration-api. The reviewer stays codex, as chosen for the feature.
+The coding rules carry over from the feature's implementation rules; a new dependency would come up under integration-api. Codex reviewed rounds 1–3. On 2026-11-19 the owner assigned Claude to review subsequent work with Codex as developer.
 
 ## Decisions So Far
 

@@ -198,7 +198,7 @@ Other spikes from the records (research.md, "Accepted unknowns and pending resea
 
 | Lens Scope | Requested Reasoning / Review Class | Effective Class (when run) | Override / Approval Record | Notes |
 | --- | --- | --- | --- | --- |
-| Required hardening and bug-hunter lenses | strongest-available | Recorded when the review runs | Any lower-tier override needs the owner's explicit approval | The reviewer host is codex (`implementation-rules.yml`, `.specrew/reviewer-hosts.json`) |
+| Required hardening and bug-hunter lenses | strongest-available | Recorded when the review runs | Any lower-tier override needs the owner's explicit approval | The reviewer host is Claude while Codex writes the code (`implementation-rules.yml`, `.specrew/reviewer-hosts.json`) |
 
 ### Explicit Later Deferrals
 
@@ -215,7 +215,7 @@ The project constitution (`.specify/memory/constitution.md`) is still the unfill
 | Spec Authority | pass | Scope maps to the approved and clarified spec. The iteration map traces every story to its FRs. The S1 and S2 evidence tags in the spec's Assumptions were updated to the owner's 2026-11-02 acceptance. The owner's split moves part of the design analysis's first slice into iteration 002 (DRIFT-001-03). No requirement changed |
 | Layering | pass | Product code and the deployment are the product layer. `plan.md`, `research.md`, `data-model.md`, `contracts/` and `quickstart.md` are Spec Kit layer. The iteration capacity setting is team configuration, and changing it is the owner's decision (see Capacity) |
 | Traceability | pass (planned) | Every iteration 001 work item below cites its FRs. `tasks.md` maps each task to FRs and SCs, checked by the traceability check at the tasks boundary |
-| Ownership | pass | Roles from `.specrew/role-assignments.yml`: Planner (plan, capacity), Implementer (tasks), Reviewer (codex review, hardening review), Spec Steward (drift and spec integrity). The owner runs the pilot and every real-world control action |
+| Ownership | pass | Roles from `.specrew/role-assignments.yml`: Planner (plan, capacity), Implementer (tasks), Reviewer (independent code review, hardening review), Spec Steward (drift and spec integrity). The owner runs the pilot and every real-world control action |
 | Capacity | pass | Iteration 001 plans 42 story points against a capacity of 42. The owner chose option 2 (split) on 2026-11-02, and the capacity was raised from 20 to 42 in `.specrew/iteration-config.yml` to fit its first part. Iteration 002's forecast is 16. See Capacity |
 | Drift and Reconciliation | pass | `iterations/001/drift-log.md`, plus the drift check before review. DRIFT-001-01 and DRIFT-001-03 are recorded and applied in this plan |
 | Verification | pass (planned) | Scenario-engine tests per FR, the CI latency, contract and boundary gates, and a pilot journal for SC-001 end to end, SC-003 and SC-011 |

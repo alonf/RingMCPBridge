@@ -614,10 +614,10 @@ dependency_policy:
       test_implications: "a deliberately planted test secret checks it (assumed)"
 reviewer_preference:
   mode: "human-selected"
-  host: "codex"
+  host: "claude"
   source: "code-implementation-workshop"
-  authorization_ref: "workshop-001-ring-mcp-bridge"
-  rationale: "I8, the human picked codex: Claude writes the code, so codex gives an independent review. No model or effort pinned; Specrew uses the host default. Question 15 answered 2026-11-01 (\"yes, run it, codex is the reviewer\"): specrew review --host codex --authorization-ref workshop-001-ring-mcp-bridge was run and wrote .specrew/reviewer-hosts.json."
+  authorization_ref: "owner-reviewer-switch-2026-11-19"
+  rationale: "The owner updated the workshop choice on 2026-11-19. Codex writes the code and Claude independently reviews it using the configured host default."
 provenance:
   confirmation: "human-confirmed"
   confirmation_scope: "lens-question"
