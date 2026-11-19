@@ -198,6 +198,7 @@ resource logs 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
   scope: app
   properties: {
     workspaceId: workspaceId
+    logAnalyticsDestinationType: 'Dedicated'
     logs: [
       {
         category: 'AppServiceConsoleLogs'

@@ -16,6 +16,7 @@
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import {
   bearerAuthChallengeResponse,
+  SUPPORTED_PROTOCOL_VERSIONS,
   createMcpHandler,
   getOAuthProtectedResourceMetadataUrl,
   McpServer,
@@ -36,6 +37,7 @@ import type { Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
 import { registerEventMethods } from "./events-handler.ts";
 import type { EventSubscriptions } from "./events-handler.ts";
+import { EVENTS_URI, legacyListen, ListenStreams } from "./listen-stream.ts";
 import { ReadLimit } from "./read-limit.ts";
 import { registerReadTools } from "./read-tools.ts";
 import type { InquiryReads } from "./read-tools.ts";
@@ -129,6 +131,8 @@ export class McpEndpoint {
   readonly #metadataUrl: string;
   readonly #verifier: OAuthTokenVerifier;
   readonly #handler: McpHttpHandler;
+  readonly #listen: ListenStreams;
+  readonly #detachEvents?: () => void;
   readonly #app: Hono;
   readonly #limit: ReadLimit;
 
@@ -143,12 +147,22 @@ export class McpEndpoint {
     this.#metadataUrl = getOAuthProtectedResourceMetadataUrl(resource);
     this.#limit = new ReadLimit(settings.readsPerHour, dependencies.clock);
     this.#verifier = { verifyAccessToken: (token) => this.#verify(token) };
+    this.#listen = new ListenStreams(dependencies.clock);
     this.#handler = createMcpHandler((context) => this.#server(context), {
       legacy: "stateless",
       onerror: (error) => {
         this.#logger.error("mcp_endpoint_failed", undefined, error);
       },
     });
+    if (dependencies.events?.listen) {
+      this.#detachEvents = dependencies.events.listen((event) => {
+        this.#handler.bus.publish({
+          kind: "resource_updated",
+          uri: EVENTS_URI,
+          params: { ["_meta"]: { "ring/event": event } },
+        });
+      });
+    }
     const app = createMcpHonoApp({
       host: "0.0.0.0",
       allowedHosts: [...settings.allowedHosts],
@@ -213,7 +227,54 @@ export class McpEndpoint {
       }
       return bearerAuthChallengeResponse(error, challenge);
     }
-    return this.#handler.fetch(request, { authInfo });
+    const events = this.#dependencies.events;
+    let response: Response;
+    const version = request.headers.get("mcp-protocol-version");
+    const legacyGet =
+      request.method === "GET" &&
+      (!version || SUPPORTED_PROTOCOL_VERSIONS.includes(version));
+    if (legacyGet && events?.listen) {
+      if (
+        !request.headers
+          .get("accept")
+          ?.split(",")
+          .some((type) => type.trim().split(";")[0] === "text/event-stream")
+      ) {
+        return new Response(null, { status: 406 });
+      }
+      response = legacyListen(
+        events.listen.bind(events),
+        this.#dependencies.clock,
+      );
+    } else {
+      response = await this.#handler.fetch(request, { authInfo });
+    }
+    if (
+      !events?.listen ||
+      !response.body ||
+      !response.headers.get("content-type")?.startsWith("text/event-stream")
+    )
+      return response;
+    return this.#listen.open(
+      response,
+      request,
+      (authInfo.expiresAt ?? 0) * 1000,
+      async () => {
+        const grant = await this.#checked(authInfo.token);
+        return (
+          grant.kind === "valid" &&
+          grant.clientId === authInfo.clientId &&
+          grant.scopes.includes(READ_SCOPE) &&
+          grant.expiresAt * 1000 > this.#dependencies.clock.now()
+        );
+      },
+    );
+  }
+
+  async stop(): Promise<void> {
+    this.#detachEvents?.();
+    this.#listen.stop();
+    await this.#handler.close();
   }
 
   async #verify(token: string): Promise<AuthInfo> {
@@ -279,6 +340,24 @@ export class McpEndpoint {
     const { events } = this.#dependencies;
     if (events !== undefined) {
       registerEventMethods(server, events, clientId);
+      if (events.listen && context.era === "modern") {
+        server.registerResource(
+          "ring-events",
+          EVENTS_URI,
+          {
+            description:
+              "Live Ring event hints. Use get_events with your cursor for history.",
+          },
+          (uri) => ({
+            contents: [
+              { uri: uri.href, text: "Read event history with get_events." },
+            ],
+          }),
+        );
+        server.server.registerCapabilities({ resources: { subscribe: true } });
+      } else if (events.listen) {
+        server.server.registerCapabilities({ logging: {} });
+      }
     }
     return server;
   }

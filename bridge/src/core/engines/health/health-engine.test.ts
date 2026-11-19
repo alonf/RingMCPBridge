@@ -11,6 +11,7 @@ import {
   afterSessionOpened,
   asOf,
   healthChanges,
+  monitorSample,
   settled,
 } from "./index.ts";
 import type { HealthPolicy, HealthView } from "./index.ts";
@@ -266,4 +267,30 @@ describe("the Health engine after CP-14 review round 5", () => {
       stale_since: START + 70_000,
     });
   });
+});
+
+it("samples the offline interval, oldest pending event and Ring sign-in for the outside watcher", () => {
+  const now = START + 600_001;
+  expect(monitorSample(undefined, START, now)).toEqual({
+    home_offline_ms: 600001,
+    backlog_age_ms: 0,
+    ring_session: "unknown",
+  });
+  const last = afterHeartbeat(
+    refreshed(START),
+    {
+      ...BEAT,
+      ring_session: "lost",
+      event_backlog: { count: 2, oldest_age_ms: 300001 },
+    },
+    START,
+  );
+  expect(monitorSample(last, START, START)).toEqual({
+    home_offline_ms: 0,
+    backlog_age_ms: 300001,
+    ring_session: "lost",
+  });
+  expect(
+    monitorSample(asOf(last, now, POLICY), START, now).home_offline_ms,
+  ).toBe(600001);
 });

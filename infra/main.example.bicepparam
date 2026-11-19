@@ -4,6 +4,9 @@
 using 'main.bicep'
 
 param registryName = '<registry-name>'
+param alertEmail = '<alertEmail>'
+param alertSmsCountryCode = '<alertSmsCountryCode>'
+param alertSmsNumber = '<alertSmsNumber>'
 param imageTag = '<image-tag>'
 param entraClientId = '<entra-app-client-id>'
 param ownerObjectId = '<owner-object-id>'

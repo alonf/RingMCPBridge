@@ -141,6 +141,9 @@ export async function startCoreService(
     clock,
     logger,
     settings,
+    reportMonitorSample: (sample) => {
+      logger.heartbeat(sample);
+    },
     ...(resources.leaseHolder === undefined
       ? {}
       : { leaseHolder: resources.leaseHolder }),
@@ -333,6 +336,7 @@ export async function startCoreService(
     stop: () => {
       stopping ??= (async () => {
         keys.stop();
+        await mcp.stop();
         await delivery.stop();
         // The server's close waits for every connection, and `closeAllConnections` leaves out the
         // upgraded ones: the home's link, which keeps up its heartbeats. So the links are closed

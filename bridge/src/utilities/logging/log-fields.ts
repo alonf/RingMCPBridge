@@ -50,6 +50,9 @@ export const LOG_FIELD_KINDS = {
   state_version: "measure",
   schema_version: "measure",
   delay_ms: "measure",
+  home_offline_ms: "measure",
+  backlog_age_ms: "measure",
+  ring_session: "code",
   duration_ms: "measure",
   /** The catch-up after a gap (T053): the gap in hours, what it recovered or found already stored, and whether Ring's history stopped short (1) or not (0). */
   gap_hours: "measure",

@@ -1,6 +1,10 @@
 // The core's read side for the MCP Endpoint's tests (T024): the 100-device standard home in State on
 // SQLite, a fresh heartbeat, and a real Inquiry manager over them. The stdio fixture builds the same
 // in its own process.
+import type {
+  EventRecord,
+  StoredEvent,
+} from "../../src/core/access/event-log/index.ts";
 import { SettingsStore } from "../../src/core/access/settings/index.ts";
 import { StateStore } from "../../src/core/access/state/index.ts";
 import {
@@ -26,6 +30,7 @@ const BATTERY_THRESHOLD_PCT = 20;
 /** A core's read side over the standard home. */
 export interface CoreReads {
   readonly inquiry: InquiryManager;
+  record(event: EventRecord): Promise<StoredEvent>;
   close(): Promise<void>;
 }
 
@@ -65,13 +70,22 @@ export async function startCoreReads(clock: Clock): Promise<CoreReads> {
     ),
     never,
   );
+  const parts = inquiryEventParts(layer, clock);
   return {
+    record: async (event) => {
+      const result = await layer.transaction(
+        (sql) => parts.eventLog.append(sql, event, never),
+        never,
+      );
+      if (result.kind !== "appended") throw new Error("Duplicate test event");
+      return { ...event, seq: result.seq, stored_at: result.stored_at };
+    },
     inquiry: new InquiryManager({
       state,
       settings,
       clock,
       homeOfflineAfterMs: OFFLINE_AFTER_MS,
-      ...inquiryEventParts(layer, clock),
+      ...parts,
     }),
     close: () => layer.close(),
   };

@@ -79,6 +79,18 @@ param keyVaultReaderRoleId string
 @description('The role definition id of Storage Blob Data Contributor, looked up by name at deploy time.')
 param storageBlobDataContributorRoleId string
 
+@secure()
+@description('Alert contact: the owner email address.')
+param alertEmail string
+
+@secure()
+@description('Alert contact: the international dialing code without +.')
+param alertSmsCountryCode string
+
+@secure()
+@description('Alert contact: the national phone number without the country code.')
+param alertSmsNumber string
+
 // Globally unique names share one suffix, stable for this resource group.
 var suffix = take(uniqueString(resourceGroup().id), 6)
 var appName = '${namePrefix}-${suffix}'
@@ -101,6 +113,10 @@ module monitoring 'modules/monitoring.bicep' = {
   params: {
     location: location
     namePrefix: namePrefix
+    appResourceId: resourceId('Microsoft.Web/sites', appName)
+    alertEmail: alertEmail
+    alertSmsCountryCode: alertSmsCountryCode
+    alertSmsNumber: alertSmsNumber
   }
 }
 

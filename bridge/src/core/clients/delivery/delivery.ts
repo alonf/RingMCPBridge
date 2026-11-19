@@ -8,10 +8,8 @@
 // - **Expiry.** The core grants `refreshBefore`: the client's own `ttlMs` when it asks for less,
 //   else `SUBSCRIPTION_TTL_MS`. A paused subscription sends nothing to the bridge (T039 part 2), so
 //   expiry is the end; after it nothing is delivered.
-// - **What is pushed.** Every event the Event manager stored whose priority is HIGH or MEDIUM and
-//   that is not late (FR-009, FR-013), from a location State holds as owned: shared locations stay
-//   off for push as for reads (FR-036, US8), and a location State does not hold is not pushed.
-//   LOW and late events are read with `get_events`; one recovery summary comes with T054.
+// - **Push eligibility.** Household rules and priority decide which events reach webhooks and
+//   listen streams. Late events are readable individually and produce a recovery summary.
 // - **Who still receives.** Before every send, retries included, the subscription is read again
 //   and its client is checked with the Issuer: a revoked or unlisted agent, an ended or expired
 //   subscription, receives nothing more (T050's review, DRIFT-002-19).
@@ -195,6 +193,7 @@ export class Delivery {
   readonly #stopping = new AbortController();
   readonly #inFlight = new Set<Promise<void>>();
   readonly #eventType: EventTypeDescription;
+  readonly #listeners = new Set<(event: BridgeEvent) => void>();
 
   constructor(options: DeliveryOptions) {
     this.#options = options;
@@ -268,6 +267,14 @@ export class Delivery {
       outcome: "accepted",
     });
     return { id, refreshBefore: new Date(expiresAt).toISOString() };
+  }
+
+  /** Receives the same eligible, validated events as the webhook adapter. */
+  listen(listener: (event: BridgeEvent) => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
   }
 
   /** Ends a client's own subscription. Ending one that is not there is not an error. */
@@ -413,17 +420,24 @@ export class Delivery {
       });
       return;
     }
+    const payload = await this.#payload(event, signal);
+    if (!payload) return;
+    for (const listener of this.#listeners) {
+      try {
+        listener(payload.data);
+      } catch (error) {
+        this.#logger.error(
+          "delivery_stream_failed",
+          { event_id: event.event_id },
+          error,
+        );
+      }
+    }
     const subscriptions = await this.#options.subscriptions.active(
       EVENT_TYPE,
       signal,
     );
-    if (subscriptions.length === 0) {
-      return;
-    }
-    const body = await this.#webhookBody(event, signal);
-    if (body === undefined) {
-      return;
-    }
+    const { body } = payload;
     await Promise.allSettled(
       subscriptions.map((subscription) =>
         this.#deliverTo(subscription, event, body),
@@ -433,10 +447,10 @@ export class Delivery {
 
   // The event in the Public Contract's shape, inside the webhook body; `undefined` when it does
   // not fit the shape or the size limit, which is logged.
-  async #webhookBody(
+  async #payload(
     event: StoredEvent,
     signal: AbortSignal,
-  ): Promise<string | undefined> {
+  ): Promise<{ data: BridgeEvent; body: string } | undefined> {
     const label =
       event.device_id === undefined
         ? undefined
@@ -480,7 +494,7 @@ export class Delivery {
       });
       return undefined;
     }
-    return body;
+    return { data, body };
   }
 
   // One subscription's sends of one event, with its retries; it never throws.

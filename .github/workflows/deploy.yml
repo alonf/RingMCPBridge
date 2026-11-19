@@ -209,6 +209,9 @@ jobs:
           BRIDGE_OWNER_OBJECT_ID: ${{ secrets.BRIDGE_OWNER_OBJECT_ID }}
           SQL_ADMIN_GROUP_NAME: ${{ vars.SQL_ADMIN_GROUP_NAME }}
           SQL_ADMIN_GROUP_OBJECT_ID: ${{ secrets.SQL_ADMIN_GROUP_OBJECT_ID }}
+          BRIDGE_ALERT_EMAIL: ${{ secrets.BRIDGE_ALERT_EMAIL }}
+          BRIDGE_ALERT_SMS_COUNTRY_CODE: ${{ secrets.BRIDGE_ALERT_SMS_COUNTRY_CODE }}
+          BRIDGE_ALERT_SMS_NUMBER: ${{ secrets.BRIDGE_ALERT_SMS_NUMBER }}
           BRIDGE_EVENT_RULES: ${{ secrets.BRIDGE_EVENT_RULES }}
           BRIDGE_AGENTS: ${{ vars.BRIDGE_AGENTS }}
           BRIDGE_REGISTRATIONS_PER_HOUR: ${{ vars.BRIDGE_REGISTRATIONS_PER_HOUR }}
@@ -216,7 +219,7 @@ jobs:
         run: node scripts/deploy-parameters.mjs "$RUNNER_TEMP/parameters.json"
       - name: Preview the changes (what-if)
         if: inputs.action == 'preview'
-        run: az deployment group what-if --resource-group "$RESOURCE_GROUP" --name "$DEPLOYMENT_NAME" --template-file infra/main.bicep --parameters "@$RUNNER_TEMP/parameters.json"
+        run: az deployment group what-if --result-format ResourceIdOnly --resource-group "$RESOURCE_GROUP" --name "$DEPLOYMENT_NAME" --template-file infra/main.bicep --parameters "@$RUNNER_TEMP/parameters.json"
       - name: Is this the first deploy?
         id: first
         if: inputs.action == 'deploy'

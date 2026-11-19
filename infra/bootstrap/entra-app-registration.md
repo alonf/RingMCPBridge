@@ -139,3 +139,7 @@ The core signs in to Azure SQL with its own identity, and needs a user that can 
 ## Costs
 
 The resource group, managed identities, role assignments, the app registration, the group, federated credentials and GitHub variables are all free. The deployed resources cost about $23 a month (research.md "Cost", agent-derived).
+
+### Alert contacts
+
+Set the production environment secrets `BRIDGE_ALERT_EMAIL`, `BRIDGE_ALERT_SMS_COUNTRY_CODE` and `BRIDGE_ALERT_SMS_NUMBER` before preview or deployment. For an Israeli mobile, use country code `972` and the national number without its leading zero. Azure Monitor uses these contacts for the bridge health alert.

@@ -40,6 +40,8 @@ import {
   generateSealingKey,
   Secret,
 } from "../../src/utilities/security/index.ts";
+import { startCoreReads } from "./core-fixture.ts";
+import { STANDARD_LOCATION_ID } from "../scenarios/index.ts";
 import { connectOverHttp } from "../support/index.ts";
 import type { ConnectedClient, ProtocolEra } from "../support/index.ts";
 
@@ -110,6 +112,7 @@ function echo(request: CallbackRequest): Promise<CallbackResponse> {
 }
 
 interface Harness {
+  readonly delivery: Delivery;
   readonly url: URL;
   readonly sent: CallbackRequest[];
   answer: (request: CallbackRequest) => Promise<CallbackResponse>;
@@ -125,7 +128,12 @@ afterEach(async () => {
 });
 
 async function start(
-  options: { withEvents?: boolean; withKey?: boolean } = {},
+  options: {
+    withEvents?: boolean;
+    withKey?: boolean;
+    inquiry?: InquiryReads;
+    checkToken?: typeof tokenCheck;
+  } = {},
 ): Promise<Harness> {
   const clock = new FakeClock(START);
   const layer = openSqliteQueryLayer(":memory:", { clock });
@@ -183,14 +191,15 @@ async function start(
       readsPerHour: 600,
     },
     {
-      inquiry: NO_READS,
-      tokens: { checkAccessToken: tokenCheck },
+      inquiry: options.inquiry ?? NO_READS,
+      tokens: { checkAccessToken: options.checkToken ?? tokenCheck },
       clock,
       logger,
       ...(options.withEvents === false ? {} : { events: delivery }),
     },
   );
   cleanups.push(async () => {
+    await routes.endpoint?.stop();
     await delivery.stop();
     await new Promise<void>((resolve) => {
       server.close(() => {
@@ -200,6 +209,7 @@ async function start(
     await layer.close();
   });
   return Object.assign(harness, {
+    delivery,
     url,
     sent,
     connect: async (era: ProtocolEra) => {
@@ -293,6 +303,159 @@ async function refusal(request: Promise<unknown>): Promise<ProtocolError> {
   }
   return error;
 }
+
+async function openStream(url: URL, era: ProtocolEra, token = "good") {
+  const method = "subscriptions/listen";
+  const modern = era === "modern";
+  const abort = new AbortController();
+  cleanups.push(() => {
+    abort.abort();
+    return Promise.resolve();
+  });
+  return fetch(url, {
+    method: modern ? "POST" : "GET",
+    signal: abort.signal,
+    headers: {
+      authorization: "Bearer " + token,
+      accept: "application/json, text/event-stream",
+      ...(modern
+        ? {
+            "content-type": "application/json",
+            "mcp-protocol-version": "2026-07-28",
+            "mcp-method": method,
+          }
+        : { "mcp-protocol-version": "2025-06-18" }),
+    },
+    ...(modern
+      ? {
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 17,
+            method,
+            params: {
+              ["_meta"]: MODERN_META,
+              notifications: {
+                resourceSubscriptions: ["ring://bridge/events"],
+              },
+            },
+          }),
+        }
+      : {}),
+  });
+}
+
+describe.each(ERAS)("the %s listen stream", (era) => {
+  it("delivers eligible events and keeps the cursor readable after disconnect", async () => {
+    const core = await startCoreReads(new FakeClock(START));
+    cleanups.push(() => core.close());
+    const harness = await start({ inquiry: core.inquiry });
+    const response = await openStream(harness.url, era);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const reader = response.body
+      ?.pipeThrough(new TextDecoderStream())
+      .getReader();
+    if (!reader) throw new Error("Missing stream");
+    const first = await reader.read();
+    expect(first.value).toContain(
+      era === "legacy"
+        ? ": connected"
+        : "notifications/subscriptions/acknowledged",
+    );
+    const event = {
+      event_id: "stored-only",
+      location_id: STANDARD_LOCATION_ID,
+      kind: "motion",
+      summary: "Motion",
+      priority: "MEDIUM" as const,
+      occurred_at: START,
+      received_at: START,
+      late: false,
+    };
+    harness.delivery.eventStored({
+      event: await core.record(event),
+      epoch: 1,
+      action: "store_only",
+    });
+    const high = await core.record({
+      ...event,
+      event_id: "alarm-message",
+      kind: "alarm.triggered",
+      priority: "HIGH",
+    });
+    harness.delivery.eventStored({ event: high, epoch: 1 });
+    const frame = (await reader.read()).value ?? "";
+    expect(frame).toContain(
+      era === "legacy"
+        ? "notifications/message"
+        : "notifications/resources/updated",
+    );
+    expect(frame).toContain('"event_id":"alarm-message"');
+    expect(frame).toContain('"location_id":"' + STANDARD_LOCATION_ID + '"');
+    const medium = await core.record({ ...event, event_id: "medium" });
+    harness.delivery.eventStored({ event: medium, epoch: 1 });
+    expect((await reader.read()).value).toContain('"event_id":"medium"');
+    const page = z.object({
+      data: z.object({
+        next_cursor: z.string(),
+        events: z.array(z.object({ event_id: z.string() })),
+      }),
+    });
+    const { client } = await harness.connect(era);
+    const initial = await client.callTool({
+      name: "get_events",
+      arguments: { location_id: STANDARD_LOCATION_ID },
+    });
+    const saved = page.parse(initial.structuredContent).data;
+    expect(saved.events.map((item) => item.event_id)).toEqual([
+      "stored-only",
+      "alarm-message",
+      "medium",
+    ]);
+    await reader.cancel();
+    const after = await core.record({ ...event, event_id: "while-closed" });
+    harness.delivery.eventStored({ event: after, epoch: 1 });
+    const read = await client.callTool({
+      name: "get_events",
+      arguments: {
+        location_id: STANDARD_LOCATION_ID,
+        cursor: saved.next_cursor,
+      },
+    });
+    expect(page.parse(read.structuredContent).data.events).toEqual([
+      { event_id: "while-closed" },
+    ]);
+  });
+
+  it("ends an open stream when its bearer grant is revoked", async () => {
+    let revoked = false;
+    const harness = await start({
+      checkToken: (token) =>
+        revoked ? Promise.resolve({ kind: "invalid" }) : tokenCheck(token),
+    });
+    const response = await openStream(harness.url, era);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Missing stream");
+    await reader.read();
+    revoked = true;
+    harness.delivery.eventStored({
+      epoch: 1,
+      event: {
+        event_id: "private",
+        location_id: STANDARD_LOCATION_ID,
+        kind: "alarm.triggered",
+        summary: "Alarm",
+        priority: "HIGH",
+        occurred_at: START,
+        received_at: START,
+        stored_at: START,
+        seq: 1,
+        late: false,
+      },
+    });
+    expect((await reader.read()).done).toBe(true);
+    expect((await openStream(harness.url, era, "no-read")).status).toBe(401);
+  });
+});
 
 describe("MCP Events on the endpoint", () => {
   it.each(ERAS)(

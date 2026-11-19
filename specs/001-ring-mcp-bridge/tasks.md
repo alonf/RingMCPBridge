@@ -287,7 +287,9 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - the deploy needs the owner's explicit OK. Cost: about $1.50 a month plus cents per SMS (estimate from list prices).
 
   Tests: `az bicep build`; the infra tests in `bridge/test/infra/`; the independent test above, once, on the real deployment (Trace: FR-043, SC-010; CP-18)
-- [ ] T057 [P] [US2] [assigned_to: Implementer] [effort: 0.9] The minimal listen stream for earlier-era clients, in `bridge/src/core/access/delivery/` and `bridge/src/core/clients/mcp-endpoint/`:
+  Local implementation and Bicep checks are complete. The owner deferred the live email and SMS receipt test until deployment.
+
+- [x] T057 [P] [US2] [assigned_to: Implementer] [effort: 0.9] The minimal listen stream for earlier-era clients, in `bridge/src/core/clients/delivery/` and `bridge/src/core/clients/mcp-endpoint/`:
   - a client on the earlier protocol version receives HIGH and MEDIUM events as notifications on its open stream, at least once, with the event id for dedup;
   - the stream is a hint. The client's cursor and `get_events` stay the source of truth;
   - the channel shim for a desktop coding agent is not built (DRIFT-002-02).

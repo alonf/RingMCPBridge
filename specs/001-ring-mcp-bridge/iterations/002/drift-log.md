@@ -22,11 +22,19 @@
 
 ## Summary
 
-**Total drift events**: 22
-**Resolution rate**: 100% (22/22 resolved or decided)
+**Total drift events**: 23
+**Resolution rate**: 100% (23/23 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-23 — Listen protocol and alert acceptance
+
+FR-010 and FR-012 use the negotiated MCP transport. Earlier clients receive logging notifications on the MCP GET stream. Current clients subscribe to the event resource through the SDK. Both receive the stored event ID and source household ID for each eligible notification and can resume reading with their own cursor. T057 and the endpoint contract now name the implemented transport and delivery package.
+
+FR-043 and SC-010 use one Azure Monitor rule for the core heartbeat, home link, backlog and Ring session (DRIFT-002-04). The deploy compiles with placeholder contacts. Live alert evaluation and receipt by email and Israeli SMS remain open in T056 at the owner’s request. The iteration plan status column was synchronized with its task ledger.
+
+- **Class closure**: The HTTP tests open each protocol stream, read a household event, resume with an explicit cursor and revoke the grant. The infrastructure tests assert all four alert conditions, both receivers and the resource-scoped log input. SC-010 still requires delivery on the real deployment.
 
 ### DRIFT-002-22 — Round 3 recovery, paging and VM provisioning
 

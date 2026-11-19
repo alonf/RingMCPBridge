@@ -17,6 +17,17 @@ param retentionInDays int = 30
 @description('The most the workspace takes in a day, in GB.')
 param dailyQuotaGb string = '0.05'
 
+param appResourceId string
+
+@secure()
+param alertEmail string
+
+@secure()
+param alertSmsCountryCode string
+
+@secure()
+param alertSmsNumber string
+
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: '${namePrefix}-logs'
   location: location
@@ -28,6 +39,53 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
     workspaceCapping: {
       dailyQuotaGb: json(dailyQuotaGb)
     }
+  }
+}
+
+resource contacts 'Microsoft.Insights/actionGroups@2023-01-01' = {
+  name: '${namePrefix}-owner'
+  location: 'global'
+  properties: {
+    groupShortName: 'RingBridge'
+    enabled: true
+    emailReceivers: [
+      { name: 'Owner email', emailAddress: alertEmail, useCommonAlertSchema: true }
+    ]
+    smsReceivers: [
+      { name: 'Owner SMS', countryCode: alertSmsCountryCode, phoneNumber: alertSmsNumber }
+    ]
+  }
+}
+
+// summarize without a grouping key returns one row even when the core is silent.
+var healthQuery = replace(loadTextContent('bridge-health.kql'), '__APP_RESOURCE_ID__', appResourceId)
+resource healthAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: '${namePrefix}-bridge-health'
+  location: location
+  kind: 'LogAlert'
+  properties: {
+    displayName: 'Ring bridge health'
+    description: 'Core heartbeat missing, home offline, event backlog delayed, or Ring sign-in lost.'
+    severity: 2
+    enabled: true
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT15M'
+    scopes: [workspace.id]
+    // On the first deployment the application and its console log table do not exist yet.
+    skipQueryValidation: true
+    criteria: {
+      allOf: [
+        {
+          query: healthQuery
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: { numberOfEvaluationPeriods: 1, minFailingPeriodsToAlert: 1 }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: { actionGroups: [contacts.id] }
   }
 }
 

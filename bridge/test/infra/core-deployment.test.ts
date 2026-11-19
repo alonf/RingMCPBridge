@@ -122,3 +122,23 @@ describe("the core's deployment", () => {
     expect(allBicep()).not.toMatch(/Microsoft\.KeyVault\/vaults\/secrets/);
   });
 });
+
+it("routes one stateful health alert to both owner contacts, even when no core is writing", () => {
+  const monitor = infraFile("modules/monitoring.bicep");
+  const query = infraFile("modules/bridge-health.kql");
+  expect(
+    monitor.match(/Microsoft.Insights\/scheduledQueryRules@/g),
+  ).toHaveLength(1);
+  expect(monitor).toContain("evaluationFrequency: 'PT5M'");
+  expect(monitor).toContain("skipQueryValidation: true");
+  expect(monitor).toContain("autoMitigate: true");
+  expect(monitor).toContain("actionGroups: [contacts.id]");
+  expect(monitor).toContain("emailAddress: alertEmail");
+  expect(monitor).toContain("countryCode: alertSmsCountryCode");
+  expect(monitor).toContain("phoneNumber: alertSmsNumber");
+  expect(query).toContain("summarize arg_max(sampleTime, healthPayload)");
+  expect(query).toContain("isnull(sampleTime) or sampleTime <= ago(10m)");
+  expect(query).toContain("home_offline_ms) * 1ms < ago(10m)");
+  expect(query).toContain("backlog_age_ms) > 300000");
+  expect(query).toContain("ring_session) == 'lost'");
+});

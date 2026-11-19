@@ -390,7 +390,13 @@ describe("the deploy workflow (.github/workflows/deploy.yml)", () => {
     const secrets = new Set(
       [...WORKFLOW.matchAll(/secrets\.(\w+)/g)].map((match) => match[1]),
     );
-    const deploymentSecrets = [...OWNER_SECRETS, "BRIDGE_EVENT_RULES"];
+    const deploymentSecrets = [
+      ...OWNER_SECRETS,
+      "BRIDGE_EVENT_RULES",
+      "BRIDGE_ALERT_EMAIL",
+      "BRIDGE_ALERT_SMS_COUNTRY_CODE",
+      "BRIDGE_ALERT_SMS_NUMBER",
+    ];
     expect([...secrets].sort()).toEqual(deploymentSecrets.sort());
     for (const name of deploymentSecrets) {
       expect(WORKFLOW, name).not.toContain(`vars.${name}`);

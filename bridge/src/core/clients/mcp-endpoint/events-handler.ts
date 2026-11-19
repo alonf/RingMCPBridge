@@ -21,6 +21,7 @@ import type {
   SubscribeAnswer,
   SubscribeRequest,
 } from "../delivery/index.ts";
+import type { BridgeEvent } from "../../../contract/index.ts";
 import { Secret } from "../../../utilities/security/index.ts";
 
 /** The JSON-RPC error for a callback that fails verification (OpenAI's guide). */
@@ -28,6 +29,7 @@ export const CALLBACK_ENDPOINT_ERROR = -32015;
 
 /** What the endpoint's event methods use: Delivery, in the core. */
 export interface EventSubscriptions {
+  listen?(listener: (event: BridgeEvent) => void): () => void;
   eventTypes(): readonly EventTypeDescription[];
   subscribe(
     request: SubscribeRequest,

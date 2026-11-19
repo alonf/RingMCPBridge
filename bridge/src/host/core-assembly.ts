@@ -13,7 +13,10 @@ import { StateStore } from "../core/access/state/index.ts";
 import type { PriorityPolicy } from "../core/engines/classify/index.ts";
 import { AdminManager } from "../core/managers/admin/index.ts";
 import { EventManager } from "../core/managers/event/index.ts";
-import type { EventTopics } from "../core/managers/event/index.ts";
+import type {
+  EventManagerOptions,
+  EventTopics,
+} from "../core/managers/event/index.ts";
 import { InquiryManager } from "../core/managers/inquiry/index.ts";
 import type { Clock } from "../utilities/clock/index.ts";
 import type { CommonSettings } from "../utilities/config/index.ts";
@@ -36,6 +39,9 @@ export interface CoreAssemblyOptions {
   readonly clock: Clock;
   readonly logger: Logger;
   readonly settings: CommonSettings;
+  readonly reportMonitorSample?: NonNullable<
+    EventManagerOptions["reportMonitorSample"]
+  >;
   /** The database as the lease reaches it; the core's database unless a test takes it down. */
   readonly leaseStore?: LeaseStore;
   /** This instance's id in the lease row; random when left out. */
@@ -113,6 +119,9 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
       new EventManager({
         state,
         events,
+        ...(options.reportMonitorSample && {
+          reportMonitorSample: options.reportMonitorSample,
+        }),
         clock,
         homeOfflineAfterMs: options.settings.staleAfterMs,
         reportFailure: (error) => {

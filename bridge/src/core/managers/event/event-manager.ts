@@ -51,6 +51,7 @@ import {
   afterSessionOpened,
   asOf,
   healthChanges,
+  monitorSample,
   settled,
 } from "../../engines/health/index.ts";
 import {
@@ -85,6 +86,9 @@ export interface EventManagerOptions {
   /** How long the home may be silent before it shows offline: the Config utility's `staleAfterMs`. */
   readonly eventRetentionDays?: number;
   readonly homeOfflineAfterMs: number;
+  readonly reportMonitorSample?: (
+    sample: ReturnType<typeof monitorSample>,
+  ) => void;
   /** Where a failure of the background silence check goes; the Host wires it to the logger. */
   readonly reportFailure: (error: unknown) => void;
   /** The core's database, for one transaction per event (T047). */
@@ -118,6 +122,7 @@ const DEVICE_OUTCOMES: Readonly<Record<DeviceApplied, DeviceChangeOutcome>> = {
 /** Event's intake. One per core process. */
 export class EventManager implements EventIntake {
   readonly #options: EventManagerOptions;
+  readonly #leaseStartedAt: number;
   readonly #writer: EventWriter;
   readonly #stopping = new AbortController();
   #steps: Promise<unknown> = Promise.resolve();
@@ -133,6 +138,7 @@ export class EventManager implements EventIntake {
       throw new RangeError("The offline threshold must be a positive time.");
     }
     this.#options = options;
+    this.#leaseStartedAt = options.clock.now();
     this.#writer = new EventWriter({
       store: options.store,
       state: options.state,
@@ -566,8 +572,11 @@ export class EventManager implements EventIntake {
     await this.#serially(signal, async () => {
       const now = this.#options.clock.now();
       const stored = await this.#options.state.health(signal);
-      if (stored) {
-        const view = asOf(stored, now, this.#policy);
+      const view = stored && asOf(stored, now, this.#policy);
+      this.#options.reportMonitorSample?.(
+        monitorSample(view, this.#leaseStartedAt, now),
+      );
+      if (stored && view) {
         if (healthChanges(stored, view).length)
           await this.#saveHealth(stored, view, signal);
         const updates = await this.#options.store.transaction(async (sql) => {

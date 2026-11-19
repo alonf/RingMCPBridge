@@ -1,7 +1,7 @@
 schema: "v1"
 feature: "001-ring-mcp-bridge"
 iteration: "002"
-updated_at: "2026-11-19T19:26:19Z"
+updated_at: "2026-11-19T20:11:45Z"
 tasks:
   CP-08b:
     title: "Home event intake: the push probe first; Push Listener, Normalize (Ring text marked untrusted) and Ingest; events into the Outbox with a send window of about 50 and backoff on the oldest (10 s doubling to 5 min, with jitter), held until the core acks after its commit; the backlog in the heartbeat; catch-up up to 24 hours through the shared Ring limiter, marked late; the link's event messages in version 1"
@@ -23,14 +23,14 @@ tasks:
     blocked_reason: ""
   CP-13:
     title: "Delivery: the ChatGPT adapter for MCP Events as OpenAI's draft publishes them (signed webhooks; each subscription's callback address and signing secret in the database, encrypted; callbacks through the bounded fetch), and the minimal listen stream for earlier-era clients. HIGH and MEDIUM pushed at least once, dedup by event id, Ring text marked untrusted. The channel shim is deferred (DRIFT-002-02)"
-    status: "in-progress"
+    status: "completed"
     started_at: "2026-11-17T23:40:00Z"
-    completed_at: ""
+    completed_at: "2026-11-19T20:11:45Z"
     blocked_reason: ""
   CP-18:
     title: "One Azure Monitor alert rule, by email and SMS: no heartbeat for 10 minutes, the home offline over 10 minutes, the backlog over about 5 minutes, the Ring session lost"
-    status: "pending"
-    started_at: ""
+    status: "in-progress"
+    started_at: "2026-11-19T20:11:45Z"
     completed_at: ""
     blocked_reason: ""
   CP-20:

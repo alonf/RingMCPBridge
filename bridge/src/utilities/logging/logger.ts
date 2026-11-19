@@ -50,6 +50,11 @@ export class Logger {
     this.#write("debug", event, fields, error);
   }
 
+  /** Azure's absence alert must still see this signal when diagnostic verbosity is reduced. */
+  heartbeat(fields: LogFields): void {
+    this.#write("info", "bridge_health_sample", fields, undefined, true);
+  }
+
   info(event: string, fields?: LogFields, error?: unknown): void {
     this.#write("info", event, fields, error);
   }
@@ -67,8 +72,9 @@ export class Logger {
     event: string,
     fields: LogFields | undefined,
     error: unknown,
+    always = false,
   ): void {
-    if (LEVEL_RANK[level] < LEVEL_RANK[this.#options.minLevel]) {
+    if (!always && LEVEL_RANK[level] < LEVEL_RANK[this.#options.minLevel]) {
       return;
     }
     const line = this.#format(level, event, fields, error);

@@ -231,6 +231,20 @@ describe("Delivery: subscribing", () => {
     expect(verification?.headers["x-mcp-subscription-id"]).toBeDefined();
   });
 
+  it("continues delivering when one live listener fails", async () => {
+    const test = await harness();
+    const received: string[] = [];
+    await test.subscribe("/hook");
+    test.delivery.listen(() => {
+      throw new Error("Reader closed");
+    });
+    test.delivery.listen((event) => received.push(event.event_id));
+    const event = stored();
+    test.delivery.eventStored({ event, epoch: 1 });
+    await expect.poll(() => test.eventsTo("/hook").length).toBe(1);
+    expect(received).toEqual([event.event_id]);
+  });
+
   it("carries one subscription id in the verification, the answer and every delivery", async () => {
     const test = await harness();
 

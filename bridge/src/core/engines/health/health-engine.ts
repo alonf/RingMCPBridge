@@ -249,3 +249,20 @@ function homeUp(view: HealthView | undefined, now: number): HealthView {
   delete next.stale_since;
   return next;
 }
+
+/** Content-free sample for the outside watcher. A home that never connected is timed
+ * from the start of this lease. Backlog age is the connector's last measured value. */
+export function monitorSample(
+  view: HealthView | undefined,
+  leaseStartedAt: number,
+  now: number,
+) {
+  return {
+    home_offline_ms:
+      view?.home_link_status === "up"
+        ? 0
+        : Math.max(0, now - (view?.home_link_since ?? leaseStartedAt)),
+    backlog_age_ms: view?.event_backlog_oldest_age_ms ?? 0,
+    ring_session: view?.ring_session_status ?? "unknown",
+  };
+}

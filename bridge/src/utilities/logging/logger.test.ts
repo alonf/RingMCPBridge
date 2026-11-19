@@ -33,6 +33,24 @@ function captureLogger(options: Partial<LoggerOptions> = {}): {
 }
 
 describe("Logger lines", () => {
+  it("keeps Azure's minute heartbeat observable even at error-only verbosity", () => {
+    const { logger, records } = captureLogger({ minLevel: "error" });
+    logger.info("ordinary_info");
+    logger.heartbeat({
+      home_offline_ms: 600001,
+      backlog_age_ms: 300001,
+      ring_session: "lost",
+    });
+    expect(records()).toMatchObject([
+      {
+        event: "bridge_health_sample",
+        home_offline_ms: 600001,
+        backlog_age_ms: 300001,
+        ring_session: "lost",
+      },
+    ]);
+  });
+
   it("writes ts, level, event and the declared fields in allow-list order", () => {
     const { logger, records } = captureLogger();
     logger.info("tool_call", {

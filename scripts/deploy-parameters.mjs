@@ -6,7 +6,7 @@
 // an array and fail the parameter's type.
 // - A required variable that is missing stops it, naming the variables only.
 // - An optional variable left empty leaves the Bicep's default.
-// - No value is a secret, but none is printed either: the file stays in the runner's temporary
+// - Contact details and settings are private. Values are never printed. The file stays in the runner's temporary
 //   folder.
 //
 //   node scripts/deploy-parameters.mjs <output-file>
@@ -32,6 +32,17 @@ const SCHEMA =
  */
 export const PARAMETERS = [
   { name: "registryName", variable: "AZURE_REGISTRY_NAME", from: "bootstrap" },
+  { name: "alertEmail", variable: "BRIDGE_ALERT_EMAIL", from: "runbook" },
+  {
+    name: "alertSmsCountryCode",
+    variable: "BRIDGE_ALERT_SMS_COUNTRY_CODE",
+    from: "runbook",
+  },
+  {
+    name: "alertSmsNumber",
+    variable: "BRIDGE_ALERT_SMS_NUMBER",
+    from: "runbook",
+  },
   { name: "imageTag", variable: "IMAGE_TAG", from: "deploy" },
   {
     name: "entraClientId",
