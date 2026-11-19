@@ -287,7 +287,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - the deploy needs the owner's explicit OK. Cost: about $1.50 a month plus cents per SMS (estimate from list prices).
 
   Tests: `az bicep build`; the infra tests in `bridge/test/infra/`; the independent test above, once, on the real deployment (Trace: FR-043, SC-010; CP-18)
-  Live test on 2026-11-19 (UTC): the connector stopped at 21:21:13, the query reported `home_offline`, Azure fired the rule at 21:33:31 and recorded `ActionsTriggered` at 21:33:32. The connector reopened its link at 21:34:41. The next healthy sample was at 21:35:29 and Azure resolved the alert at 21:49:33. Recipient confirmation for email and SMS is pending.
+  Live test on 2026-11-19 (UTC): the connector stopped at 21:21:13, the query reported `home_offline`, Azure fired the rule at 21:33:31 and recorded `ActionsTriggered` at 21:33:32. The connector reopened its link at 21:34:41 and Azure resolved the alert at 21:49:33. The owner confirmed receipt of the fired and resolved SMS messages. The group’s enabled email receiver matches the address that received the verification request. The owner did not find either alert email. Azure rejected the separate email-only action group test with HTTP 400 (`There are no valid receivers in the request`). Email delivery remains unverified.
 
 - [x] T057 [P] [US2] [assigned_to: Implementer] [effort: 0.9] The minimal listen stream for earlier-era clients, in `bridge/src/core/clients/delivery/` and `bridge/src/core/clients/mcp-endpoint/`:
   - a client on the earlier protocol version receives HIGH and MEDIUM events as notifications on its open stream, at least once, with the event id for dedup;

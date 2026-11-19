@@ -7,7 +7,7 @@
 **Tasks Remaining**: CP-21b, CP-RV, CP-PJ
 **In Progress**: CP-18, CP-20, CP-RW
 **Baseline Ref**: c9618ddc79cb7f5e3d94dffe1ae4c2bc3d16ea7c
-**Updated**: 2026-11-19T21:49:58Z
+**Updated**: 2026-11-19T22:05:43Z
 
 ## Execution Summary
 
@@ -18,7 +18,7 @@
 <!-- specrew:task-progress-summary:end -->
 ## Notes
 
-- T057 passed local HTTP tests for both protocol versions, including reconnect by cursor and revocation during a stream. T056 was deployed from `b444d18`. During the live connector outage on 2026-11-19, Azure fired the health alert at 21:33:31 UTC and triggered the action group one second later. The home link reopened at 21:34:41 UTC and Azure resolved the alert at 21:49:33 UTC. Recipient confirmation for email and Israeli SMS is pending. The fourth review round remains paused.
+- T057 passed local HTTP tests for both protocol versions, including reconnect by cursor and revocation during a stream. T056 was deployed from `b444d18`. During the live connector outage on 2026-11-19, Azure fired the health alert at 21:33:31 UTC and triggered the action group one second later. The home link reopened at 21:34:41 UTC and Azure resolved the alert at 21:49:33 UTC. The owner confirmed both SMS messages. T056 remains in progress for email delivery. The address matched, and Azure rejected the isolated email test before providing a send receipt. The fourth review round remains paused.
 
 - T054 and T055 completed locally. The three-hour link test covers recovery summaries through `get_events`. The health tests cover the Ring outage threshold, restart deduplication, the stale heartbeat sample and the 30-day cutoff. Claude has the fourth review round at the end of iteration 002.
 
