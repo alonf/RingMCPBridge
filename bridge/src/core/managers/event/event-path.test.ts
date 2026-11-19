@@ -348,7 +348,7 @@ describe("Event: the event path (T047)", () => {
         armed,
         event("evt-2", { kind: "contact.open", armed: false }),
       ),
-    ).resolves.toBe("MEDIUM");
+    ).resolves.toBe("LOW");
   });
 
   it("ranks a motion sensor by the device type the home sends, before State holds the sensor", async () => {
@@ -424,7 +424,7 @@ describe("Event: the event path (T047)", () => {
         test,
         event("evt-1", { location_id: "loc-9", kind: "contact.open" }),
       ),
-    ).resolves.toBe("MEDIUM");
+    ).resolves.toBe("LOW");
   });
 
   it("marks an event late when it reaches the core more than 2 minutes after the home received it, or comes from Ring's history", async () => {

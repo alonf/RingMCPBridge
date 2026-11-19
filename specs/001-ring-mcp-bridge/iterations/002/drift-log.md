@@ -22,11 +22,21 @@
 
 ## Summary
 
-**Total drift events**: 20
-**Resolution rate**: 100% (20/20 resolved or decided)
+**Total drift events**: 21
+**Resolution rate**: 100% (21/21 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
+
+### DRIFT-002-21: a contact while disarmed is LOW, by the owner's choice
+
+- **Detected**: 2026-11-19, when T062 made contact events real and the priority table was read against them.
+- **Kind**: owner decision against FR-009's default table.
+- **Observed**: FR-009 ranks a contact while disarmed MEDIUM, so every door opened at home would be pushed to every agent. The owner chose LOW (typed "yes" to the recommendation, 2026-11-19): such an event is stored and readable, and not pushed. A contact while armed stays HIGH; alarms and water stay HIGH. The alarm mode changing stays LOW, as it was.
+- **Requirement citation**: FR-009 (the table is policy data), FR-010 (a client's own opt-in for events not pushed by default, from iteration 003).
+- **Resolution**: human-decision. One line in `priority-policy.json`; the tests that held MEDIUM now hold LOW. FR-009's wording is the default for a new installation and is left as the specification's; the owner's installation differs by this one rule.
+- **Carry-forward**: the spec text and the policy file's shipped default are now apart on this one rule. Whether the shipped default should follow the spec or this choice is a question for iteration 003's per-client settings.
+- **Class closure**: NONE - owner decision.
 
 ### DRIFT-002-20: the owner's decisions on shared homes: alarms only now, an event-filter page in iteration 003
 

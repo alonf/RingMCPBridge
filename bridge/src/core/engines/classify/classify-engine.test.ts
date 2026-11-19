@@ -79,11 +79,6 @@ describe("the Classify engine's priorities, from the shipped policy (FR-009)", (
     ],
     // MEDIUM
     [
-      "a contact while disarmed",
-      { kind: "contact.open", armed: false, deviceType: "contact" },
-      "MEDIUM",
-    ],
-    [
       "camera motion with a person",
       { kind: "motion", armed: false, deviceType: "camera", person: true },
       "MEDIUM",
@@ -94,6 +89,12 @@ describe("the Classify engine's priorities, from the shipped policy (FR-009)", (
       "MEDIUM",
     ],
     // LOW: recorded, not pushed by default
+    // The owner's choice (DRIFT-002-21), over FR-009's MEDIUM: a door opened at home is not news.
+    [
+      "a contact while disarmed",
+      { kind: "contact.open", armed: false, deviceType: "contact" },
+      "LOW",
+    ],
     [
       "a motion sensor while disarmed",
       { kind: "motion", armed: false, deviceType: "motion" },

@@ -25,7 +25,7 @@
     {
       "kinds": ["contact.open", "contact.closed"],
       "when": { "armed": false },
-      "priority": "MEDIUM"
+      "priority": "LOW"
     },
     {
       "kinds": ["motion"],
