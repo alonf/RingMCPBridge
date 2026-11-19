@@ -150,9 +150,9 @@ describe.skipIf(settings === undefined)("the Query layer on SQL Server", () => {
       ),
     );
 
-    expect(reports.flatMap((report) => report.applied).sort()).toEqual(
-      CORE_MIGRATIONS.map((migration) => migration.version),
-    );
+    expect(
+      reports.flatMap((report) => report.applied).sort((a, b) => a - b),
+    ).toEqual(CORE_MIGRATIONS.map((migration) => migration.version));
     await expect(
       starts[0]?.get(
         sql("SELECT COUNT(*) AS recorded FROM schema_migration"),

@@ -206,6 +206,39 @@ describeStoreMatrix("the Event Log and the Audit", (store) => {
     });
   });
 
+  it("closes a recovery group and replays its receipt without claiming a newer group", async () => {
+    const test = await setUp();
+    await test.ingest(event("late-1", { late: true }));
+    const close = (marker: string) =>
+      test.layer.transaction(
+        (sql) => test.log.finishRecovery(sql, marker, never()),
+        never(),
+      );
+    await test.layer.transaction(
+      (sql) => test.log.markForRecovery(sql, "late-1", "owned", never()),
+      never(),
+    );
+    expect(await close("marker-1")).toMatchObject([
+      {
+        location_id: "loc-1",
+        ownership: "owned",
+        total: 1,
+        rank_value: 2,
+        seq_from: 1,
+        seq_to: 1,
+      },
+    ]);
+    await test.ingest(event("late-2", { late: true, priority: "LOW" }));
+    await test.layer.transaction(
+      (sql) => test.log.markForRecovery(sql, "late-2", "shared", never()),
+      never(),
+    );
+    expect(await close("marker-1")).toEqual([]);
+    expect(await close("marker-2")).toMatchObject([
+      { ownership: "shared", total: 1, rank_value: 0, seq_from: 2, seq_to: 2 },
+    ]);
+  });
+
   it("leaves no gap in the log or the audit after a rolled-back write", async () => {
     const test = await setUp();
     await test.ingest(event("evt-1"));
