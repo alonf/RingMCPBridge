@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ConfigError, loadSettings, loadSetupSettings } from "./index.ts";
+import {
+  eventAction,
+  ConfigError,
+  loadSettings,
+  loadSetupSettings,
+} from "./index.ts";
 
 /** Mode A's required settings. */
 const LOCAL = {
@@ -57,6 +62,62 @@ function configErrorFrom(
 }
 
 describe("loadSettings", () => {
+  it("applies an event-kind choice before a source default and isolates cameras, sensors and households", () => {
+    const { eventRules } = loadSettings({
+      ...LOCAL,
+      BRIDGE_EVENT_RULES: JSON.stringify([
+        { location_id: "A", camera_id: "42", kind: "motion", action: "push" },
+        { location_id: "A", camera_id: "42", action: "store_only" },
+        { location_id: "A", sensor_type: "motion", action: "drop" },
+      ]),
+    });
+    const motion = {
+      location_id: "A",
+      device_type: "camera",
+      device_id: "42",
+      kind: "motion",
+    };
+    expect(eventAction(eventRules, "shared", motion)).toBe("push");
+    expect(
+      eventAction(eventRules, "shared", { ...motion, kind: "ring.other" }),
+    ).toBe("store_only");
+    expect(
+      eventAction(eventRules, "shared", { ...motion, device_id: "43" }),
+    ).toBe("drop");
+    expect(
+      eventAction(eventRules, "shared", { ...motion, location_id: "B" }),
+    ).toBe("drop");
+    expect(
+      eventAction(eventRules, "shared", { ...motion, device_type: "motion" }),
+    ).toBe("drop");
+    expect(
+      eventAction(eventRules, "shared", {
+        ...motion,
+        device_type: "motion",
+        location_id: "B",
+      }),
+    ).toBe("store_only");
+  });
+
+  it("loads household event choices and rejects ambiguous rules", () => {
+    const rule = {
+      location_id: "home-a",
+      camera_id: "42",
+      kind: "motion",
+      action: "store_only",
+    };
+    expect(
+      loadSettings({ ...LOCAL, BRIDGE_EVENT_RULES: JSON.stringify([rule]) })
+        .eventRules,
+    ).toEqual([rule]);
+    expect(
+      configErrorFrom({
+        ...LOCAL,
+        BRIDGE_EVENT_RULES: JSON.stringify([rule, rule]),
+      }).variables,
+    ).toContain("BRIDGE_EVENT_RULES");
+  });
+
   it("applies the recorded defaults", () => {
     expect(loadSettings(LOCAL)).toEqual({
       mode: "all-in-one",

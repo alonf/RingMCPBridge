@@ -62,6 +62,10 @@ param sqlAdminGroupName string
 @description('The object id of the SQL break-glass group.')
 param sqlAdminGroupObjectId string
 
+@secure()
+@description('Household event choices as a JSON array.')
+param eventRules string = ''
+
 @description('The listed agents, as JSON: client ids, redirect URIs and scopes (PT-18).')
 param agents string = '[]'
 
@@ -153,6 +157,7 @@ module appService 'modules/app-service.bicep' = {
     entraTenantId: entraTenantId
     entraClientId: entraClientId
     ownerObjectId: ownerObjectId
+    eventRules: empty(eventRules) ? '[]' : eventRules
     agents: agents
     registrationsPerHour: registrationsPerHour
   }

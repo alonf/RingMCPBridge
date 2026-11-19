@@ -27,6 +27,7 @@
 //   repeats.
 // - **The log** names the event, the client by a short hash, the host and the status, and the time
 //   from Ring's trigger to the callback's acceptance (SC-001). Never an address, a secret or text.
+import type { EventAction } from "../../../utilities/config/index.ts";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { eventShape } from "../../../contract/index.ts";
@@ -147,6 +148,7 @@ export interface DeliveryOptions {
     locationId: string,
     kind: string,
     signal: AbortSignal,
+    sharedAtIngest?: boolean,
   ) => Promise<boolean>;
   /** Whether the client may still read: the Issuer's own check of a listed, unrevoked agent. */
   readonly clientAllowed: (
@@ -159,6 +161,8 @@ export interface DeliveryOptions {
 
 /** One event as the Event manager stored it, and its log's epoch. */
 export interface StoredEventMessage {
+  readonly action?: EventAction;
+  readonly shared?: boolean;
   readonly event: StoredEvent;
   readonly epoch: number;
 }
@@ -285,10 +289,15 @@ export class Delivery {
   /** An event the Event manager committed: pushed to every active subscription, if it is pushed. */
   eventStored(message: StoredEventMessage): void {
     const { event } = message;
-    if (!PUSHED.has(event.priority) || event.late) {
+    if (
+      message.action === "drop" ||
+      message.action === "store_only" ||
+      event.late ||
+      (message.action !== "push" && !PUSHED.has(event.priority))
+    ) {
       return;
     }
-    this.#track(this.#deliverEvent(event));
+    this.#track(this.#deliverEvent(event, message.shared === true));
   }
 
   /** Stops retrying, and waits for the sends already running. */
@@ -384,10 +393,18 @@ export class Delivery {
     );
   }
 
-  async #deliverEvent(event: StoredEvent): Promise<void> {
+  async #deliverEvent(
+    event: StoredEvent,
+    sharedAtIngest: boolean,
+  ): Promise<void> {
     const signal = this.#stopping.signal;
     if (
-      !(await this.#options.pushedFrom(event.location_id, event.kind, signal))
+      !(await this.#options.pushedFrom(
+        event.location_id,
+        event.kind,
+        signal,
+        sharedAtIngest,
+      ))
     ) {
       this.#logger.info("delivery_skipped", {
         event_id: event.event_id,

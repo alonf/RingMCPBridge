@@ -81,6 +81,10 @@ param entraClientId string
 @description('The owner\'s Entra object id: the only account that may sign in.')
 param ownerObjectId string
 
+@secure()
+@description('Household event choices as a JSON array.')
+param eventRules string
+
 @description('The listed agents, as JSON (PT-18).')
 param agents string
 
@@ -109,6 +113,7 @@ var settings = [
   { name: 'BRIDGE_ENTRA_TENANT_ID', value: entraTenantId }
   { name: 'BRIDGE_ENTRA_CLIENT_ID', value: entraClientId }
   { name: 'BRIDGE_OWNER_OBJECT_ID', value: ownerObjectId }
+  { name: 'BRIDGE_EVENT_RULES', value: eventRules }
   { name: 'BRIDGE_AGENTS', value: agents }
 ]
 var optionalSettings = empty(registrationsPerHour)

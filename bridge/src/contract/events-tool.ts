@@ -19,7 +19,7 @@ export const getEventsInput = z
       .min(1)
       .meta({
         description:
-          "The location. Omitted: the cursor's location, else the owned location when there is exactly one. When a cursor is also given, it must be the cursor's location, or INVALID_ARGUMENT.",
+          "The owned or shared Ring household whose stored events to read. Omitted: the cursor's location, else the only owned household or the only household overall. When a cursor is also given, it must be the cursor's location, or INVALID_ARGUMENT.",
       })
       .optional(),
     cursor: z

@@ -87,6 +87,7 @@ export async function startConnector(
   }
   const homeSide = assembleHome({
     ring: home.ring,
+    eventRules: settings.eventRules,
     ...(home.history === undefined ? {} : { history: home.history }),
     ...(home.push === undefined
       ? {}
@@ -139,6 +140,11 @@ export function startRingConnector(
   return startConnector(settings, {
     ...parts,
     openHome: (onConnectionStuck) =>
-      openRingHome(settings.home, parts.clock, parts.logger, onConnectionStuck),
+      openRingHome(
+        { ...settings.home, eventRules: settings.eventRules },
+        parts.clock,
+        parts.logger,
+        onConnectionStuck,
+      ),
   });
 }

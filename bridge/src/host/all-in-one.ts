@@ -136,7 +136,7 @@ export async function startAllInOne(
     },
     { inquiry: core.inquiry, tokens: NO_TOKENS, clock, logger },
   );
-  const homePart = new HomePart(dataDir, core, parts);
+  const homePart = new HomePart(dataDir, core, parts, settings.eventRules);
   core.start();
   homePart.follow();
   logger.info("bridge_started", { mode: "all_in_one" });
@@ -153,6 +153,7 @@ export async function startAllInOne(
 
 /** The home part, opened once the core holds the lease, and watched for the lease's loss. */
 class HomePart {
+  readonly #eventRules: Settings["eventRules"];
   readonly #dataDir: string;
   readonly #core: CoreAssembly;
   readonly #parts: AllInOneParts;
@@ -161,7 +162,13 @@ class HomePart {
   readonly #closers: (() => Promise<void>)[] = [];
   #stopped = false;
 
-  constructor(dataDir: string, core: CoreAssembly, parts: AllInOneParts) {
+  constructor(
+    dataDir: string,
+    core: CoreAssembly,
+    parts: AllInOneParts,
+    eventRules: Settings["eventRules"],
+  ) {
+    this.#eventRules = eventRules;
     this.#dataDir = dataDir;
     this.#core = core;
     this.#parts = parts;
@@ -230,6 +237,8 @@ class HomePart {
     }
     const homeSide = assembleHome({
       ring: home.ring,
+      eventRules: this.#eventRules,
+      ...(home.history ? { history: home.history } : {}),
       ...(home.push === undefined ? {} : { push: home.push }),
       outbox,
       dial: inProcessDial(this.#core, logger),

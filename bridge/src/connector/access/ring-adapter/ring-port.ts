@@ -128,6 +128,7 @@ export interface RingPort {
  * do not come this way: their changes arrive on the hub's live connection, as `RingChange`.
  */
 export interface RingPush {
+  readonly ownership?: "shared";
   readonly device_id: string;
   readonly location_id: string;
   /** The camera's type: a doorbell or another camera (T050's review, DRIFT-002-19). */
@@ -141,6 +142,7 @@ export interface RingPush {
  * brought. Ring's text is not in it, but the id, which the bridge reads as an opaque string.
  */
 export interface RingHistoryEntry {
+  readonly ownership?: "shared";
   readonly device_id: string;
   readonly location_id: string;
   readonly device_type: "doorbell" | "camera";

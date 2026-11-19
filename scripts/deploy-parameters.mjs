@@ -64,6 +64,13 @@ export const PARAMETERS = [
     from: "deploy",
   },
   {
+    name: "eventRules",
+    variable: "BRIDGE_EVENT_RULES",
+    from: "runbook",
+    optional: true,
+    json: "array",
+  },
+  {
     name: "agents",
     variable: "BRIDGE_AGENTS",
     from: "runbook",

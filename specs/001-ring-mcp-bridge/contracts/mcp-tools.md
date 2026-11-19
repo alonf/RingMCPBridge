@@ -180,7 +180,7 @@ Events after a cursor, filtered, in `seq` order, with a cursor for the next read
 
 Errors: as `get_overview`; `INVALID_ARGUMENT` for a malformed or foreign cursor.
 
-Built in T052: the cursor is the location, the log epoch and the `seq`, encoded; a cursor from an epoch the log has not reached is `INVALID_ARGUMENT`. A read without a cursor starts after the client's read mark, and every read by an agent moves its mark to the position the reply's `next_cursor` names, so a client that must not lose a reply keeps its own cursor. Only owned locations are read: a shared location is `NOT_FOUND`. Each read counts against the hourly read limit, as every read tool does.
+Built in T052: the cursor is the location, the log epoch and the `seq`, encoded; a cursor from an epoch the log has not reached is `INVALID_ARGUMENT`. A read without a cursor starts after the client's read mark, and every read by an agent moves its mark to the position the reply's `next_cursor` names, so a client that must not lose a reply keeps its own cursor. A named shared location or its cursor returns stored events. Each event includes its source `location_id`. Each read counts against the hourly read limit, as every read tool does.
 
 ### `set_push_filter` (iteration 003)
 

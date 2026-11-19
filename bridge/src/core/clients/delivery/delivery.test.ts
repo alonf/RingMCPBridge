@@ -355,6 +355,7 @@ describe("Delivery: pushing events", () => {
       cursor: null,
       data: {
         event_id: "7400000000000000001",
+        location_id: "loc-1",
         seq: 1,
         priority: "HIGH",
         kind: "doorbell.ding",
@@ -526,6 +527,25 @@ describe("Delivery: pushing events", () => {
   });
 
   // T063: the location rule is asked with the event's kind, so a shared home's alarm goes out.
+  it("honors explicit push and store-only choices independently of priority", async () => {
+    const test = await harness();
+    await test.subscribe("/hook");
+    test.delivery.eventStored({
+      event: stored({ priority: "HIGH", kind: "flood" }),
+      epoch: 1,
+      action: "store_only",
+    });
+    test.delivery.eventStored({
+      event: stored({ priority: "LOW", event_id: "chosen" }),
+      epoch: 1,
+      action: "push",
+    });
+    await settle();
+    expect(
+      test.eventsTo("/hook").map((req) => req.headers["webhook-id"]),
+    ).toEqual(["chosen"]);
+  });
+
   it("pushes a shared home's event of a kind the location rule allows", async () => {
     const test = await harness();
     await test.subscribe("/hook");

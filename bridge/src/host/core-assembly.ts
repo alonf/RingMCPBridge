@@ -122,6 +122,7 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
         eventLog,
         audit,
         priorityPolicy,
+        eventRules: options.settings.eventRules,
       }),
     link: { admin, clock, logger },
   });

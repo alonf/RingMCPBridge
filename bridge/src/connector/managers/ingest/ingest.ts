@@ -43,6 +43,10 @@
 // window and backoff (T043). A push Normalize cannot use is logged by its device and counted, and
 // nothing is queued. The heartbeat says push is on, when the last push came, and how many events
 // wait and for how long. Catch-up and the late marker come with T053.
+import {
+  eventAction,
+  type EventRule,
+} from "../../../utilities/config/index.ts";
 import type { Clock } from "../../../utilities/clock/index.ts";
 import { formatUtc } from "../../../utilities/clock/index.ts";
 import type {
@@ -77,7 +81,6 @@ import {
   alarmEvent,
   armedAt,
   deviceChangeEvents,
-  fromSharedHome,
   historyEvent,
   modeChangeEvent,
   normalizePush,
@@ -103,6 +106,7 @@ export type InventoryOutcome =
 
 /** What Ingest is wired with. */
 export interface IngestOptions {
+  readonly eventRules?: readonly EventRule[] | undefined;
   readonly ring: RingPort;
   readonly outbox: OutboxStore;
   /** The open link to send on, which Core Link fills; empty while there is no session. */
@@ -149,6 +153,7 @@ const UNCANCELLED = new AbortController().signal;
 
 /** The home's state path into the outbox and onto the link. One instance per connector process. */
 export class Ingest {
+  readonly #eventRules: readonly EventRule[] | undefined;
   readonly #ring: RingPort;
   readonly #outbox: OutboxStore;
   readonly #link: LinkSlot;
@@ -182,6 +187,7 @@ export class Ingest {
   #sessionStarting = false;
 
   constructor(options: IngestOptions) {
+    this.#eventRules = options.eventRules;
     this.#ring = options.ring;
     this.#outbox = options.outbox;
     this.#link = options.link;
@@ -269,7 +275,8 @@ export class Ingest {
       });
       return;
     }
-    this.#queueEvent(normalized.event, receivedAt);
+    if (this.#keeps(normalized.event, push.ownership))
+      this.#queueEvent(normalized.event, receivedAt);
   }
 
   /**
@@ -330,6 +337,7 @@ export class Ingest {
           this.#count("push_unusable");
           continue;
         }
+        if (!this.#keeps(event, found.ownership)) continue;
         const body = eventBody(event, now, true);
         const written = await this.#step(() =>
           this.#outbox.appendEvent(body.event_id, () => body, signal),
@@ -365,6 +373,14 @@ export class Ingest {
       );
       return { outcome: "outbox_unavailable" };
     }
+  }
+
+  #keeps(event: NormalizedEvent, ownership?: "shared"): boolean {
+    const source =
+      ownership ??
+      this.#latest?.view.location(event.location_id)?.ownership ??
+      "owned";
+    return eventAction(this.#eventRules, source, event) !== "drop";
   }
 
   // Writes an event to the outbox under its id, then sends what is due. It never throws.
@@ -560,15 +576,13 @@ export class Ingest {
   /**
    * The events a hub change makes (T062), from the entry it replaces in the view, so read before the
    * view takes the change in. None before the first read, when nothing is known to have changed.
-   * From a shared home, only its alarm and water, named by the home (T063).
+   * Household rules select which events to queue. Shared hub events also carry the home name.
    */
   #hubEvents({ change, at }: TimedChange): NormalizedEvent[] {
     const view = this.#latest?.view;
     if (view === undefined) {
       return [];
     }
-    const owned = (locationId: string): boolean =>
-      view.location(locationId)?.ownership === "owned";
     // An owned home's events as they are; a shared home's filtered and named; none from a location
     // the view does not hold.
     const asSent = (
@@ -579,9 +593,13 @@ export class Ingest {
       if (location === undefined) {
         return [];
       }
-      return location.ownership === "owned"
-        ? [...events]
-        : fromSharedHome(events, location.name);
+      return events
+        .filter((event) => this.#keeps(event))
+        .map((event) =>
+          location.ownership === "shared"
+            ? { ...event, summary: location.name + ": " + event.summary }
+            : event,
+        );
     };
     switch (change.kind) {
       case "device": {
@@ -604,15 +622,12 @@ export class Ingest {
       }
       case "location": {
         const { location } = change;
-        if (location.ownership !== "owned" || !owned(location.location_id)) {
-          return [];
-        }
         const event = modeChangeEvent(
           view.location(location.location_id),
           location,
           at,
         );
-        return event === undefined ? [] : [event];
+        return asSent(location.location_id, event === undefined ? [] : [event]);
       }
       case "panel": {
         const { panel } = change;

@@ -79,6 +79,20 @@ If you added the connector on claude.ai, Claude Code signed in with the same acc
 - **One agent:** remove the connector in that agent.
 - **Every link of one kind of agent:** remove the agent from `BRIDGE_AGENTS` and deploy.
 
+### Events from shared households
+
+Ring sharing grants read access. Shared camera and doorbell events are dropped by default. Sensor events, including flood detections, are available through `get_events` without notifications. The alarm panel follows the usual owned-home priority rules. Use the household's `location_id` with `get_overview` for its alarm status or with `get_events` for its history. Each returned event and webhook carries that same source ID.
+
+To override a default, set `BRIDGE_EVENT_RULES` to the same JSON array on the connector and core (once in all-in-one mode) and restart the affected processes. The Azure deployment reads the production GitHub environment secret of that name. On a newly provisioned VM, set it in `/etc/ring-bridge/bridge.env`. Keep real household IDs in deployment settings. Each rule targets one household and one camera ID, sensor type, or alarm panel. An optional event kind takes precedence over the rule for the whole source. A push rule includes storage. Late events still follow the recovery path.
+
+```json
+[
+  {"location_id":"example-home","camera_id":"42","action":"store_only"},
+  {"location_id":"example-home","sensor_type":"contact","kind":"contact.open","action":"push"},
+  {"location_id":"example-home","alarm":true,"kind":"mode.changed","action":"drop"}
+]
+```
+
 ## Not affiliated with Ring
 
 This project is not affiliated with, endorsed by or supported by Ring or Amazon. It uses Ring's unofficial API through the community library [ring-client-api](https://github.com/dgreif/ring), which can change or stop working at any time, and its use may conflict with Ring's terms of service. Use it at your own risk.

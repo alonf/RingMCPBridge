@@ -8,6 +8,7 @@ import {
 } from "../connector/access/ring-adapter/call-limits.ts";
 import { RingApiAdapter } from "../connector/access/ring-adapter/ring-api-adapter.ts";
 import { createRingClient } from "../connector/access/ring-adapter/ring-client.live.ts";
+import type { EventRule } from "../utilities/config/index.ts";
 import type { Clock } from "../utilities/clock/index.ts";
 import type { Logger } from "../utilities/logging/index.ts";
 import type { LocalHome } from "./home-assembly.ts";
@@ -16,6 +17,7 @@ import type { HomeFileSettings } from "./home-files.ts";
 
 /** Where the home keeps its secrets, and the system ffmpeg. */
 export interface RingHomeSettings extends HomeFileSettings {
+  readonly eventRules?: readonly EventRule[] | undefined;
   readonly ffmpegPath: string;
 }
 
@@ -34,6 +36,7 @@ export async function openRingHome(
   const file = await openHomeSecrets(settings);
   const secrets = file.secrets;
   const ring = new RingApiAdapter({
+    eventRules: settings.eventRules,
     client: createRingClient({
       refreshToken: secrets.ringRefreshToken.reveal(),
       hardwareId: secrets.ringHardwareId.reveal(),

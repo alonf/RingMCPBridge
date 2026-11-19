@@ -19,6 +19,11 @@
 //   already sends nothing from a shared home but the kinds a shared home may send.
 // - **Refused.** An id or kind longer than its column can never be stored. Such an event is
 //   reported as refused, so it is acked and logged instead of being sent again forever.
+import {
+  eventAction,
+  type EventRule,
+  type EventAction,
+} from "../../../utilities/config/index.ts";
 import type { Audit } from "../../access/audit/index.ts";
 import type {
   EventLog,
@@ -52,6 +57,7 @@ export interface EventTransactions {
 
 /** What the event path is made over. */
 export interface EventWriterOptions {
+  readonly eventRules?: readonly EventRule[] | undefined;
   readonly store: EventTransactions;
   readonly state: StateStore;
   readonly eventLog: EventLog;
@@ -64,6 +70,8 @@ export type EventWritten =
   | {
       readonly kind: "stored";
       readonly event: StoredEvent;
+      readonly action: EventAction;
+      readonly shared: boolean;
       readonly epoch: number;
       /** What State made of the event's device entry; absent when it had none or was not applied. */
       readonly device?: DeviceApplied;
@@ -117,13 +125,26 @@ export class EventWriter {
       event.location_id,
       signal,
     );
+    const deviceType =
+      event.device_state?.type ??
+      event.device_type ??
+      (event.device_id === undefined
+        ? undefined
+        : (await this.#options.state.deviceIn(session, event.device_id, signal))
+            ?.type);
+    const action = eventAction(
+      this.#options.eventRules,
+      location?.ownership ?? "owned",
+      { ...event, ...(deviceType ? { device_type: deviceType } : {}) },
+    );
+    if (action === "drop") return { kind: "withheld" };
     if (
       location?.ownership === "shared" &&
       !keptFromSharedLocation(this.#options.priorityPolicy, event.kind)
     ) {
       return { kind: "withheld" };
     }
-    const record = await this.#classified(session, event, location, signal);
+    const record = this.#classified(event, location, deviceType);
     const appended = await this.#options.eventLog.append(
       session,
       record,
@@ -148,6 +169,8 @@ export class EventWriter {
     );
     return {
       kind: "stored",
+      action,
+      shared: location?.ownership === "shared",
       event: { ...record, seq: appended.seq, stored_at: appended.stored_at },
       epoch: appended.epoch,
       ...(device === undefined ? {} : { device }),
@@ -155,19 +178,12 @@ export class EventWriter {
   }
 
   // The event as the log holds it, with its priority and late flag from the policy.
-  async #classified(
-    session: SqlSession,
+  #classified(
     event: IncomingEvent,
     location: Awaited<ReturnType<StateStore["locationIn"]>>,
-    signal: AbortSignal,
-  ): Promise<EventRecord> {
-    const { state, priorityPolicy } = this.#options;
-    const deviceType =
-      event.device_state?.type ??
-      event.device_type ??
-      (event.device_id === undefined
-        ? undefined
-        : (await state.deviceIn(session, event.device_id, signal))?.type);
+    deviceType: IncomingEvent["device_type"],
+  ): EventRecord {
+    const { priorityPolicy } = this.#options;
     const priority = priorityOf(priorityPolicy, {
       kind: event.kind,
       armed: event.armed ?? ARMED_MODES.has(location?.alarm_mode ?? ""),

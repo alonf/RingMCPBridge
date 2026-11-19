@@ -48,6 +48,6 @@
     }
   ],
   "shared_locations": {
-    "kinds": ["alarm.triggered", "flood"]
+    "defaults": "by_source"
   }
 }

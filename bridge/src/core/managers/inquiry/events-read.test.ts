@@ -343,7 +343,7 @@ describe("the Inquiry manager: get_events", () => {
     }
   });
 
-  it("does not read a shared location's events: it is not found", async () => {
+  it("reads a shared household's stored events with their source identity", async () => {
     const shared: LocationState = {
       ...HOME,
       location_id: "loc-shared",
@@ -352,11 +352,14 @@ describe("the Inquiry manager: get_events", () => {
     const test = await harness([HOME, shared]);
     await store(test, "s-1", { location_id: "loc-shared" });
 
-    const error = await rejection(
-      test.inquiry.getEvents({ location_id: "loc-shared" }, undefined, never),
+    const reply = await test.inquiry.getEvents(
+      { location_id: "loc-shared" },
+      AGENT_A,
+      never,
     );
-
-    expect(error.kind).toBe("not_found");
+    expect(reply.data.events).toMatchObject([
+      { event_id: "s-1", location_id: "loc-shared" },
+    ]);
   });
 
   it("retains the event and device ids when one Ring field alone exceeds the page budget", async () => {

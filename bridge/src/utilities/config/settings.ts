@@ -2,6 +2,8 @@
 // Iteration 001's values; later iterations add theirs here. Defaults are the recorded ones
 // (data-model.md "Configuration"). Each run mode adds its own section (T027, mode-settings.ts).
 import { z } from "zod";
+import { eventRulesSetting } from "./event-rules.ts";
+import type { EventRule } from "./event-rules.ts";
 import { ConfigError } from "./config-error.ts";
 import {
   CORE_HOST_SCHEMA,
@@ -40,6 +42,7 @@ export type SettingsLogLevel = "debug" | "info" | "warn" | "error";
 
 /** The settings every mode reads. */
 export interface CommonSettings {
+  readonly eventRules?: readonly EventRule[] | undefined;
   readonly mode: RunMode;
   readonly logLevel: SettingsLogLevel;
   /** Read tool calls allowed per agent per hour (FR-026, SC6). */
@@ -69,6 +72,7 @@ export type Settings =
 
 /** The environment variable behind each common setting. */
 export const SETTING_VARIABLES = {
+  eventRules: "BRIDGE_EVENT_RULES",
   mode: "BRIDGE_MODE",
   logLevel: "BRIDGE_LOG_LEVEL",
   readsPerHour: "BRIDGE_READS_PER_HOUR",
@@ -94,6 +98,7 @@ function wholeNumber(
 
 const COMMON_SCHEMA = z
   .object({
+    eventRules: eventRulesSetting,
     mode: z.enum(["core", "connector", "all-in-one"]),
     logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
     readsPerHour: wholeNumber(READS_PER_HOUR_DEFAULT, 1, MAX_READS_PER_HOUR),

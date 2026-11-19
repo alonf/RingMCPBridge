@@ -75,7 +75,14 @@ export const healthData = z.object({
 // get_overview
 
 export const getOverviewInput = z
-  .strictObject({ location_id: locationIdInput.optional() })
+  .strictObject({
+    location_id: locationIdInput
+      .meta({
+        description:
+          "The owned or shared Ring household. Omit for the only owned household or the only household overall.",
+      })
+      .optional(),
+  })
   .meta({
     title: "get_overview input",
     description:

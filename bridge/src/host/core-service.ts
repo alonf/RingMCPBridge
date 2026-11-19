@@ -187,12 +187,13 @@ export async function startCoreService(
         maxResponseBytes: CALLBACK_RESPONSE_LIMIT_BYTES,
       }),
     allowedHosts: settings.core.callbackHosts,
-    pushedFrom: async (locationId, kind, read) => {
+    pushedFrom: async (locationId, kind, read, sharedAtIngest) => {
       const ownership = (await core.state.location(locationId, read))
         ?.ownership;
       return (
         ownership === "owned" ||
         (ownership === "shared" &&
+          sharedAtIngest === true &&
           keptFromSharedLocation(core.priorityPolicy, kind))
       );
     },

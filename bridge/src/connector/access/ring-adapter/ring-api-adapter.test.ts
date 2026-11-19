@@ -3,6 +3,7 @@
 // Since DRIFT-001-35, also how it notices Ring going away and coming back with no read running, and
 // since DRIFT-001-41, how it follows alarm devices added and removed in Ring; since DRIFT-001-80,
 // how it reads each hub's rooms.
+import type { EventRule } from "../../../utilities/config/index.ts";
 import { describe, expect, it } from "vitest";
 import { FakeClock } from "../../../utilities/clock/index.ts";
 import { Logger } from "../../../utilities/logging/index.ts";
@@ -53,6 +54,7 @@ interface Setup {
 function setup(
   save: (token: Secret<string>) => Promise<void> = () => Promise.resolve(),
   onConnectionStuck?: () => void,
+  eventRules?: readonly EventRule[],
 ): Setup {
   const clock = new FakeClock(START);
   const client = new FakeRingClient();
@@ -60,6 +62,7 @@ function setup(
   const saved: Secret<string>[] = [];
   const changes: RingChange[] = [];
   const adapter = new RingApiAdapter({
+    eventRules,
     client,
     gate: new RingCallGate(clock, RING_CALL_LIMITS, () => 1),
     clock,
@@ -1517,6 +1520,28 @@ describe("RingApiAdapter camera history", () => {
         ring_event_id: "900001",
         kind: "motion",
       }) as unknown,
+    ]);
+  });
+
+  it("reads a selected shared camera and identifies its household on history and live intake", async () => {
+    const { clock, client, adapter } = setup(undefined, undefined, [
+      { location_id: "loc-2", camera_id: "42", action: "store_only" },
+    ]);
+    const pushes: RingPush[] = [];
+    adapter.watchPush((push) => pushes.push(push));
+    await driveFakeClock(clock, adapter.locations(never()));
+    const camera = client.locationsList[1]?.cameras[0] as FakeCamera;
+    camera.history = [eventOf("800001", 10)];
+    camera.onNewNotification.emit({ android_config: { category: "x" } });
+    const read = await driveFakeClock(
+      clock,
+      adapter.cameraHistory(sinceMs, never()),
+    );
+    expect(read.entries).toMatchObject([
+      { location_id: "loc-2", device_id: "42", ownership: "shared" },
+    ]);
+    expect(pushes).toMatchObject([
+      { location_id: "loc-2", device_id: "42", ownership: "shared" },
     ]);
   });
 

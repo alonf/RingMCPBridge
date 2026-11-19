@@ -34,8 +34,6 @@ import type {
   StopWatching,
 } from "../../access/ring-adapter/index.ts";
 import { eventSchema } from "../../../core/clients/connector-link/messages/index.ts";
-import { SHARED_LOCATION_KINDS } from "../../../core/engines/classify/index.ts";
-import { SHARED_HOME_KINDS } from "../../engines/normalize/index.ts";
 import {
   HEBREW_DEVICE_ID,
   HEBREW_DEVICE_NAME,
@@ -1411,7 +1409,7 @@ describe("Ingest: the alarm hub's events", () => {
   // T063 (FR-036, US8; DRIFT-002-20): from a shared home, only the kinds a shared home may send,
   // named by the home, since devices in different homes share names. The core keeps or withholds
   // them by its policy.
-  it("queues only a shared home's alarm and water, named by the home", async () => {
+  it("queues a shared home's sensors and alarm changes, named by the home", async () => {
     const home = standardHome();
     const shared: RingLocation = {
       location_id: "loc-shared",
@@ -1474,6 +1472,12 @@ describe("Ingest: the alarm hub's events", () => {
     expect(
       events.map((event) => [event.kind, event.location_id, event.summary]),
     ).toEqual([
+      ["contact.open", "loc-shared", "Shared home: Front Door opened."],
+      [
+        "mode.changed",
+        "loc-shared",
+        "Shared home: The alarm mode changed from away to disarmed.",
+      ],
       [
         "alarm.triggered",
         "loc-shared",
@@ -1482,12 +1486,6 @@ describe("Ingest: the alarm hub's events", () => {
       ["flood", "loc-shared", "Shared home: Water detected at Laundry."],
     ]);
     expect(lines.join("\n")).not.toContain("Shared home");
-  });
-
-  it("sends from a shared home only kinds the core's policy can keep", () => {
-    expect([...SHARED_HOME_KINDS].sort()).toEqual(
-      [...SHARED_LOCATION_KINDS].sort(),
-    );
   });
 });
 

@@ -9,8 +9,7 @@
 // - **`as_of`** is the home's last sign of life while the data is fresh, and the time it became
 //   stale once it is [P]. A home that never reported is stale since now.
 // - **The store down** fails the read as `unavailable`, never with stale data (FR-006).
-// - **Owned locations only**: shared locations are off in 001 (FR-036), so a shared location and
-//   its devices are not found [P].
+// - Overview and event history accept shared households (FR-036). Device reads are scoped to owned households.
 // - **A location's time zone** is the one the owner chose on the admin page, else Ring's when it is
 //   an IANA zone Intl knows, else UTC (DRIFT-001-81). Every local time uses it, and the overview's
 //   location names it, so a reply never pairs one zone's name with another's offset.
@@ -174,7 +173,7 @@ export class InquiryManager {
           this.#settings.locationTimeZones(signal),
         ]),
     );
-    const named = await this.#ownedLocation(request.location_id, signal);
+    const named = await this.#location(request.location_id, signal, true);
     const devices = await this.#guard(
       signal,
       "The home could not be read.",
@@ -196,7 +195,7 @@ export class InquiryManager {
 
   /**
    * The events after a cursor, filtered, in order, with the cursor for the next read (FR-011). Of
-   * one owned location: the named one, else the cursor's, else the only one. `clientId` is the
+   * one household: the named one, else the cursor's, else the default household. `clientId` is the
    * agent's; with it, the read also advances the client's read mark.
    */
   async getEvents(
@@ -225,7 +224,7 @@ export class InquiryManager {
           this.#settings.locationTimeZones(signal),
         ]),
     );
-    const location = await this.#ownedLocation(named, signal);
+    const location = await this.#location(named, signal, true);
     const timeZone = zoneOf(location, zones).zone;
     const data = await this.#guard(
       signal,
@@ -269,7 +268,7 @@ export class InquiryManager {
           this.#settings.locationTimeZones(signal),
         ]),
     );
-    const location = await this.#ownedLocation(request.location_id, signal);
+    const location = await this.#location(request.location_id, signal);
     const devices = await this.#guard(
       signal,
       "The devices could not be read.",
@@ -369,9 +368,10 @@ export class InquiryManager {
 
   // The named location when it is owned; with none named, the only owned location (the contract's
   // [P] rule). Otherwise `invalid_argument`, listing the owned locations' ids.
-  async #ownedLocation(
+  async #location(
     locationId: string | undefined,
     signal: AbortSignal,
+    includeNamedShared = false,
   ): Promise<LocationState> {
     if (locationId !== undefined) {
       const location = await this.#guard(
@@ -379,26 +379,34 @@ export class InquiryManager {
         "The location could not be read.",
         () => this.#state.location(locationId, signal),
       );
-      if (location === undefined || !isOwned(location)) {
+      if (
+        location === undefined ||
+        (!includeNamedShared && !isOwned(location))
+      ) {
         throw new InquiryError("not_found", "No location has that id.");
       }
       return location;
     }
-    const owned = (
-      await this.#guard(signal, "The locations could not be read.", () =>
-        this.#state.locations(signal),
-      )
-    ).filter(isOwned);
-    const [only] = owned;
-    if (only !== undefined && owned.length === 1) {
-      return only;
-    }
+    const locations = await this.#guard(
+      signal,
+      "The locations could not be read.",
+      () => this.#state.locations(signal),
+    );
+    const owned = locations.filter(isOwned);
+    const candidates =
+      includeNamedShared && owned.length === 0 ? locations : owned;
+    const [only] = candidates;
+    if (only !== undefined && candidates.length === 1) return only;
     throw new InquiryError(
       "invalid_argument",
-      owned.length === 0
+      candidates.length === 0
         ? "The home has not reported a location yet."
         : "The bridge holds more than one location: name one with location_id.",
-      { details: { location_ids: owned.map((entry) => entry.location_id) } },
+      {
+        details: {
+          location_ids: candidates.map((entry) => entry.location_id),
+        },
+      },
     );
   }
 

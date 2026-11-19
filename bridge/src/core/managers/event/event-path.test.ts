@@ -367,7 +367,7 @@ describe("Event: the event path (T047)", () => {
   });
 
   // T063 (FR-036, US8; DRIFT-002-20): from a shared home, only the kinds the policy keeps there.
-  it("keeps a shared home's alarm and water, and withholds everything else from it, acked and unstored", async () => {
+  it("keeps shared sensors for history, uses normal alarm delivery and drops camera events", async () => {
     const test = await harness();
     await test.event.inventory(
       {
@@ -390,11 +390,17 @@ describe("Event: the event path (T047)", () => {
       ["s-3", "contact.open"],
       ["s-4", "alarm.triggered"],
       ["s-5", "flood"],
+      ["s-6", "mode.changed"],
+      ["s-7", "motion"],
     ] as const) {
       outcomes.push(
         (
           await test.event.event(
-            event(id, { location_id: "loc-shared", kind }),
+            event(id, {
+              location_id: "loc-shared",
+              kind,
+              ...(id === "s-7" ? { device_type: "motion" as const } : {}),
+            }),
             SESSION,
             never,
           )
@@ -405,14 +411,29 @@ describe("Event: the event path (T047)", () => {
     expect(outcomes).toEqual([
       "withheld",
       "withheld",
-      "withheld",
+      "stored",
+      "stored",
+      "stored",
       "stored",
       "stored",
     ]);
+    await expect.poll(() => test.stored.length).toBe(5);
+    expect(
+      test.stored.map((row) => [row.event.event_id, row.action, row.shared]),
+    ).toEqual([
+      ["s-3", "store_only", true],
+      ["s-4", "inherit", true],
+      ["s-5", "store_only", true],
+      ["s-6", "inherit", true],
+      ["s-7", "store_only", true],
+    ]);
     const stored = await eventsOf(test, "loc-shared");
     expect(stored.map((entry) => [entry.event_id, entry.priority])).toEqual([
+      ["s-3", "HIGH"],
       ["s-4", "HIGH"],
       ["s-5", "HIGH"],
+      ["s-6", "LOW"],
+      ["s-7", "HIGH"],
     ]);
   });
 

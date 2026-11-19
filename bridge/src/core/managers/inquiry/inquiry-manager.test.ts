@@ -402,22 +402,24 @@ describe("the Inquiry manager: which location", () => {
     expect(error.details).toEqual({ location_ids: [] });
   });
 
-  it("hides a shared location and its devices, as shared locations are off (FR-036)", async () => {
+  it("reads a named shared household’s alarm status and keeps the owned default", async () => {
     const test = await harness(
       [HOME, shared],
       [DOOR, device("d-theirs", { location_id: "loc-shared" })],
     );
 
     const resolved = await test.inquiry.getOverview({}, never);
-    const named = await rejection(
-      test.inquiry.getOverview({ location_id: "loc-shared" }, never),
+    const named = await test.inquiry.getOverview(
+      { location_id: "loc-shared" },
+      never,
     );
     const theirs = await rejection(
       test.inquiry.getDevice({ device_id: "d-theirs" }, never),
     );
 
     expect(resolved.data.location.location_id).toBe("loc-1");
-    expect(named.kind).toBe("not_found");
+    expect(named.data.location.location_id).toBe("loc-shared");
+    expect(named.data.alarm_mode).toBe(shared.alarm_mode);
     expect(theirs.kind).toBe("not_found");
   });
 

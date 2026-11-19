@@ -26,6 +26,10 @@
 //   deadline, so a hub that never answers frees the one library call and counts as no failure; it
 //   is not asked again until the location's device list changes. A hub that does not answer, or
 //   answers with no list, keeps the rooms it gave before; a device change carries its room too.
+import {
+  cameraEventsEnabled,
+  type EventRule,
+} from "../../../utilities/config/index.ts";
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
 import { Secret } from "../../../utilities/security/index.ts";
@@ -104,6 +108,7 @@ const EARLIER_CALL_RUNNING =
 
 /** What the adapter needs; the Host's connector wiring builds it. */
 export interface RingApiAdapterOptions {
+  readonly eventRules?: readonly EventRule[] | undefined;
   readonly client: RingClient;
   readonly gate: RingCallGate;
   readonly clock: Clock;
@@ -144,6 +149,7 @@ function isDevice(entry: RingDevice | undefined): entry is RingDevice {
 
 /** The Ring port over the owner's Ring account. */
 export class RingApiAdapter implements RingPort, RingPushPort, RingHistoryPort {
+  readonly #eventRules: readonly EventRule[] | undefined;
   readonly #client: RingClient;
   readonly #gate: RingCallGate;
   readonly #clock: Clock;
@@ -182,6 +188,7 @@ export class RingApiAdapter implements RingPort, RingPushPort, RingHistoryPort {
   #libraryIdle: Promise<void> = Promise.resolve();
 
   constructor(options: RingApiAdapterOptions) {
+    this.#eventRules = options.eventRules;
     this.#client = options.client;
     this.#gate = options.gate;
     this.#clock = options.clock;
@@ -734,17 +741,18 @@ export class RingApiAdapter implements RingPort, RingPushPort, RingHistoryPort {
   // it on (FR-036, US8; T050's review, DRIFT-002-19). An unknown profile counts as not owned.
   // Each push carries its camera's type, so the core can rank it before it holds the camera.
   #watchCameraPush(location: RingClientLocation): void {
-    if (!this.#owns(location)) {
-      this.#logger.info("ring_push_shared_location_skipped", {
-        location_id: location.id,
-        count: location.cameras.length,
-      });
-      return;
-    }
     for (const camera of location.cameras) {
+      if (!this.#cameraEnabled(location, camera)) {
+        this.#logger.info("ring_push_shared_location_skipped", {
+          location_id: location.id,
+          count: 1,
+        });
+        continue;
+      }
       this.#subscriptions.push(
         camera.onNewNotification.subscribe((payload) => {
           this.#emitPush({
+            ...(this.#owns(location) ? {} : { ownership: "shared" as const }),
             device_id: String(camera.id),
             location_id: location.id,
             device_type: camera.isDoorbot ? "doorbell" : "camera",
@@ -775,10 +783,8 @@ export class RingApiAdapter implements RingPort, RingPushPort, RingHistoryPort {
     const entries: RingHistoryEntry[] = [];
     let truncated = false;
     for (const location of this.#locations.values()) {
-      if (!this.#owns(location)) {
-        continue;
-      }
       for (const camera of location.cameras) {
+        if (!this.#cameraEnabled(location, camera)) continue;
         const found = await this.#cameraPages(
           camera,
           location.id,
@@ -786,7 +792,14 @@ export class RingApiAdapter implements RingPort, RingPushPort, RingHistoryPort {
           maxPages,
           signal,
         );
-        entries.push(...found.entries);
+        entries.push(
+          ...(this.#owns(location)
+            ? found.entries
+            : found.entries.map((entry) => ({
+                ...entry,
+                ownership: "shared" as const,
+              }))),
+        );
         if (!found.truncated) completeCameras.push(String(camera.id));
         truncated ||= found.truncated;
       }
@@ -828,6 +841,19 @@ export class RingApiAdapter implements RingPort, RingPushPort, RingHistoryPort {
       }
     }
     return { entries, truncated: true };
+  }
+
+  #cameraEnabled(
+    location: RingClientLocation,
+    camera: RingClientCamera,
+  ): boolean {
+    if (this.#profileId === undefined) return false;
+    return cameraEventsEnabled(
+      this.#eventRules,
+      this.#owns(location) ? "owned" : "shared",
+      location.id,
+      String(camera.id),
+    );
   }
 
   #owns(location: RingClientLocation): boolean {

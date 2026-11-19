@@ -176,6 +176,7 @@ function Get-UserData([string] $Key) {
         '      docker rm -f ring-bridge-connector >/dev/null 2>&1 || true'
         '      docker run -d --name ring-bridge-connector --restart unless-stopped \'
         '        --log-opt max-size=10m --log-opt max-file=3 \'
+        '        -e BRIDGE_EVENT_RULES="${BRIDGE_EVENT_RULES:-[]}" \'
         '        -e BRIDGE_MODE=connector -e BRIDGE_CORE_URL="$BRIDGE_CORE_URL" \'
         '        -e BRIDGE_DATA_DIR=/data -e BRIDGE_SECRETS_KEY_FILE=/run/secrets/bridge-secrets-key \'
         '        -v /srv/ring-bridge/data:/data -v /srv/ring-bridge/secrets:/run/secrets \'

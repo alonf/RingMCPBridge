@@ -114,6 +114,10 @@ Two more variables are optional, set the same way:
 
 A change takes effect at the next deploy.
 
+### Household event choices
+
+The defaults need no configuration. For overrides, set the optional production environment secret `BRIDGE_EVENT_RULES` to a JSON array. Set the same JSON on the home connector and restart it. On VMs provisioned with the updated start script, put the shell-quoted value in `/etc/ring-bridge/bridge.env`. See the [household rule examples](../../README.md#events-from-shared-households).
+
 ## Part C: the core's database user
 
 The core signs in to Azure SQL with its own identity, and needs a user that can read, write and change the schema, since it migrates the database when it starts. Only the break-glass group can create one.

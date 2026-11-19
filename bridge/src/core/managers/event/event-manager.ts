@@ -32,6 +32,7 @@
 //   so Connector Link acks only then; `event.stored` is published after it, and a failed delivery
 //   never undoes the write. An event on a session whose key is no longer current is still
 //   written, since dropping it could lose a HIGH event; only its State change is skipped.
+import type { EventRule } from "../../../utilities/config/index.ts";
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import type { PubSub } from "../../../utilities/pub-sub/index.ts";
 import { AuditError } from "../../access/audit/index.ts";
@@ -69,6 +70,7 @@ import type { EventTransactions } from "./event-writer.ts";
 
 /** What the Event manager is wired with. */
 export interface EventManagerOptions {
+  readonly eventRules?: readonly EventRule[] | undefined;
   readonly state: StateStore;
   readonly events: PubSub<EventTopics>;
   readonly clock: Clock;
@@ -118,6 +120,7 @@ export class EventManager implements EventIntake {
       eventLog: options.eventLog,
       audit: options.audit,
       priorityPolicy: options.priorityPolicy,
+      eventRules: options.eventRules,
     });
   }
 
@@ -232,6 +235,8 @@ export class EventManager implements EventIntake {
       this.#options.events.publish("event.stored", {
         event: written.event,
         epoch: written.epoch,
+        action: written.action,
+        shared: written.shared,
       });
       return {
         kind: "stored",

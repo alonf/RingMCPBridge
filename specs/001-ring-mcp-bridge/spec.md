@@ -152,18 +152,16 @@ Another Ring owner clones the public project and runs it in one of two ways. In 
 
 ---
 
-### User Story 8 - Shared Ring locations, read-only, with consent (Priority: P3)
+### User Story 8 - Events from shared Ring households (Priority P3)
 
-The author is a shared user on other people's Ring locations. Optionally, the bridge can read those locations, read-only, only after the owners have agreed, and with their media off by default.
+Ring sharing grants the account read access. For each household the user can select push, store only, or drop by sensor type or individual camera and event kind. Shared homes are read-only and media is off by default.
 
-**Why this priority**: optional in v1; it touches other people's privacy, and whether Ring exposes shared locations to the bridge is still unverified.
+**Acceptance scenarios**
 
-**Independent Test**: with the option off, shared locations are invisible. With it on and the owners' agreement recorded, their devices and events are readable but cannot be controlled, and their media is off until switched on.
-
-**Acceptance Scenarios**:
-
-1. **Given** shared locations are off (the default), **When** an agent lists locations, **Then** only owned locations appear.
-2. **Given** a shared location turned on, with its owners' agreement recorded, **When** an agent asks to arm it or switch its lights, **Then** the request is refused.
+1. A fresh installation drops shared camera and doorbell events and stores shared sensor events for later queries. This includes water alarms raised by a flood sensor.
+2. Shared alarm-panel events and alarm status follow the owned-home rules. A triggered alarm can push, and the current mode can be queried.
+3. Every event from a multi-household account identifies its source household in both queries and notifications. A single-household account may omit the label.
+4. The bridge refuses requests to control a shared household.
 
 ---
 
@@ -244,7 +242,7 @@ The author is a shared user on other people's Ring locations. Optionally, the br
 
 **Privacy and compliance**
 
-- **FR-036**: Shared locations MUST be off by default. When turned on, each MUST be read-only, MUST require its owners' recorded agreement first, and MUST have its media off by default.
+- **FR-036**: Ring sharing grants read-only access to the shared household. By default the bridge MUST drop camera events, store sensor events without pushing them, and handle alarm status and alarm-panel events as in an owned household. Stored events MUST be queryable by household. Each event in a multi-household account MUST carry the source household name or identity. Shared media remains off by default.
 - **FR-037**: The owner MUST be able to delete cached media and events now.
 - **FR-038**: The project MUST state that it is unofficial and not affiliated with Ring or Amazon, MUST use no Ring logo, MUST point users to the agent platforms' training and memory settings, MUST ship under the MIT license with secure defaults and a security policy, and MUST send no telemetry.
 
@@ -288,7 +286,7 @@ The author is a shared user on other people's Ring locations. Optionally, the br
 | US5 Disarm | FR-027, FR-028, FR-041 | Implementer; Owner (switches it on only after the pilot) | v1, shipped off |
 | US6 Run and protect | FR-029-FR-032, FR-035, FR-037, FR-039, FR-040, FR-043 | Implementer; Owner | v1 MVP |
 | US7 Open-source user | FR-038, FR-045 | Implementer; Owner (README walk-through, both modes) | v1 public release |
-| US8 Shared locations | FR-036 | Implementer; Owner (records the owners' agreement) | v1 optional, behind configuration |
+| US8 Shared locations | FR-036 | Implementer; Owner (selects event rules) | v1, configurable per household |
 
 **Known conflicts and their reconciliation path (TG-004):**
 
@@ -298,7 +296,7 @@ The author is a shared user on other people's Ring locations. Optionally, the br
 
 ### Key Entities *(include if feature involves data)*
 
-- **Location**: a Ring home the bridge reads, either owned or shared. It has an alarm mode, a time zone and devices. A shared location is read-only and has a recorded owners' agreement.
+- **Location**: a Ring home the bridge reads, either owned or shared. It has an alarm mode, a time zone and devices. A shared location is read-only under Ring's sharing grant.
 - **Device**: a sensor (contact, motion, flood), keypad, base station, camera, doorbell or light. It has a name (any language), type, room, battery level, power mode (battery or wired), online status and current state.
 - **Event**: something that happened, with an event id, a per-location sequence number, a priority, a kind, when it occurred and when it was received, the device, a one-line summary, an optional frame link and a late marker.
 - **Cursor**: an agent's position in a location's event log. It never skips and has an epoch, so sequence numbers are never reused.
@@ -373,6 +371,6 @@ All ten lenses are closed, human-confirmed with scope lens-question. Record: `sp
   - spikes S1 and S2 (go given 2026-11-02 for development time; the owner approves S2's test method when it runs);
   - every real-world control action in the pilot, run by the owner;
   - switching disarm on;
-  - turning on shared locations (with the owners' agreement);
+  - setting shared-household event preferences;
   - reviewing scrubbed Ring payloads before they are committed;
   - any git commit (asked first).

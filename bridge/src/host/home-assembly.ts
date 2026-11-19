@@ -14,6 +14,7 @@ import { HomeScheduler } from "../connector/clients/home-scheduler/index.ts";
 import { PushListener } from "../connector/clients/push-listener/index.ts";
 import type { PushShapeSink } from "../connector/clients/push-listener/index.ts";
 import { Ingest } from "../connector/managers/ingest/index.ts";
+import type { EventRule } from "../utilities/config/index.ts";
 import type { Clock } from "../utilities/clock/index.ts";
 import { LinkSlot } from "../utilities/link-transport/index.ts";
 import type { DialOutcome } from "../utilities/link-transport/index.ts";
@@ -38,6 +39,7 @@ export interface LocalHome {
 
 /** What the home part's components are built over. */
 export interface HomeAssemblyOptions {
+  readonly eventRules?: readonly EventRule[] | undefined;
   readonly ring: RingPort;
   /** Ring's push notifications; with none, no Push Listener is built. */
   readonly push?: RingPushPort;
@@ -71,6 +73,7 @@ export function assembleHome(options: HomeAssemblyOptions): HomeAssembly {
   const slot = new LinkSlot();
   const ingest = new Ingest({
     ring: options.ring,
+    eventRules: options.eventRules,
     outbox: options.outbox,
     link: slot,
     clock,

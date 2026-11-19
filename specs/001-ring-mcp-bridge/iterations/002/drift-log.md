@@ -23,7 +23,7 @@
 ## Summary
 
 **Total drift events**: 22
-**Resolution rate**: 21 of 22 resolved or decided. DRIFT-002-22 awaits the shared-home default.
+**Resolution rate**: 100% (22/22 resolved or decided)
 **Specification drift**: One deferral, decided by the owner: FR-012's local relay for a desktop coding agent (DRIFT-002-02). Three additions beyond the spec's text, decided by the owner: the backlog in the heartbeat and `get_health`, the backlog alert, and the Ring-session-lost alert brought forward (DRIFT-002-04). DRIFT-002-01 carries iteration 001's closeout facts, which its sealed drift log cannot take. DRIFT-002-03 carries iteration 001's quality override into iteration 002's plan.
 
 ## Events
@@ -34,7 +34,7 @@ The connector now checkpoints each camera after its complete history scan has be
 
 Event paging accounts for the UTF-8 size of structured data and escaped JSON text, and resumes before the first omitted match. The VM seed installs the repository's update script with executable permissions. Local regression tests cover two cameras, retry after truncation, cursor and implicit mark continuity, and the rendered VM seed.
 
-The owner accepted push, store only and drop, with household rules by sensor type and individual camera. The shared-home fresh-install default and corresponding FR-036 revision await the owner's decision.
+The owner accepted push, store only and drop, with household rules by sensor type and individual camera. The owner chose drop for shared cameras, store only for sensors, and owned-home behavior for alarm status and alarm events. FR-036 records Ring sharing as read permission. Every queried and pushed event carries its source location ID. Deployment overrides use BRIDGE_EVENT_RULES. The settings page remains in iteration 003.
 
 ### DRIFT-002-21: a contact while disarmed is LOW, by the owner's choice
 

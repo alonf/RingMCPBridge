@@ -11,7 +11,7 @@
 // - **No cursor**: the read starts after the client's last-read mark, which every read advances,
 //   or from the start of the log on a client's first read. A client that needs at-least-once
 //   keeps its own cursor from `next_cursor`.
-// - **Owned locations only** (FR-036), as the other reads: a shared location is not found.
+// - FR-036 permits stored shared-household events. Each event carries its Ring location ID.
 import { formatInTimeZone, formatUtc } from "../../../utilities/clock/index.ts";
 import { MAX_EVENTS_PER_READ } from "../../access/event-log/index.ts";
 import type { EventLog, StoredEvent } from "../../access/event-log/index.ts";
@@ -144,7 +144,7 @@ export function cursorLocation(request: EventsRequest): string | undefined {
   return decoded.location_id;
 }
 
-/** The events after a cursor in one owned location. */
+/** The stored events after a cursor in one readable household. */
 export async function readEvents(
   options: EventsReadOptions,
 ): Promise<EventsData> {

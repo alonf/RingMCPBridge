@@ -176,7 +176,7 @@ describe("the Classify engine's late rule (FR-013, PT-25)", () => {
 
 // T063 (FR-036, US8; DRIFT-002-20): what is kept from a shared home is data too.
 describe("the Classify engine's shared-location kinds", () => {
-  it("keeps a shared home's alarm and water by the shipped policy, and nothing else", () => {
+  it("allows the source policy to decide all event kinds with the shipped configuration", () => {
     expect(
       [
         "alarm.triggered",
@@ -185,7 +185,7 @@ describe("the Classify engine's shared-location kinds", () => {
         "motion",
         "contact.open",
       ].map((kind) => keptFromSharedLocation(policy, kind)),
-    ).toEqual([true, true, false, false, false]);
+    ).toEqual([true, true, true, true, true]);
   });
 
   it("keeps nothing from a shared home when the policy names no kinds, or has no such entry", () => {
@@ -204,13 +204,13 @@ describe("the Classify engine's shared-location kinds", () => {
     expect(keptFromSharedLocation(absent, "alarm.triggered")).toBe(false);
   });
 
-  it("refuses a kind a shared home never sends", () => {
+  it("refuses an unsupported kind in the legacy shared-home allowlist", () => {
     expect(
       refusal({
         ...shippedFile(),
         shared_locations: { kinds: ["doorbell.ding"] },
       }),
-    ).toContain('"shared_locations.kinds.0"');
+    ).toContain('"shared_locations"');
   });
 });
 

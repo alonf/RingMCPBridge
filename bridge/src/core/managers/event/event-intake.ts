@@ -11,6 +11,7 @@
 // Field names are the link contract's (contracts/connector-link.md); times are UTC milliseconds
 // since 1970. Names, rooms, time zones and a device's `state` come from Ring: untrusted text, never
 // logged (FR-033, FR-034).
+import type { EventAction } from "../../../utilities/config/index.ts";
 import type { StoredEvent } from "../../access/event-log/index.ts";
 
 /** A device's type, as the home reports it. */
@@ -147,6 +148,8 @@ export type EventOutcome =
 
 /** An event the log has just committed, published on Pub/Sub for delivery (T048). */
 export interface EventStored {
+  readonly action?: EventAction;
+  readonly shared?: boolean;
   readonly event: StoredEvent;
   /** The location log's epoch the event's `seq` belongs to. */
   readonly epoch: number;

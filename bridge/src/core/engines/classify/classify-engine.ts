@@ -13,7 +13,7 @@
 // - The recovery summary's priority is the highest among the late events: `highestPriority`.
 // - **Shared locations** (T063; FR-036, US8): from a location the account was given a share of,
 //   only the kinds the policy's `shared_locations` names are kept, and those only among the kinds
-//   a shared home may send: its alarm going off and its water sensors. An empty list keeps none.
+//   a shared home may send: the legacy alarm and flood allowlist. The shipped policy uses the household source defaults.
 import { z } from "zod";
 
 /** The priorities, lowest first. */
@@ -64,7 +64,10 @@ const policyFile = z.strictObject({
   rules: z.array(rule).min(1),
   /** Absent keeps nothing from a shared location: the safe side. */
   shared_locations: z
-    .strictObject({ kinds: z.array(z.enum(SHARED_LOCATION_KINDS)) })
+    .union([
+      z.strictObject({ kinds: z.array(z.enum(SHARED_LOCATION_KINDS)) }),
+      z.strictObject({ defaults: z.literal("by_source") }),
+    ])
     .optional(),
 });
 
@@ -84,7 +87,7 @@ export interface PriorityPolicy {
   readonly defaultPriority: EventPriority;
   readonly rules: readonly PriorityRule[];
   /** The kinds kept from a shared location (T063); none is kept when it is empty. */
-  readonly sharedLocationKinds: readonly string[];
+  readonly sharedLocationKinds: readonly string[] | undefined;
 }
 
 /** What the engine needs to know about an event to give it a priority. */
@@ -171,18 +174,22 @@ export function parsePriorityPolicy(raw: unknown): PriorityPolicy {
     lateAfterMs: parsed.data.late_after_s * MS_PER_SECOND,
     defaultPriority: parsed.data.default_priority,
     rules,
-    sharedLocationKinds: [
-      ...new Set(parsed.data.shared_locations?.kinds ?? []),
-    ],
+    sharedLocationKinds:
+      parsed.data.shared_locations && "defaults" in parsed.data.shared_locations
+        ? undefined
+        : [...new Set(parsed.data.shared_locations?.kinds ?? [])],
   };
 }
 
-/** Whether an event of `kind` from a shared location is kept: stored and pushed (T063). */
+/** Whether the policy permits the household rules to decide this kind (including legacy allowlists). */
 export function keptFromSharedLocation(
   policy: PriorityPolicy,
   kind: string,
 ): boolean {
-  return policy.sharedLocationKinds.includes(kind);
+  return (
+    policy.sharedLocationKinds === undefined ||
+    policy.sharedLocationKinds.includes(kind)
+  );
 }
 
 function matches(candidate: PriorityRule, facts: PriorityFacts): boolean {

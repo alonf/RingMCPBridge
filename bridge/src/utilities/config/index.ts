@@ -34,3 +34,6 @@ export type {
 /** The utility's error: `invalid_settings`, naming the bad variables only. */
 export { ConfigError } from "./config-error.ts";
 export type { ConfigErrorKind } from "./config-error.ts";
+
+export { eventAction, cameraEventsEnabled } from "./event-rules.ts";
+export type { EventRule, EventAction } from "./event-rules.ts";
