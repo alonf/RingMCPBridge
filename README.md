@@ -28,6 +28,20 @@ AI agent --HTTPS, OAuth--> core (Azure) <--WebSocket, dialled out-- home connect
 
 In mode H, the Azure resources cost about $21.50 a month (an estimate, from Israel Central list prices read in October 2026), mostly App Service B1 and Azure SQL Basic. Mode A costs nothing to run.
 
+## Set up bridge health alerts
+
+For the Azure deployment (mode H), configure the email address and mobile number where Azure Monitor should send bridge health alerts. Use an account that can manage Actions secrets in your repository’s `production` environment.
+
+From the root of your bridge clone, run this in PowerShell 7.2 or later:
+
+```powershell
+pwsh -File infra/bootstrap/set-alert-contacts.ps1
+```
+
+The script checks for GitHub CLI, provides installation instructions if needed, and offers to run `gh auth login` when sign-in is required. Confirm the repository shown, or run it with `-GitHubRepo owner/repo` to select your fork. Enter one email address and a phone number with a space after the country code, for example `+1 202-555-0147`. For Israel, use `+972` followed by a space and the mobile number. The script accepts the domestic leading zero for Israel. Both prompts hide your input.
+
+The script sets `BRIDGE_ALERT_EMAIL`, `BRIDGE_ALERT_SMS_COUNTRY_CODE` and `BRIDGE_ALERT_SMS_NUMBER` in GitHub. You can rerun it to change the recipients. The next Azure deployment applies the values to the alert action group.
+
 ## Connect an agent
 
 These steps are for mode H. They assume a deployed core and an enrolled home connector, with the admin page's health showing green.
