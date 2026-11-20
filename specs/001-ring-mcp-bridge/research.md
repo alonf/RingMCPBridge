@@ -963,6 +963,8 @@ Source: OpenAI's guide "MCP events" (developers.openai.com/plugins/build/mcp-eve
 
 Source: Ring's developer pages on developer.amazon.com (Getting Started, Configure, Publish), read through a web search on 2026-11-17. They do not say which countries may register. That is the question the owner's own attempt answers.
 
+Ring’s public documentation, checked again on 2026-11-20, describes the Private Apps track for personal use and testing. Amazon says identity verification applies to the individual account owner and can restrict submission features until complete. Neither guide establishes eligibility for this particular account. [Getting started](https://developer.amazon.com/docs/ring/get-started.html) · [Configure a Ring application](https://developer.amazon.com/docs/ring/configure.html) · [Ring developer console](https://developer.amazon.com/ring/console/apps)
+
 The owner does every step on their own account. No Ring or Amazon credential, code, client secret or signature key is typed into the chat.
 
 1. Open Ring's developer console (developer.amazon.com, the Ring section) and sign in. Report: did sign-in work with the account's country, or was it refused?
