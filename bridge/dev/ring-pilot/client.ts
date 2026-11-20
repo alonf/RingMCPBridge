@@ -6,6 +6,7 @@ const API = "https://api.amazonvision.com/v1";
 const INTEGRATION = API + "/accounts/me/app-integrations";
 const tokenResponse = z.object({
   access_token: z.string().min(1),
+  refresh_token: z.string().min(1).optional(),
   expires_in: z.number().positive(),
 });
 const profile = z.object({
@@ -52,6 +53,27 @@ export function ringClient(
     return inventory.parse(await result.json()).data;
   }
   return {
+    async refresh(refreshToken: string) {
+      const body = new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: secret,
+      });
+      const result = await ringRequest("https://oauth.ring.com/oauth/token", {
+        method: "POST",
+        body,
+      });
+      if (!result.ok) {
+        const error = z
+          .object({ error: z.literal("invalid_grant") })
+          .safeParse(await result.json().catch(() => null));
+        if ((result.status === 400 || result.status === 401) && error.success)
+          throw new InvalidRingGrant();
+        throw new Error("Ring token renewal temporarily unavailable.");
+      }
+      return tokenResponse.parse(await result.json());
+    },
     async exchange(code: string) {
       const body = new URLSearchParams({
         grant_type: "authorization_code",
@@ -109,3 +131,5 @@ export function ringClient(
     },
   };
 }
+
+export class InvalidRingGrant extends Error {}

@@ -145,11 +145,17 @@ The pilot listens at `127.0.0.1:43821`. Forward only that port through an HTTPS 
 
 Save the settings. In the developer console, use **Connect Ring account** to add the tester's Ring account to the private app's allowlist. This makes the app visible to that account in the Ring Appstore. [Private app setup](https://developer.amazon.com/docs/ring/publish.html#private-use-apps)
 
-Sign in to the Ring Appstore with that same account and select the private app. Choose **Connect App**, select devices and follow Ring's link to the pilot. On the pilot page, check the masked account and select **Confirm connection**. The next page lists the devices returned by Ring. Opening the pilot homepage directly requires an existing session in that browser. [Ring Appstore](https://ring.com/appstore) · [Ring's device-sharing instructions](https://ring.com/support/articles/e2sg9/Ring-appstore-third-party-integrations)
+Sign in to the Ring Appstore with that same account and select the private app. Choose **Connect App**, select devices and follow Ring's link to the pilot. On the pilot page, check the masked account and select **Confirm connection**. The next page lists the devices returned by Ring. You can return to the pilot homepage from Ring using the same browser. [Ring Appstore](https://ring.com/appstore) · [Ring's device-sharing instructions](https://ring.com/support/articles/e2sg9/Ring-appstore-third-party-integrations)
 
-The pilot keeps access tokens in memory and the browser session lasts up to one hour. Signed webhook notifications are acknowledged, and removing the integration in Ring clears the associated session. When finished, remove the integration in Ring, close the tunnel and stop the launcher with Ctrl+C. [Ring account-linking documentation](https://developer.amazon.com/docs/ring/api-documentation.html)
+The pilot encrypts each confirmed account�s tokens in a SQLite file beside the private credentials CSV. Keep that directory private and reuse the same CSV and directory across restarts. When Ring supplies a refresh token, the pilot renews access while it runs. A browser sign-in lasts up to 30 days. To open the same connection on a different phone or browser, run this on the home computer and enter the single-use code on the pilot homepage within ten minutes.
 
-To try one stored camera snapshot, add `-SnapshotDevice 'Camera name'` to the launcher. Use the exact name from your shared inventory. In the linked browser, choose the button to save the latest snapshot. The pilot searches the last 24 hours and saves one JPEG beside the private credentials CSV, with Ring's UTC capture time in its filename. For a device with several lenses it uses the first lens Ring lists. Restarting the pilot requires a fresh Ring account link because its access tokens live in memory.
+```powershell
+pwsh -File ./infra/home/start-ring-pilot.ps1 -CredentialCsv 'C:\private\ring-app.csv' -BrowserCode
+```
+
+If the pilot lists multiple accounts, repeat the command with `-AccountHint` and the desired account identifier shown locally. If upgrading from the earlier memory-only pilot, authorize the private app once to create its first saved connection. If Ring still shows the old connection as active and offers only the homepage, disconnect that private app and connect it again. When finished testing, remove the private integration in Ring while the pilot and tunnel are still running so its signed removal notification clears the saved grant and browser sessions. Then close the tunnel and stop the launcher with Ctrl+C. [Ring account-linking documentation](https://developer.amazon.com/docs/ring/api-documentation.html)
+
+To try one stored camera snapshot, add `-SnapshotDevice 'Camera name'` to the launcher. Use the exact name from your shared inventory. In the linked browser, choose the button to save the latest snapshot. The pilot searches the last 24 hours and saves one JPEG beside the private credentials CSV, with Ring's UTC capture time in its filename. For a device with several lenses it uses the first lens Ring lists.
 
 ## Where things are
 

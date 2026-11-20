@@ -1,17 +1,19 @@
 import { serve } from "@hono/node-server";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Snapshot } from "./snapshot.ts";
 import { pilotApp } from "./app.ts";
 import { ringClient } from "./client.ts";
+import { PilotLinks } from "./links.ts";
 
 const {
   RING_PILOT_ID: id,
   RING_PILOT_SECRET: secret,
   RING_PILOT_SIGNING_KEY: key,
 } = process.env;
-if (!id || !secret || !key)
+const privateDir = process.env.RING_PILOT_PRIVATE_DIR;
+if (!id || !secret || !key || !privateDir)
   throw new Error("Start the pilot with the home PowerShell launcher.");
 const directory = process.env.RING_PILOT_SNAPSHOT_DIR;
 const name = process.env.RING_PILOT_SNAPSHOT_DEVICE;
@@ -33,14 +35,41 @@ async function save(image: Snapshot) {
     await rm(partial, { force: true });
   }
 }
-const { app, expire } = pilotApp(
+const fileId = createHash("sha256").update(id).digest("hex").slice(0, 16);
+const links = new PilotLinks(
+  join(privateDir, "ring-pilot-links-" + fileId + ".sqlite"),
   id,
-  key,
-  ringClient(id, secret),
-  Date.now,
-  directory && name ? { name, save } : undefined,
+  secret,
 );
-setInterval(expire, 30_000).unref();
-serve({ hostname: "127.0.0.1", port: 43821, fetch: app.fetch }, () => {
-  console.info("Ring pilot ready on http://127.0.0.1:43821/ring/home");
-});
+if (process.argv[2] === "--browser-code") {
+  try {
+    console.info(
+      "One-time browser code (10 minutes):",
+      links.browserCode(Date.now(), process.argv[3]),
+    );
+  } catch (error) {
+    console.error(
+      error instanceof Error ? error.message : "Could not issue browser code.",
+    );
+    process.exitCode = 1;
+  } finally {
+    links.close();
+  }
+} else {
+  const { app, maintain } = pilotApp(
+    id,
+    key,
+    ringClient(id, secret),
+    Date.now,
+    directory && name ? { name, save } : undefined,
+    links,
+  );
+  setInterval(() => {
+    void maintain().catch(() => {
+      console.warn("Ring pilot could not maintain its saved links.");
+    });
+  }, 300_000).unref();
+  serve({ hostname: "127.0.0.1", port: 43821, fetch: app.fetch }, () => {
+    console.info("Ring pilot ready on http://127.0.0.1:43821/ring/home");
+  });
+}

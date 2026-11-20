@@ -9,11 +9,13 @@ import { bodyLimit } from "hono/body-limit";
 import { getCookie, setCookie } from "hono/cookie";
 import { html } from "hono/html";
 import { z } from "zod";
-import type { ringClient } from "./client.ts";
+import { InvalidRingGrant, type ringClient } from "./client.ts";
+import type { PilotLinks, SavedLink } from "./links.ts";
 import { SnapshotError, type Snapshot } from "./snapshot.ts";
 
 const LINK_WINDOW = 600_000;
-const SESSION_WINDOW = 3_600_000;
+const GRANT_WINDOW = 30 * 86_400_000;
+const RENEW_EARLY = 60_000;
 const COOKIE = {
   secure: true,
   httpOnly: true,
@@ -32,6 +34,8 @@ interface Ticket {
   expires: number;
   busy: boolean;
   access?: string;
+  refresh?: string | undefined;
+  sessionExpiry?: number;
   tokenExpiry?: number;
   account?: string;
   masked?: string;
@@ -65,26 +69,118 @@ export function pilotApp(
   ring: ReturnType<typeof ringClient>,
   now = Date.now,
   snapshotTarget?: { name: string; save: (image: Snapshot) => Promise<void> },
+  store?: PilotLinks,
 ) {
   const app = new Hono();
   const tickets = new Map<string, Ticket>();
   const claimed = new Map<string, number>();
   let sequence = 0;
+  for (const link of store?.load() ?? []) {
+    tickets.set("linked:" + digest(link.account), {
+      ...link,
+      order: ++sequence,
+      busy: false,
+      snapshotProof: random(),
+    });
+  }
+  function persist(
+    ticket: Ticket,
+    confirmation?: { nonce: string; deadline: number },
+  ) {
+    if (!store) return;
+    const {
+      account,
+      masked,
+      access,
+      refresh,
+      session,
+      sessionExpiry,
+      expires,
+      tokenExpiry,
+    } = ticket;
+    if (
+      !account ||
+      !masked ||
+      !access ||
+      !session ||
+      !sessionExpiry ||
+      !tokenExpiry
+    )
+      throw new Error("Incomplete confirmed Ring link.");
+    const grant: SavedLink = {
+      account,
+      masked,
+      access,
+      refresh,
+      session,
+      sessionExpiry,
+      expires,
+      tokenExpiry,
+    };
+    if (confirmation)
+      store.confirm(grant, confirmation.nonce, confirmation.deadline, now());
+    else store.save(grant);
+  }
+  const renewing = new Map<Ticket, Promise<void>>();
+  function active(ticket: Ticket) {
+    return [...tickets.values()].includes(ticket) && ticket.expires > now();
+  }
+  function forget(key: string, ticket: Ticket) {
+    if (ticket.session && ticket.account) store?.remove(ticket.account);
+    tickets.delete(key);
+  }
+  function forgetTicket(ticket: Ticket) {
+    for (const [key, current] of tickets)
+      if (current === ticket) forget(key, ticket);
+  }
+  async function renew(ticket: Ticket) {
+    if (!ticket.refresh) return;
+    try {
+      const tokens = await ring.refresh(ticket.refresh);
+      if (!active(ticket)) return;
+      ticket.access = tokens.access_token;
+      ticket.refresh = tokens.refresh_token ?? ticket.refresh;
+      ticket.tokenExpiry = now() + tokens.expires_in * 1000;
+      ticket.expires = now() + GRANT_WINDOW;
+      persist(ticket);
+    } catch (error) {
+      if (error instanceof InvalidRingGrant) forgetTicket(ticket);
+      throw error;
+    }
+  }
+  async function usableAccess(ticket: Ticket) {
+    if (ticket.refresh && (ticket.tokenExpiry ?? 0) <= now() + RENEW_EARLY) {
+      let work = renewing.get(ticket);
+      if (!work) {
+        work = renew(ticket).finally(() => renewing.delete(ticket));
+        renewing.set(ticket, work);
+      }
+      await work;
+    }
+    if (!active(ticket) || !ticket.access)
+      throw new Error("No current Ring grant.");
+    return ticket.access;
+  }
   function sessionTicket(session: string | undefined) {
-    return session
-      ? [...tickets.values()].find((ticket) => ticket.session === session)
-      : undefined;
+    if (!session) return;
+    const key = digest(session);
+    const owner = store?.browserOwner(key, now());
+    return [...tickets.values()].find(
+      (ticket) =>
+        ticket.session &&
+        ((ticket.session === key && (ticket.sessionExpiry ?? 0) > now()) ||
+          (owner && ticket.account && digest(ticket.account) === owner)),
+    );
   }
   async function saveImage(ticket: Ticket) {
     if (!snapshotTarget || !ticket.access || ticket.snapshotSaved) return;
     try {
       const image = await ring.snapshot(
-        ticket.access,
+        await usableAccess(ticket),
         snapshotTarget.name,
         now(),
       );
-      if (sessionTicket(ticket.session) !== ticket || ticket.expires <= now())
-        return;
+      if (!active(ticket)) return;
       await snapshotTarget.save(image);
       ticket.snapshotSaved = true;
       ticket.snapshotMessage =
@@ -98,7 +194,7 @@ export function pilotApp(
   }
   function expire() {
     for (const [key, ticket] of tickets)
-      if (ticket.expires <= now()) tickets.delete(key);
+      if (ticket.expires <= now()) forget(key, ticket);
     for (const [key, expiry] of claimed)
       if (expiry <= now()) claimed.delete(key);
   }
@@ -106,7 +202,8 @@ export function pilotApp(
     if (
       !/^\d{13}$/.test(time) ||
       !/^[\w-]{43}$/.test(nonce) ||
-      claimed.has(nonce)
+      claimed.has(nonce) ||
+      store?.usedNonce(nonce, now())
     )
       return;
     const age = now() - Number(time);
@@ -142,11 +239,16 @@ export function pilotApp(
       onError: (c) => c.text("Request too large", 413),
     }),
   );
-  app.onError((_, c) =>
-    c.text(
-      "The pilot could not complete this request. Retry the Ring connection.",
-      502,
-    ),
+  app.onError((error, c) =>
+    error instanceof InvalidRingGrant
+      ? c.text(
+          "Ring has expired or revoked this authorization. Open the pilot in the Ring Appstore to authorize it again.",
+          401,
+        )
+      : c.text(
+          "The pilot could not complete the request. Try again shortly.",
+          502,
+        ),
   );
   app.post("/ring/token", async (c) => {
     if (
@@ -175,6 +277,7 @@ export function pilotApp(
       if (!ticket.access) {
         const token = await ring.exchange(code);
         ticket.access = token.access_token;
+        if (token.refresh_token) ticket.refresh = token.refresh_token;
         ticket.tokenExpiry = now() + token.expires_in * 1000;
         ticket.expires = Math.min(ticket.expires, ticket.tokenExpiry);
       }
@@ -182,8 +285,10 @@ export function pilotApp(
       ticket.account = identity.id;
       ticket.masked = mask(identity.attributes.email);
       for (const [otherKey, other] of tickets) {
-        if (other.account === ticket.account && other !== ticket)
-          tickets.delete(other.order < ticket.order ? otherKey : key);
+        if (other.account !== ticket.account || other === ticket) continue;
+        if (other.order < ticket.order && !other.session)
+          tickets.delete(otherKey);
+        if (other.order > ticket.order) tickets.delete(key);
       }
       return c.body(null, 200);
     } catch (error) {
@@ -196,6 +301,7 @@ export function pilotApp(
   app.get("/ring/link", (c) => {
     const time = c.req.query("time") ?? "";
     const nonce = c.req.query("nonce") ?? "";
+    if (!time && !nonce) return c.redirect("/ring/home", 303);
     const ticket = match(time, nonce);
     if (!ticket) return c.text("Start a fresh connection in Ring.", 403);
     const proof = random();
@@ -245,12 +351,27 @@ export function pilotApp(
       await ring.activate(ticket.access, "PATCH", ticket.masked, nonce);
       if (match(time, nonce) !== ticket)
         return c.text("Start a fresh connection in Ring.", 403);
-      ticket.session = random();
-      ticket.expires = Math.min(ticket.tokenExpiry, now() + SESSION_WINDOW);
+      const browser = random();
+      const expires = ticket.refresh
+        ? now() + GRANT_WINDOW
+        : ticket.tokenExpiry;
+      const completed = {
+        ...ticket,
+        session: digest(browser),
+        sessionExpiry: expires,
+        expires,
+      };
+      persist(completed, { nonce, deadline: Number(time) + LINK_WINDOW });
+      Object.assign(ticket, completed);
+      for (const [key, other] of tickets) {
+        if (other !== ticket && other.account === ticket.account)
+          tickets.delete(key);
+      }
       claimed.set(nonce, Number(time) + LINK_WINDOW);
       if (snapshotTarget) ticket.snapshotProof = random();
-      setCookie(c, "__Host-ring-session", ticket.session, {
+      setCookie(c, "__Host-ring-session", browser, {
         ...COOKIE,
+        sameSite: "Lax",
         maxAge: Math.floor((ticket.expires - now()) / 1000),
       });
       if (body.get("snapshot") === "save") await saveImage(ticket);
@@ -260,12 +381,58 @@ export function pilotApp(
     }
   });
   app.get("/ring/home", async (c) => {
-    const ticket = sessionTicket(getCookie(c, "__Host-ring-session"));
-    if (!ticket?.access)
-      return c.text(
-        "Open this private app from the Ring Appstore and complete account linking to see your shared devices.",
+    const nonce = c.req.query("nonce");
+    const time = c.req.query("time");
+    if (nonce && time)
+      return c.redirect(
+        "/ring/link?" + new URLSearchParams({ nonce, time }).toString(),
+        303,
       );
-    const names = await ring.devices(ticket.access);
+    const ticket = sessionTicket(getCookie(c, "__Host-ring-session"));
+    if (!ticket?.access) {
+      if (![...tickets.values()].some((candidate) => candidate.session)) {
+        return c.html(
+          html`<!doctype html><title>Connect the Ring pilot</title>
+            <h1>No saved Ring connection on this pilot</h1>
+            <p>
+              Open Ring MCP Bridge Pilot in the
+              <a href="https://ring.com/appstore">Ring Appstore</a> and complete
+              account linking. On your return here, choose
+              <strong>Confirm connection</strong> to save the connection on the
+              home computer.
+            </p>
+            <p>
+              If Ring still shows an active connection from the earlier pilot,
+              disconnect this private app once and connect it again. That
+              version kept the authorization only until the pilot stopped.
+            </p>`,
+        );
+      }
+      const proof = random();
+      setCookie(c, "__Host-ring-signin", proof, { ...COOKIE, maxAge: 600 });
+      return c.html(
+        html`<!doctype html><title>Ring pilot sign-in</title>
+          <h1>Sign in to this browser</h1>
+          <p>
+            Use a one-time browser code from the pilot on your home computer.
+          </p>
+          <form method="post" action="/ring/sign-in">
+            <input type="hidden" name="proof" value="${proof}" />
+            <label
+              >Browser code <input name="code" required autocomplete="off"
+            /></label>
+            <button>Sign in</button>
+          </form>
+          <p>
+            To get a code, run the home launcher with the existing credentials
+            CSV and <code>-BrowserCode</code>. If it reports no saved
+            authorization, open the private app in the
+            <a href="https://ring.com/appstore">Ring Appstore</a> to authorize
+            it once.
+          </p>`,
+      );
+    }
+    const names = await ring.devices(await usableAccess(ticket));
     return c.html(
       html`<!doctype html><title>Ring pilot devices</title>
         <h1>Shared devices</h1>
@@ -294,6 +461,31 @@ export function pilotApp(
         }
         <p>You can remove this connection in Ring.</p>`,
     );
+  });
+  app.post("/ring/sign-in", async (c) => {
+    const data = new URLSearchParams(await c.req.text());
+    const proof = getCookie(c, "__Host-ring-signin");
+    if (!proof || !equal(proof, data.get("proof") ?? ""))
+      return c.text("Open the pilot homepage to sign in.", 403);
+    const browser = random();
+    if (
+      !store?.redeem(
+        (data.get("code") ?? "").trim(),
+        now(),
+        digest(browser),
+        now() + GRANT_WINDOW,
+      )
+    )
+      return c.text(
+        "Invalid or expired browser code. Request a new code on the home computer.",
+        403,
+      );
+    setCookie(c, "__Host-ring-session", browser, {
+      ...COOKIE,
+      sameSite: "Lax",
+      maxAge: GRANT_WINDOW / 1000,
+    });
+    return c.redirect("/ring/home", 303);
   });
   app.post("/ring/snapshot", async (c) => {
     const ticket = sessionTicket(getCookie(c, "__Host-ring-session"));
@@ -325,9 +517,22 @@ export function pilotApp(
       const account = event.meta?.account_id ?? event.data.attributes?.source;
       if (!account) return c.text("Missing account", 400);
       for (const [key, ticket] of tickets)
-        if (ticket.account === account) tickets.delete(key);
+        if (ticket.account === account) forget(key, ticket);
     }
     return c.body(null, 200);
   });
-  return { app, expire };
+  async function maintain() {
+    expire();
+    await Promise.allSettled(
+      [...tickets.values()]
+        .filter(
+          (ticket) =>
+            ticket.session &&
+            ticket.refresh &&
+            (ticket.tokenExpiry ?? 0) <= now() + RENEW_EARLY,
+        )
+        .map(usableAccess),
+    );
+  }
+  return { app, expire, maintain };
 }

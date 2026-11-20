@@ -1,7 +1,11 @@
 import { createHmac } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { pilotApp } from "../dev/ring-pilot/app.ts";
-import { ringClient } from "../dev/ring-pilot/client.ts";
+import { InvalidRingGrant, ringClient } from "../dev/ring-pilot/client.ts";
+import { PilotLinks } from "../dev/ring-pilot/links.ts";
 
 const START = 1_800_000_000_000;
 const SIGNING = "synthetic test key";
@@ -15,7 +19,10 @@ const form = (data: Record<string, string>, cookie = "") => ({
   body: new URLSearchParams(data),
   headers: { cookie },
 });
-function setup(snapshotTarget?: Parameters<typeof pilotApp>[4]) {
+function setup(
+  snapshotTarget?: Parameters<typeof pilotApp>[4],
+  store?: PilotLinks,
+) {
   const clock = { now: START };
   const ring = {
     exchange: vi
@@ -30,8 +37,16 @@ function setup(snapshotTarget?: Parameters<typeof pilotApp>[4]) {
       .mockResolvedValue(undefined),
     devices: vi.fn().mockResolvedValue(["<test camera>"]),
     snapshot: vi.fn<ReturnType<typeof ringClient>["snapshot"]>(),
+    refresh: vi.fn<ReturnType<typeof ringClient>["refresh"]>(),
   };
-  const { app } = pilotApp(ID, SIGNING, ring, () => clock.now, snapshotTarget);
+  const { app } = pilotApp(
+    ID,
+    SIGNING,
+    ring,
+    () => clock.now,
+    snapshotTarget,
+    store,
+  );
   const issue = (code = "test-code") =>
     app.request(TOKEN, form({ code, client_id: ID }));
   const time = String(START);
@@ -52,6 +67,92 @@ function setup(snapshotTarget?: Parameters<typeof pilotApp>[4]) {
   return { ring, app, issue, visit, consent, clock, nonce, time };
 }
 describe("official Ring private-app pilot", () => {
+  it("restores a confirmed grant and browser after restart, rotates tokens once across concurrent reads and signs in a new browser", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ring-pilot-test-"));
+    const database = join(dir, "private.sqlite");
+    let store = new PilotLinks(database, ID, "synthetic storage key");
+    try {
+      const first = setup(undefined, store);
+      first.ring.exchange.mockResolvedValueOnce({
+        access_token: "first",
+        refresh_token: "refresh-1",
+        expires_in: 3600,
+      });
+      await first.issue();
+      const linked = await (await first.consent())();
+      const header = linked.headers.get("set-cookie") ?? "";
+      expect(header).toContain("SameSite=Lax");
+      const cookie = header.split(";")[0] ?? "";
+      store.close();
+      expect(readFileSync(database).includes(Buffer.from("refresh-1"))).toBe(
+        false,
+      );
+      store = new PilotLinks(database, ID, "synthetic storage key");
+      const next = setup(undefined, store);
+      next.clock.now += 3_700_000;
+      next.ring.refresh.mockResolvedValue({
+        access_token: "second",
+        refresh_token: "refresh-2",
+        expires_in: 14400,
+      });
+      const read = () => next.app.request(HOME, { headers: { cookie } });
+      for (const page of await Promise.all([read(), read()]))
+        expect(await page.text()).toContain("Shared devices");
+      expect(next.ring.refresh).toHaveBeenCalledExactlyOnceWith("refresh-1");
+      expect(next.ring.devices).toHaveBeenCalledWith("second");
+      const landing = await next.app.request(HOME);
+      const landingText = await landing.text();
+      expect(landingText).not.toContain("example.com");
+      const proof =
+        /name="proof"\s+value="([^"]+)"/.exec(landingText)?.[1] ?? "";
+      const signinCookie =
+        landing.headers.get("set-cookie")?.split(";")[0] ?? "";
+      const code = store.browserCode(next.clock.now);
+      const signin = await next.app.request(
+        "/ring/sign-in",
+        form({ code, proof }, signinCookie),
+      );
+      expect(signin.status).toBe(303);
+      expect(
+        (
+          await next.app.request(
+            "/ring/sign-in",
+            form({ code, proof }, signinCookie),
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        await (
+          await next.app.request(HOME, {
+            headers: {
+              cookie: signin.headers.get("set-cookie")?.split(";")[0] ?? "",
+            },
+          })
+        ).text(),
+      ).toContain("Shared devices");
+      expect(await (await read()).text()).toContain("Shared devices");
+      const body = JSON.stringify({
+        data: {
+          type: "app_integration_removed",
+          attributes: { source: "account1" },
+        },
+      });
+      await next.app.request(HOOK, {
+        method: "POST",
+        body,
+        headers: {
+          "X-Signature":
+            "sha256=" +
+            createHmac("sha256", SIGNING).update(body).digest("hex"),
+        },
+      });
+      expect(store.load()).toHaveLength(0);
+      expect(await (await read()).text()).toContain("No saved Ring connection");
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it("saves only the named camera after explicit consent, and retries without relinking", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const { app, ring, issue, consent } = setup({ name: "Outside", save });
@@ -266,13 +367,35 @@ describe("official Ring private-app pilot", () => {
       "PATCH",
     ]);
   });
-  it("ends an existing browser session when Ring supplies a new grant for the same account", async () => {
-    const { app, issue, consent, ring } = setup();
+  it("ends the previous browser session once the replacement grant is confirmed", async () => {
+    const { app, issue, consent, ring, clock } = setup();
     await issue();
     const first = await (await consent())();
     const cookie = first.headers.get("set-cookie")?.split(";")[0] ?? "";
     await issue("new-code");
     expect(ring.exchange).toHaveBeenCalledTimes(2);
+    expect(
+      await (await app.request(HOME, { headers: { cookie } })).text(),
+    ).toContain("Shared devices");
+    clock.now++;
+    const time = String(clock.now);
+    const nonce = createHmac("sha256", SIGNING)
+      .update(time + ":account1")
+      .digest("base64url");
+    const page = await app.request(LINK + "?time=" + time + "&nonce=" + nonce);
+    const proof =
+      /name="proof"\s+value="([^"]+)"/.exec(await page.text())?.[1] ?? "";
+    expect(
+      (
+        await app.request(
+          LINK,
+          form(
+            { time, nonce, proof },
+            page.headers.get("set-cookie")?.split(";")[0],
+          ),
+        )
+      ).status,
+    ).toBe(303);
     expect(
       await (await app.request(HOME, { headers: { cookie } })).text(),
     ).not.toContain("camera");
@@ -291,6 +414,57 @@ describe("official Ring private-app pilot", () => {
       await (await app.request(HOME, { headers: { cookie } })).text(),
     ).not.toContain("camera");
     expect(ring.devices).not.toHaveBeenCalled();
+  });
+  it("recovers after a temporary refresh failure, and clears a revoked grant", async () => {
+    const store = new PilotLinks(":memory:", ID, "test-key");
+    try {
+      const { app, ring, issue, consent, clock } = setup(undefined, store);
+      ring.exchange.mockResolvedValue({
+        access_token: "first",
+        refresh_token: "refresh",
+        expires_in: 3600,
+      });
+      await issue();
+      const linked = await (await consent())();
+      const cookie = linked.headers.get("set-cookie")?.split(";")[0] ?? "";
+      const read = () => app.request(HOME, { headers: { cookie } });
+      clock.now += 3_600_000;
+      ring.refresh.mockRejectedValueOnce(new Error("temporary"));
+      expect((await read()).status).toBe(502);
+      expect(store.load()).toHaveLength(1);
+      ring.refresh.mockResolvedValueOnce({
+        access_token: "second",
+        expires_in: 3600,
+      });
+      expect(await (await read()).text()).toContain("Shared devices");
+      clock.now += 3_600_000;
+      ring.refresh.mockRejectedValueOnce(new InvalidRingGrant());
+      expect((await read()).status).toBe(401);
+      expect(store.load()).toHaveLength(0);
+    } finally {
+      store.close();
+    }
+  });
+  it("posts the refresh credential to Ring and recognizes an explicitly invalid grant", async () => {
+    const send = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ error: "invalid_grant" }, { status: 400 }),
+      );
+    await expect(
+      ringClient(ID, "fixture", send).refresh("rotating"),
+    ).rejects.toBeInstanceOf(InvalidRingGrant);
+    const [url, init] = send.mock.calls[0] ?? [];
+    expect(url).toBe("https://oauth.ring.com/oauth/token");
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toEqual(
+      new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: "rotating",
+        client_id: ID,
+        client_secret: "fixture",
+      }),
+    );
   });
   it("sends the exchange and device requests to Ring with the documented wire format", async () => {
     const send = vi
