@@ -18,6 +18,8 @@
 <!-- specrew:task-progress-summary:end -->
 ## Notes
 
+- Round four, 2026-11-20: Claude examined four pilot files and returned two minor findings. The governance check passed. The round did not cover the connector, core, contracts or design. The verdict is incomplete and the review allowance is exhausted (4 of 4). The [review record](review-preparation.md) lists the findings, remaining scope and verified tag. Iteration 002 remains open.
+
 - T049 live check, 2026-11-20. A single physical press produced a HIGH doorbell event. The connector received it in 403 ms. The Azure delivery log matched the same event ID to an accepted ChatGPT callback (HTTP 200) in 913 ms, within SC-001's 10-second ceiling. The owner reported a matching 21:55 doorbell notification. A separate user-interface latency has not been measured.
 
 - On 2026-11-20 the owner chose to run the timed doorbell check now and carry the remaining pilot checks into iteration 003. T056 stays open until the health alert email is received (SMS already verified). T061 stays open for the seven-day soak and clock check around November 21 and the month-end bill against $30. Include both in the handoff and iteration 003 plan with their original acceptance criteria. Claude's final review, any resulting rework, sign-off, retro and formal closeout still precede opening 003. The successful official-API snapshot pilot is evidence for the camera work in 003.
