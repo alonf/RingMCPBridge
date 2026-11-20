@@ -128,16 +128,21 @@ const ALARM = z.object({
 
 type DingV2 = z.infer<typeof DING_V2>;
 
+/** The core's UTC timestamp schema requires a four-digit year. Invalid dates yield NaN. */
+function eventTimeMs(ms: number): number | undefined {
+  const year = new Date(ms).getUTCFullYear();
+  return year >= 0 && year <= 9999 ? ms : undefined;
+}
+
 function epochMs(value: number | undefined): number | undefined {
   if (value === undefined) {
     return undefined;
   }
-  return value < SMALLEST_EPOCH_MS ? value * MS_PER_SECOND : value;
+  return eventTimeMs(value < SMALLEST_EPOCH_MS ? value * MS_PER_SECOND : value);
 }
 
 function parsedTime(value: string | undefined): number | undefined {
-  const parsed = value === undefined ? Number.NaN : Date.parse(value);
-  return Number.isNaN(parsed) ? undefined : parsed;
+  return value === undefined ? undefined : eventTimeMs(Date.parse(value));
 }
 
 function occurredAt(push: DingV2, receivedAtMs: number): number {

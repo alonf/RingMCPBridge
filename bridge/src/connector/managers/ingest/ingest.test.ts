@@ -1162,14 +1162,14 @@ describe("Ingest after a device is added or removed at Ring (CP-16 review follow
 describe("Ingest: Ring's push", () => {
   const pushDevice = "523456789";
 
-  function doorbellPush(ringEventId: string): RingPush {
+  function doorbellPush(ringEventId: string, triggeredAt = START): RingPush {
     return {
       device_id: pushDevice,
       location_id: "loc-1",
       device_type: "doorbell",
       payload: {
         android_config: { category: "com.ring.pn.live-event.ding" },
-        analytics: { triggered_at: START },
+        analytics: { triggered_at: triggeredAt },
         data: {
           device: { name: "Front Door" },
           event: { ding: { id: ringEventId, subtype: "ding" } },
@@ -1213,6 +1213,21 @@ describe("Ingest: Ring's push", () => {
       from_history: false,
     });
     expect(lines.join("\n")).not.toContain("Front Door");
+  });
+
+  it("queues a doorbell press with receipt time when Ring's time is out of range", async () => {
+    const store = await openStore();
+    const ingest = pushIngest(store, new LinkSlot());
+    ingest.pushReceived(doorbellPush("123", Number.MAX_SAFE_INTEGER));
+    await ingest.flush();
+
+    const [queued] = await store.takeDueEvents(signal);
+    expect(queued?.eventId).toBe("123-d");
+    expect(eventSchema.parse(queued?.body)).toMatchObject({
+      kind: "doorbell.ding",
+      occurred_at: formatUtc(START),
+      received_at: formatUtc(START),
+    });
   });
 
   it("logs and counts a push it cannot use, by its device only, and queues nothing", async () => {

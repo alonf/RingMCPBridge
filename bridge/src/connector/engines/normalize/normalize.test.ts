@@ -166,6 +166,21 @@ describe("Normalize: other categories", () => {
 });
 
 describe("Normalize: Ring's times", () => {
+  it("uses the next timestamp the event message can represent", () => {
+    const payload = dingFixture();
+    payload.analytics.triggered_at = Number.MAX_SAFE_INTEGER;
+    const createdAt = TRIGGERED_AT - 2_000;
+    payload.data.event.ding.created_at = new Date(createdAt).toISOString();
+    payload.data.event.eventito.timestamp = TRIGGERED_AT - 1_000;
+    expect(normalized(payload).occurred_at).toBe(createdAt);
+
+    payload.data.event.ding.created_at = "+010000-01-01T00:00:00Z";
+    expect(normalized(payload).occurred_at).toBe(TRIGGERED_AT - 1_000);
+
+    payload.data.event.eventito.timestamp = Date.UTC(10_000, 0, 1);
+    expect(normalized(payload).occurred_at).toBe(RECEIVED_AT);
+  });
+
   it("reads a trigger time given in seconds", () => {
     const payload = dingFixture();
     payload.analytics.triggered_at = TRIGGERED_AT / 1000;
