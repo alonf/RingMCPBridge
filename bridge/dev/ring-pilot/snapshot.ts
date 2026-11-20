@@ -34,6 +34,7 @@ type SnapshotStep =
   | "downloading the JPEG";
 
 function checkStatus(status: number, step: SnapshotStep) {
+  if (status >= 400) console.warn("Ring snapshot HTTP", status, "while", step);
   if (step !== "reading camera capabilities" && status === 416)
     throw new SnapshotError("Ring found no image in the last 24 hours.");
   if (step !== "reading camera capabilities" && status === 425)
