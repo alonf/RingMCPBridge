@@ -18,6 +18,8 @@
 <!-- specrew:task-progress-summary:end -->
 ## Notes
 
+- November 21, round six: Claude reviewed the listener, normalization, outbox, subscriptions and callback transport. It reported one minor issue in timestamp handling. It did not compare tests and contracts with the requirements. The result is partial, two rounds remain, and sign-off is pending. See the [round-six record](review-preparation.md#round-six-result-november-21).
+
 - November 21: the owner approved resetting the review allowance. Claude reviewed 13 production event-path files and recorded no findings there. The controller recorded the follow-up as partial. One of four rounds in the new allowance is used. Remaining review targets and test results are in the [review preparation](review-preparation.md). Iteration sign-off remains pending.
 
 - Round four, 2026-11-20: Claude examined four pilot files and returned two minor findings. The governance check passed. The round did not cover the connector, core, contracts or design. The verdict is incomplete and the review allowance is exhausted (4 of 4). The [review record](review-preparation.md) lists the findings, remaining scope and verified tag. Iteration 002 remains open.
