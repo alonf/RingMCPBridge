@@ -18,6 +18,8 @@
 <!-- specrew:task-progress-summary:end -->
 ## Notes
 
+- November 21: the owner approved resetting the review allowance. Claude reviewed 13 production event-path files and recorded no findings there. The controller recorded the follow-up as partial. One of four rounds in the new allowance is used. Remaining review targets and test results are in the [review preparation](review-preparation.md). Iteration sign-off remains pending.
+
 - Round four, 2026-11-20: Claude examined four pilot files and returned two minor findings. The governance check passed. The round did not cover the connector, core, contracts or design. The verdict is incomplete and the review allowance is exhausted (4 of 4). The [review record](review-preparation.md) lists the findings, remaining scope and verified tag. Iteration 002 remains open.
 
 - T049 live check, 2026-11-20. A single physical press produced a HIGH doorbell event. The connector received it in 403 ms. The Azure delivery log matched the same event ID to an accepted ChatGPT callback (HTTP 200) in 913 ms, within SC-001's 10-second ceiling. The owner reported a matching 21:55 doorbell notification. A separate user-interface latency has not been measured.

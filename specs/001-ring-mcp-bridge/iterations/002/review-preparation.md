@@ -13,7 +13,15 @@ Identify the actual files and tests examined, any unverified links in the path, 
 
 ## Status
 
-Four of four rounds have been used. Claude returned a partial report for round four. Specrew marked the verdict incomplete and paused the campaign. Human sign-off is pending.
+The owner approved an allowance reset after the fourth round. The first round under the new allowance returned a partial report, leaving three of four rounds available. The campaign is paused for the owner's decision and human sign-off is pending.
+
+## Production event path follow-up, November 21
+
+Claude's [round-five report](../../../../.specrew/review/authority/campaigns/cmp-001-ring-mcp-bridge-i002/runs/run-20261120-224103918-417f4833/report.md) lists 13 examined paths. It traced connector ingestion, core intake, classification, transaction and acknowledgement order, event deduplication, webhook retry authorization and the MCP event cursor. It recorded no findings in the files examined. The controller recorded a partial result. Its automatic retry paused before invoking a reviewer or spending a second round.
+
+The remaining independent review covers the Ring push listener and normalization, outbox durability and resend order, subscription storage and callback address validation, and the relevant tests against the iteration plan and public tools contract. The implementer separately ran 19 event-path test files on the source checkout: 361 tests passed and 31 were skipped. The two earlier pilot findings remain open.
+
+The reviewed tree `c35b34d20c7fa864217f456129ff78a997e64e62` is pinned by the verified remote tag `specrew-reviewed/run-20261120-224103918-417f4833`.
 
 ## Round four, November 20
 
