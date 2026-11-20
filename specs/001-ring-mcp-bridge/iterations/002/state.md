@@ -18,6 +18,8 @@
 <!-- specrew:task-progress-summary:end -->
 ## Notes
 
+- November 21, round-seven rework. The contract test now compares both iterations' planned tool inputs with their published schemas. It caught the missing `get_events.limit` maximum and passed after the plan was corrected. The full suite passed with 1,634 tests passing and 164 skipped. The [round-eight brief](review-preparation.md#round-eight-scope) lists the remaining independent checks for T043, T048 and T051.
+
 - November 21, round seven: Claude verified the timestamp fallback and its two regression tests. A minor gap remains in the planned-versus-published `get_events` input check. The [round-seven record](review-preparation.md#round-seven-result-november-21) documents the schema difference and the acceptance criteria still awaiting independent review. The verdict is partial and one round remains.
 
 - Round-six timestamp rework, November 21: the corrected normalizer skips unrepresentable Ring timestamps. A regression test verifies the real outbox contains a schema-valid doorbell event with the receipt time when no Ring time is usable. Independent verification and the test-to-contract comparison remain pending.

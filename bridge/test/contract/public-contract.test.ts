@@ -4,7 +4,7 @@
 //     `npm run schemas:generate` (vitest --update) cannot write a removal or a narrowing;
 //   - the flat-schema check on every tool input;
 //   - the untrusted-marking check on every output, and the closing sentence on every tool;
-//   - the inputs match the plan's contracts/iteration-001-tools.schema.json.
+//   - the inputs match the planned tool schemas for iterations 001 and 002.
 // A document not yet published fails unless SCHEMAS_BOOTSTRAP=1 is set for the run that first
 // writes it, so a deleted file cannot be regenerated past the narrowing check unseen. With
 // SCHEMAS_BASE_DIRECTORY set to a copy of the base commit's `schemas/`, the documents are also
@@ -28,11 +28,8 @@ import { findMarkingProblems } from "./untrusted-marking.ts";
 const SCHEMAS_DIRECTORY = fileURLToPath(
   new URL("../../../schemas/", import.meta.url),
 );
-const PLANNED_INPUTS = fileURLToPath(
-  new URL(
-    "../../../specs/001-ring-mcp-bridge/contracts/iteration-001-tools.schema.json",
-    import.meta.url,
-  ),
+const PLANNED_CONTRACTS_DIRECTORY = fileURLToPath(
+  new URL("../../../specs/001-ring-mcp-bridge/contracts/", import.meta.url),
 );
 const BOOTSTRAP = process.env.SCHEMAS_BOOTSTRAP === "1";
 const BASE_DIRECTORY = process.env.SCHEMAS_BASE_DIRECTORY;
@@ -189,16 +186,26 @@ describe("the tool inputs", () => {
     expect(findNonFlatInputs(inputs.schema)).toEqual([]);
   });
 
-  it("match the plan's iteration 001 inputs (contracts/iteration-001-tools.schema.json)", () => {
-    const planned = readJson(PLANNED_INPUTS);
-    expect(isSchemaNode(planned)).toBe(true);
-    const published = new Map(childrenOf(inputs.schema, "$defs"));
-    for (const [tool, schema] of childrenOf(planned as SchemaNode, "$defs")) {
-      expect(withoutDescriptions(published.get(tool)), tool).toEqual(
-        withoutDescriptions(schema),
+  it.each(["001", "002"])(
+    "match the planned iteration %s inputs",
+    (iteration) => {
+      const planned = readJson(
+        join(
+          PLANNED_CONTRACTS_DIRECTORY,
+          `iteration-${iteration}-tools.schema.json`,
+        ),
       );
-    }
-  });
+      expect(isSchemaNode(planned)).toBe(true);
+      const definitions = childrenOf(planned as SchemaNode, "$defs");
+      expect(definitions.length).toBeGreaterThan(0);
+      const published = new Map(childrenOf(inputs.schema, "$defs"));
+      for (const [tool, schema] of definitions) {
+        expect(withoutDescriptions(published.get(tool)), tool).toEqual(
+          withoutDescriptions(schema),
+        );
+      }
+    },
+  );
 });
 
 // DRIFT-001-86 (a review of f3884bb): `last_motion_at` is the time of the sensor's latest report

@@ -22,6 +22,7 @@
         "limit": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 9007199254740991,
           "description": "[P] The most events to return. The server caps it to the reply token budget."
         },
         "min_priority": {

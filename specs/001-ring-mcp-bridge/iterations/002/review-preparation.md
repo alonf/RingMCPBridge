@@ -1,6 +1,18 @@
 # Iteration 002 review
 
-## Round seven scope
+## Round eight scope
+
+Compare the tests on the frozen tree with the acceptance criteria in [tasks.md](../../tasks.md). For each task, cite the assertions that cover its criteria and identify any criterion that lacks a test.
+
+| Task | What to verify | Tests to inspect |
+| --- | --- | --- |
+| T043, connector outbox | An acknowledgement removes exactly its event. Check the send window, retry timing and jitter, backlog metrics, and recovery after a restart. | `bridge/src/connector/access/outbox-store/outbox-events.test.ts` |
+| T048, callback delivery | Check the subscription read scope, protection of stored callback credentials, callback destination and request bounds, signature, retry, isolation between clients, untrusted text and per-event latency. | `bridge/test/mcp-endpoint/events.test.ts`, `bridge/test/core-access/subscriptions-store.test.ts`, and `delivery.test.ts` and `callback-transport.test.ts` in `bridge/src/core/clients/delivery/` |
+| T051, subscriptions and cursors | Check client and location isolation, delivery state, restart persistence, gap-free paging, old-epoch reporting and migration coverage for both databases. | `bridge/test/core-access/cursor-store.test.ts`, `bridge/test/core-access/subscriptions-store.test.ts` and `bridge/src/core/managers/inquiry/events-read.test.ts` |
+
+Verify the round-seven correction by checking the iteration 002 case in `bridge/test/contract/public-contract.test.ts` against the planned and published inputs for `get_events`.
+
+## Round seven scope (historical)
 
 Independently verify the timestamp fix in `f8dda18` and compare the event-path tests with the iteration 002 requirements and public MCP schema. Start with the following evidence:
 
@@ -40,7 +52,7 @@ The owner approved an allowance reset after the fourth round. Three of the four 
 
 Claude independently verified the timestamp fallback in `f8dda18`, including the unit test of the fallback order and the ingest test of the persisted, schema-valid doorbell event. This resolves round six's timestamp finding. The [round-seven report](../../../../.specrew/review/authority/campaigns/cmp-001-ring-mcp-bridge-i002/runs/run-20261120-234231358-748d2ccb/report.md) also describes the cursor tests it inspected and suggests an optional read-side timestamp regression.
 
-Claude found one minor gap: the public contract test compares tool inputs with the iteration 001 plan only. A separate comparison of the checked-in `get_events` inputs, ignoring descriptions as that test does, found one difference. The published schema sets `limit.maximum` to 9007199254740991, while the iteration 002 plan declares no maximum for the input. Reconcile the input bound and extend the test to the iteration 002 plan. The page-size cap is a separate behavior.
+Claude found one minor gap (`finding-477fb977b10323f4`). The public contract test compared tool inputs with the iteration 001 plan only. Extending it to iteration 002 exposed a single difference in `get_events.limit`. The plan now declares the same maximum safe integer as the published input, 9007199254740991. The regression test failed before that correction and passed afterward. The server continues to cap each page at 200 events.
 
 The report is partial. Claude did not assess T043, T048 and T051 against the plan and task acceptance criteria, including the outbox, callback transport, subscription and endpoint tests. One round remains in the allowance. The reviewed tree `b49ac6ed4699479402801750dcaab993862ed5cd` is pinned by the verified remote tag `specrew-reviewed/run-20261120-234231358-748d2ccb`.
 
