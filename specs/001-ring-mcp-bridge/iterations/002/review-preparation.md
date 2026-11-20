@@ -1,5 +1,16 @@
 # Iteration 002 review
 
+## Follow-up review scope
+
+Trace a real `doorbell.ding` from Ring intake through the home connector and core to ChatGPT's signed webhook, then through the client's `get_events` read. Compare the production code and tests with iteration 002's plan, task acceptance criteria and tools contract. Start with these paths:
+
+- `bridge/src/connector/engines/normalize`, `connector/managers/ingest` and `connector/access/outbox-store`: event identity, timestamps, durable enqueue, reconnect and catch-up.
+- `bridge/src/core/clients/connector-link`, `core/engines/classify` and `core/access/event-log`: location policy, deduplication, transaction and acknowledgement order.
+- `bridge/src/core/clients/delivery`, `core/access/subscriptions` and `core/clients/mcp-endpoint`: authorization, HIGH delivery, retries, and the event returned to each client on its cursor.
+- `specs/001-ring-mcp-bridge/iterations/002/plan.md`, `specs/001-ring-mcp-bridge/tasks.md` and `contracts/iteration-002-tools.schema.json` under the feature directory: compare the implemented guarantees with the requirements and recorded pilot evidence.
+
+Identify the actual files and tests examined, any unverified links in the path, and findings with source locations. The four private camera pilot files were already examined in round four.
+
 ## Status
 
 Four of four rounds have been used. Claude returned a partial report for round four. Specrew marked the verdict incomplete and paused the campaign. Human sign-off is pending.
