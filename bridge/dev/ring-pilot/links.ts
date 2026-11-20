@@ -9,6 +9,7 @@ const savedLink = z.object({
   access: z.string().min(1),
   refresh: z.string().min(1).optional(),
   tokenExpiry: z.number(),
+  linkedAt: z.number().int().nonnegative().optional(),
   session: z.string().min(1),
   sessionExpiry: z.number(),
   expires: z.number(),

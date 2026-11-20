@@ -36,7 +36,7 @@ type SnapshotStep =
 function checkStatus(status: number, step: SnapshotStep) {
   if (status >= 400) console.warn("Ring snapshot HTTP", status, "while", step);
   if (step !== "reading camera capabilities" && status === 416)
-    throw new SnapshotError("Ring found no image in the last 24 hours.");
+    throw new SnapshotError("Ring found no image in the requested time range.");
   if (step !== "reading camera capabilities" && status === 425)
     throw new SnapshotError(
       "Ring is still processing the image. Try again shortly.",
@@ -85,7 +85,13 @@ export async function downloadSnapshot(
   token: string,
   send: typeof fetch,
   end: number,
+  linkedAt: number,
 ): Promise<Snapshot> {
+  const start = Math.max(end - DAY_MS, linkedAt);
+  if (start >= end)
+    throw new SnapshotError(
+      "The camera was just linked. Try again shortly for a post-link snapshot.",
+    );
   const headers = {
     authorization: "Bearer " + token,
     "content-type": "application/json",
@@ -98,7 +104,6 @@ export async function downloadSnapshot(
     throw new SnapshotError(
       "Ring did not identify a camera lens for this device.",
     );
-  const start = end - DAY_MS;
   const result = await request(deviceUrl + "/media/image/download", {
     method: "POST",
     headers,

@@ -155,7 +155,7 @@ pwsh -File ./infra/home/start-ring-pilot.ps1 -CredentialCsv 'C:\private\ring-app
 
 If the pilot lists multiple accounts, repeat the command with `-AccountHint` and the desired account identifier shown locally. If upgrading from the earlier memory-only pilot, authorize the private app once to create its first saved connection. If Ring still shows the old connection as active and offers only the homepage, disconnect that private app and connect it again. When finished testing, remove the private integration in Ring while the pilot and tunnel are still running so its signed removal notification clears the saved grant and browser sessions. Then close the tunnel and stop the launcher with Ctrl+C. [Ring account-linking documentation](https://developer.amazon.com/docs/ring/api-documentation.html)
 
-To try one stored camera snapshot, add `-SnapshotDevice 'Camera name'` to the launcher. Use the exact name from your shared inventory. In the linked browser, choose the button to save the latest snapshot. The pilot searches the last 24 hours and saves one JPEG beside the private credentials CSV, with Ring's UTC capture time in its filename. For a device with several lenses it uses the first lens Ring lists.
+To try one stored camera snapshot, add `-SnapshotDevice 'Camera name'` to the launcher. Use the exact name from your shared inventory. In the linked browser, choose the button to save the latest snapshot. The pilot searches from the later of account-link confirmation or 24 hours ago and saves one JPEG beside the private credentials CSV, with Ring's UTC capture time in its filename. For a device with several lenses it uses the first lens Ring lists.
 
 ## Where things are
 

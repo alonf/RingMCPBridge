@@ -112,7 +112,7 @@ export function ringClient(
         (device) => device.attributes?.name ?? device.id,
       );
     },
-    async snapshot(token: string, name: string, end: number) {
+    async snapshot(token: string, name: string, end: number, linkedAt: number) {
       const matches = (await devices(token)).filter(
         (device) => device.attributes?.name === name,
       );
@@ -127,6 +127,7 @@ export function ringClient(
         token,
         send,
         end,
+        linkedAt,
       );
     },
   };

@@ -37,6 +37,7 @@ interface Ticket {
   refresh?: string | undefined;
   sessionExpiry?: number;
   tokenExpiry?: number;
+  linkedAt?: number;
   account?: string;
   masked?: string;
   postedNonce?: string;
@@ -78,6 +79,10 @@ export function pilotApp(
   for (const link of store?.load() ?? []) {
     tickets.set("linked:" + digest(link.account), {
       ...link,
+      // Earlier renewable grants set primary session expiry to exactly 30 days after confirmation.
+      linkedAt:
+        link.linkedAt ??
+        (link.refresh ? link.sessionExpiry - GRANT_WINDOW : now()),
       order: ++sequence,
       busy: false,
       snapshotProof: random(),
@@ -108,6 +113,7 @@ export function pilotApp(
     )
       throw new Error("Incomplete confirmed Ring link.");
     const grant: SavedLink = {
+      linkedAt: ticket.linkedAt,
       account,
       masked,
       access,
@@ -173,12 +179,19 @@ export function pilotApp(
     );
   }
   async function saveImage(ticket: Ticket) {
-    if (!snapshotTarget || !ticket.access || ticket.snapshotSaved) return;
+    if (
+      !snapshotTarget ||
+      !ticket.access ||
+      ticket.linkedAt === undefined ||
+      ticket.snapshotSaved
+    )
+      return;
     try {
       const image = await ring.snapshot(
         await usableAccess(ticket),
         snapshotTarget.name,
         now(),
+        ticket.linkedAt,
       );
       if (!active(ticket)) return;
       await snapshotTarget.save(image);
@@ -352,11 +365,13 @@ export function pilotApp(
       if (match(time, nonce) !== ticket)
         return c.text("Start a fresh connection in Ring.", 403);
       const browser = random();
+      const linkedAt = now();
       const expires = ticket.refresh
-        ? now() + GRANT_WINDOW
+        ? linkedAt + GRANT_WINDOW
         : ticket.tokenExpiry;
       const completed = {
         ...ticket,
+        linkedAt,
         session: digest(browser),
         sessionExpiry: expires,
         expires,

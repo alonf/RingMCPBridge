@@ -183,7 +183,12 @@ describe("official Ring private-app pilot", () => {
     expect((await snap()).status).toBe(303);
     await snap();
     expect(save).toHaveBeenCalledExactlyOnceWith(image);
-    expect(ring.snapshot).toHaveBeenLastCalledWith("demo", "Outside", START);
+    expect(ring.snapshot).toHaveBeenLastCalledWith(
+      "demo",
+      "Outside",
+      START,
+      START,
+    );
     expect(await home()).toContain(image.time);
   });
   it("downloads immediately when the owner chooses the combined confirmation", async () => {
@@ -197,61 +202,68 @@ describe("official Ring private-app pilot", () => {
     expect((await (await consent())("save")).status).toBe(303);
     expect(save).toHaveBeenCalledTimes(1);
   });
-  it("requests a stored JPEG for the selected camera and keeps the access token off the download request", async () => {
-    const url = "https://download.example.org/v1/download";
-    const jpeg = Uint8Array.of(255, 216, 1, 255, 217);
-    const send = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({
-          data: [{ id: "abc", attributes: { name: "Outside" } }],
-        }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          data: {
-            attributes: {
-              components: {
-                items: [{ component_type: "lens", component_id: "2" }],
+  it.each([
+    [START - 60_000, START - 60_000],
+    [START - 2 * 86_400_000, START - 86_400_000],
+  ])(
+    "requests a JPEG within consent starting at %s and keeps credentials off the signed download",
+    async (linkedAt, expectedStart) => {
+      const url = "https://download.example.org/v1/download";
+      const jpeg = Uint8Array.of(255, 216, 1, 255, 217);
+      const send = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json({
+            data: [{ id: "abc", attributes: { name: "Outside" } }],
+          }),
+        )
+        .mockResolvedValueOnce(
+          Response.json({
+            data: {
+              attributes: {
+                components: {
+                  items: [{ component_type: "lens", component_id: "2" }],
+                },
               },
             },
-          },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(null, { status: 303, headers: { location: url } }),
-      )
-      .mockResolvedValueOnce(
-        new Response(jpeg, {
-          headers: {
-            "content-type": "image/jpeg",
-            "x-media-timestamp": String(START - 1000),
-          },
-        }),
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(null, { status: 303, headers: { location: url } }),
+        )
+        .mockResolvedValueOnce(
+          new Response(jpeg, {
+            headers: {
+              "content-type": "image/jpeg",
+              "x-media-timestamp": String(START - 1000),
+            },
+          }),
+        );
+      const image = await ringClient(ID, "example", send).snapshot(
+        "fixture",
+        "Outside",
+        START,
+        linkedAt,
       );
-    const image = await ringClient(ID, "example", send).snapshot(
-      "fixture",
-      "Outside",
-      START,
-    );
-    expect(image.time).toBe(new Date(START - 1000).toISOString());
-    expect(image.jpeg).toEqual(Buffer.from(jpeg));
-    const [endpoint, init] = send.mock.calls[2] ?? [];
-    expect(endpoint).toBe(
-      "https://api.amazonvision.com/v1/devices/abc/media/image/download",
-    );
-    if (typeof init?.body !== "string")
-      throw new Error("Missing snapshot request");
-    expect(JSON.parse(init.body)).toMatchObject({
-      type: "latest_in_range",
-      end_timestamp: START,
-      start_timestamp: START - 86_400_000,
-      components: [{ component_id: "2" }],
-    });
-    const [location, options] = send.mock.calls[3] ?? [];
-    expect(location).toEqual(new URL(url));
-    expect(new Headers(options?.headers).has("authorization")).toBe(false);
-  });
+      expect(image.time).toBe(new Date(START - 1000).toISOString());
+      expect(image.jpeg).toEqual(Buffer.from(jpeg));
+      const [endpoint, init] = send.mock.calls[2] ?? [];
+      expect(endpoint).toBe(
+        "https://api.amazonvision.com/v1/devices/abc/media/image/download",
+      );
+      if (typeof init?.body !== "string")
+        throw new Error("Missing snapshot request");
+      expect(JSON.parse(init.body)).toMatchObject({
+        type: "latest_in_range",
+        end_timestamp: START,
+        start_timestamp: expectedStart,
+        components: [{ component_id: "2" }],
+      });
+      const [location, options] = send.mock.calls[3] ?? [];
+      expect(location).toEqual(new URL(url));
+      expect(new Headers(options?.headers).has("authorization")).toBe(false);
+    },
+  );
   it.each([
     ["reading camera capabilities", 1],
     ["requesting a snapshot", 2],
@@ -269,7 +281,12 @@ describe("official Ring private-app pilot", () => {
       send.mockResolvedValueOnce(response);
     send.mockResolvedValueOnce(new Response(null, { status: 403 }));
     await expect(
-      ringClient(ID, "example", send).snapshot("fixture", "Outside", START),
+      ringClient(ID, "example", send).snapshot(
+        "fixture",
+        "Outside",
+        START,
+        START - 60_000,
+      ),
     ).rejects.toThrow("Ring returned HTTP 403 while " + step + ".");
     expect(send).toHaveBeenCalledTimes(failingRequest + 1);
   });
@@ -282,9 +299,16 @@ describe("official Ring private-app pilot", () => {
       .mockResolvedValueOnce(Response.json({ data: { attributes: {} } }))
       .mockResolvedValueOnce(new Response(null, { status: 416 }));
     const snap = () =>
-      ringClient(ID, "example", send).snapshot("fixture", "Outside", START);
+      ringClient(ID, "example", send).snapshot(
+        "fixture",
+        "Outside",
+        START,
+        START - 60_000,
+      );
     await expect(snap()).rejects.toThrow("one shared device");
-    await expect(snap()).rejects.toThrow("no image in the last 24 hours");
+    await expect(snap()).rejects.toThrow(
+      "no image in the requested time range",
+    );
   });
   it("links only a matching browser, lists consented devices, and forgets a removed integration", async () => {
     const { app, issue, ring, visit, consent, nonce, time } = setup();
