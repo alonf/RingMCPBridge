@@ -1,6 +1,16 @@
 # Iteration 002 review
 
-## Round six scope
+## Round seven scope
+
+Independently verify the timestamp fix in `f8dda18` and compare the event-path tests with the iteration 002 requirements and public MCP schema. Start with the following evidence:
+
+1. In `bridge/src/connector/engines/normalize/normalize.test.ts`, find “uses the next timestamp”; in `bridge/src/connector/managers/ingest/ingest.test.ts`, find “queues a doorbell press with receipt time”. Compare their assertions with the implementation in `normalize.ts`, the wire event schema, and tasks T041–T044.
+2. Compare the requirements in `iterations/002/plan.md` and `tasks.md` (T043, T048 and T051–T053) with the outbox, callback transport, subscription store and event-read tests identified below. Cite the assertions actually read and pinpoint any missing coverage.
+3. Read `specs/001-ring-mcp-bridge/contracts/iteration-002-tools.schema.json` and `bridge/test/contract/public-contract.test.ts`. Check which tool shapes the tests compare with the plan. For `get_events` cursor and timestamp behavior, compare the schema and runtime contract with `bridge/src/core/managers/inquiry/events-read.test.ts`.
+
+Rounds five and six already traced production code. The independent test and schema comparison is the outstanding work. State whether the timestamp finding is resolved, which requirements are covered and any specific gaps.
+
+## Round six scope (historical)
 
 Review the gaps that round five left in iteration 002. Use the iteration plan, tasks T041–T044, T048 and T051–T053 in `tasks.md`, and `contracts/iteration-002-tools.schema.json` as the acceptance criteria. Inspect the following four areas and their tests on the frozen tree.
 
