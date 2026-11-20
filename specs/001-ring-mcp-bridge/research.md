@@ -967,12 +967,18 @@ Ring’s public documentation, checked again on 2026-11-20, describes the Privat
 
 The owner does every step on their own account. No Ring or Amazon credential, code, client secret or signature key is typed into the chat.
 
+On 2026-11-20 the owner reached **Create New App** and saw **Private app** as an available app type. The form requires at least one API scope. Its **Cameras and Doorbells** switch groups motion events and doorbell presses with livestream and video download. Contact sensors, flood/freeze sensors, temperature/humidity sensors, air quality monitors and chimes have separate switches. The pasted form showed no alarm-panel scope. The owner subsequently confirmed draft creation and downloaded the credentials CSV. The confirmation showed cameras and doorbells, all four sensor categories, chimes with audio controls, and account/lifecycle. The app overview explicitly identified the draft as Private. Configure showed Account linking pending, and Connect was locked until the details were configured. The form displayed Account Link URL, App Homepage URL, Token Exchange URL and Webhook URL. The deployed bridge at b444d18 has agent OAuth, owner administration and MCP routes. It has no official Ring account-link handler, code-exchange receiver or inbound Ring event webhook, and its admin page does not manage this private-app connection. The form alone does not establish which fields are mandatory. Account linking and device visibility remain unverified.
+
 1. Open Ring's developer console (developer.amazon.com, the Ring section) and sign in. Report: did sign-in work with the account's country, or was it refused?
 2. Open the apps list and its Private Apps tab. Report: is the tab there, and is "create" offered?
 3. Create a private app: an internal name and an app type, then accept Ring's security and privacy standards. Report: accepted or refused, and the refusal's wording if any.
 4. The console then shows a Client ID, a Client Secret and an HMAC signature key, once only. Keep them in a password manager. Report only that they were shown.
 5. Try account linking: link the owner's own Ring account to the private app. Report: linked, or refused, and whether the location and its devices appear.
 6. Note any requirement the pages state on the way: a Ring plan, a user limit, a static IP to register.
+
+Ring’s private-app guide explicitly allows Ring accounts from any country, specifies a Basic Ring plan, and limits the allowlist to ten accounts. After saving the credentials, the owner can continue to the app. The Connect step follows configuration of the Account Link URL and Token Exchange URL. Testing this requires working HTTPS endpoints for the Ring integration. [Private app lifecycle and setup](https://developer.amazon.com/docs/ring/publish.html#private-use-apps)
+
+The home pilot implements Ring's one-way account linking. Ring sends the authorization code directly to the pilot. The browser then presents a signed nonce that identifies the matching Ring account. After confirmation the pilot claims the integration, completes it, and reads the first device inventory page. The local tests exercise that sequence with synthetic credentials and devices. The owner’s live account link and device results are still pending. The README documents the four console fields and the home launcher. [Ring account linking and device discovery](https://developer.amazon.com/docs/ring/api-documentation.html)
 
 The result is one of three: registration and linking both work (the official path is open), registration works but linking does not, or registration is refused. Each is a finding; none is a failure of the spike.
 

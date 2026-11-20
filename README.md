@@ -126,6 +126,25 @@ The tests use SQLite by default. They also run against SQL Server when `TEST_MSS
 
 To try it with no Ring account, `npm run dev:all-in-one` starts mode A over stdio against a simulated home of about 100 devices. An MCP client can start it as its server.
 
+## Trying an official Ring private app
+
+The account-linking pilot runs separately on your Windows home computer. It lets you see which devices Ring returns for the account and permissions you select. With Node 24, the repository dependencies and PowerShell 7 installed, start it from the project root. Keep the credentials CSV you downloaded from Ring outside the checkout.
+
+```powershell
+pwsh -File ./infra/home/start-ring-pilot.ps1 -CredentialCsv 'C:\private\ring-app.csv'
+```
+
+The pilot listens at `127.0.0.1:43821`. Forward only that port through an HTTPS tunnel reachable by Ring. Under **Account linking** in the Ring developer console, use the public HTTPS origin of your tunnel followed by the path below.
+
+| Ring console field | Path |
+| --- | --- |
+| Account Link URL | `/ring/link` |
+| App Homepage URL | `/ring/home` |
+| Token Exchange URL | `/ring/token` |
+| Webhook URL | `/ring/webhook` |
+
+Save the settings, open **Connect**, sign in to Ring, select devices, then confirm the masked account on the pilot page. The resulting page lists the device names returned by Ring. The pilot keeps access tokens in memory and the browser session lasts up to one hour. Signed webhook notifications are acknowledged, and removing the integration in Ring clears the associated session. When finished, remove the integration in Ring, close the tunnel and stop the launcher with Ctrl+C. [Ring account-linking documentation](https://developer.amazon.com/docs/ring/api-documentation.html)
+
 ## Where things are
 
 - `bridge/`: the bridge itself, with the core, the home connector, the all-in-one host and their tests.
