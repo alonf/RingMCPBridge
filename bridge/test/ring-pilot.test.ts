@@ -151,6 +151,27 @@ describe("official Ring private-app pilot", () => {
     expect(location).toEqual(new URL(url));
     expect(new Headers(options?.headers).has("authorization")).toBe(false);
   });
+  it.each([
+    ["reading camera capabilities", 1],
+    ["requesting a snapshot", 2],
+    ["downloading the JPEG", 3],
+  ] as const)("identifies a 403 while %s", async (step, failingRequest) => {
+    const responses = [
+      Response.json({
+        data: [{ id: "demo", attributes: { name: "Outside" } }],
+      }),
+      Response.json({ data: { attributes: {} } }),
+      Response.redirect("https://download.example.org/frame", 303),
+    ];
+    const send = vi.fn<typeof fetch>();
+    for (const response of responses.slice(0, failingRequest))
+      send.mockResolvedValueOnce(response);
+    send.mockResolvedValueOnce(new Response(null, { status: 403 }));
+    await expect(
+      ringClient(ID, "example", send).snapshot("fixture", "Outside", START),
+    ).rejects.toThrow("Ring returned HTTP 403 while " + step + ".");
+    expect(send).toHaveBeenCalledTimes(failingRequest + 1);
+  });
   it("refuses an ambiguous inventory match and explains when the requested window is empty", async () => {
     const device = { id: "some-id", attributes: { name: "Outside" } };
     const send = vi

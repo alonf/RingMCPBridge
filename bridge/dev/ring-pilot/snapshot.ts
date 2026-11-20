@@ -28,18 +28,21 @@ export interface Snapshot {
 
 export class SnapshotError extends Error {}
 
-function checkStatus(status: number) {
-  if (status === 416)
+type SnapshotStep =
+  | "reading camera capabilities"
+  | "requesting a snapshot"
+  | "downloading the JPEG";
+
+function checkStatus(status: number, step: SnapshotStep) {
+  if (step !== "reading camera capabilities" && status === 416)
     throw new SnapshotError("Ring found no image in the last 24 hours.");
-  if (status === 425)
+  if (step !== "reading camera capabilities" && status === 425)
     throw new SnapshotError(
       "Ring is still processing the image. Try again shortly.",
     );
-  if (status === 403)
-    throw new SnapshotError("Ring denied media access for this device.");
   if (status >= 400)
     throw new SnapshotError(
-      "Ring returned HTTP " + String(status) + " for the snapshot.",
+      "Ring returned HTTP " + String(status) + " while " + step + ".",
     );
 }
 
@@ -87,7 +90,7 @@ export async function downloadSnapshot(
     "content-type": "application/json",
   };
   const info = await request(deviceUrl + "/capabilities", { headers });
-  checkStatus(info.status);
+  checkStatus(info.status, "reading camera capabilities");
   const { components } = capabilities.parse(await info.json()).data.attributes;
   const lens = components?.items.find((item) => item.component_type === "lens");
   if (components && !lens)
@@ -109,7 +112,7 @@ export async function downloadSnapshot(
       ...(lens && { components: [{ component_id: lens.component_id }] }),
     }),
   });
-  checkStatus(result.status);
+  checkStatus(result.status, "requesting a snapshot");
   let media = result;
   if (result.status === 303) {
     const location = new URL(result.headers.get("location") ?? "");
@@ -126,7 +129,7 @@ export async function downloadSnapshot(
       signal: AbortSignal.timeout(20_000),
     });
   }
-  checkStatus(media.status);
+  checkStatus(media.status, "downloading the JPEG");
   if (media.status !== 200)
     throw new SnapshotError("Unexpected Ring media response.");
   const timestamp = Number(media.headers.get("X-Media-Timestamp"));
