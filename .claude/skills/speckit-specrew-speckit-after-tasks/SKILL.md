@@ -1,1 +1,0 @@
-../../../.specify/extensions/specrew-speckit/.specify-dev/agent-commands/claude/speckit-specrew-speckit-after-tasks/SKILL.md
