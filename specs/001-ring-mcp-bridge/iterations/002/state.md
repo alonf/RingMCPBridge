@@ -18,6 +18,8 @@
 <!-- specrew:task-progress-summary:end -->
 ## Notes
 
+- November 21, round seven: Claude verified the timestamp fallback and its two regression tests. A minor gap remains in the planned-versus-published `get_events` input check. The [round-seven record](review-preparation.md#round-seven-result-november-21) documents the schema difference and the acceptance criteria still awaiting independent review. The verdict is partial and one round remains.
+
 - Round-six timestamp rework, November 21: the corrected normalizer skips unrepresentable Ring timestamps. A regression test verifies the real outbox contains a schema-valid doorbell event with the receipt time when no Ring time is usable. Independent verification and the test-to-contract comparison remain pending.
 
 - November 21, round six: Claude reviewed the listener, normalization, outbox, subscriptions and callback transport. It reported one minor issue in timestamp handling. It did not compare tests and contracts with the requirements. The result is partial, two rounds remain, and sign-off is pending. See the [round-six record](review-preparation.md#round-six-result-november-21).
