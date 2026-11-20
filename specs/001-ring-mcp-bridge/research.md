@@ -808,7 +808,7 @@ All figures are **agent-derived** from list prices in the Azure Retail Prices AP
 
 ### S1: can a non-US Ring account use the official Partner API private app?
 
-- **Status**: accepted as unknown by the owner on 2026-11-02, at the design-analysis stop. The research is postponed to development time, on the owner's condition that the known options stay open and that the research chooses between them. The owner gives the go before it runs.
+- **Status**: Resolved on 2026-11-20. The owner registered a private app, linked the non-US account, and reported five entries from the authenticated device inventory. See the T040 addendum below.
 - **Secrets rule**: the owner enters the secrets; the agent never sees them; they are encrypted at rest and never printed.
 - **Known options** for how the bridge reaches Ring (PD "Accepted unknowns"):
   1. **The unofficial cloud API** (ring-client-api), called from the home connector. This is the v1 default, and Option B builds it.
@@ -980,9 +980,9 @@ Ring’s private-app guide explicitly allows Ring accounts from any country, spe
 
 The home pilot implements Ring's one-way account linking. Ring sends the authorization code directly to the pilot. The browser then presents a signed nonce that identifies the matching Ring account. After confirmation the pilot claims the integration, completes it, and reads the first device inventory page. The local tests exercise that sequence with synthetic credentials and devices. The README documents the four console fields and the home launcher. [Ring account linking and device discovery](https://developer.amazon.com/docs/ring/api-documentation.html)
 
-On 2026-11-20 the owner reported “connected” after the developer console step, then saw the pilot's signed-out homepage. The public tunnel served that same page to a request without a session. The console step adds the account to the private app's allowlist. The account holder then opens the private app in the Ring Appstore to authorize devices. A live pilot session and device inventory remain unverified. [Private app lifecycle](https://developer.amazon.com/docs/ring/publish.html#private-use-apps)
+On 2026-11-20 the owner reported “connected” after the developer console step, then saw the pilot's signed-out homepage. The public tunnel served that same page to a request without a session. The console step adds the account to the private app's allowlist. The account holder then opens the private app in the Ring Appstore to authorize devices. At that point the pilot had no confirmed live inventory result. [Private app lifecycle](https://developer.amazon.com/docs/ring/publish.html#private-use-apps)
 
-The result is one of three: registration and linking both work (the official path is open), registration works but linking does not, or registration is refused. Each is a finding; none is a failure of the spike.
+Result on 2026-11-20: registration, account linking and device discovery succeeded for the tested non-US account. The owner reported that the authenticated pilot page displayed five named devices. The page shows names only. Device types, alarm-panel visibility and live event delivery remain unverified. Iteration 003 can widen the official API path for device discovery and test coverage by capability. Retain the community library for existing capabilities until each replacement is verified.
 
 ## Iteration 002 addendum: the MCP Events probe (T039), the probe handler and spike S4 (2026-11-17)
 

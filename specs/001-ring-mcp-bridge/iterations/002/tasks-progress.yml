@@ -1,7 +1,7 @@
 schema: "v1"
 feature: "001-ring-mcp-bridge"
 iteration: "002"
-updated_at: "2026-11-19T22:24:24Z"
+updated_at: "2026-11-20T13:52:44Z"
 tasks:
   CP-08b:
     title: "Home event intake: the push probe first; Push Listener, Normalize (Ring text marked untrusted) and Ingest; events into the Outbox with a send window of about 50 and backoff on the oldest (10 s doubling to 5 min, with jitter), held until the core acks after its commit; the backlog in the heartbeat; catch-up up to 24 hours through the shared Ring limiter, marked late; the link's event messages in version 1"
@@ -35,9 +35,9 @@ tasks:
     blocked_reason: ""
   CP-20:
     title: "Spike S1, time-boxed: can a non-US Ring account register an official private app (TG-004, the accepted unknown S1)? The owner does the Ring developer-portal steps; no Ring credentials or codes pass through the chat"
-    status: "in-progress"
+    status: "completed"
     started_at: "2026-11-17T21:00:00Z"
-    completed_at: ""
+    completed_at: "2026-11-20T13:52:44Z"
     blocked_reason: ""
   CP-21b:
     title: "The dot and the first end-to-end latency samples: SC-001 measured from Ring's trigger to ChatGPT accepting the webhook, logged per event; the owner's stopwatch samples of the dot; the agent read from ChatGPT on the new core"

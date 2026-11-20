@@ -91,7 +91,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - the production deploy for this probe needs the owner's explicit OK.
 
   Finding: whether the owner's plan offers MCP Events, the exact callback hosts for the allowlist, and the signature scheme. If the plan does not offer it, stop and bring the choice to the owner before T048 (Trace: FR-010, FR-012; CP-13)
-- [ ] T040 [P] [assigned_to: Implementer] [effort: 1.8] Spike S1, time-boxed to its points: can a non-US Ring account register an official private app?
+- [x] T040 [P] [assigned_to: Implementer] [effort: 1.8] Spike S1, time-boxed to its points: can a non-US Ring account register an official private app?
   - the owner does every Ring developer-portal step on their own account. No Ring credentials or codes pass through the chat;
   - the Implementer prepares the step list and records each answer the owner reports;
   - the result names which Ring path iteration 003 widens: the official API, or the current library.

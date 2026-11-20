@@ -3,20 +3,22 @@
 **Schema**: v2
 **Current Phase**: before-implement
 **Iteration Status**: executing
-**Last Completed Task**: CP-13
+**Last Completed Task**: CP-20
 **Tasks Remaining**: CP-RV, CP-PJ
-**In Progress**: CP-18, CP-20, CP-21b, CP-RW
+**In Progress**: CP-18, CP-21b, CP-RW
 **Baseline Ref**: c9618ddc79cb7f5e3d94dffe1ae4c2bc3d16ea7c
-**Updated**: 2026-11-20T02:09:12.5092479Z
+**Updated**: 2026-11-20T13:52:44Z
 
 ## Execution Summary
 
 <!-- specrew:task-progress-summary:begin -->
 - Execution is in progress.
-- Task progress: 5 complete, 4 in-progress, 2 pending, 0 blocked.
-- Latest completed task: CP-13
+- Task progress: 6 complete, 3 in-progress, 2 pending, 0 blocked.
+- Latest completed task: CP-20
 <!-- specrew:task-progress-summary:end -->
 ## Notes
+
+- T040 completed on 2026-11-20. The owner linked the official private app and reported five devices on the authenticated inventory page. The S1 addendum in research.md records the scope of this result.
 
 - T049 resumed with 51 distinct device events from earlier pilot builds. Two HIGH doorbell callbacks were accepted in 1.096 and 1.250 seconds. For 49 MEDIUM person detections, the 95th percentile was 1.978 seconds and the maximum was 2.232 seconds. The private pilot journal holds the samples. These times measure webhook acceptance. A read via the Ring MCP integration in Codex succeeded on the current core. The owner approved the connector update to the deployed core release, `b444d18`. The connector reopened the core link at 22:35:54 UTC on November 19. A post-update MCP overview at 22:36:08 UTC reported the link up and the Ring session and database healthy. The owner deferred the timed doorbell observation until daylight. A passive check from rollout to 02:11 UTC on November 20 found 215 core health samples, each reporting the home online, Ring signed in and zero backlog age. ChatGPT accepted two other distinct events during that interval; neither had a doorbell event ID.
 
