@@ -1,0 +1,89 @@
+// The admin page's little script (T029; UX U1, U3), served at its own path: the page's policy allows
+// no inline script. Everything works without it; it adds three things:
+// - **The theme switch** changes the theme in place, keeping what the owner typed, and remembers
+//   the choice in the theme cookie. Without the script, the switch posts a form instead.
+// - **The health poll**: every 15 s it fetches the Health section alone and puts it in place, so the
+//   Enroll section and what is typed there are never touched; Refresh polls at once. When the
+//   session has ended, it shows the signed-out notice the server sent and stops. Without the
+//   script, Refresh loads the whole page again.
+// - **The browser's time zone**: when the bridge has no usable time zone, the Time zone list starts
+//   at the browser's own, if the list has it (DRIFT-001-81). Without the script, it starts at UTC.
+
+/** How often the open page fetches the Health section again (FR-040; UX U3). */
+export const HEALTH_POLL_MS = 15_000;
+
+/** The script, served as it is: no build step. */
+export function pageScript(options: {
+  readonly healthPath: string;
+  readonly themeCookie: string;
+  readonly themeCookiePath: string;
+  readonly themeCookieMaxAgeS: number;
+}): string {
+  return `"use strict";
+(function () {
+  var root = document.documentElement;
+  var themeForm = document.querySelector("form[data-theme-switch]");
+  if (themeForm) {
+    themeForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
+      root.setAttribute("data-theme", next);
+      document.cookie = ${JSON.stringify(`${options.themeCookie}=`)} + next +
+        ${JSON.stringify(`; Path=${options.themeCookiePath}; Max-Age=${String(options.themeCookieMaxAgeS)}; Secure; SameSite=Lax`)};
+      var button = themeForm.querySelector("button");
+      if (button) {
+        button.textContent = next === "light" ? "Dark theme" : "Light theme";
+      }
+      var input = themeForm.querySelector("input[name=theme]");
+      if (input) {
+        input.value = next === "light" ? "dark" : "light";
+      }
+    });
+  }
+  var zoneChoice = document.querySelector("select[data-browser-default]");
+  if (zoneChoice) {
+    try {
+      var browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      for (var index = 0; index < zoneChoice.options.length; index += 1) {
+        if (zoneChoice.options[index].value === browserZone) {
+          zoneChoice.value = browserZone;
+          break;
+        }
+      }
+    } catch (error) {
+      /* The list keeps the zone in use. */
+    }
+  }
+  if (!document.getElementById("health") || document.body.getAttribute("data-signed-in") !== "yes") {
+    return;
+  }
+  var timer;
+  function poll() {
+    window.fetch(${JSON.stringify(options.healthPath)}, { cache: "no-store", credentials: "same-origin" })
+      .then(function (response) {
+        return response.text().then(function (text) {
+          var current = document.getElementById("health");
+          if (current && (response.ok || response.status === 401)) {
+            current.outerHTML = text;
+          }
+          if (response.status === 401) {
+            window.clearInterval(timer);
+          }
+        });
+      })
+      .catch(function () {
+        /* The next poll tries again. */
+      });
+  }
+  timer = window.setInterval(poll, ${String(HEALTH_POLL_MS)});
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    var link = target && target.closest ? target.closest("a[data-refresh]") : null;
+    if (link) {
+      event.preventDefault();
+      poll();
+    }
+  });
+})();
+`;
+}

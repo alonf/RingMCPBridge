@@ -1,0 +1,44 @@
+name: Admin page
+
+# The admin page in a real browser (T029; plan.md Testing: Playwright at three widths in both
+# themes). Not a required check. The owner chose to run it only on pushes that change the page,
+# to save Actions minutes. It runs on push, not pull_request: a push's path filter compares with
+# the previous push, where a pull request's compares the whole pull request with its base, which
+# would match on every push to a branch that has ever touched the page.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "bridge/src/core/clients/web/**"
+      - "bridge/dev/admin-pages.ts"
+      - "bridge/test/pages/**"
+      - "playwright.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "bridge/package.json"
+      - ".github/workflows/admin-page.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: admin-page-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  admin-page:
+    name: admin-page
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Playwright's headless Chromium, with the system libraries it needs
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: The admin page at three widths, dark and light
+        run: npx playwright test

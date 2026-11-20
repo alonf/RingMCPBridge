@@ -1,0 +1,11 @@
+[
+  {
+    "package": "@eneris/push-receiver",
+    "version": "4.3.1",
+    "requiredBy": "ring-client-api@14.3.0",
+    "required": "4.3.0",
+    "reason": "ring-client-api 14.3.0 pins push-receiver 4.3.0, which cannot decrypt FCM's current crypto-key header and drops every push (ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY at the owner's home). 4.3.1 reads the header by name; otherwise it closes its socket in one more place, with the same API, dependencies and MIT licence. The root package.json overrides it, but npm 11.9.0 still reports the overridden edge as invalid, so npm sbom refuses to run and the licence gate reads the lockfile instead (DRIFT-002-16).",
+    "reviewed": "2026-11-18, the owner's typed \"OK, Option 1\"",
+    "until": "a stable ring-client-api that depends on @eneris/push-receiver 4.3.1 or later; then remove this entry and the override"
+  }
+]

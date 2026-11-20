@@ -6,18 +6,21 @@ description: "Task list template for feature implementation"
 # Tasks: [FEATURE NAME]
 
 **Input**: Design documents from `/specs/[###-feature-name]/`
-
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
 **Tests**: The examples below include test tasks. Tests are OPTIONAL - only include them if explicitly requested in the feature specification.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
-## Format: `[ID] [P?] [Story] Description`
+## Format: `- [ ] T### [P?] [US#?] [assigned_to: ...] [effort: ...] Description with exact file path(s) or action (Trace: ...)`
 
 - **[P]**: Can run in parallel (different files, no dependencies)
-- **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
+- **[US#]**: Include when work belongs to a user story (`US1`, `US2`, `US3`)
+- **[assigned_to]**: Responsible steward / owner role
+- **[effort]**: Relative effort estimate (`S`, `M`, `L`) or the repo's current bounded capacity unit
 - Include exact file paths in descriptions
+- Include explicit traceability metadata in every task description
+- Group tasks into numbered phases with delivery goals, independent test criteria, dependency notes, and a verification-command footer
 
 ## Path Conventions
 
@@ -26,21 +29,21 @@ description: "Task list template for feature implementation"
 - **Mobile**: `api/src/`, `ios/src/` or `android/src/`
 - Paths shown below assume single project - adjust based on plan.md structure
 
-<!--
+<!-- 
   ============================================================================
   IMPORTANT: The tasks below are SAMPLE TASKS for illustration purposes only.
-
+  
   The /speckit.tasks command MUST replace these with actual tasks based on:
   - User stories from spec.md (with their priorities P1, P2, P3...)
   - Feature requirements from plan.md
   - Entities from data-model.md
   - Endpoints from contracts/
-
+  
   Tasks MUST be organized by user story so each story can be:
   - Implemented independently
   - Tested independently
   - Delivered as an MVP increment
-
+  
   DO NOT keep these sample tasks in the generated tasks.md file.
   ============================================================================
 -->
@@ -49,9 +52,9 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Create project structure per implementation plan
-- [ ] T002 Initialize [language] project with [framework] dependencies
-- [ ] T003 [P] Configure linting and formatting tools
+- [ ] T001 [US0] [Owner: TBD] [Capacity: TBD] Create project structure per implementation plan (Trace: plan.md)
+- [ ] T002 [US0] [Owner: TBD] [Capacity: TBD] Initialize [language] project with [framework] dependencies (Trace: plan.md)
+- [ ] T003 [P] [US0] [Owner: TBD] [Capacity: TBD] Configure linting and formatting tools (Trace: plan.md)
 
 ---
 
@@ -70,7 +73,8 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T008 Configure error handling and logging infrastructure
 - [ ] T009 Setup environment configuration management
 
-**Checkpoint**: Foundation ready - user story implementation can now begin in parallel
+**Checkpoint**: Foundation ready - user story implementation can now begin in
+parallel after capacity and ownership checks pass
 
 ---
 
@@ -245,6 +249,7 @@ With multiple developers:
 
 - [P] tasks = different files, no dependencies
 - [Story] label maps task to specific user story for traceability
+- Every task requires explicit owner and capacity assignment before execution
 - Each user story should be independently completable and testable
 - Verify tests fail before implementing
 - Commit after each task or logical group

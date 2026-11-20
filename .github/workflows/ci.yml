@@ -1,0 +1,118 @@
+name: CI
+
+# The product checks (T004; plan.md Required Quality Gates; research PT-15 job names).
+# Required checks: lint, test, build, secret-scan (and specrew-governance in specrew-ci.yml).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Type check
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: ESLint
+        run: npx eslint --max-warnings 0 .
+      - name: Prettier
+        run: npx prettier --check .
+      - name: Dependency rules (dependency-cruiser)
+        run: npx depcruise bridge shim --config .dependency-cruiser.cjs
+      - name: Public Contract schema snapshot
+        run: npm run schemas:check --if-present
+      # FR-046: compare with the base commit's published schemas too, so a hand edit to the
+      # committed files cannot hide a removal or narrowing (DRIFT-001-15). The base is the pull
+      # request's base, or main's previous commit on a push.
+      - name: Public Contract against the base commit
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base="$RUNNER_TEMP/base-schemas"
+          mkdir -p "$base/schemas"
+          if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            if git cat-file -e "$BASE_SHA:schemas" 2>/dev/null; then
+              git archive "$BASE_SHA" schemas | tar -x -C "$base"
+            fi
+          fi
+          SCHEMAS_BASE_DIRECTORY="$base/schemas" npm run schemas:check
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Ci-${{ github.run_id }}-Sql!
+        ports:
+          - 1433:1433
+      azurite:
+        image: mcr.microsoft.com/azure-storage/azurite:latest
+        ports:
+          - 10000:10000
+    env:
+      TEST_MSSQL_HOST: localhost
+      TEST_MSSQL_PORT: "1433"
+      TEST_MSSQL_PASSWORD: Ci-${{ github.run_id }}-Sql!
+      TEST_AZURITE_BLOB_URL: http://127.0.0.1:10000/devstoreaccount1
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Unit and integration tests with the coverage gate
+        run: npx vitest run --coverage
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # The one image for the core and the connector (T027), for linux/amd64 here; the deploy
+      # builds linux/arm64 too. Each mode then starts and stops at the first thing it lacks.
+      - name: Build the image
+        run: docker build -f bridge/Dockerfile -t ring-mcp-bridge:ci .
+      - name: Smoke-test the image in each mode
+        run: node scripts/image-smoke.mjs ring-mcp-bridge:ci
+      - name: npm audit gate (fails on high or critical, with the written exception list)
+        run: node scripts/audit-gate.mjs
+      - name: Licence gate over npm sbom
+        run: node scripts/license-gate.mjs
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: gitleaks 8.30.1 (pinned binary, checked by checksum)
+        run: node scripts/run-gitleaks.mjs git --redact --no-banner --config .gitleaks.toml

@@ -1,0 +1,82 @@
+// The schema of the connector's own SQLite file (DS3, CD map v3 Outbox Store). It lives on SQLite
+// only. A new migration goes at the end; a released one is never edited or removed (DS5).
+//
+// - `outbox`: one row per message not yet acked. `seq` is SQLite's row id, so rows come back in the
+//   order they were written. `kind` has no CHECK, so a later release can add kinds (events and
+//   `catchup_done` in iteration 002) without rebuilding the table. Times are UTC milliseconds.
+// - `state_counter`: one row, the last `state_version` handed out (PT-30).
+// - `catchup_mark` (migration 3): the newest Ring event written, where the catch-up resumes.
+import type { Migration } from "../../../utilities/query-layer/index.ts";
+
+export const OUTBOX_MIGRATIONS: readonly Migration<"sqlite">[] = [
+  {
+    version: 1,
+    name: "outbox-and-state-counter",
+    statements: {
+      sqlite: [
+        `CREATE TABLE outbox (
+          seq INTEGER NOT NULL,
+          message_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          body TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          sent_at INTEGER,
+          CONSTRAINT outbox_pk PRIMARY KEY (seq),
+          CONSTRAINT outbox_message_id_uq UNIQUE (message_id)
+        ) STRICT`,
+        `CREATE TABLE state_counter (
+          counter_id INTEGER NOT NULL,
+          last_version INTEGER NOT NULL,
+          CONSTRAINT state_counter_pk PRIMARY KEY (counter_id),
+          CONSTRAINT state_counter_single_row CHECK (counter_id = 1)
+        ) STRICT`,
+        "INSERT INTO state_counter (counter_id, last_version) VALUES (1, 0)",
+      ],
+    },
+  },
+  // Migration 2 (T043): what an event's resend needs. `attempts` counts how often a message was
+  // sent in this session, and `due_at` is when it is sent again without an ack. Only events use
+  // them; the state messages keep their fixed resend time. Additive: a column with a default and
+  // a nullable column, so the release before still runs on this file (DS5).
+  {
+    version: 2,
+    name: "event-resend",
+    statements: {
+      sqlite: [
+        "ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE outbox ADD COLUMN due_at INTEGER",
+      ],
+    },
+  },
+  // Migration 3 (T053): the catch-up mark, one row: the time of the newest Ring event the home has
+  // written to the outbox, in UTC milliseconds. After a gap, Ring's history is read from it. It
+  // only moves forward. Additive: one new table, so the release before still runs on this file.
+  {
+    version: 3,
+    name: "catchup-mark",
+    statements: {
+      sqlite: [
+        `CREATE TABLE catchup_mark (
+          mark_id INTEGER NOT NULL,
+          last_event_at INTEGER NOT NULL,
+          CONSTRAINT catchup_mark_pk PRIMARY KEY (mark_id),
+          CONSTRAINT catchup_mark_single_row CHECK (mark_id = 1)
+        ) STRICT`,
+      ],
+    },
+  },
+  {
+    version: 4,
+    name: "camera-history-checkpoints",
+    statements: {
+      sqlite: [
+        `CREATE TABLE camera_history_checkpoint (
+          camera_id TEXT PRIMARY KEY NOT NULL,
+          scanned_at INTEGER NOT NULL
+        ) STRICT`,
+        // A legacy push may have advanced past unseen events. Replay the bounded window on upgrade.
+        "UPDATE catchup_mark SET last_event_at = 0",
+      ],
+    },
+  },
+];

@@ -1,0 +1,33 @@
+name: Weekly
+
+# Mutation testing of the engines with StrykerJS 10.1.1 (T004; code-implementation I4).
+# It runs weekly and on demand, never on every push.
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    name: mutation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: StrykerJS on bridge/src/core/engines
+        run: npx stryker run
+      - name: Keep the mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          if-no-files-found: ignore

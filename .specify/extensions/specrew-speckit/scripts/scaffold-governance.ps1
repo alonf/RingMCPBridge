@@ -1,0 +1,357 @@
+# scaffold-governance.ps1
+# Creates governance artifacts (constitution, iteration config, role assignments) for a downstream project
+
+<#
+.SYNOPSIS
+    Scaffolds governance artifacts for a Specrew-managed project.
+
+.DESCRIPTION
+    Creates the downstream governance files required by the Specrew bootstrap:
+    - .specrew\config.yml
+    - .specrew\constitution.md
+    - .specrew\iteration-config.yml (including Phase 2 routing-strength defaults)
+    - .specrew\role-assignments.yml
+
+.PARAMETER ProjectPath
+    Path to the target project directory.
+
+.PARAMETER SpecrewVersion
+    Specrew version to record in .specrew\config.yml.
+
+.PARAMETER SpecKitVersion
+    Detected Spec Kit version to record in .specrew\config.yml.
+
+.PARAMETER SquadVersion
+    Detected Squad version to record in .specrew\config.yml.
+
+.PARAMETER BootstrapMode
+    Bootstrap mode to record in .specrew\config.yml.
+
+.PARAMETER DryRun
+    Show intended changes without writing files.
+
+.PARAMETER PassThru
+    Return structured action details.
+
+.EXAMPLE
+    .\scaffold-governance.ps1 -ProjectPath "C:\Projects\MyApp"
+#>
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$ProjectPath,
+
+    [string]$SpecrewVersion = '0.1.0-dev',
+    [string]$SpecKitVersion,
+    [string]$SquadVersion,
+    [ValidateSet('greenfield', 'brownfield')]
+    [string]$BootstrapMode = 'greenfield',
+    [switch]$DryRun,
+    [switch]$PassThru
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$sharedGovernancePath = Join-Path $PSScriptRoot 'shared-governance.ps1'
+if (-not (Test-Path -LiteralPath $sharedGovernancePath -PathType Leaf)) {
+    throw "Missing shared governance helper '$sharedGovernancePath'."
+}
+. $sharedGovernancePath
+
+function Get-TargetFileContent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TemplatePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$CreatedDate
+    )
+
+    $content = Get-Content -Path $TemplatePath -Raw
+    return $content -replace '<!-- YYYY-MM-DD populated at bootstrap -->', $CreatedDate
+}
+
+function Save-ManagedFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Content,
+
+        [AllowEmptyCollection()]
+        [Parameter(Mandatory = $true)]
+        [System.Collections.ArrayList]$Actions
+    )
+
+    $targetExists = Test-Path -LiteralPath $TargetPath
+    $action = if ($targetExists) {
+        'preserved'
+    }
+    elseif ($DryRun) {
+        'would-create'
+    }
+    else {
+        'created'
+    }
+
+    $null = $Actions.Add([pscustomobject]@{
+            Path   = $TargetPath
+            Action = $action
+        })
+
+    if ($targetExists -or $DryRun) {
+        return
+    }
+
+    $parent = Split-Path -Parent $TargetPath
+    if (-not (Test-Path -LiteralPath $parent)) {
+        New-Item -Path $parent -ItemType Directory -Force | Out-Null
+    }
+
+    [System.IO.File]::WriteAllText($TargetPath, $Content, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Ensure-ManagedDirectory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath,
+
+        [AllowEmptyCollection()]
+        [Parameter(Mandatory = $true)]
+        [System.Collections.ArrayList]$Actions
+    )
+
+    $targetExists = Test-Path -LiteralPath $TargetPath
+    $action = if ($targetExists) {
+        'preserved-directory'
+    }
+    elseif ($DryRun) {
+        'would-create-directory'
+    }
+    else {
+        'created-directory'
+    }
+
+    $null = $Actions.Add([pscustomobject]@{
+            Path   = $TargetPath
+            Action = $action
+        })
+
+    if ($targetExists -or $DryRun) {
+        return
+    }
+
+    New-Item -Path $TargetPath -ItemType Directory -Force | Out-Null
+}
+
+function Save-ManagedTemplateTree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$TargetRoot,
+
+        [AllowEmptyCollection()]
+        [Parameter(Mandatory = $true)]
+        [System.Collections.ArrayList]$Actions
+    )
+
+    if (-not (Test-Path -LiteralPath $SourceRoot -PathType Container)) {
+        return
+    }
+
+    Ensure-ManagedDirectory -TargetPath $TargetRoot -Actions $Actions
+
+    $sourceFiles = Get-ChildItem -LiteralPath $SourceRoot -File -Recurse | Sort-Object FullName
+    foreach ($sourceFile in $sourceFiles) {
+        $relativePath = [System.IO.Path]::GetRelativePath($SourceRoot, $sourceFile.FullName)
+        $targetPath = Join-Path $TargetRoot $relativePath
+        $content = Get-Content -LiteralPath $sourceFile.FullName -Raw
+        Save-ManagedFile -TargetPath $targetPath -Content $content -Actions $Actions
+    }
+}
+
+function Save-ConfigFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Content,
+
+        [Parameter(Mandatory = $true)]
+        [string]$QualityBlock,
+
+        [AllowEmptyCollection()]
+        [Parameter(Mandatory = $true)]
+        [System.Collections.ArrayList]$Actions
+    )
+
+    if (-not (Test-Path -LiteralPath $TargetPath -PathType Leaf)) {
+        Save-ManagedFile -TargetPath $TargetPath -Content $Content -Actions $Actions
+        return
+    }
+
+    $existingContent = Get-Content -LiteralPath $TargetPath -Raw
+    $updatedContent = $existingContent
+    if ($updatedContent -notmatch '(?m)^schema:\s*"?(?<value>[^"\r\n]+)"?\s*$') {
+        $updatedContent = ('schema: "v1"' + [Environment]::NewLine + $updatedContent.TrimStart())
+    }
+    if ($updatedContent -match '(?m)^quality:\s*$') {
+        $null = $Actions.Add([pscustomobject]@{
+                Path   = $TargetPath
+                Action = $(if ($updatedContent -eq $existingContent) { 'preserved' } else { if ($DryRun) { 'would-update' } else { 'updated' } })
+            })
+        if (-not $DryRun -and $updatedContent -ne $existingContent) {
+            [System.IO.File]::WriteAllText($TargetPath, $updatedContent, [System.Text.UTF8Encoding]::new($false))
+        }
+        return
+    }
+
+    $separator = if ($updatedContent.EndsWith("`n")) { '' } else { "`r`n" }
+    $updatedContent = $updatedContent.TrimEnd() + $separator + "`r`n" + $QualityBlock
+    $action = if ($DryRun) { 'would-update' } else { 'updated' }
+    $null = $Actions.Add([pscustomobject]@{
+            Path   = $TargetPath
+            Action = $action
+        })
+
+    if ($DryRun) {
+        return
+    }
+
+    [System.IO.File]::WriteAllText($TargetPath, $updatedContent, [System.Text.UTF8Encoding]::new($false))
+}
+
+$resolvedProjectPath = Resolve-ProjectPath -Path $ProjectPath
+$extensionRoot = Split-Path -Parent $PSScriptRoot
+$templateRoot = Join-Path $extensionRoot 'templates'
+$specrewRoot = Join-Path $resolvedProjectPath '.specrew'
+$qualityTemplateRoot = Join-Path $templateRoot 'quality'
+$presetTemplateRoot = Join-Path $qualityTemplateRoot 'presets'
+$lensTemplateRoot = Join-Path $qualityTemplateRoot 'lenses'
+$presetRoot = Join-Path $specrewRoot 'presets'
+$lensRoot = Join-Path $specrewRoot 'lenses'
+$createdDate = Get-Date -Format 'yyyy-MM-dd'
+$actions = [System.Collections.ArrayList]::new()
+
+if (-not (Test-Path -LiteralPath $resolvedProjectPath)) {
+    $null = $actions.Add([pscustomobject]@{
+            Path   = $resolvedProjectPath
+            Action = $(if ($DryRun) { 'would-create-directory' } else { 'created-directory' })
+        })
+
+    if (-not $DryRun) {
+        New-Item -Path $resolvedProjectPath -ItemType Directory -Force | Out-Null
+    }
+}
+
+Ensure-ManagedDirectory -TargetPath $specrewRoot -Actions $actions
+Ensure-ManagedDirectory -TargetPath $presetRoot -Actions $actions
+Ensure-ManagedDirectory -TargetPath $lensRoot -Actions $actions
+
+$constitutionContent = Get-TargetFileContent -TemplatePath (Join-Path $templateRoot 'downstream-constitution.md') -CreatedDate $createdDate
+# The iteration-config template carries the default agent strength metadata used by
+# Phase 2 strongest-available review routing.
+$iterationConfigContent = Get-Content -Path (Join-Path $templateRoot 'iteration-config.yml') -Raw
+$roleAssignmentsContent = Get-Content -Path (Join-Path $templateRoot 'role-assignments.yml') -Raw
+$qualityBlock = @"
+quality:
+  presets_path: ".specrew/presets"
+  lenses_path: ".specrew/lenses"
+  findings_schema_version: "v1"
+  evidence_directory_name: "quality"
+"@
+$configContent = @"
+schema: "v1"
+specrew_version: "$SpecrewVersion"
+speckit_version: "$SpecKitVersion"
+squad_version: "$SquadVersion"
+bootstrap_date: "$createdDate"
+bootstrap_mode: "$BootstrapMode"
+session_mode: "single"
+governance:
+  constitution_path: ".specrew/constitution.md"
+  iteration_config_path: ".specrew/iteration-config.yml"
+  role_assignments_path: ".specrew/role-assignments.yml"
+$qualityBlock
+"@
+
+Save-ManagedFile -TargetPath (Join-Path $specrewRoot 'constitution.md') -Content $constitutionContent -Actions $actions
+Save-ManagedFile -TargetPath (Join-Path $specrewRoot 'iteration-config.yml') -Content $iterationConfigContent -Actions $actions
+Save-ManagedFile -TargetPath (Join-Path $specrewRoot 'role-assignments.yml') -Content $roleAssignmentsContent -Actions $actions
+Save-ConfigFile -TargetPath (Join-Path $specrewRoot 'config.yml') -Content $configContent -QualityBlock $qualityBlock -Actions $actions
+Save-ManagedTemplateTree -SourceRoot $presetTemplateRoot -TargetRoot $presetRoot -Actions $actions
+Save-ManagedTemplateTree -SourceRoot $lensTemplateRoot -TargetRoot $lensRoot -Actions $actions
+
+# Bootstrap a minimal `.specrew/roadmap.yml` stub. Proposal 057 (Roadmap Spine + Input
+# Adapter Pattern) is still draft, so we do NOT implement the full adapter system here —
+# this is a one-row scaffold so the dashboard has a roadmap section to render even
+# before downstream projects build out their own phase plans. Downstream maintainers
+# can edit this freely; Specrew never overwrites it on update (managed-content rule).
+# Empirical motivation: F-040 calc-v2 dogfooding 2026-05-23 surfaced that the dashboard
+# has no roadmap surface in fresh projects, making the "where am I?" view feel hollow.
+$roadmapContent = @"
+# Downstream project roadmap.
+# This stub is bootstrapped by `specrew init`. Edit freely — Specrew never overwrites it.
+# When Proposal 057 ships, this file will be read by the dashboard renderer and by
+# input adapters (manual / GitHub Issues / Linear / etc.) to drive feature sequencing.
+phases:
+  - id: phase-1-initial
+    name: "Phase 1: Initial Delivery"
+    description: "First slice of work in this project. Replace this stub with your real phase plan."
+    planned_effort_sp: 0
+    status: planning
+    feature_refs: []
+"@
+Save-ManagedFile -TargetPath (Join-Path $specrewRoot 'roadmap.yml') -Content $roadmapContent -Actions $actions
+
+# Bootstrap a downstream-friendly `.markdownlint.json` at the PROJECT ROOT (not under
+# .specrew/) so editors auto-discover it. Empirical motivation: tip-calc-v2 dogfooding
+# 2026-05-24 produced 335 lint violations on a clean, high-quality run because
+# downstream projects don't get this config — 290× MD013 line-length alone. The
+# F-033 pre-boundary markdownlint gate is intentionally a no-op under that noise floor.
+#
+# Default rule set mirrors Specrew's own dev tree (MD013 off for line-length is the
+# big one; MD024/MD025/MD026/MD029/MD033/MD036/MD040/MD041 also relaxed because
+# they conflict with how Specrew's templates structure prose-heavy artifacts). Keep
+# MD032 (blanks-around-lists) and MD047 (single-trailing-newline) enabled — those
+# are the real signal that the F-033 gate catches.
+#
+# This is a managed-content rule: never overwritten on update — downstream maintainers
+# can tighten or relax further as their project matures.
+$markdownlintContent = @'
+{
+  "default": true,
+  "MD007": false,
+  "MD013": false,
+  "MD024": false,
+  "MD025": { "front_matter_title": "" },
+  "MD026": false,
+  "MD029": false,
+  "MD033": false,
+  "MD036": false,
+  "MD040": false,
+  "MD041": false,
+  "MD052": false,
+  "MD060": false
+}
+'@
+Save-ManagedFile -TargetPath (Join-Path $resolvedProjectPath '.markdownlint.json') -Content $markdownlintContent -Actions $actions
+
+if ($PassThru) {
+    $actions
+    return
+}
+
+$actions |
+    Select-Object Action, Path |
+    Format-Table -AutoSize
+
+Write-Host ("Governance scaffolding {0} for {1}" -f ($(if ($DryRun) { 'previewed' } else { 'completed' }), $resolvedProjectPath)) -ForegroundColor Green
+exit 0
+# specrew-self-provenance-ok: F-033,F-040; implementation history is recorded for maintainers and is never emitted as consumer instruction

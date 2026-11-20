@@ -1,0 +1,15 @@
+union isfuzzy=true (datatable(TimeGenerated:datetime, _ResourceId:string, ResultDescription:string)[]), AppServiceConsoleLogs
+| where _ResourceId =~ '__APP_RESOURCE_ID__'
+| where ResultDescription contains '"bridge_health_sample"'
+| extend healthPayload = parse_json(substring(ResultDescription, indexof(ResultDescription, '{')))
+| where healthPayload.event == 'bridge_health_sample'
+| extend sampleTime = todatetime(healthPayload.ts)
+| summarize arg_max(sampleTime, healthPayload)
+| extend reason = case(
+    isnull(sampleTime) or sampleTime <= ago(10m), 'core_heartbeat_missing',
+    tolong(healthPayload.home_offline_ms) > 0 and sampleTime - tolong(healthPayload.home_offline_ms) * 1ms < ago(10m), 'home_offline',
+    tolong(healthPayload.backlog_age_ms) > 300000, 'backlog_delayed',
+    tostring(healthPayload.ring_session) == 'lost', 'ring_session_lost',
+    'healthy')
+| where reason != 'healthy'
+| project reason

@@ -1,0 +1,760 @@
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+# F-198 / T045: dependency-free immutable JSON repositories. There is no generic lock, mutable
+# revision/CAS layer, database, event store, process-owner handoff, or delete-on-completion path.
+# Every authority fact has one deterministic unique path and is published with FileMode.CreateNew.
+
+if (-not (Get-Command -Name 'Test-ReviewAuthorityContractObject' -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot 'review-authority-core.ps1')
+}
+# HARD dependency (DRIFT-198-I009-018): absent, store containment silently compared with a
+# DIFFERENT case rule instead of the volume's own.
+if (-not (Get-Command -Name 'Get-ContinuousCoReviewPathCaseSensitive' -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot 'path-identity.ps1')
+}
+# HARD dependency (T006/FR-011). Guarded on the EXACT function this file calls rather than on a
+# sibling name: DRIFT-198-I009-027's shadow survived a guard that probed a DIFFERENT name, and
+# DRIFT-199-I001-014/-017 were both this class - a primitive that is merely RECOMMENDED gets bypassed
+# by a forgotten dot-source and then answers from whatever ambient copy loaded last.
+if (-not (Get-Command -Name 'Get-SpecrewReparseDispositionForItem' -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot 'reparse-tag-policy.ps1')
+}
+
+function ConvertTo-ReviewAuthorityCanonicalValue {
+    param([AllowNull()]$Value)
+    if ($null -eq $Value) { return $null }
+    # PowerShell's pipeline adapter can make scalar items report as [pscustomobject] even though
+    # their BaseObject is still a string/value type. Preserve scalars before object-property
+    # canonicalization so arrays of strings/numbers never serialize as {Length:...} wrappers.
+    if ($Value -is [string] -or $Value -is [ValueType]) { return $Value }
+    if ($Value -is [System.Collections.IDictionary]) {
+        $ordered = [ordered]@{}
+        foreach ($key in @($Value.Keys | Sort-Object { [string]$_ })) { $ordered[[string]$key] = ConvertTo-ReviewAuthorityCanonicalValue -Value $Value[$key] }
+        return [pscustomobject]$ordered
+    }
+    if ($Value -is [pscustomobject]) {
+        $ordered = [ordered]@{}
+        foreach ($property in @($Value.PSObject.Properties | Sort-Object Name)) { $ordered[$property.Name] = ConvertTo-ReviewAuthorityCanonicalValue -Value $property.Value }
+        return [pscustomobject]$ordered
+    }
+    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
+        $items = @($Value | ForEach-Object { ConvertTo-ReviewAuthorityCanonicalValue -Value $_ })
+        Write-Output -NoEnumerate $items
+        return
+    }
+    return $Value
+}
+
+function ConvertTo-ReviewAuthorityCanonicalJson {
+    param([Parameter(Mandatory)]$Fact)
+    return ((ConvertTo-ReviewAuthorityCanonicalValue -Value $Fact) | ConvertTo-Json -Depth 30 -Compress)
+}
+
+function Assert-ReviewAuthoritySafeRelativePath {
+    param([Parameter(Mandatory)][string]$RelativePath)
+    $normalized = $RelativePath.Replace('\', '/')
+    if ([string]::IsNullOrWhiteSpace($normalized) -or [System.IO.Path]::IsPathRooted($RelativePath) -or
+        @($normalized.Split('/') | Where-Object { $_ -ceq '..' }).Count -gt 0) {
+        throw "review-store-invalid-relative-path:$RelativePath"
+    }
+}
+
+function Get-ReviewAuthorityStorePath {
+    # Lexical containment is NOT containment (DRIFT-198-I009-041). GetFullPath only folds '..'
+    # and separators, so a reparse point AT THE STORE ROOT, or at any CAMPAIGN/RUN ancestor
+    # beneath it, still compares as under the root while Directory.CreateDirectory,
+    # FileStream(CreateNew/Open), and Directory.EnumerateFiles all follow it outside the
+    # intended store. This store holds the campaign's IMMUTABLE authority facts - grants,
+    # reservations, spend, results - the evidence chain every certification claim in this
+    # repository's own review history rests on. Measured before this fix: a symlinked store
+    # root or a symlinked `campaigns/` ancestor causes a written fact to land, unrefused, inside
+    # the external link target (probe evidence recorded against T082 in the iteration-010 drift
+    # log). Fourth appearance of this containment class after DRIFT-198-I009-011 (retirement
+    # delete), -025 (managed-file write), -031 (deployment mutators - all five, one choke
+    # point). This module's every read, write, and enumeration resolves its path through this
+    # ONE function, so hardening it here covers the whole module rather than each call site.
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$RelativePath
+    )
+    Assert-ReviewAuthoritySafeRelativePath -RelativePath $RelativePath
+    $root = [System.IO.Path]::GetFullPath($StoreRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $full = [System.IO.Path]::GetFullPath((Join-Path $root $RelativePath))
+    $prefix = $root + [System.IO.Path]::DirectorySeparatorChar
+    # Store containment: refuse an aliased path rather than admit it when the volume is unknown.
+    $comparison = Get-ContinuousCoReviewPathComparison -Path $root -WhenUndetermined 'same'
+    if (-not $full.StartsWith($prefix, $comparison)) { throw "review-store-path-escape:$RelativePath" }
+
+    # The store root need not exist yet - CreateDirectory below creates the whole chain on a
+    # project's first-ever review, and nothing can be maliciously linked before it exists. Where
+    # it DOES exist, a reparse point there is refused before anything beneath it is touched.
+    #
+    # T006/FR-011: DISCRIMINATE, do not blanket-refuse. The old test refused EVERY reparse point,
+    # which also refused a cloud placeholder - and a placeholder redirects nothing, it IS the file
+    # with its content not yet local. That blanket refusal is what made the product unusable on the
+    # default CurrentUser install (DRIFT-199-I001-005: the sanctioned remediation door itself was
+    # unreachable from a OneDrive-backed Documents folder). Links and unrecognised tags still refuse.
+    if (Test-Path -LiteralPath $root) {
+        $rootItem = Get-Item -LiteralPath $root -Force -ErrorAction Stop
+        $disposition = Get-SpecrewReparseDispositionForItem -Item $rootItem
+        if (Test-SpecrewReparseRefusesRead -Disposition $disposition.disposition) {
+            throw (Get-SpecrewReparseRefusalMessage -Code 'review-store-root-link-unsupported' -Path $StoreRoot `
+                    -Disposition $disposition.disposition -LinkType $disposition.link_type)
+        }
+    }
+
+    # Walk every EXISTING component from the root down to the target - the campaign directory,
+    # the run directory, any intermediate kind folder (grants/reservations/spend/releases) - and
+    # refuse a reparse point at any of them. A not-yet-created component is skipped: it cannot
+    # redirect a write that has not reached it, and CreateDirectory will create it as an
+    # ordinary directory.
+    $relative = $full.Substring($root.Length).Trim([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $current = $root
+    foreach ($segment in @($relative -split '[\\/]' | Where-Object { -not [string]::IsNullOrEmpty($_) })) {
+        $current = Join-Path $current $segment
+        if (-not (Test-Path -LiteralPath $current)) { continue }
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        $disposition = Get-SpecrewReparseDispositionForItem -Item $item
+        if (Test-SpecrewReparseRefusesRead -Disposition $disposition.disposition) {
+            throw (Get-SpecrewReparseRefusalMessage -Code 'review-store-path-link-unsupported' -Path $RelativePath `
+                    -Disposition $disposition.disposition -LinkType $disposition.link_type)
+        }
+    }
+    return $full
+}
+
+function Write-ReviewAuthorityImmutableFact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$RelativePath,
+        [Parameter(Mandatory)]$Fact,
+        [Parameter(Mandatory)][ValidateSet(
+            'ReviewCampaign', 'ReviewRun', 'ReviewInvocation', 'ReviewerCandidate', 'ReviewResult',
+            'GrantFact', 'ReservationFact', 'SpendFact', 'ReleaseFact', 'ClaimFact', 'HumanDispositionFact', 'RecoveryFact',
+            'ReviewFinalizationFact', 'PendingPauseFact', 'PauseDecisionFact', 'RoundBudgetResetFact'
+        )][string]$ContractName,
+        [string]$ExpectedCampaignId,
+        [string]$ExpectedRunId,
+        [string]$ExpectedTargetDigest
+    )
+    $validation = Test-ReviewAuthorityContractObject -ContractName $ContractName -InputObject $Fact -ExpectedCampaignId $ExpectedCampaignId -ExpectedRunId $ExpectedRunId -ExpectedTargetDigest $ExpectedTargetDigest
+    if (-not $validation.valid) { throw ('review-store-contract-invalid:{0}:{1}' -f $validation.category, ($validation.errors -join ',')) }
+    $path = Get-ReviewAuthorityStorePath -StoreRoot $StoreRoot -RelativePath $RelativePath
+    $directory = Split-Path -Parent $path
+    [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+    $json = ConvertTo-ReviewAuthorityCanonicalJson -Fact $Fact
+    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($json)
+    try {
+        $stream = [System.IO.FileStream]::new($path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
+        finally { $stream.Dispose() }
+        return [pscustomobject]@{ created = $true; idempotent = $false; path = $path }
+    }
+    catch [System.IO.IOException] {
+        if (-not [System.IO.File]::Exists($path)) { throw }
+        # Validate that the completed CreateNew winner is readable, then compare the canonical bytes
+        # that were actually persisted. ConvertFrom-Json coerces ISO-8601 strings to DateTime on newer
+        # PowerShell versions; reserializing that object can change offset/precision and falsely turn an
+        # identical replay into corruption.
+        $null = Read-ReviewAuthorityFactFile -Path $path
+        $existing = [System.IO.File]::ReadAllText($path, [System.Text.UTF8Encoding]::new($false))
+        if ($existing -ceq $json) { return [pscustomobject]@{ created = $false; idempotent = $true; path = $path } }
+        throw "review-store-corruption:conflicting-immutable-fact:$RelativePath"
+    }
+}
+
+function Test-ReviewAuthorityFactPathContained {
+    # Round-23 finding (DRIFT-199-I001-134): FILE-LEVEL CONTAINMENT, at the same choke point as
+    # directory-level containment.
+    #
+    # Get-ReviewAuthorityStorePath refuses a reparse point at the store root and at every existing
+    # ANCESTOR - but readers then enumerate child JSON files and hand each absolute path to the
+    # reader, and no one classified the FILE. A symlinked grant, reset, result, disposition, pause
+    # or claim file sitting under an ordinary directory was therefore followed, and its external
+    # target accepted once it passed contract validation: the store's stated refusal of redirecting
+    # paths applied to directories only. Fifth appearance of the containment class in this module,
+    # and the first at the leaf.
+    #
+    # DISCRIMINATES, as the ancestor walk does: a cloud placeholder redirects nothing - it IS the
+    # file with its content not yet local - and refusing it is what once made the product unusable
+    # from a OneDrive-backed folder. Links and unrecognised tags refuse; an absent file is not a
+    # redirect and is left to the reader's own not-found handling.
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { return $true }
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+        $disposition = Get-SpecrewReparseDispositionForItem -Item $item
+        if (Test-SpecrewReparseRefusesRead -Disposition $disposition.disposition) { return $false }
+    }
+    catch { return $false }
+    return $true
+}
+
+function Read-ReviewAuthorityFactFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [ValidateSet(
+            'ReviewCampaign', 'ReviewRun', 'ReviewInvocation', 'ReviewerCandidate', 'ReviewResult',
+            'GrantFact', 'ReservationFact', 'SpendFact', 'ReleaseFact', 'ClaimFact', 'HumanDispositionFact', 'RecoveryFact',
+            'ReviewFinalizationFact', 'PendingPauseFact', 'PauseDecisionFact', 'RoundBudgetResetFact'
+        )][string]$ContractName,
+        [AllowEmptyString()][string]$ExpectedCampaignId = '',
+        [AllowEmptyString()][string]$ExpectedRunId = '',
+        [AllowEmptyString()][string]$ExpectedTargetDigest = '',
+        [int]$MaxBytes = 1048576
+    )
+    # Round-23: classified BEFORE it is opened, here rather than at each call site, so an
+    # enumeration added later inherits the rule instead of having to remember it.
+    if (-not (Test-ReviewAuthorityFactPathContained -Path $Path)) {
+        throw "review-store-fact-link-unsupported:$Path"
+    }
+    $stream = $null
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        try { $stream = [System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read); break }
+        catch [System.IO.IOException] { if ($attempt -eq 19) { throw "review-store-fact-unavailable:$Path" }; Start-Sleep -Milliseconds 10 }
+    }
+    try {
+        if ($stream.Length -le 0 -or $stream.Length -gt $MaxBytes) { throw "review-store-corruption:invalid-fact-size:$Path" }
+        $reader = [System.IO.StreamReader]::new($stream, [System.Text.UTF8Encoding]::new($false), $true, 4096, $true)
+        try { $json = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    }
+    finally { if ($null -ne $stream) { $stream.Dispose() } }
+    try { $fact = $json | ConvertFrom-Json -Depth 30 -ErrorAction Stop }
+    catch { throw "review-store-corruption:invalid-json:$Path" }
+    if (-not [string]::IsNullOrWhiteSpace($ContractName)) {
+        $validation = Test-ReviewAuthorityContractObject -ContractName $ContractName -InputObject $fact `
+            -ExpectedCampaignId $ExpectedCampaignId -ExpectedRunId $ExpectedRunId -ExpectedTargetDigest $ExpectedTargetDigest
+        if (-not $validation.valid) { throw ('review-store-corruption:invalid-contract:{0}:{1}' -f $ContractName, ($validation.errors -join ',')) }
+    }
+    return $fact
+}
+
+function Get-ReviewAuthorityCampaignRelativeRoot {
+    param([Parameter(Mandatory)][string]$CampaignId)
+    if (-not (Test-ReviewAuthorityIdentifier -Value $CampaignId -Kind campaign)) { throw "review-store-invalid-campaign-id:$CampaignId" }
+    return "campaigns/$CampaignId"
+}
+
+function Get-ReviewAuthorityCampaignFacts {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [Parameter(Mandatory)][ValidateSet('grants', 'reservations', 'spend', 'releases')][string]$Kind
+    )
+    $contract = switch ($Kind) { 'grants' { 'GrantFact' }; 'reservations' { 'ReservationFact' }; 'spend' { 'SpendFact' }; 'releases' { 'ReleaseFact' } }
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + "/$Kind"
+    $path = Get-ReviewAuthorityStorePath -StoreRoot $StoreRoot -RelativePath $relative
+    if (-not [System.IO.Directory]::Exists($path)) { return @() }
+    $facts = [System.Collections.Generic.List[object]]::new()
+    foreach ($file in [System.IO.Directory]::EnumerateFiles($path, '*.json', [System.IO.SearchOption]::AllDirectories) | Sort-Object) {
+        $facts.Add((Read-ReviewAuthorityFactFile -Path $file -ContractName $contract)) | Out-Null
+    }
+    return @($facts)
+}
+
+function Add-ReviewCampaignGrantFact {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)]$Fact)
+    $campaignId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'campaign_id')
+    $grantId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'grant_id')
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $campaignId) + "/grants/$grantId.json"
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact -ContractName GrantFact -ExpectedCampaignId $campaignId
+}
+
+function Request-ReviewCampaignReservationFact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [Parameter(Mandatory)][string]$RunId,
+        [Parameter(Mandatory)][string]$ReservationId,
+        [Parameter(Mandatory)][string]$ObservedAt
+    )
+    for ($attempt = 0; $attempt -lt 101; $attempt++) {
+        $grants = @(Get-ReviewAuthorityCampaignFacts -StoreRoot $StoreRoot -CampaignId $CampaignId -Kind grants)
+        $reservations = @(Get-ReviewAuthorityCampaignFacts -StoreRoot $StoreRoot -CampaignId $CampaignId -Kind reservations)
+        $spends = @(Get-ReviewAuthorityCampaignFacts -StoreRoot $StoreRoot -CampaignId $CampaignId -Kind spend)
+        $releases = @(Get-ReviewAuthorityCampaignFacts -StoreRoot $StoreRoot -CampaignId $CampaignId -Kind releases)
+        $decision = Resolve-ReviewCampaignReservationDecision -CampaignId $CampaignId -RunId $RunId -ReservationId $ReservationId -ObservedAt $ObservedAt -Grants $grants -Reservations $reservations -Spends $spends -Releases $releases
+        if (-not $decision.permitted) { return [pscustomobject]@{ acquired = $false; reason = $decision.reason; fact = $null } }
+        $fact = $decision.fact
+        # A pre-invocation release restores an allowance slot. Each reuse appends an immutable
+        # generation; concurrent contenders derive the same next generation and CreateNew selects
+        # exactly one winner before all losers reread the authority facts.
+        $slotReservations = @($reservations | Where-Object {
+            [string](Get-ReviewAuthorityProperty -Object $_ -Name 'grant_id') -ceq [string]$fact.grant_id -and
+            [int](Get-ReviewAuthorityProperty -Object $_ -Name 'slot') -eq [int]$fact.slot
+        })
+        $generation = $slotReservations.Count + 1
+        $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + ('/reservations/{0}/slot-{1:d3}/generation-{2:d3}.json' -f $fact.grant_id, [int]$fact.slot, $generation)
+        try {
+            $write = Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $fact -ContractName ReservationFact -ExpectedCampaignId $CampaignId -ExpectedRunId $RunId
+            if ($write.created) { return [pscustomobject]@{ acquired = $true; reason = 'reservation-created'; fact = $fact; path = $write.path } }
+            return [pscustomobject]@{ acquired = $false; reason = 'reservation-already-owned-by-run'; fact = $fact; path = $write.path }
+        }
+        catch {
+            if ($_.Exception.Message -notlike 'review-store-corruption:conflicting-immutable-fact:*') { throw }
+            # Expected slot-contention race: reread all immutable facts and choose the next visible free slot.
+            continue
+        }
+    }
+    throw 'review-store-corruption:reservation-contention-did-not-converge'
+}
+
+function Write-ReviewCampaignSpendFact {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)]$Fact)
+    $campaignId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'campaign_id')
+    $reservationId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'reservation_id')
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $campaignId) + "/spend/$reservationId.json"
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact -ContractName SpendFact -ExpectedCampaignId $campaignId
+}
+
+function Write-ReviewCampaignReleaseFact {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)]$Fact)
+    $campaignId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'campaign_id')
+    $reservationId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'reservation_id')
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $campaignId) + "/releases/$reservationId.json"
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact -ContractName ReleaseFact -ExpectedCampaignId $campaignId
+}
+
+function Write-ReviewRunAuthorityFact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [Parameter(Mandatory)][string]$RunId,
+        [Parameter(Mandatory)][ValidateSet('requested', 'reserved', 'preflighted', 'claimed', 'invoked', 'validating')][string]$Stage,
+        [Parameter(Mandatory)]$Fact
+    )
+    if ([string](Get-ReviewAuthorityProperty -Object $Fact -Name 'state') -cne $Stage) { throw "review-store-contract-invalid:run-stage-mismatch:$Stage" }
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + "/runs/$RunId/$Stage.json"
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact -ContractName ReviewRun -ExpectedCampaignId $CampaignId -ExpectedRunId $RunId
+}
+
+function Write-ReviewCampaignPendingPauseFact {
+    # T001 / Option B. The pause is recorded as an immutable fact beside its run, so the surface can
+    # be re-rendered VERBATIM on resume and the stop governor can read the state instead of guessing.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)]$Fact)
+    $campaignId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'campaign_id')
+    $runId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'run_id')
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $campaignId) + "/runs/$runId/pending-pause.json"
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact -ContractName PendingPauseFact -ExpectedCampaignId $campaignId -ExpectedRunId $runId
+}
+
+function Write-ReviewCampaignPauseDecisionFact {
+    # The human's numbered reply. Immutable by the same rule as every other authority fact: one reply
+    # per round, and a conflicting second answer is corruption rather than a correction, so a
+    # continuation can never be manufactured by re-answering a pause.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)]$Fact)
+    $campaignId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'campaign_id')
+    $runId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'run_id')
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $campaignId) + "/runs/$runId/pause-decision.json"
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact -ContractName PauseDecisionFact -ExpectedCampaignId $campaignId -ExpectedRunId $runId
+}
+
+function Write-ReviewCampaignBudgetResetFact {
+    # Immutable like every other authority fact. Each reset gets its own path, so a campaign's resets
+    # are a visible history rather than a value that was quietly changed - "how many times did we lift
+    # this limit" stays answerable, which is the question that matters if a campaign runs away.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)]$Fact)
+    $campaignId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'campaign_id')
+    $resetId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'reset_id')
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $campaignId) + "/budget-resets/$resetId.json"
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact -ContractName RoundBudgetResetFact -ExpectedCampaignId $campaignId
+}
+
+function Get-ReviewCampaignLatestBudgetReset {
+    # The newest reset, or $null. Ordered by observed_at like every other selector in this file, and for
+    # the same reason: one ordering, so two readers cannot disagree about which is newest.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)][string]$CampaignId)
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + '/budget-resets'
+    $root = Get-ReviewAuthorityStorePath -StoreRoot $StoreRoot -RelativePath $relative
+    if (-not [IO.Directory]::Exists($root)) { return $null }
+    # EVERY FILE IS VALIDATED AS A CONTRACT FACT BEFORE IT CAN COUNT AS AUTHORITY.
+    #
+    # Round 5, major: this parsed any JSON in the directory and picked by `observed_at` alone, so a
+    # stray or tampered file carrying only a future timestamp would have been selected as the latest
+    # reset and excluded every prior round from the budget - unlimited rounds with no human authority,
+    # no reason, and no valid fact behind it. This directory grants SPEND, so it must be read at the
+    # same standard as every other authority fact rather than at the standard of a config file.
+    $facts = [Collections.Generic.List[object]]::new()
+    foreach ($file in [IO.Directory]::EnumerateFiles($root, '*.json')) {
+        $fact = Read-ReviewAuthorityFactFile -Path $file -ContractName RoundBudgetResetFact -ExpectedCampaignId $CampaignId
+        # A human reset is the only kind there is; anything else is not an authority to spend.
+        if ([string](Get-ReviewAuthorityProperty -Object $fact -Name 'authority_kind') -cne 'human') {
+            throw "review-store-corruption:budget-reset-not-human:$file"
+        }
+        $null = ConvertTo-ReviewAuthorityTimestamp -Value (Get-ReviewAuthorityProperty -Object $fact -Name 'observed_at') -FieldName 'round-budget-reset.observed_at'
+        $facts.Add($fact) | Out-Null
+    }
+    if ($facts.Count -eq 0) { return $null }
+    return @($facts | Sort-Object -Property { ConvertTo-ReviewAuthorityTimestamp -Value (Get-ReviewAuthorityProperty -Object $_ -Name 'observed_at') -FieldName 'round-budget-reset.observed_at' })[-1]
+}
+
+function Get-ReviewCampaignPauseRecords {
+    # EVERY pause in the campaign, each with its answer if it has one, in ONE chronological order.
+    #
+    # This exists so there is exactly one ordering in the codebase. Both selectors below are a filter
+    # plus "take the last" over this list, so a third ordering cannot quietly appear later - which is
+    # how the two that existed came to disagree in the first place.
+    #
+    # Ordered by parsed instant. `Z` and `+00:00` are both valid authority spellings and lexical
+    # comparison does not preserve time ordering across them. Missing or malformed time is corruption.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)][string]$CampaignId)
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + '/runs'
+    $runsRoot = Get-ReviewAuthorityStorePath -StoreRoot $StoreRoot -RelativePath $relative
+    if (-not [IO.Directory]::Exists($runsRoot)) { return @() }
+
+    $records = [Collections.Generic.List[object]]::new()
+    foreach ($runDirectory in [IO.Directory]::EnumerateDirectories($runsRoot)) {
+        $pausePath = [IO.Path]::Combine($runDirectory, 'pending-pause.json')
+        if (-not [IO.File]::Exists($pausePath)) { continue }
+        $runId = [IO.Path]::GetFileName($runDirectory)
+        $pause = Read-ReviewAuthorityFactFile -Path $pausePath -ContractName PendingPauseFact -ExpectedCampaignId $CampaignId -ExpectedRunId $runId
+        $pauseAt = ConvertTo-ReviewAuthorityTimestamp -Value (Get-ReviewAuthorityProperty -Object $pause -Name 'observed_at') -FieldName "pending-pause[$runId].observed_at"
+        $decision = $null
+        $decisionPath = [IO.Path]::Combine($runDirectory, 'pause-decision.json')
+        if ([IO.File]::Exists($decisionPath)) {
+            $decision = Read-ReviewAuthorityFactFile -Path $decisionPath -ContractName PauseDecisionFact -ExpectedCampaignId $CampaignId -ExpectedRunId $runId
+            $null = ConvertTo-ReviewAuthorityTimestamp -Value (Get-ReviewAuthorityProperty -Object $decision -Name 'observed_at') -FieldName "pause-decision[$runId].observed_at"
+        }
+        $records.Add([pscustomobject]@{
+                pause       = $pause
+                decision    = $decision
+                answered    = ($null -ne $decision)
+                run_id      = [string](Get-ReviewAuthorityProperty -Object $pause -Name 'run_id')
+                observed_at = $pauseAt
+            }) | Out-Null
+    }
+    return @($records | Sort-Object -Property observed_at)
+}
+
+function Get-ReviewCampaignPendingPause {
+    # The newest pause that has NOT been answered. An answered pause is history, not a pending
+    # decision, so it neither renders nor confers quiet.
+    #
+    # ORDERING FIXED 2026-08-11 (maintainer ruling, signoff-round finding). This enumerated run
+    # directories and sorted them LEXICOGRAPHICALLY BY RUN-ID, then took the last. Run ids need not sort
+    # chronologically - explicit ids are supported, and the T067 store really does hold
+    # `run-review-signoff-10` and `run-review-signoff-9`, which sort BACKWARDS.
+    #
+    # The rendering caller (the stop surface) would merely show the wrong round. The ANSWER path is the
+    # wedge: --pause-choice records the human's reply against the mis-picked run_id, the continuation
+    # guard then reads the genuinely-newest pause, correctly finds it unanswered, and refuses. It fails
+    # CLOSED, so nothing is spent - but the consumer answers, is told it worked, and the next run refuses
+    # with pause-decision-pending again. They can answer forever and nothing moves. A wedged gate is one
+    # of the failures the acceptance bar names, so failing closed is not sufficient here.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)][string]$CampaignId)
+    $unanswered = @(Get-ReviewCampaignPauseRecords -StoreRoot $StoreRoot -CampaignId $CampaignId | Where-Object { -not $_.answered })
+    if ($unanswered.Count -eq 0) { return $null }
+    return $unanswered[-1].pause
+}
+
+function Get-ReviewCampaignLatestPause {
+    # The newest pause AND its answer, if it has one.
+    #
+    # Distinct from Get-ReviewCampaignPendingPause on purpose, and the difference is the whole point:
+    # that one returns only UNANSWERED pauses, so asking it whether a continuation is authorized can
+    # only ever answer "pending" - a tautology, not a check. The spend guard needs the answered case
+    # too, because "abandon" and "stop-here" are answers that must REFUSE the next round just as firmly
+    # as no answer at all.
+    #
+    # Both selectors read the SAME ordered list, so they cannot disagree about which pause is newest.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)][string]$CampaignId)
+    $records = @(Get-ReviewCampaignPauseRecords -StoreRoot $StoreRoot -CampaignId $CampaignId)
+    if ($records.Count -eq 0) { return $null }
+    return $records[-1]
+}
+
+function Publish-ReviewRunResultFact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [Parameter(Mandatory)][string]$RunId,
+        [Parameter(Mandatory)]$Fact
+    )
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + "/runs/$RunId/result.json"
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact -ContractName ReviewResult -ExpectedCampaignId $CampaignId -ExpectedRunId $RunId
+}
+
+function Get-ReviewAuthorityCampaignRunResults {
+    # SPECREW-AUTHORITY-CONTROL: authority-store-read-failure
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId
+    )
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + '/runs'
+    $runsRoot = Get-ReviewAuthorityStorePath -StoreRoot $StoreRoot -RelativePath $relative
+    if (-not [IO.Directory]::Exists($runsRoot)) { return @() }
+    $results = [Collections.Generic.List[object]]::new()
+    foreach ($runDirectory in [IO.Directory]::EnumerateDirectories($runsRoot) | Sort-Object) {
+        $runId = [IO.Path]::GetFileName($runDirectory)
+        if (-not (Test-ReviewAuthorityIdentifier -Value $runId -Kind run)) { throw "review-store-corruption:invalid-run-directory:$runId" }
+        $path = Join-Path $runDirectory 'result.json'
+        if (-not [IO.File]::Exists($path)) { continue }
+        $fact = Read-ReviewAuthorityFactFile -Path $path -ContractName ReviewResult
+        if ([string]$fact.campaign_id -cne $CampaignId -or [string]$fact.run_id -cne $runId) {
+            throw "review-store-corruption:result-path-identity-mismatch:$runId"
+        }
+        $results.Add($fact) | Out-Null
+    }
+    return @($results)
+}
+
+function Get-ReviewRunLatestStateFact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [Parameter(Mandatory)][string]$RunId
+    )
+    foreach ($stage in @('validating', 'invoked', 'claimed', 'preflighted', 'reserved', 'requested')) {
+        $fact = Get-ReviewRunAuthorityFact -StoreRoot $StoreRoot -CampaignId $CampaignId -RunId $RunId -Stage $stage
+        if ($null -ne $fact) { return $fact }
+    }
+    return $null
+}
+
+function Write-ReviewCampaignHumanDispositionFact {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoreRoot, [Parameter(Mandatory)]$Fact)
+    $campaignId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'campaign_id')
+    $runId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'run_id')
+    $dispositionId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'disposition_id')
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $campaignId) + "/dispositions/$runId/$dispositionId.json"
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact -ContractName HumanDispositionFact -ExpectedCampaignId $campaignId -ExpectedRunId $runId -ExpectedTargetDigest ([string]$Fact.target_digest)
+}
+
+function Get-ReviewCampaignHumanDispositionFacts {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [string]$RunId
+    )
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + '/dispositions'
+    if (-not [string]::IsNullOrWhiteSpace($RunId)) {
+        if (-not (Test-ReviewAuthorityIdentifier -Value $RunId -Kind run)) { throw "review-store-invalid-run-id:$RunId" }
+        $relative += "/$RunId"
+    }
+    $root = Get-ReviewAuthorityStorePath -StoreRoot $StoreRoot -RelativePath $relative
+    if (-not [IO.Directory]::Exists($root)) { return @() }
+    $facts = [Collections.Generic.List[object]]::new()
+    foreach ($file in [IO.Directory]::EnumerateFiles($root, '*.json', [IO.SearchOption]::AllDirectories) | Sort-Object) {
+        $fact = Read-ReviewAuthorityFactFile -Path $file -ContractName HumanDispositionFact
+        $expectedRelative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + "/dispositions/$([string]$fact.run_id)/$([string]$fact.disposition_id).json"
+        $expectedPath = Get-ReviewAuthorityStorePath -StoreRoot $StoreRoot -RelativePath $expectedRelative
+        if ([IO.Path]::GetFullPath($file) -cne [IO.Path]::GetFullPath($expectedPath) -or
+            [string]$fact.campaign_id -cne $CampaignId -or
+            (-not [string]::IsNullOrWhiteSpace($RunId) -and [string]$fact.run_id -cne $RunId)) {
+            throw 'review-store-corruption:human-disposition-path-identity-mismatch'
+        }
+        $facts.Add($fact) | Out-Null
+    }
+    return @($facts)
+}
+
+function Write-ReviewCampaignFinalizationFact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)]$Fact
+    )
+    $campaignId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'campaign_id')
+    $runId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'run_id')
+    $reviewedDigest = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'reviewed_digest')
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $campaignId) + '/finalization.json'
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact `
+        -ContractName ReviewFinalizationFact -ExpectedCampaignId $campaignId -ExpectedRunId $runId -ExpectedTargetDigest $reviewedDigest
+}
+
+function Get-ReviewCampaignFinalizationFact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId
+    )
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + '/finalization.json'
+    $path = Get-ReviewAuthorityStorePath -StoreRoot $StoreRoot -RelativePath $relative
+    if (-not [IO.File]::Exists($path)) { return $null }
+    $fact = Read-ReviewAuthorityFactFile -Path $path -ContractName ReviewFinalizationFact
+    if ([string]$fact.campaign_id -cne $CampaignId) {
+        throw 'review-store-corruption:finalization-path-identity-mismatch'
+    }
+    return $fact
+}
+
+function Get-ReviewRunAuthorityFact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [Parameter(Mandatory)][string]$RunId,
+        [Parameter(Mandatory)][ValidateSet('requested', 'reserved', 'preflighted', 'claimed', 'invoked', 'validating', 'recovery', 'result')][string]$Stage
+    )
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + "/runs/$RunId/$Stage.json"
+    $path = Get-ReviewAuthorityStorePath -StoreRoot $StoreRoot -RelativePath $relative
+    if (-not [System.IO.File]::Exists($path)) { return $null }
+    $contract = if ($Stage -ceq 'result') { 'ReviewResult' } elseif ($Stage -ceq 'recovery') { 'RecoveryFact' } else { 'ReviewRun' }
+    return Read-ReviewAuthorityFactFile -Path $path -ContractName $contract
+}
+
+function Write-ReviewRunRecoveryFact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)]$Fact
+    )
+    $campaignId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'campaign_id')
+    $runId = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'run_id')
+    $targetDigest = [string](Get-ReviewAuthorityProperty -Object $Fact -Name 'target_digest')
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $campaignId) + "/runs/$runId/recovery.json"
+    return Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $Fact -ContractName RecoveryFact `
+        -ExpectedCampaignId $campaignId -ExpectedRunId $runId -ExpectedTargetDigest $targetDigest
+}
+
+function Get-ReviewAuthorityClaimFacts {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [Parameter(Mandatory)][string]$TargetLineage
+    )
+    if (-not (Test-ReviewAuthorityIdentifier -Value $TargetLineage -Kind lineage)) { throw "review-store-invalid-lineage-id:$TargetLineage" }
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + "/claims/$TargetLineage"
+    $path = Get-ReviewAuthorityStorePath -StoreRoot $StoreRoot -RelativePath $relative
+    if (-not [System.IO.Directory]::Exists($path)) { return @() }
+    $facts = [System.Collections.Generic.List[object]]::new()
+    foreach ($file in [System.IO.Directory]::EnumerateFiles($path, '*.json', [System.IO.SearchOption]::TopDirectoryOnly) | Sort-Object) {
+        $fact = Read-ReviewAuthorityFactFile -Path $file -ContractName ClaimFact
+        $fact | Add-Member -NotePropertyName '_fact_path' -NotePropertyValue $file
+        $facts.Add($fact) | Out-Null
+    }
+    return @($facts)
+}
+
+function Get-ReviewAuthorityActiveClaim {
+    param([object[]]$Facts = @())
+    $byGeneration = @{}
+    foreach ($fact in @($Facts)) {
+        $generation = [int](Get-ReviewAuthorityProperty -Object $fact -Name 'generation')
+        if (-not $byGeneration.ContainsKey($generation)) { $byGeneration[$generation] = [System.Collections.Generic.List[object]]::new() }
+        $byGeneration[$generation].Add($fact) | Out-Null
+    }
+    foreach ($generation in @($byGeneration.Keys | Sort-Object -Descending)) {
+        $factsAtGeneration = @($byGeneration[$generation])
+        $held = @($factsAtGeneration | Where-Object { [string](Get-ReviewAuthorityProperty -Object $_ -Name 'disposition') -ceq 'held' })
+        $retired = @($factsAtGeneration | Where-Object { [string](Get-ReviewAuthorityProperty -Object $_ -Name 'disposition') -in @('released', 'abandoned') })
+        if ($held.Count -gt 1 -or $retired.Count -gt 1) { throw "review-store-corruption:conflicting-claim-generation:$generation" }
+        if ($held.Count -eq 1 -and $retired.Count -eq 0) { return $held[0] }
+    }
+    return $null
+}
+
+function Request-ReviewAuthorityClaim {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [Parameter(Mandatory)][string]$RunId,
+        [Parameter(Mandatory)][string]$TargetLineage,
+        [Parameter(Mandatory)][string]$ObservedAt
+    )
+    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+        $facts = @(Get-ReviewAuthorityClaimFacts -StoreRoot $StoreRoot -CampaignId $CampaignId -TargetLineage $TargetLineage)
+        $active = Get-ReviewAuthorityActiveClaim -Facts $facts
+        if ($null -ne $active) { return [pscustomobject]@{ acquired = $false; reason = 'active-claim'; claim = $active } }
+        $generation = if ($facts.Count -eq 0) { 1 } else { 1 + [int](($facts | ForEach-Object { [int]$_.generation } | Measure-Object -Maximum).Maximum) }
+        $fact = [pscustomobject][ordered]@{
+            schema_version = '1.0'; fact_type = 'claim-held'; campaign_id = $CampaignId; run_id = $RunId
+            target_lineage = $TargetLineage; generation = $generation; disposition = 'held'; observed_at = $ObservedAt
+        }
+        $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + ('/claims/{0}/{1:d8}-held.json' -f $TargetLineage, $generation)
+        try {
+            $write = Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $fact -ContractName ClaimFact -ExpectedCampaignId $CampaignId -ExpectedRunId $RunId
+            if ($write.created) { return [pscustomobject]@{ acquired = $true; reason = 'claim-created'; claim = $fact; path = $write.path } }
+            return [pscustomobject]@{ acquired = $false; reason = 'claim-already-held-by-run'; claim = $fact; path = $write.path }
+        }
+        catch {
+            if ($_.Exception.Message -notlike 'review-store-corruption:conflicting-immutable-fact:*') { throw }
+            continue
+        }
+    }
+    throw 'review-store-corruption:claim-contention-did-not-converge'
+}
+
+function Complete-ReviewAuthorityClaim {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [Parameter(Mandatory)][string]$RunId,
+        [Parameter(Mandatory)][string]$TargetLineage,
+        [Parameter(Mandatory)][ValidateSet('released', 'abandoned')][string]$Disposition,
+        [Parameter(Mandatory)][string]$ObservedAt
+    )
+    $facts = @(Get-ReviewAuthorityClaimFacts -StoreRoot $StoreRoot -CampaignId $CampaignId -TargetLineage $TargetLineage)
+    $active = Get-ReviewAuthorityActiveClaim -Facts $facts
+    if ($null -eq $active) { return [pscustomobject]@{ completed = $false; reason = 'no-active-claim' } }
+    if ([string]$active.run_id -cne $RunId) { return [pscustomobject]@{ completed = $false; reason = 'claim-owned-by-other-run' } }
+    $generation = [int]$active.generation
+    $factType = if ($Disposition -ceq 'released') { 'claim-released' } else { 'claim-abandoned' }
+    $fact = [pscustomobject][ordered]@{
+        schema_version = '1.0'; fact_type = $factType; campaign_id = $CampaignId; run_id = $RunId
+        target_lineage = $TargetLineage; generation = $generation; disposition = $Disposition; observed_at = $ObservedAt
+    }
+    $relative = (Get-ReviewAuthorityCampaignRelativeRoot -CampaignId $CampaignId) + ('/claims/{0}/{1:d8}-{2}.json' -f $TargetLineage, $generation, $Disposition)
+    $write = Write-ReviewAuthorityImmutableFact -StoreRoot $StoreRoot -RelativePath $relative -Fact $fact -ContractName ClaimFact -ExpectedCampaignId $CampaignId -ExpectedRunId $RunId
+    return [pscustomobject]@{ completed = $true; reason = $(if ($write.created) { 'claim-retired' } else { 'claim-retirement-idempotent' }); fact = $fact; path = $write.path }
+}
+
+function Get-ReviewRunReconciliationPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$CampaignId,
+        [Parameter(Mandatory)][string]$RunId,
+        [Parameter(Mandatory)][string]$TargetLineage
+    )
+    $result = Get-ReviewRunAuthorityFact -StoreRoot $StoreRoot -CampaignId $CampaignId -RunId $RunId -Stage result
+    $validating = Get-ReviewRunAuthorityFact -StoreRoot $StoreRoot -CampaignId $CampaignId -RunId $RunId -Stage validating
+    $invoked = Get-ReviewRunAuthorityFact -StoreRoot $StoreRoot -CampaignId $CampaignId -RunId $RunId -Stage invoked
+    $reservations = @(Get-ReviewAuthorityCampaignFacts -StoreRoot $StoreRoot -CampaignId $CampaignId -Kind reservations | Where-Object { [string]$_.run_id -ceq $RunId })
+    $spends = @(Get-ReviewAuthorityCampaignFacts -StoreRoot $StoreRoot -CampaignId $CampaignId -Kind spend | Where-Object { [string]$_.run_id -ceq $RunId })
+    $releases = @(Get-ReviewAuthorityCampaignFacts -StoreRoot $StoreRoot -CampaignId $CampaignId -Kind releases | Where-Object { [string]$_.run_id -ceq $RunId })
+    $claims = @(Get-ReviewAuthorityClaimFacts -StoreRoot $StoreRoot -CampaignId $CampaignId -TargetLineage $TargetLineage)
+    $activeClaim = Get-ReviewAuthorityActiveClaim -Facts $claims
+    $actions = [System.Collections.Generic.List[string]]::new()
+
+    if ($null -ne $result) {
+        if ($null -ne $activeClaim -and [string]$activeClaim.run_id -ceq $RunId) { $actions.Add('retire-claim-released') | Out-Null }
+        else { $actions.Add('complete') | Out-Null }
+    }
+    elseif ($null -ne $validating) { $actions.Add('continue-validation-and-classification') | Out-Null }
+    elseif ($spends.Count -gt 0 -or $null -ne $invoked) {
+        $actions.Add('publish-spent-abandoned-result') | Out-Null
+        if ($null -ne $activeClaim -and [string]$activeClaim.run_id -ceq $RunId) { $actions.Add('retire-claim-abandoned') | Out-Null }
+    }
+    elseif ($reservations.Count -gt 0 -and $releases.Count -eq 0) {
+        $actions.Add('release-non-invoked-reservation') | Out-Null
+        if ($null -ne $activeClaim -and [string]$activeClaim.run_id -ceq $RunId) { $actions.Add('retire-claim-abandoned') | Out-Null }
+    }
+    else { $actions.Add('no-work') | Out-Null }
+    return [pscustomobject]@{ run_id = $RunId; actions = @($actions); reservation_count = $reservations.Count; spend_count = $spends.Count; release_count = $releases.Count; active_claim_run_id = $(if ($null -ne $activeClaim) { [string]$activeClaim.run_id } else { $null }) }
+}
