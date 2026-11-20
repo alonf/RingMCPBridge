@@ -10,6 +10,7 @@ import { getCookie, setCookie } from "hono/cookie";
 import { html } from "hono/html";
 import { z } from "zod";
 import type { ringClient } from "./client.ts";
+import { SnapshotError, type Snapshot } from "./snapshot.ts";
 
 const LINK_WINDOW = 600_000;
 const SESSION_WINDOW = 3_600_000;
@@ -36,6 +37,9 @@ interface Ticket {
   masked?: string;
   postedNonce?: string;
   session?: string;
+  snapshotProof?: string;
+  snapshotMessage?: string;
+  snapshotSaved?: boolean;
 }
 function equal(left: string, right: string) {
   const a = Buffer.from(left);
@@ -60,11 +64,38 @@ export function pilotApp(
   signingKey: string,
   ring: ReturnType<typeof ringClient>,
   now = Date.now,
+  snapshotTarget?: { name: string; save: (image: Snapshot) => Promise<void> },
 ) {
   const app = new Hono();
   const tickets = new Map<string, Ticket>();
   const claimed = new Map<string, number>();
   let sequence = 0;
+  function sessionTicket(session: string | undefined) {
+    return session
+      ? [...tickets.values()].find((ticket) => ticket.session === session)
+      : undefined;
+  }
+  async function saveImage(ticket: Ticket) {
+    if (!snapshotTarget || !ticket.access || ticket.snapshotSaved) return;
+    try {
+      const image = await ring.snapshot(
+        ticket.access,
+        snapshotTarget.name,
+        now(),
+      );
+      if (sessionTicket(ticket.session) !== ticket || ticket.expires <= now())
+        return;
+      await snapshotTarget.save(image);
+      ticket.snapshotSaved = true;
+      ticket.snapshotMessage =
+        "Snapshot saved on the home computer. Captured " + image.time;
+    } catch (error) {
+      ticket.snapshotMessage =
+        error instanceof SnapshotError
+          ? error.message
+          : "Snapshot download or save failed. You can retry here.";
+    }
+  }
   function expire() {
     for (const [key, ticket] of tickets)
       if (ticket.expires <= now()) tickets.delete(key);
@@ -186,6 +217,7 @@ export function pilotApp(
             value="${proof}"
           />
           <button>Confirm connection</button>
+          ${snapshotTarget ? html`<button name="snapshot" value="save">Confirm and save latest ${snapshotTarget.name} snapshot</button>` : ""}
         </form>`,
     );
   });
@@ -216,23 +248,22 @@ export function pilotApp(
       ticket.session = random();
       ticket.expires = Math.min(ticket.tokenExpiry, now() + SESSION_WINDOW);
       claimed.set(nonce, Number(time) + LINK_WINDOW);
+      if (snapshotTarget) ticket.snapshotProof = random();
       setCookie(c, "__Host-ring-session", ticket.session, {
         ...COOKIE,
         maxAge: Math.floor((ticket.expires - now()) / 1000),
       });
+      if (body.get("snapshot") === "save") await saveImage(ticket);
       return c.redirect("/ring/home", 303);
     } finally {
       ticket.busy = false;
     }
   });
   app.get("/ring/home", async (c) => {
-    const session = getCookie(c, "__Host-ring-session");
-    const ticket =
-      session &&
-      [...tickets.values()].find((value) => value.session === session);
-    if (!ticket || !ticket.access)
+    const ticket = sessionTicket(getCookie(c, "__Host-ring-session"));
+    if (!ticket?.access)
       return c.text(
-        "Ring MCP Bridge Pilot. Open Connect in Ring to see your shared devices.",
+        "Open this private app from the Ring Appstore and complete account linking to see your shared devices.",
       );
     const names = await ring.devices(ticket.access);
     return c.html(
@@ -245,8 +276,38 @@ export function pilotApp(
         <ul>
           ${names.map((name) => html`<li>${name}</li>`)}
         </ul>
+        ${ticket.snapshotMessage ? html`<p>${ticket.snapshotMessage}</p>` : ""}
+        ${
+          snapshotTarget && ticket.snapshotProof && !ticket.snapshotSaved
+            ? html`<form method="post" action="/ring/snapshot">
+                <input
+                  type="hidden"
+                  name="proof"
+                  value="${ticket.snapshotProof}"
+                />
+                <button>
+                  Save latest ${snapshotTarget.name} snapshot on the home
+                  computer
+                </button>
+              </form>`
+            : ""
+        }
         <p>You can remove this connection in Ring.</p>`,
     );
+  });
+  app.post("/ring/snapshot", async (c) => {
+    const ticket = sessionTicket(getCookie(c, "__Host-ring-session"));
+    const proof = new URLSearchParams(await c.req.text()).get("proof") ?? "";
+    if (!ticket?.snapshotProof || !equal(ticket.snapshotProof, proof))
+      return c.text("Linked pilot session required.", 403);
+    if (ticket.busy) return c.text("Snapshot in progress.", 409);
+    ticket.busy = true;
+    try {
+      await saveImage(ticket);
+      return c.redirect("/ring/home", 303);
+    } finally {
+      ticket.busy = false;
+    }
   });
   app.post("/ring/webhook", async (c) => {
     const raw = Buffer.from(await c.req.arrayBuffer());

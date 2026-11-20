@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { downloadSnapshot, SnapshotError } from "./snapshot.ts";
 
 const API = "https://api.amazonvision.com/v1";
 const INTEGRATION = API + "/accounts/me/app-integrations";
@@ -28,21 +29,28 @@ export function ringClient(
   send: typeof fetch = fetch,
 ) {
   const hardware = randomUUID();
-  async function request(url: string, init: RequestInit) {
+  function ringRequest(url: string, init: RequestInit) {
     const headers = new Headers(init.headers);
     headers.set("User-Agent", "RingBridgePilot/1.0");
     headers.set("Hardware_Id", hardware);
-    const response = await send(url, {
+    return send(url, {
       ...init,
       headers,
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(8000),
     });
+  }
+  async function request(url: string, init: RequestInit) {
+    const response = await ringRequest(url, init);
     if (!response.ok)
       throw new Error("Ring request failed (" + String(response.status) + ")");
     return response;
   }
   const auth = (token: string) => ({ authorization: "Bearer " + token });
+  async function devices(token: string) {
+    const result = await request(API + "/devices", { headers: auth(token) });
+    return inventory.parse(await result.json()).data;
+  }
   return {
     async exchange(code: string) {
       const body = new URLSearchParams({
@@ -78,10 +86,26 @@ export function ringClient(
       });
     },
     async devices(token: string) {
-      const result = await request(API + "/devices", { headers: auth(token) });
-      return inventory
-        .parse(await result.json())
-        .data.map((device) => device.attributes?.name ?? device.id);
+      return (await devices(token)).map(
+        (device) => device.attributes?.name ?? device.id,
+      );
+    },
+    async snapshot(token: string, name: string, end: number) {
+      const matches = (await devices(token)).filter(
+        (device) => device.attributes?.name === name,
+      );
+      const [device] = matches;
+      if (!device || matches.length !== 1)
+        throw new SnapshotError(
+          "Expected one shared device with the configured name.",
+        );
+      return downloadSnapshot(
+        API + "/devices/" + encodeURIComponent(device.id),
+        ringRequest,
+        token,
+        send,
+        end,
+      );
     },
   };
 }

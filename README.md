@@ -149,6 +149,8 @@ Sign in to the Ring Appstore with that same account and select the private app. 
 
 The pilot keeps access tokens in memory and the browser session lasts up to one hour. Signed webhook notifications are acknowledged, and removing the integration in Ring clears the associated session. When finished, remove the integration in Ring, close the tunnel and stop the launcher with Ctrl+C. [Ring account-linking documentation](https://developer.amazon.com/docs/ring/api-documentation.html)
 
+To try one stored camera snapshot, add `-SnapshotDevice 'Camera name'` to the launcher. Use the exact name from your shared inventory. In the linked browser, choose the button to save the latest snapshot. The pilot searches the last 24 hours and saves one JPEG beside the private credentials CSV, with Ring's UTC capture time in its filename. For a device with several lenses it uses the first lens Ring lists. Restarting the pilot requires a fresh Ring account link because its access tokens live in memory.
+
 ## Where things are
 
 - `bridge/`: the bridge itself, with the core, the home connector, the all-in-one host and their tests.
