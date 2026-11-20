@@ -143,7 +143,11 @@ The pilot listens at `127.0.0.1:43821`. Forward only that port through an HTTPS 
 | Token Exchange URL | `/ring/token` |
 | Webhook URL | `/ring/webhook` |
 
-Save the settings, open **Connect**, sign in to Ring, select devices, then confirm the masked account on the pilot page. The resulting page lists the device names returned by Ring. The pilot keeps access tokens in memory and the browser session lasts up to one hour. Signed webhook notifications are acknowledged, and removing the integration in Ring clears the associated session. When finished, remove the integration in Ring, close the tunnel and stop the launcher with Ctrl+C. [Ring account-linking documentation](https://developer.amazon.com/docs/ring/api-documentation.html)
+Save the settings. In the developer console, use **Connect Ring account** to add the tester's Ring account to the private app's allowlist. This makes the app visible to that account in the Ring Appstore. [Private app setup](https://developer.amazon.com/docs/ring/publish.html#private-use-apps)
+
+Sign in to the Ring Appstore with that same account and select the private app. Choose **Connect App**, select devices and follow Ring's link to the pilot. On the pilot page, check the masked account and select **Confirm connection**. The next page lists the devices returned by Ring. Opening the pilot homepage directly requires an existing session in that browser. [Ring Appstore](https://ring.com/appstore) · [Ring's device-sharing instructions](https://ring.com/support/articles/e2sg9/Ring-appstore-third-party-integrations)
+
+The pilot keeps access tokens in memory and the browser session lasts up to one hour. Signed webhook notifications are acknowledged, and removing the integration in Ring clears the associated session. When finished, remove the integration in Ring, close the tunnel and stop the launcher with Ctrl+C. [Ring account-linking documentation](https://developer.amazon.com/docs/ring/api-documentation.html)
 
 ## Where things are
 
