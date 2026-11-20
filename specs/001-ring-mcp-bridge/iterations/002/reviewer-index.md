@@ -20,7 +20,7 @@
 
 ## Read Order
 
-1. [review.md](review.md)
+1. [Review preparation](review-preparation.md)
 2. [code-map.md](code-map.md)
 3. [dependency-report.md](dependency-report.md)
 4. [coverage-evidence.md](coverage-evidence.md)
@@ -32,7 +32,7 @@
 
 ## Artifact Links
 
-- [review.md](review.md)
+- [Review preparation](review-preparation.md)
 - [code-map.md](code-map.md)
 - [dependency-report.md](dependency-report.md)
 - [coverage-evidence.md](coverage-evidence.md)
