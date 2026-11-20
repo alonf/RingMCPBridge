@@ -1,6 +1,17 @@
 # Iteration 002 review
 
-## Follow-up review scope
+## Round six scope
+
+Review the gaps that round five left in iteration 002. Use the iteration plan, tasks T041–T044, T048 and T051–T053 in `tasks.md`, and `contracts/iteration-002-tools.schema.json` as the acceptance criteria. Inspect the following four areas and their tests on the frozen tree.
+
+1. Ring push intake and normalization. Follow a doorbell push through `bridge/src/connector/clients/push-listener/` and `bridge/src/connector/engines/normalize/normalize.ts`. Check identity and time handling against the corresponding listener and normalization tests.
+2. Durability and recovery. Read `bridge/src/connector/access/outbox-store/outbox-store.ts`, `outbox-events.test.ts` and the relevant reconnect or resend assertions in `bridge/src/connector/managers/ingest/ingest.test.ts`. Check what survives a restart and which acknowledgement permits removal.
+3. Subscription persistence and callback destinations. Read `bridge/src/core/access/subscriptions/subscriptions-store.ts`, `bridge/test/core-access/subscriptions-store.test.ts`, and `bridge/src/core/clients/delivery/callback-transport.ts` with its tests. Check subscription lifetime and destination validation on delivery.
+4. Contract. Compare the covered behavior with the iteration requirements and the published event tools schema. Check the relevant assertions in `bridge/test/contract/public-contract.test.ts`. Record the test and code locations supporting each conclusion and identify any remaining gaps.
+
+The camera pilot and the 13 core event-path files in earlier reports are background. This round's conclusions should address the four areas above.
+
+## Round five scope (historical)
 
 Trace a real `doorbell.ding` from Ring intake through the home connector and core to ChatGPT's signed webhook, then through the client's `get_events` read. Compare the production code and tests with iteration 002's plan, task acceptance criteria and tools contract. Start with these paths:
 
