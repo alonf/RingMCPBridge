@@ -1,5 +1,18 @@
 # Iteration 002 review
 
+## Round eight result, November 21
+
+Claude's [report](../../../../.specrew/review/authority/campaigns/cmp-001-ring-mcp-bridge-i002/runs/run-20261121-000915774-bedcc450/report.md) confirms test coverage for T043 acknowledgements, send window, backoff, jitter, backlog metrics and restart. For T048 it found tests for signed delivery, destination checks, response size, timeout, retry and isolation between clients. For T051 it found tests for restart, independent cursors, forward-only reads, paging and epoch changes.
+
+| Finding | Follow-up |
+| --- | --- |
+| `finding-ac084882de5cd3e9` (minor) | Test that an oversized outbound webhook sends nothing, logs only the event identifier, and allows subsequent events to be delivered. |
+| `finding-a8cb0b8b0ede4b00` (minor) | Reopen the subscription database and verify that two clients retain their own subscription and delivery state. |
+
+Claude did not independently inspect the corrected `get_events` contract test, read the endpoint test beyond its titles, or examine 14 other test files referenced by its report. The controller recorded an incomplete verdict and paused the retry before invoking another reviewer. All four rounds in the reset allowance are used. The two pilot findings from round four also remain open.
+
+The reviewed tree `1657167162b225b7c983267f8af74403b238ecfc` is pinned by the verified remote tag `specrew-reviewed/run-20261121-000915774-bedcc450`.
+
 ## Round eight scope
 
 Compare the tests on the frozen tree with the acceptance criteria in [tasks.md](../../tasks.md). For each task, cite the assertions that cover its criteria and identify any criterion that lacks a test.

@@ -18,6 +18,8 @@
 <!-- specrew:task-progress-summary:end -->
 ## Notes
 
+- November 21, round eight. Claude reviewed the outbox, callback delivery and per-reader cursor tests. It reported two minor gaps in test coverage. The controller marked the round incomplete and the reset allowance is exhausted. The [round-eight record](review-preparation.md#round-eight-result-november-21) lists the findings, limits of the review and verified remote tag. The campaign is paused for the owner's decision.
+
 - November 21, round-seven rework. The contract test now compares both iterations' planned tool inputs with their published schemas. It caught the missing `get_events.limit` maximum and passed after the plan was corrected. The full suite passed with 1,634 tests passing and 164 skipped. The [round-eight brief](review-preparation.md#round-eight-scope) lists the remaining independent checks for T043, T048 and T051.
 
 - November 21, round seven: Claude verified the timestamp fallback and its two regression tests. A minor gap remains in the planned-versus-published `get_events` input check. The [round-seven record](review-preparation.md#round-seven-result-november-21) documents the schema difference and the acceptance criteria still awaiting independent review. The verdict is partial and one round remains.
