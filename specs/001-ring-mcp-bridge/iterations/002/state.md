@@ -3,18 +3,18 @@
 **Schema**: v2
 **Current Phase**: before-implement
 **Iteration Status**: executing
-**Last Completed Task**: CP-20
-**Tasks Remaining**: CP-RV, CP-PJ
+**Last Completed Task**: (none)
+**Tasks Remaining**: CP-08b, CP-11b, CP-12, CP-13, CP-20, CP-MR, CP-RV, CP-PJ
 **In Progress**: CP-18, CP-21b, CP-RW
 **Baseline Ref**: c9618ddc79cb7f5e3d94dffe1ae4c2bc3d16ea7c
-**Updated**: 2026-11-20T13:52:44Z
+**Updated**: 2026-11-21T13:13:35.5065208Z
 
 ## Execution Summary
 
 <!-- specrew:task-progress-summary:begin -->
 - Execution is in progress.
-- Task progress: 6 complete, 3 in-progress, 2 pending, 0 blocked.
-- Latest completed task: CP-20
+- Task progress: 0 complete, 3 in-progress, 8 pending, 0 blocked.
+- Latest completed task: (none)
 <!-- specrew:task-progress-summary:end -->
 ## Notes
 

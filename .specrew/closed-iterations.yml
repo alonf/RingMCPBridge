@@ -1,7 +1,0 @@
-# Specrew closed-iteration index (Proposal 085).
-# Append-only. Append at iteration-closeout boundary via Add-SpecrewClosedIterationEntry.
-# Regenerate from state.md walk via: validate-governance.ps1 -RebuildClosedIndex
-closed:
-  - feature: 001-ring-mcp-bridge
-    iteration: 001
-    closed_at: 2026-11-16T22:30:48Z
