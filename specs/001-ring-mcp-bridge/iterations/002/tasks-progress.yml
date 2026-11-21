@@ -1,7 +1,7 @@
 schema: "v1"
 feature: "001-ring-mcp-bridge"
 iteration: "002"
-updated_at: "2026-11-20T13:52:44Z"
+updated_at: "2026-11-21T13:13:35.3298625Z"
 tasks:
   CP-08b:
     title: "Home event intake: the push probe first; Push Listener, Normalize (Ring text marked untrusted) and Ingest; events into the Outbox with a send window of about 50 and backoff on the oldest (10 s doubling to 5 min, with jitter), held until the core acks after its commit; the backlog in the heartbeat; catch-up up to 24 hours through the shared Ring limiter, marked late; the link's event messages in version 1"
