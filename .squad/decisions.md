@@ -2,6 +2,30 @@
 
 ## Active Decisions
 
+### Iteration 002 pilot checks carried to 003
+
+- **Decision ID**: rmb-i002-pilot-checks-deferred
+- **Type**: defer
+- **Affected Requirement**: FR-043, SC-001, SC-003, SC-011
+- **Affected Iteration**: specs\001-ring-mcp-bridge\iterations\002
+- **Approving Human**: the owner
+- **Recorded At**: 2026-11-22
+- **Next Action**: Measure user-visible latency, verify alert email receipt, check the soak and clocks, and compare the month-end bill with $30 in iteration 003.
+
+The owner chose on November 20 to run the physical doorbell test and carry the remaining pilot checks into iteration 003. Keep T049's user-visible timing separate from webhook acceptance, T056 open until the health alert email arrives, and T061 open until the seven-day soak, clock comparison and month-end bill have been checked. The bill criterion remains $30. [Iteration evidence](../specs/001-ring-mcp-bridge/iterations/002/state.md#notes)
+
+### Iteration 002 round-eleven subscription test follow-ups
+
+- **Decision ID**: rmb-i002-subscription-tests-deferred
+- **Type**: defer
+- **Affected Requirement**: FR-010, FR-030
+- **Affected Iteration**: specs\001-ring-mcp-bridge\iterations\002
+- **Approving Human**: the owner
+- **Recorded At**: 2026-11-22
+- **Next Action**: Add the two endpoint regression tests recorded in the signed review.
+
+On November 22 the owner accepted two minor endpoint test gaps on the reviewed snapshot. Test a subscription without read scope in both protocol eras. Verify that an event produces a signed callback after subscription and that callbacks cease after unsubscribe. [Owner disposition](../.specrew/review/authority/campaigns/cmp-001-ring-mcp-bridge-i002/dispositions/run-20261121-213350389-0f2fa4c7/disposition-f1b487d364e8d928e773.json)
+
 ### DEC-001-01: SC-003, SC-011 and the clock check carried into iteration 002 (2026-11-15)
 
 - **Feature**: 001-ring-mcp-bridge, iteration 001
@@ -360,3 +384,14 @@
 - **Task ID**: (none)
 - **Auth Commit Hash**: bd3020d181bedca6e41ed79eee9b6062688c7b84
 - **Recorded At**: 2026-11-17T19:50:41Z
+
+## 2026-11-21T23:48:32Z — Boundary enforcement: review-signoff
+
+- **Feature**: 001-ring-mcp-bridge
+- **Boundary Type**: review-signoff
+- **Current Boundary**: before-implement
+- **Requested Boundary**: review-signoff
+- **Enforcement Action**: blocked
+- **Launch Mode**: (none)
+- **Agent Response Snippet**: (none)
+- **Reason**: No persisted authorization matched before-implement -> review-signoff.

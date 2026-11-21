@@ -7,7 +7,7 @@
 **Tasks Remaining**: CP-RV, CP-PJ
 **In Progress**: CP-18, CP-21b, CP-RW
 **Baseline Ref**: c9618ddc79cb7f5e3d94dffe1ae4c2bc3d16ea7c
-**Updated**: 2026-11-20T13:52:44Z
+**Updated**: 2026-11-21T23:55:11Z
 
 ## Execution Summary
 
@@ -17,6 +17,8 @@
 - Latest completed task: CP-20
 <!-- specrew:task-progress-summary:end -->
 ## Notes
+
+- November 22. Round eleven verified the `get_events` contract and reported two endpoint test gaps. The owner accepted those findings and Specrew signed off the reviewed tree. The [review summary](review.md) records the evidence and the outstanding field checks. The task counts above match the iteration plan at handoff.
 
 - November 21, round eight. Claude reviewed the outbox, callback delivery and per-reader cursor tests. It reported two minor gaps in test coverage. The controller marked the round incomplete and the reset allowance is exhausted. The [round-eight record](review-preparation.md#round-eight-result-november-21) lists the findings, limits of the review and verified remote tag. The campaign is paused for the owner's decision.
 
