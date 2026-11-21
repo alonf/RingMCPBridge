@@ -1,1 +1,0 @@
-../../.specify/extensions/specrew-speckit/.specify-dev/agent-commands/copilot/speckit.specrew-speckit.sync-feature-closeout.agent.md
