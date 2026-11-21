@@ -1,5 +1,11 @@
 # Iteration 002 review
 
+## Round ten result, November 21
+
+Specrew ran the two-check brief with diagnostic retention enabled. The [run record](../../../../.specrew/review/authority/campaigns/cmp-001-ring-mcp-bridge-i002/runs/run-20261121-174142399-859c28f6/report.md) records a successful preflight followed by reviewer exit code 1. Claude produced no review. Immediately afterward, a one-line Claude CLI request from an empty directory with tools disabled returned HTTP 429 and reported that the weekly limit resets at 22:00 Asia/Jerusalem. Verify availability with the same small request before starting another round.
+
+Two of four rounds remain. The automatic retry paused before invoking another reviewer. Both checks in the round-nine scope remain open. The verified remote tag `specrew-reviewed/run-20261121-174142399-859c28f6` pins the attempted tree `ddb34c0ab80d4482811c10e8879a45e32982fba1`.
+
 ## Round nine result, November 21
 
 The owner reset the allowance and Specrew applied that approval to round nine. Preflight passed, then the Claude reviewer exited with code 1. The [run record](../../../../.specrew/review/authority/campaigns/cmp-001-ring-mcp-bridge-i002/runs/run-20261121-173214772-38aeb0f4/report.md) contains no validated result or findings. Both checks below remain open. The automatic retry paused before launching a reviewer. Three of the four rounds in this allowance remain.
