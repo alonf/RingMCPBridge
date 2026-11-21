@@ -1,5 +1,14 @@
 # Iteration 002 review
 
+## Round nine scope
+
+The owner reset the allowance after round eight. Two independent checks remain from that round. Inspect these specific assertions on the frozen tree and record the files examined.
+
+1. Compare `get_events` in `schemas/tool-inputs.schema.json` with `specs/001-ring-mcp-bridge/contracts/iteration-002-tools.schema.json`. Read the parameterized comparison in `bridge/test/contract/public-contract.test.ts` (lines 182–212). Check whether it exercises iteration 002 and would catch a change to `limit.maximum`.
+2. Read the assertions under “MCP Events on the endpoint” in `bridge/test/mcp-endpoint/events.test.ts` (from line 460) against T048 in `specs/001-ring-mcp-bridge/tasks.md`. Check what a client without read scope receives, what happens at the callback receiver on a rejected destination, and how successful creation and removal are verified.
+
+The round-eight findings below remain open. Record any additional gaps and any limitations of this inspection.
+
 ## Round eight result, November 21
 
 Claude's [report](../../../../.specrew/review/authority/campaigns/cmp-001-ring-mcp-bridge-i002/runs/run-20261121-000915774-bedcc450/report.md) confirms test coverage for T043 acknowledgements, send window, backoff, jitter, backlog metrics and restart. For T048 it found tests for signed delivery, destination checks, response size, timeout, retry and isolation between clients. For T051 it found tests for restart, independent cursors, forward-only reads, paging and epoch changes.
@@ -12,6 +21,8 @@ Claude's [report](../../../../.specrew/review/authority/campaigns/cmp-001-ring-m
 Claude did not independently inspect the corrected `get_events` contract test, read the endpoint test beyond its titles, or examine 14 other test files referenced by its report. The controller recorded an incomplete verdict and paused the retry before invoking another reviewer. All four rounds in the reset allowance are used. The two pilot findings from round four also remain open.
 
 The reviewed tree `1657167162b225b7c983267f8af74403b238ecfc` is pinned by the verified remote tag `specrew-reviewed/run-20261121-000915774-bedcc450`.
+
+The owner chose to stop after round eight. Specrew attempted the final check and returned `review-human-disposition-requires-complete-current-valid-result`. The result is current but partial. The campaign remains paused, the findings remain open, and iteration 002 has no review sign-off. The stop decision remains unspent.
 
 ## Round eight scope
 
