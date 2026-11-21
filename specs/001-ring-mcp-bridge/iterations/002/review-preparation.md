@@ -1,5 +1,11 @@
 # Iteration 002 review
 
+## Round nine result, November 21
+
+The owner reset the allowance and Specrew applied that approval to round nine. Preflight passed, then the Claude reviewer exited with code 1. The [run record](../../../../.specrew/review/authority/campaigns/cmp-001-ring-mcp-bridge-i002/runs/run-20261121-173214772-38aeb0f4/report.md) contains no validated result or findings. Both checks below remain open. The automatic retry paused before launching a reviewer. Three of the four rounds in this allowance remain.
+
+The attempted snapshot `48abebecd1fda7b67aefb354c9ff689c7c5f0735` is pinned by the verified remote tag `specrew-reviewed/run-20261121-173214772-38aeb0f4`.
+
 ## Round nine scope
 
 The owner reset the allowance after round eight. Two independent checks remain from that round. Inspect these specific assertions on the frozen tree and record the files examined.
