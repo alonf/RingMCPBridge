@@ -395,3 +395,12 @@ On November 22 the owner accepted two minor endpoint test gaps on the reviewed s
 - **Launch Mode**: (none)
 - **Agent Response Snippet**: (none)
 - **Reason**: No persisted authorization matched before-implement -> review-signoff.
+
+## 2026-11-22T20:22:38Z — Boundary sync: review-signoff
+
+- **Boundary Type**: review-signoff
+- **Feature Ref**: 001-ring-mcp-bridge
+- **Iteration Number**: 002
+- **Task ID**: (none)
+- **Auth Commit Hash**: b4f1ed19081052e7b146940dd8c0ea1d3b57f82c
+- **Recorded At**: 2026-11-22T20:22:20Z
