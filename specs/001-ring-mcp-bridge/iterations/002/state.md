@@ -1,8 +1,8 @@
 # Iteration State: 002
 
 **Schema**: v2
-**Current Phase**: retro
-**Iteration Status**: retro
+**Current Phase**: iteration-closeout
+**Iteration Status**: complete
 **Last Completed Task**: CP-RV
 **Tasks Remaining**: None scheduled in 002. T049, T056 and T061 carry to 003.
 **In Progress**: None

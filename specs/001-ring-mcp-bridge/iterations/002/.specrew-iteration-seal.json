@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0",
+  "feature": "001-ring-mcp-bridge",
+  "iteration": "002",
+  "sealed_at": "2026-11-22T20:58:06.8328554+00:00",
+  "sealed_files": [
+    {
+      "path": "code-map.md",
+      "sha256": "a6bb6f81cd4205cb77e011cae8afe53ce6085a090db2c70139926a2ed048a337"
+    },
+    {
+      "path": "coverage-evidence.md",
+      "sha256": "fd556282b31c138a17b5a523d12e7e6c417937355660d16a503ef503c37c26b9"
+    },
+    {
+      "path": "dashboard.md",
+      "sha256": "53773a287de618188a690b70a813b928668903da2b5152edec58b3bd1c5f3d9c"
+    },
+    {
+      "path": "dependency-report.md",
+      "sha256": "40945fd9620c35452adc0792ac2e168acfe79d58e16fcbe6a6145110040765a6"
+    },
+    {
+      "path": "design-analysis.md",
+      "sha256": "5b499f4acb735e617e87450642e579f5132ef09a58dcb85d3ddba7581556921e"
+    },
+    {
+      "path": "drift-log.md",
+      "sha256": "6b4320464d4b0d618672eb105c8850d226a6f764a30d72c9e6997bdd1dd7e5fa"
+    },
+    {
+      "path": "lens-applicability.json",
+      "sha256": "544b035f4a9c969a3f338de7129612969da680549875d9e2eec65909854ffc19"
+    },
+    {
+      "path": "plan.md",
+      "sha256": "35f656e6bf094002320a0e4115e73581b0b2b4f4f1c4be75d6453af57da0bd75"
+    },
+    {
+      "path": "quality/hardening-gate.md",
+      "sha256": "89d67a3e0fd7a96cecc55aad2be016feb8ce591922aee0c36a5a9b6d81c77720"
+    },
+    {
+      "path": "quality/lenses/robustness-baseline.md",
+      "sha256": "06af4bbca1aa625135b4ad3b72151951dc2a6dfcd473708aa3aab3d447eb1d94"
+    },
+    {
+      "path": "quality/lenses/security-baseline.md",
+      "sha256": "0e05eb10c3d8814ac1c88cc0907a0c07f8f437b5d2181f4bd6dc74a686e85346"
+    },
+    {
+      "path": "quality/lenses/test-integrity.md",
+      "sha256": "4f938c1fde1c244458efeb02540ef731a6d04b67af4192dcb0c5d91aae7ed319"
+    },
+    {
+      "path": "quality/mechanical-findings.json",
+      "sha256": "446c591aad089d2d0b93fe85703db895ef266b962f0f38877092aac21e128886"
+    },
+    {
+      "path": "quality/quality-evidence.md",
+      "sha256": "029bc5f6dbacf61e42cd4c84aa0db3bb4efd2812d4f7d59d4c4868f8af301d5c"
+    },
+    {
+      "path": "quality/trap-reapplication.md",
+      "sha256": "e91c0a53b0dfc9b11893d6b4f96da004273331042942c9139b364f8b605a5fe2"
+    },
+    {
+      "path": "retro.md",
+      "sha256": "72b97256822c712ab1abee89c51c6bab278985c29da45dc9a702b1c170285b8f"
+    },
+    {
+      "path": "review-diagrams.md",
+      "sha256": "f9046d1a987c7daf307a79847382bcf42130f4baf0748c5155b5a1de5426d409"
+    },
+    {
+      "path": "review-preparation.md",
+      "sha256": "23b21eee73f109d8e8218d9c05bd93d2f448e83ee4a3359ff4824624f2d611e2"
+    },
+    {
+      "path": "review.md",
+      "sha256": "a49cc53cee329f2bd02be1f7d310c2e563a28eac06884537970e924876d1a3d8"
+    },
+    {
+      "path": "reviewer-index.md",
+      "sha256": "9ca93d1e711f0ed51d80f4bac8b56ba4514e6091e47c49271f9286e3c5a9ece6"
+    },
+    {
+      "path": "security-surface.md",
+      "sha256": "c17004bd441e115f00a5ab6bb45d0c7773267c8e7c91577ada94564075d51eee"
+    },
+    {
+      "path": "state.md",
+      "sha256": "ac76dcf30721f8311fd3c898e69f19ca9cfa084ce8dff97f2f7727266066b7ff"
+    },
+    {
+      "path": "tasks-progress.yml",
+      "sha256": "7048a1c0da2d5d23fb6e0b78d599ffa8864926014bdbc32dc4943e1323321abb"
+    },
+    {
+      "path": "workshop/architecture-core.md",
+      "sha256": "4da3d0df7f5ac9f4aec176674ea844e57b8f2fb82b045392044ed5b3cda1418b"
+    },
+    {
+      "path": "workshop/component-design.md",
+      "sha256": "3a53114f42fc5ca062116f4e12cc2b8e235dd65bf296f99fa74fdc34819018e8"
+    },
+    {
+      "path": "workshop/data-storage.md",
+      "sha256": "85abe059a0bdce7e47031856ef740e0f9fe0ea79ec8474f2a65b60d29e6919b3"
+    },
+    {
+      "path": "workshop/devops-operations.md",
+      "sha256": "1f51f5c518da6fc9d500cee1cc2687ec443e7543c0cd0989623d19d33408ddb4"
+    },
+    {
+      "path": "workshop/integration-api.md",
+      "sha256": "246ceed6cc7cf5708242485bf0447861842ee0615428c46a5395653324ae0af7"
+    },
+    {
+      "path": "workshop/observability-resilience.md",
+      "sha256": "bb38252629e3ea4eb6c8b8a6e3a47b1f276c05e2c59af6b8ec4919f22f396357"
+    },
+    {
+      "path": "workshop/requirements-nfr.md",
+      "sha256": "7884b330a3023b4c42c8d9dd68937405f23c3407fb52c321c50ea578f23541e7"
+    },
+    {
+      "path": "workshop/security-compliance.md",
+      "sha256": "06017684aa5137d29284d27ca4051761b195e9530722db037ef827d69844fb44"
+    }
+  ],
+  "source": "iteration-closeout-authorization"
+}
