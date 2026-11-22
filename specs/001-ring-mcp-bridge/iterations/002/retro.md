@@ -70,3 +70,5 @@ Keep the 42-point cap as the planning baseline until actual effort can support a
 ## Signals for Next Iteration
 
 Keep the household filters page in 003. Plan sensor rules by type and camera rules per individual camera, with push, store-only and drop actions. Use the official API evidence to scope event-specific camera media. The family-recognition service remains a dependency for the named visitor announcement. The bridge-to-MCP media test can run independently.
+
+On November 22, after retro approval, the implementer traced the 51 scanner rows and documented the quickstart evidence and remaining gaps. See the [closeout quality record](quality/quality-evidence.md).

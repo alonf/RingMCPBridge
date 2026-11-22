@@ -2,7 +2,7 @@
 
 ## Active Decisions
 
-### Iteration 002 pilot checks carried to 003
+### 2026-11-22 — Defer: Iteration 002 pilot checks carried to 003
 
 - **Decision ID**: rmb-i002-pilot-checks-deferred
 - **Type**: defer
@@ -12,9 +12,9 @@
 - **Recorded At**: 2026-11-22
 - **Next Action**: Measure user-visible latency, verify alert email receipt, check the soak and clocks, and compare the month-end bill with $30 in iteration 003.
 
-The owner chose on November 20 to run the physical doorbell test and carry the remaining pilot checks into iteration 003. Keep T049's user-visible timing separate from webhook acceptance, T056 open until the health alert email arrives, and T061 open until the seven-day soak, clock comparison and month-end bill have been checked. The bill criterion remains $30. [Iteration evidence](../specs/001-ring-mcp-bridge/iterations/002/state.md#notes)
+- **Rationale**: The owner chose on November 20 to run the physical doorbell test and carry the remaining pilot checks into iteration 003. Keep T049's user-visible timing separate from webhook acceptance, T056 open until the health alert email arrives, and T061 open until the seven-day soak, clock comparison and month-end bill have been checked. The bill criterion remains $30. [Iteration evidence](../specs/001-ring-mcp-bridge/iterations/002/state.md#notes)
 
-### Iteration 002 round-eleven subscription test follow-ups
+### 2026-11-22 — Defer: Iteration 002 round-eleven subscription test follow-ups
 
 - **Decision ID**: rmb-i002-subscription-tests-deferred
 - **Type**: defer
@@ -24,7 +24,7 @@ The owner chose on November 20 to run the physical doorbell test and carry the r
 - **Recorded At**: 2026-11-22
 - **Next Action**: Add the two endpoint regression tests recorded in the signed review.
 
-On November 22 the owner accepted two minor endpoint test gaps on the reviewed snapshot. Test a subscription without read scope in both protocol eras. Verify that an event produces a signed callback after subscription and that callbacks cease after unsubscribe. [Owner disposition](../.specrew/review/authority/campaigns/cmp-001-ring-mcp-bridge-i002/dispositions/run-20261121-213350389-0f2fa4c7/disposition-f1b487d364e8d928e773.json)
+- **Rationale**: On November 22 the owner accepted two minor endpoint test gaps on the reviewed snapshot. Test a subscription without read scope in both protocol eras. Verify that an event produces a signed callback after subscription and that callbacks cease after unsubscribe. [Owner disposition](../.specrew/review/authority/campaigns/cmp-001-ring-mcp-bridge-i002/dispositions/run-20261121-213350389-0f2fa4c7/disposition-f1b487d364e8d928e773.json)
 
 ### DEC-001-01: SC-003, SC-011 and the clock check carried into iteration 002 (2026-11-15)
 
@@ -404,3 +404,12 @@ On November 22 the owner accepted two minor endpoint test gaps on the reviewed s
 - **Task ID**: (none)
 - **Auth Commit Hash**: b4f1ed19081052e7b146940dd8c0ea1d3b57f82c
 - **Recorded At**: 2026-11-22T20:22:20Z
+
+## 2026-11-22T20:40:08Z — Boundary sync: retro
+
+- **Boundary Type**: retro
+- **Feature Ref**: 001-ring-mcp-bridge
+- **Iteration Number**: 002
+- **Task ID**: (none)
+- **Auth Commit Hash**: 791ef7ed2992952bf9890eec9cadef7c662060ec
+- **Recorded At**: 2026-11-22T20:39:50Z

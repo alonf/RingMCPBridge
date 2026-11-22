@@ -1,22 +1,23 @@
 # Iteration State: 002
 
 **Schema**: v2
-**Current Phase**: review-signoff
-**Iteration Status**: executing
-**Last Completed Task**: CP-20
-**Tasks Remaining**: CP-RV, CP-PJ
-**In Progress**: CP-18, CP-21b, CP-RW
+**Current Phase**: retro
+**Iteration Status**: retro
+**Last Completed Task**: CP-RV
+**Tasks Remaining**: None scheduled in 002. T049, T056 and T061 carry to 003.
+**In Progress**: None
 **Baseline Ref**: c9618ddc79cb7f5e3d94dffe1ae4c2bc3d16ea7c
-**Updated**: 2026-11-21T23:55:11Z
+**Updated**: 2026-11-22T20:48:42Z
 
 ## Execution Summary
 
 <!-- specrew:task-progress-summary:begin -->
-- Execution is in progress.
-- Task progress: 6 complete, 3 in-progress, 2 pending, 0 blocked.
-- Latest completed task: CP-20
+- Eight of eleven packages finished their accepted scope. CP-18, CP-21b and CP-PJ have approved field checks carried to 003.
+- Review sign-off and retrospective approval are recorded. Iteration closeout awaits its own verdict.
 <!-- specrew:task-progress-summary:end -->
 ## Notes
+
+- November 22 closeout. The [quality record](quality/quality-evidence.md) distinguishes the tested latency and restart paths from the longer scenarios in the quickstart. The [review](review.md) links the partial-coverage decision and both approved deferrals.
 
 - November 22. Round eleven verified the `get_events` contract and reported two endpoint test gaps. The owner accepted those findings and Specrew signed off the reviewed tree. The [review summary](review.md) records the evidence and the outstanding field checks. The task counts above match the iteration plan at handoff.
 

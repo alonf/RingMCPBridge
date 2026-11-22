@@ -91,6 +91,13 @@
       "response_text": "",
       "handoff_present": false,
       "recorded_at": "2026-11-22T20:22:38Z"
+    },
+    {
+      "commit": "791ef7ed2992952bf9890eec9cadef7c662060ec",
+      "boundary": "retro",
+      "response_text": "",
+      "handoff_present": false,
+      "recorded_at": "2026-11-22T20:40:09Z"
     }
   ]
 }

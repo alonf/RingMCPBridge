@@ -306,8 +306,8 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
 **Independent test**: the review-signoff evidence gate finds every reviewer artifact. `validate-governance.ps1` passes.
 **Depends on**: T058 runs alongside Phases 3 to 6. T059 needs Phases 2 to 6. T060 follows the findings. T061 follows the calendar.
 
-- [ ] T058 [assigned_to: Reviewer] [effort: 1.8] Run continuous co-review during implement, with the reviewer host (Claude from round 4, with Codex as code writer) through specrew-review: one run per finished group (the home event path, the core event path, delivery, cursors and catch-up, the alert rule), each on the owner's "approved for review round". After each round, tag its reviewed tree and push the tag (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-RV)
-- [ ] T059 [assigned_to: Reviewer] [effort: 0.9] Assemble the review-signoff evidence under `specs/001-ring-mcp-bridge/iterations/002/`:
+- [x] T058 [assigned_to: Reviewer] [effort: 1.8] Run continuous co-review during implement, with the reviewer host (Claude from round 4, with Codex as code writer) through specrew-review: one run per finished group (the home event path, the core event path, delivery, cursors and catch-up, the alert rule), each on the owner's "approved for review round". After each round, tag its reviewed tree and push the tag (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-RV)
+- [x] T059 [assigned_to: Reviewer] [effort: 0.9] Assemble the review-signoff evidence under `specs/001-ring-mcp-bridge/iterations/002/`:
   - the drift check (specrew-drift-check) into `drift-log.md`;
   - `quality/mechanical-findings.json` and `quality/quality-evidence.md`, with the three restored reviews (concurrency, resiliency, retry and idempotency);
   - the lens evidence under `quality/lenses/`;
@@ -315,7 +315,7 @@ From plan.md "Project Structure": one npm workspace. Inside `bridge/src/core/` a
   - a walk through the iteration 002 rows of quickstart.md.
 
   (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048, SC-001, SC-002, SC-005, SC-010; CP-RV)
-- [ ] T060 [assigned_to: Implementer] [effort: 1.1] Rework reserve: fixes for the midpoint review's and the co-review's findings, each with its failing test first. Points left unused are reported at the retro, never spent on new scope, except as the owner decides: 2.5 of the reserve's 3.6 points fund T062 and T063 (DRIFT-002-20), and the midpoint review's four fixes (DRIFT-002-19) used about 1.0, so about 0.1 is left for the final review's findings (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-RW)
+- [x] T060 [assigned_to: Implementer] [effort: 1.1] Rework reserve: fixes for the midpoint review's and the co-review's findings, each with its failing test first. Points left unused are reported at the retro, never spent on new scope, except as the owner decides: 2.5 of the reserve's 3.6 points fund T062 and T063 (DRIFT-002-20), and the midpoint review's four fixes (DRIFT-002-19) used about 1.0, so about 0.1 is left for the final review's findings (Trace: FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048; CP-RW)
 - [ ] T061 [assigned_to: Implementer, with the owner] [effort: 0.9] The carried pilot reads:
   - about 2026-11-21: the 7-day soak's result and the clock check at its end, including the Ring session's re-establishment on 2026-11-16, against SC-003;
   - at month end: the month's bill against SC-011's $30 ceiling;

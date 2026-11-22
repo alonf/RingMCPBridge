@@ -1,38 +1,24 @@
-# Velocity Dashboard Snapshot
+# Iteration 002 closeout dashboard
 
 **Schema**: v1
 **Capture Kind**: iteration-closeout
-**Captured At**: 2026-11-20T19:59:47Z
-**Render Mode**: compact
-**Rendering Mode**: monochrome
-**Color Mode**: monochrome
-**Historical Notice**: Historical snapshot captured during iteration closeout. Re-running the dashboard later produces a new live view and must not overwrite this file.
+**Captured At**: 2026-11-22
+**Feature**: Ring MCP Bridge
 
-## Dashboard
+| Measure | Result |
+| --- | --- |
+| Task packages | 8 completed, 3 with field checks carried into iteration 003 |
+| Effort | 33.75 points planned against 42 available. No final actuals were recorded, so velocity is unknown. |
+| Doorbell | 403 ms to the connector and 913 ms to ChatGPT accepting the signed callback |
+| Official Ring API | Private app linked, listed devices and returned a JPEG for a window after linking |
+| Monitoring | Health alert fired and resolved. Both SMS notifications arrived. Email receipt is outstanding. |
+| Review | Claude round eleven and the owner's subsequent partial-coverage sign-off |
+| Product CI | Build, lint, tests, coverage and secret scanning passed on the retrospective commit. |
 
-```text
-SPECREW VELOCITY DASHBOARD
-Summary: > F-001 Ring MCP Bridge | In Progress · before-implement | 5.05 SP/day (1 closed iterations, low)
-Today 2026-11-20 | Repo RingMCPBridge
-Rendering monochrome
-ACTIVE
-> F-001 | Ring MCP Bridge
-VELOCITY
-5.05 SP/day | low
-75.8
-RECENT SHIPPED
-[x] F-001 · iter-001 | 75.8 SP
--
--
-ROADMAP
-[ ] phase-1-initial 0/0 SP
--
--
-PROJECTION
-F:34SP 7 calendar day(s) | P:n/a TBD
-R:0SP in-progress
-WARNINGS
-Monochrome-safe fallback forced by --no-color / NO_COLOR.
-FOOTER
-Monochrome-safe fallback is active. Re-run without --ASCII / --no-color in a UTF-...
-```
+## Carry into planning
+
+- T049 measures when a person sees the notification. T056 requires receipt of the alert email. T061 requires the seven-day soak, clock comparison and month-end bill.
+- The first camera acceptance target is event-specific media requested through MCP and fetched by an intended recipient. The household filter page remains planned for 003.
+- The quality record lists the camera and subscription review findings and distinguishes existing automation from the full receive-to-push timing and process-kill scenarios.
+
+[Plan](plan.md) · [Review](review.md) · [Quality evidence](quality/quality-evidence.md) · [Retrospective](retro.md)

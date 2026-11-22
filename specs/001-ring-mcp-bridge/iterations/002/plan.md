@@ -2,7 +2,7 @@
 
 **Schema**: v1
 **Spec**: [../../spec.md](../../spec.md)
-**Status**: reviewing
+**Status**: retro
 **Capacity**: 33.75/42 story_points
 **Started**: 2026-11-17
 **Completed**:
@@ -69,13 +69,13 @@ Effort is each item's raw estimate scaled by about 1.8, iteration 001's measured
 | CP-11b | Core event path: Classify (FR-009's table as a data file, the late-event rule); Event Log, State and Audit in one transaction, dedup by event id, then the ack home; the recovery summary; Ring-down and recovery events through the event path; `get_health` adds push reception, the last event and the backlog; 30-day retention; the CI 0.5 s latency check extended to events | FR-005, FR-008, FR-009, FR-013, FR-014, FR-015, FR-034 | US2 | 6.3 | Implementer | `bridge/src/core/**`, `bridge/src/contract/**`, `schemas/**` | done | — | — | — |
 | CP-12 | Subscriptions and cursors: cursors with epochs that never skip and survive restarts; each client's delivery state; `get_events` after a cursor with filters and a next cursor, flat input, read scope and read limit | FR-010, FR-011, FR-026, FR-030, FR-047, FR-048 | US2 | 1.8 | Implementer | `bridge/src/core/**`, `bridge/src/contract/**`, `schemas/**` | done | — | — | — |
 | CP-13 | Delivery: the ChatGPT adapter for MCP Events as OpenAI's draft publishes them (signed webhooks; each subscription's callback address and signing secret in the database, encrypted; callbacks through the bounded fetch), and the minimal listen stream for earlier-era clients. HIGH and MEDIUM pushed at least once, dedup by event id, Ring text marked untrusted. The channel shim is deferred (DRIFT-002-02) | FR-010, FR-012, FR-030, FR-033 | US2 | 3.6 | Implementer | `bridge/src/core/**` | done | — | — | — |
-| CP-18 | One Azure Monitor alert rule, by email and SMS: no heartbeat for 10 minutes, the home offline over 10 minutes, the backlog over about 5 minutes, the Ring session lost | FR-043 | cross-cutting | 2.25 | Implementer | `infra/**`, `bridge/src/core/**` | in-progress | — | — | — |
+| CP-18 | One Azure Monitor alert rule, by email and SMS: no heartbeat for 10 minutes, the home offline over 10 minutes, the backlog over about 5 minutes, the Ring session lost | FR-043 | cross-cutting | 2.25 | Implementer | `infra/**`, `bridge/src/core/**` | deferred | — | — | Pilot remainder in 003 |
 | CP-20 | Spike S1, time-boxed: can a non-US Ring account register an official private app (TG-004, the accepted unknown S1)? The owner does the Ring developer-portal steps; no Ring credentials or codes pass through the chat | TG-004 | discovery | 1.8 | Implementer, with the owner's account | — | done | — | — | — |
-| CP-21b | The dot and the first end-to-end latency samples: SC-001 measured from Ring's trigger to ChatGPT accepting the webhook, logged per event; the owner's stopwatch samples of the dot; the agent read from ChatGPT on the new core | FR-010, FR-012 | US2 | 1.8 | Owner, with the Implementer | — | in-progress | — | — | — |
+| CP-21b | The dot and the first end-to-end latency samples: SC-001 measured from Ring's trigger to ChatGPT accepting the webhook, logged per event; the owner's stopwatch samples of the dot; the agent read from ChatGPT on the new core | FR-010, FR-012 | US2 | 1.8 | Owner, with the Implementer | — | deferred | — | — | Pilot remainder in 003 |
 | CP-MR | Midpoint independent review, after the dot (iteration 001's Lesson 6) | FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048 | all | 1.8 | Reviewer | — | done | — | — | — |
-| CP-RV | Review: independent review rounds and the hardening review | FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048 | all | 3.6 | Reviewer | — | planned | — | — | — |
-| CP-RW | Expected rework | FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048 | all | 3.6 | Implementer | — | in-progress | — | — | — |
-| CP-PJ | Carried pilot reads: SC-003's 7-day soak result and the clock check at its end (about 2026-11-21), including the Ring session's re-establishment on 2026-11-16; the month's bill against SC-011's $30 ceiling | FR-042 | pilot | 0.9 | Implementer, with the owner | — | planned | — | — | — |
+| CP-RV | Review: independent review rounds and the hardening review | FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048 | all | 3.6 | Reviewer | — | done | — | — | Accepted |
+| CP-RW | Expected rework | FR-005, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-026, FR-030, FR-033, FR-034, FR-042, FR-043, FR-046, FR-047, FR-048 | all | 3.6 | Implementer | — | done | — | — | Accepted |
+| CP-PJ | Carried pilot reads: SC-003's 7-day soak result and the clock check at its end (about 2026-11-21), including the Ring session's re-establishment on 2026-11-16; the month's bill against SC-011's $30 ceiling | FR-042 | pilot | 0.9 | Implementer, with the owner | — | deferred | — | — | Pilot remainder in 003 |
 
 ## Effort Model
 
@@ -135,4 +135,4 @@ Effort is each item's raw estimate scaled by about 1.8, iteration 001's measured
 - **Spike S1 uses the owner's Ring account.** The owner does the developer-portal steps.
 - **Research-needed during the work:** ChatGPT's callback hosts and who issues the signing secret; MCP Events on the owner's ChatGPT plan; SMS to an Israeli number; the push library's "crypto-key is missing" line.
 - **Cost:** about $23 a month from iteration 002, of which the alert rule is about $1.50, plus cents for SMS (agent-derived list prices read 2026-10-26; feature plan). The midpoint review runs on the reviewer's account, so its money cost is unknown.
-- Keep Status: planning until the plan is approved.
+- **Closeout accounting.** Eight packages finished their accepted scope. Three carry the remaining field measurements to 003 under decision `rmb-i002-pilot-checks-deferred`. The 33.75-point figure is the approved budget. Actual consumption and velocity are unknown.

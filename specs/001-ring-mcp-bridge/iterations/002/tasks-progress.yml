@@ -1,7 +1,7 @@
 schema: "v1"
 feature: "001-ring-mcp-bridge"
 iteration: "002"
-updated_at: "2026-11-20T13:52:44Z"
+updated_at: "2026-11-22T20:48:42Z"
 tasks:
   CP-08b:
     title: "Home event intake: the push probe first; Push Listener, Normalize (Ring text marked untrusted) and Ingest; events into the Outbox with a send window of about 50 and backoff on the oldest (10 s doubling to 5 min, with jitter), held until the core acks after its commit; the backlog in the heartbeat; catch-up up to 24 hours through the shared Ring limiter, marked late; the link's event messages in version 1"
@@ -29,10 +29,10 @@ tasks:
     blocked_reason: ""
   CP-18:
     title: "One Azure Monitor alert rule, by email and SMS: no heartbeat for 10 minutes, the home offline over 10 minutes, the backlog over about 5 minutes, the Ring session lost"
-    status: "in-progress"
+    status: "deferred"
     started_at: "2026-11-19T20:11:45Z"
     completed_at: ""
-    blocked_reason: ""
+    blocked_reason: "Carried to iteration 003: T056 alert email receipt."
   CP-20:
     title: "Spike S1, time-boxed: can a non-US Ring account register an official private app (TG-004, the accepted unknown S1)? The owner does the Ring developer-portal steps; no Ring credentials or codes pass through the chat"
     status: "completed"
@@ -41,10 +41,10 @@ tasks:
     blocked_reason: ""
   CP-21b:
     title: "The dot and the first end-to-end latency samples: SC-001 measured from Ring's trigger to ChatGPT accepting the webhook, logged per event; the owner's stopwatch samples of the dot; the agent read from ChatGPT on the new core"
-    status: "in-progress"
+    status: "deferred"
     started_at: "2026-11-19T22:24:24Z"
     completed_at: ""
-    blocked_reason: ""
+    blocked_reason: "Carried to iteration 003: T049 user-visible notification timing."
   CP-MR:
     title: "Midpoint independent review, after the dot (iteration 001's Lesson 6)"
     status: "completed"
@@ -53,19 +53,19 @@ tasks:
     blocked_reason: ""
   CP-RV:
     title: "Review: independent review rounds and the hardening review"
-    status: "pending"
+    status: "completed"
     started_at: ""
-    completed_at: ""
+    completed_at: "2026-11-22T20:48:42Z"
     blocked_reason: ""
   CP-RW:
     title: "Expected rework"
-    status: "in-progress"
+    status: "completed"
     started_at: "2026-11-18T16:40:00Z"
-    completed_at: ""
+    completed_at: "2026-11-22T20:48:42Z"
     blocked_reason: ""
   CP-PJ:
     title: "Carried pilot reads: SC-003's 7-day soak result and the clock check at its end (about 2026-11-21), including the Ring session's re-establishment on 2026-11-16; the month's bill against SC-011's $30 ceiling"
-    status: "pending"
+    status: "deferred"
     started_at: ""
     completed_at: ""
-    blocked_reason: ""
+    blocked_reason: "Carried to iteration 003: T061 soak, clocks and month-end bill."
