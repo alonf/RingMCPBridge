@@ -1,20 +1,20 @@
 # Run the private-app linking spike in the foreground on the home computer.
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$CredentialCsv, [string]$SnapshotDevice, [switch]$BrowserCode, [string]$AccountHint)
+param([Parameter(Mandatory)][Alias('CredentialCsv')][string]$CsvPath, [string]$SnapshotDevice, [switch]$BrowserCode, [string]$AccountHint)
 $ErrorActionPreference = 'Stop'
 $entry = Join-Path $PSScriptRoot '../../bridge/dev/ring-pilot/main.ts'
-$rows = @(Import-Csv -LiteralPath $CredentialCsv -Header Key,Value)
+$rows = @(Import-Csv -LiteralPath $CsvPath -Header Key,Value)
 $processInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $processInfo.FileName = (Get-Command node -CommandType Application | Select-Object -First 1).Source
 $processInfo.UseShellExecute = $false
 $processInfo.ArgumentList.Add((Resolve-Path -LiteralPath $entry).Path)
-$processInfo.Environment['RING_PILOT_PRIVATE_DIR'] = Split-Path -Parent (Resolve-Path -LiteralPath $CredentialCsv).Path
+$processInfo.Environment['RING_PILOT_PRIVATE_DIR'] = Split-Path -Parent (Resolve-Path -LiteralPath $CsvPath).Path
 if ($BrowserCode) {
     $processInfo.ArgumentList.Add('--browser-code')
     if ($AccountHint) { $processInfo.ArgumentList.Add($AccountHint) }
 }
 if ($SnapshotDevice) {
-    $directory = Split-Path -Parent (Resolve-Path -LiteralPath $CredentialCsv).Path
+    $directory = Split-Path -Parent (Resolve-Path -LiteralPath $CsvPath).Path
     $processInfo.Environment['RING_PILOT_SNAPSHOT_DIR'] = $directory
     $processInfo.Environment['RING_PILOT_SNAPSHOT_DEVICE'] = $SnapshotDevice
 }
