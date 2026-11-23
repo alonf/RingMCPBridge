@@ -335,7 +335,14 @@ pwsh -File ./infra/home/start-ring-pilot.ps1 -CredentialCsv 'C:\private\ring-app
 
 One attempt requests up to five seconds within that recording. The printed private directory contains the available media and a manifest identifying the household, camera, event and actual media times. Check the JPEG and MP4 separately. On a pending result, retry with the same event ID from the private manifest. For a multi-lens camera the history probe stops if it cannot identify a single lens. Confirm clip playback locally and record actual playback in each target client separately. Keep the media, manifest, signed addresses and credentials out of repository evidence.
 
-Once the delegated media path exists, verify it as follows.
+To replay a captured detection through a local hybrid core, point the test at the private directory printed by the probe. It starts an OAuth issuer with a local Entra stand-in and gives the MCP client and the separate receiver different tokens. The receiver checks the returned bytes. The test uses an isolated database and a temporary private object directory.
+
+```powershell
+$env:RING_PILOT_EVENT_DIRECTORY = 'C:\private\ring-event-probe-...'
+npm test -- --run bridge/test/scenarios/event-handoff.test.ts
+```
+
+For the deployed acceptance run, verify these steps.
 
 1. Register a test receiving service with its own credentials. In household settings enable a test camera and approve that service once. Record the time and source identity of a real person detection.
 2. From the MCP client request that event's photo for the receiver. If pending, retry the same event. From the receiver fetch the item with its own credential. Compare item identity, source camera, capture time and JPEG against the intended event. Repeat with the event clip, including a range read. Keep raw pilot media private.

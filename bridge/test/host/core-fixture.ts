@@ -8,6 +8,7 @@ import {
   signingKeyDocument,
 } from "../../src/core/clients/issuer/index.ts";
 import { startCoreService } from "../../src/host/core-service.ts";
+import type { CoreServiceResources } from "../../src/host/core-service.ts";
 import type { RunningCore } from "../../src/host/core-service.ts";
 import { SystemClock } from "../../src/utilities/clock/index.ts";
 import { loadSettings } from "../../src/utilities/config/index.ts";
@@ -81,8 +82,13 @@ export interface StartedCore {
 export async function startTestCore(
   cleanups: Cleanups,
   options: {
+    readonly mediaObjects?: NonNullable<CoreServiceResources["mediaObjects"]>;
+    readonly eventMediaSource?: NonNullable<
+      CoreServiceResources["eventMediaSource"]
+    >;
     readonly secrets?: CoreSecrets;
     readonly owner?: boolean;
+    readonly readsPerHour?: number;
     readonly agents?: readonly object[];
     readonly file?: string;
     /** The core's database; a SQLite one in `file`, or in memory, when absent. */
@@ -106,6 +112,9 @@ export async function startTestCore(
     BRIDGE_ENTRA_TENANT_ID: standIn.tenantId,
     BRIDGE_ENTRA_CLIENT_ID: standIn.clientId,
     BRIDGE_AGENTS: JSON.stringify(options.agents ?? [AGENT]),
+    ...(options.readsPerHour && {
+      BRIDGE_READS_PER_HOUR: String(options.readsPerHour),
+    }),
     ...(options.owner === false
       ? {}
       : { BRIDGE_OWNER_OBJECT_ID: standIn.owner.objectId }),
@@ -121,6 +130,10 @@ export async function startTestCore(
     minLevel: "debug",
   });
   const running = await startCoreService(settings, {
+    ...(options.mediaObjects && { mediaObjects: options.mediaObjects }),
+    ...(options.eventMediaSource && {
+      eventMediaSource: options.eventMediaSource,
+    }),
     store:
       options.store ??
       openSqliteQueryLayer(options.file ?? ":memory:", { clock }),

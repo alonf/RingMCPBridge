@@ -11,12 +11,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  discoverAuthorizationServerMetadata,
-  exchangeAuthorization,
-  registerClient,
-  startAuthorization,
-} from "@modelcontextprotocol/client";
+import { linkAgent } from "./link-agent.ts";
 import { afterEach, expect, it } from "vitest";
 import { startConnector } from "../../src/host/connector.ts";
 import { SystemClock } from "../../src/utilities/clock/index.ts";
@@ -28,7 +23,6 @@ import {
 } from "../../src/utilities/security/index.ts";
 import { ScenarioEngine, standardHome } from "../scenarios/index.ts";
 import {
-  browse,
   connectOverHttp,
   describeStoreMatrix,
   requireSqlServerInCi,
@@ -44,7 +38,6 @@ import type { Cleanups } from "./core-fixture.ts";
 const CODE = "home-code-e2e";
 const REMOVE_TRIES = 20;
 const REMOVE_PAUSE_MS = 250;
-const UNAUTHORIZED = 401;
 // SQL Server's migrations and the link's start take seconds.
 const END_TO_END_TIMEOUT_MS = 60_000;
 
@@ -118,64 +111,6 @@ async function linkHome(
 }
 
 /** The agent's link as an MCP client makes it: discovery, registration, the owner's sign-in, the code. */
-async function linkAgent(mcpUrl: URL): Promise<string> {
-  const unauthorized = await fetch(mcpUrl, { method: "POST" });
-  expect(unauthorized.status).toBe(UNAUTHORIZED);
-  const challenge = unauthorized.headers.get("www-authenticate") ?? "";
-  const resourceMetadataUrl = /resource_metadata="([^"]+)"/.exec(
-    challenge,
-  )?.[1];
-  expect(resourceMetadataUrl).toBeDefined();
-  const resourceMetadata = (await json(String(resourceMetadataUrl))).body as {
-    readonly resource: string;
-    readonly authorization_servers: readonly string[];
-  };
-  expect(resourceMetadata.resource).toBe(mcpUrl.href);
-  const [issuerUrl = ""] = resourceMetadata.authorization_servers;
-  const metadata = await discoverAuthorizationServerMetadata(issuerUrl);
-  if (metadata === undefined) {
-    throw new Error("The Issuer's metadata was not found.");
-  }
-  const redirectUri = String(OTHER_AGENT.redirect_uris[0]);
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- an agent with no metadata document registers itself
-  const clientInformation = await registerClient(issuerUrl, {
-    metadata,
-    clientMetadata: {
-      client_name: "End-to-end agent",
-      redirect_uris: [redirectUri],
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      token_endpoint_auth_method: "none",
-    },
-  });
-  const { authorizationUrl, codeVerifier } = await startAuthorization(
-    issuerUrl,
-    {
-      metadata,
-      clientInformation,
-      redirectUrl: redirectUri,
-      scope: "read",
-      resource: mcpUrl,
-    },
-  );
-  const reply = await browse(authorizationUrl, redirectUri);
-  const code = reply.get("code");
-  if (code === null) {
-    throw new Error(`The link failed: ${reply.get("error") ?? "no code"}`);
-  }
-  const tokens = await exchangeAuthorization(issuerUrl, {
-    metadata,
-    clientInformation,
-    authorizationCode: code,
-    iss: reply.get("iss") ?? "",
-    codeVerifier,
-    redirectUri,
-    resource: mcpUrl,
-  });
-  expect(tokens.scope).toBe("read");
-  return tokens.access_token;
-}
-
 interface Reply<T> {
   readonly data: T;
 }

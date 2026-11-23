@@ -4,6 +4,8 @@ The [approved plan](iterations/003/plan.md) allocates 42 points. Each checkbox n
 
 Use the [specification](spec.md), [MCP contracts](contracts/mcp-tools.md), [data model](data-model.md) and [agreed screen and media flow](iterations/003/design-analysis.md). Use failing tests first for engines, parsers and defect fixes. Run the positive and negative cases through the normal entry points. The implementer is Codex and the independent reviewer is Claude.
 
+The recorded-event receiver pilot passed. T067 and T070 remain open for the live event source and its end-to-end check. [Handoff evidence](iterations/003/quality/quality-evidence.md)
+
 ## 1. Establish the official API capability
 
 The probe is the prerequisite for event media. Test the provider shape in `bridge/test/ring-pilot.test.ts` and confirm correlation with separately authorized field evidence. The existing home connector serves sensors and alarm.
