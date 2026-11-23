@@ -17,6 +17,29 @@ export class BlobMediaObjects implements MediaObjects {
     );
     return new BlobMediaObjects(service.getContainerClient("media"));
   }
+  async listPage(cursor: string | undefined, signal: AbortSignal) {
+    const pages = this.#container
+      .listBlobsFlat({ abortSignal: signal })
+      .byPage({
+        ...(cursor && { continuationToken: cursor }),
+        maxPageSize: 100,
+      });
+    const page = await pages.next();
+    if (page.done) return { ids: [] };
+    const ids = page.value.segment.blobItems
+      .map((blob) => blob.name)
+      .filter((name) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+          name,
+        ),
+      );
+    return {
+      ids,
+      ...(page.value.continuationToken && {
+        next: page.value.continuationToken,
+      }),
+    };
+  }
   async write(
     id: string,
     chunks: AsyncIterable<Uint8Array>,

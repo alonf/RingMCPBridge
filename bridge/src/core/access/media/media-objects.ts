@@ -1,5 +1,11 @@
 /** Only metadata marked ready by EventMedia may be used to read an object. */
 export interface MediaObjects {
+  /** Remote stores can commit after a failed acknowledgement. Enumerate only bridge-owned
+   * object names, one bounded page per sweep. */
+  listPage?(
+    cursor: string | undefined,
+    signal: AbortSignal,
+  ): Promise<{ ids: readonly string[]; next?: string }>;
   write(
     id: string,
     chunks: AsyncIterable<Uint8Array>,

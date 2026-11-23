@@ -52,13 +52,33 @@ function item(row: SqlRow): MediaItem {
   };
 }
 async function* checkedChunks(content: MediaContent, signal: AbortSignal) {
+  const body = content.body;
+  const iterator =
+    Symbol.asyncIterator in body
+      ? body[Symbol.asyncIterator]()
+      : body[Symbol.iterator]();
   let received = 0;
-  for await (const chunk of content.body) {
-    signal.throwIfAborted();
-    received += chunk.length;
-    if (received > content.length)
-      throw new Error("Media exceeds the announced length.");
-    yield chunk;
+  let exhausted = false;
+  try {
+    for (;;) {
+      signal.throwIfAborted();
+      const part = await untilAborted(Promise.resolve(iterator.next()), signal);
+      if (part.done) {
+        exhausted = true;
+        break;
+      }
+      received += part.value.length;
+      if (received > content.length)
+        throw new Error("Media exceeds the announced length.");
+      yield part.value;
+    }
+  } finally {
+    // An upstream iterator may never settle either next() or return(). Ask it to close
+    // and observe its failure without keeping the adapter or core shutdown waiting.
+    if (!exhausted)
+      void Promise.resolve()
+        .then(() => iterator.return?.())
+        .catch(() => undefined);
   }
   if (received !== content.length) throw new Error("Incomplete media object.");
 }
@@ -71,6 +91,7 @@ export class EventMedia {
   readonly #retentionMs: number;
   readonly #shutdown = new AbortController();
   readonly #staging = new Set<Promise<MediaItem>>();
+  #objectCursor: string | undefined;
   constructor(
     store: QueryLayer,
     objects: MediaObjects,
@@ -281,6 +302,10 @@ export class EventMedia {
       signal,
     );
     await this.collect(signal);
+    let cursor: string | undefined;
+    do {
+      cursor = await this.reconcileObjects(cursor, signal);
+    } while (cursor);
   }
   async sweep(signal: AbortSignal): Promise<void> {
     await this.#store.run(
@@ -291,6 +316,41 @@ export class EventMedia {
       signal,
     );
     await this.collect(signal);
+    this.#objectCursor = await this.reconcileObjects(
+      this.#objectCursor,
+      signal,
+    );
+  }
+
+  /** A remote commit may appear after its row has been cleaned up. Every upload has a
+   * fresh UUID and commits its database claim before sending bytes. Listing first, then
+   * checking the primary database, therefore also protects uploads in progress. */
+  private async reconcileObjects(
+    cursor: string | undefined,
+    signal: AbortSignal,
+  ): Promise<string | undefined> {
+    if (!this.#objects.listPage) return undefined;
+    const page = await this.#objects.listPage(cursor, signal);
+    if (page.ids.length) {
+      const params: Record<string, string> = {};
+      const names = page.ids.map((id, index) => {
+        const name = `id${String(index)}`;
+        params[name] = id;
+        return "@" + name;
+      });
+      const rows = await this.#store.all(
+        {
+          sql: `SELECT media_id FROM media WHERE media_id IN (${names.join(", ")})`,
+          params,
+        },
+        signal,
+      );
+      const tracked = new Set(rows.map((row) => row.media_id));
+      for (const id of page.ids) {
+        if (!tracked.has(id)) await this.#objects.remove(id, signal);
+      }
+    }
+    return page.next;
   }
   private async collect(signal: AbortSignal): Promise<void> {
     const rows = await this.#store.all(

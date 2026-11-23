@@ -160,6 +160,91 @@ describeStoreMatrix("private event media", (backend) => {
     }
     expect(write).not.toHaveBeenCalled();
   });
+  it.each(["shutdown", "timeout"] as const)(
+    "interrupts a stalled second chunk on %s",
+    async (trigger) => {
+      const { media, clock } = await fixture();
+      const stalled = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      let first = true;
+      const finish = vi.fn(async () => {
+        await release.promise;
+        return { done: true as const, value: undefined };
+      });
+      const body: AsyncIterable<Uint8Array> = {
+        [Symbol.asyncIterator]() {
+          return {
+            async next() {
+              if (first) {
+                first = false;
+                return { done: false, value: sample };
+              }
+              stalled.resolve(undefined);
+              await release.promise;
+              return { done: true, value: undefined };
+            },
+            return: finish,
+          };
+        },
+      };
+      const pending = media.stage(
+        event,
+        () => Promise.resolve({ length: sample.length + 1, body }),
+        signal,
+      );
+      const outcome = pending.then(
+        () => "ready",
+        () => "failed",
+      );
+      await stalled.promise;
+      const ending =
+        trigger === "shutdown" ? media.stop() : clock.advance(600_000);
+      try {
+        await expect
+          .poll(() => finish.mock.calls.length, { timeout: 1500 })
+          .toBe(1);
+        await ending;
+        expect(await outcome).toBe("failed");
+      } finally {
+        release.resolve(undefined);
+        await ending;
+        await outcome;
+      }
+    },
+  );
+  it.each(["sweep", "deleteAll"] as const)(
+    "removes an object committed after its failed upload was cleaned up via %s",
+    async (operation) => {
+      const { media, store, objects, clock } = await fixture();
+      const upload = objects.write.bind(objects);
+      let id = "";
+      vi.spyOn(objects, "write").mockImplementationOnce((name) => {
+        id = name;
+        return Promise.reject(new Error("commit acknowledgement lost"));
+      });
+      const load = () =>
+        Promise.resolve({ length: sample.length, body: [sample] });
+      await expect(media.stage(event, load, signal)).rejects.toThrow(
+        "acknowledgement lost",
+      );
+      async function* lateBytes() {
+        yield await Promise.resolve(sample);
+      }
+      await upload(id, lateBytes(), signal);
+      expect(await objects.read(id, 0, sample.length, signal)).toEqual(sample);
+      // Only Blob has a remote commit. Simulate its listing when the matrix uses a local file.
+      if (objects instanceof FileMediaObjects)
+        Object.assign(objects, {
+          listPage: () => Promise.resolve({ ids: [id] }),
+        });
+      const restarted = new EventMedia(store, objects, clock);
+      expect(await restarted.ready(id, signal)).toBeUndefined();
+      await restarted[operation](signal);
+      await expect(
+        objects.read(id, 0, sample.length, signal),
+      ).rejects.toThrow();
+    },
+  );
   it("bounds a read from an oversized item created before the byte limit", async () => {
     const { media, store, objects } = await fixture();
     const ready = await media.stage(
@@ -183,6 +268,58 @@ describeStoreMatrix("private event media", (backend) => {
     expect(await media.read(ready.id, 0, 1, signal)).toEqual(
       sample.slice(0, 1),
     );
+  });
+  it("walks remote listing pages while protecting ready and in-flight objects", async () => {
+    const { media, objects } = await fixture();
+    const load = () =>
+      Promise.resolve({ length: sample.length, body: [sample] });
+    const ready = await media.stage(event, load, signal);
+    const written = Promise.withResolvers<string>();
+    const release = Promise.withResolvers<undefined>();
+    const write = objects.write.bind(objects);
+    vi.spyOn(objects, "write").mockImplementationOnce(
+      async (id, chunks, writeSignal) => {
+        await write(id, chunks, writeSignal);
+        written.resolve(id);
+        await release.promise;
+      },
+    );
+    const staging = media.stage(
+      { ...event, eventId: "second-event" },
+      load,
+      signal,
+    );
+    const pending = await written.promise;
+    const firstOrphan = randomUUID();
+    const secondOrphan = randomUUID();
+    const listPage = vi.fn((cursor: string | undefined) =>
+      Promise.resolve(
+        cursor
+          ? { ids: [pending, secondOrphan] }
+          : { ids: [ready.id, firstOrphan], next: "second" },
+      ),
+    );
+    Object.assign(objects, { listPage });
+    const remove = vi.spyOn(objects, "remove");
+    try {
+      await media.sweep(signal);
+      expect(remove.mock.calls.map(([id]) => id)).toEqual([firstOrphan]);
+      await media.sweep(signal);
+      expect(remove.mock.calls.map(([id]) => id)).toEqual([
+        firstOrphan,
+        secondOrphan,
+      ]);
+    } finally {
+      release.resolve(undefined);
+      await staging;
+    }
+    expect(await media.read(pending, 0, 3, signal)).toEqual(sample);
+    listPage.mockClear();
+    await media.deleteAll(signal);
+    expect(listPage.mock.calls.map(([cursor]) => cursor)).toEqual([
+      undefined,
+      "second",
+    ]);
   });
   it("keeps the same pending item when the first caller disconnects", async () => {
     const { media } = await fixture();
