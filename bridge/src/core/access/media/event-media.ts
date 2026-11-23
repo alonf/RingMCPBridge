@@ -301,11 +301,7 @@ export class EventMedia {
       },
       signal,
     );
-    await this.collect(signal);
-    let cursor: string | undefined;
-    do {
-      cursor = await this.reconcileObjects(cursor, signal);
-    } while (cursor);
+    await this.collect("all-pages", signal);
   }
   async sweep(signal: AbortSignal): Promise<void> {
     await this.#store.run(
@@ -315,59 +311,79 @@ export class EventMedia {
       },
       signal,
     );
-    await this.collect(signal);
-    this.#objectCursor = await this.reconcileObjects(
-      this.#objectCursor,
-      signal,
-    );
+    await this.collect("one-page", signal);
   }
 
   /** A remote commit may appear after its row has been cleaned up. Every upload has a
    * fresh UUID and commits its database claim before sending bytes. Listing first, then
    * checking the primary database, therefore also protects uploads in progress. */
-  private async reconcileObjects(
-    cursor: string | undefined,
+  private async orphanIds(
+    ids: readonly string[],
     signal: AbortSignal,
-  ): Promise<string | undefined> {
-    if (!this.#objects.listPage) return undefined;
-    const page = await this.#objects.listPage(cursor, signal);
-    if (page.ids.length) {
-      const params: Record<string, string> = {};
-      const names = page.ids.map((id, index) => {
-        const name = `id${String(index)}`;
-        params[name] = id;
-        return "@" + name;
-      });
-      const rows = await this.#store.all(
-        {
-          sql: `SELECT media_id FROM media WHERE media_id IN (${names.join(", ")})`,
-          params,
-        },
-        signal,
-      );
-      const tracked = new Set(rows.map((row) => row.media_id));
-      for (const id of page.ids) {
-        if (!tracked.has(id)) await this.#objects.remove(id, signal);
-      }
-    }
-    return page.next;
-  }
-  private async collect(signal: AbortSignal): Promise<void> {
+  ): Promise<readonly string[]> {
+    if (!ids.length) return [];
+    const params: Record<string, string> = {};
+    const names = ids.map((id, index) => {
+      const name = `id${String(index)}`;
+      params[name] = id;
+      return "@" + name;
+    });
     const rows = await this.#store.all(
-      { sql: "SELECT media_id FROM media WHERE status='deleting'", params: {} },
+      {
+        sql: `SELECT media_id FROM media WHERE media_id IN (${names.join(", ")})`,
+        params,
+      },
       signal,
     );
+    const tracked = new Set(rows.map((row) => row.media_id));
+    return ids.filter((id) => !tracked.has(id));
+  }
+  private async collect(
+    scope: "one-page" | "all-pages",
+    signal: AbortSignal,
+  ): Promise<void> {
+    // Keep independent cleanup work moving, then report the first failure. An abort
+    // still stops the entire operation and leaves the durable records for a retry.
     let failure: Error | undefined;
-    for (const row of rows) {
+    async function attempt<T>(work: () => Promise<T>): Promise<T | undefined> {
       signal.throwIfAborted();
       try {
-        await this.remove(String(row.media_id), signal);
+        return await work();
       } catch (error) {
-        failure =
+        signal.throwIfAborted();
+        failure ??=
           error instanceof Error
             ? error
             : new Error("Media cleanup failed.", { cause: error });
+        return undefined;
       }
+    }
+    const rows = await attempt(() =>
+      this.#store.all(
+        {
+          sql: "SELECT media_id FROM media WHERE status='deleting'",
+          params: {},
+        },
+        signal,
+      ),
+    );
+    for (const row of rows ?? [])
+      await attempt(() => this.remove(String(row.media_id), signal));
+
+    const listPage = this.#objects.listPage?.bind(this.#objects);
+    if (listPage) {
+      let cursor = scope === "one-page" ? this.#objectCursor : undefined;
+      do {
+        const page = await attempt(() => listPage(cursor, signal));
+        // A rejected marker restarts the next sweep. A per-object failure leaves
+        // later pages reachable and that object will be revisited on the next scan.
+        cursor = page?.next;
+        if (!page) break;
+        const orphans = await attempt(() => this.orphanIds(page.ids, signal));
+        for (const id of orphans ?? [])
+          await attempt(() => this.#objects.remove(id, signal));
+      } while (scope === "all-pages" && cursor);
+      if (scope === "one-page") this.#objectCursor = cursor;
     }
     if (failure) throw failure;
   }

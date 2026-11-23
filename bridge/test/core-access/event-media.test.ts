@@ -355,6 +355,66 @@ describeStoreMatrix("private event media", (backend) => {
       .poll(() => media.ready(duplicate.id, signal))
       .toMatchObject({ id: duplicate.id, status: "ready" });
   });
+  it.each(["sweep", "deleteAll"] as const)(
+    "continues %s after persistent failures in both tracked and untracked removals",
+    async (operation) => {
+      const { media, objects, clock } = await fixture();
+      const ready = await media.stage(
+        event,
+        () => Promise.resolve({ length: sample.length, body: [sample] }),
+        signal,
+      );
+      await clock.advance(7 * 86_400_000);
+      const blocked = randomUUID();
+      const samePage = randomUUID();
+      const laterPage = randomUUID();
+      const remove = vi
+        .spyOn(objects, "remove")
+        .mockImplementation((id) =>
+          id === blocked || id === ready.id
+            ? Promise.reject(new Error("persistent failure"))
+            : Promise.resolve(),
+        );
+      const listPage = vi.fn((cursor: string | undefined) =>
+        Promise.resolve(
+          cursor
+            ? { ids: [laterPage] }
+            : { ids: [blocked, samePage], next: "second" },
+        ),
+      );
+      Object.assign(objects, { listPage });
+      await expect(media[operation](signal)).rejects.toThrow(
+        "persistent failure",
+      );
+      if (operation === "sweep")
+        await expect(media.sweep(signal)).rejects.toThrow("persistent failure");
+      expect(remove.mock.calls.map(([id]) => id)).toEqual(
+        expect.arrayContaining([ready.id, blocked, samePage, laterPage]),
+      );
+      expect(listPage.mock.calls.map(([cursor]) => cursor)).toEqual([
+        undefined,
+        "second",
+      ]);
+      expect(await media.ready(ready.id, signal)).toBeUndefined();
+    },
+  );
+  it("restarts listing after a rejected sweep cursor", async () => {
+    const { media, objects } = await fixture();
+    const listPage = vi.fn((cursor: string | undefined) =>
+      cursor
+        ? Promise.reject(new Error("invalid marker"))
+        : Promise.resolve({ ids: [], next: "expired" }),
+    );
+    Object.assign(objects, { listPage });
+    await media.sweep(signal);
+    await expect(media.sweep(signal)).rejects.toThrow("invalid marker");
+    await media.sweep(signal);
+    expect(listPage.mock.calls.map(([cursor]) => cursor)).toEqual([
+      undefined,
+      "expired",
+      undefined,
+    ]);
+  });
   it("preserves the upstream failure when cleanup fails or stalls", async () => {
     const { media, objects, clock } = await fixture();
     const original = new Error("upstream failed");
