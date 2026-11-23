@@ -324,3 +324,10 @@ The slice follows the plan's resolution of the iteration-width conflict (`resear
 | SC-006 | The default overview and device-list replies for about 100 devices stay within about 8,000 tokens | Step 4: the agent-economy test. Tokens are estimated as characters ÷ 3, rounded up (`research.md` PT-22) | In Option B |
 | Also in 002: FR-043 (part) | Out-of-band email and SMS when no heartbeat (minute tick) for 10 minutes, or the home is offline for more than 10 minutes | Step 5 (alert rules in Bicep); Step 8 (one end-to-end test alert) | **Iteration 002**. The audit and WORM alerts come in iteration 004. Iteration 002 also alerts for a backlog older than five minutes and a lost Ring session. Set `BRIDGE_ALERT_EMAIL`, `BRIDGE_ALERT_SMS_COUNTRY_CODE` and `BRIDGE_ALERT_SMS_NUMBER` in the production environment before deployment |
 | Also in 001: FR-032 (enrollment) | Connector enrolled with its key pair and a code compared on the admin page; a new enrollment revokes the old one | Step 6 | In Option B |
+
+### Iteration 003 acceptance run (planned)
+
+1. Register a test receiving service with its own credentials. In household settings enable a test camera and approve that service once. Record the time and source identity of a real person detection.
+2. From the MCP client request that event's photo for the receiver. If pending, retry the same event. From the receiver fetch the item with its own credential. Compare item identity, source camera, capture time and JPEG against the intended event. Repeat with the event clip, including a range read. Keep raw pilot media private.
+3. Test another receiver and another camera, an expired grant, and media disabled. Withdraw approval after issuance and between range requests. Each new fetch must be denied; after reapproval, request a new grant. Verify an unrelated latest frame cannot stand in for a missing event match.
+4. Record product evidence separately from the remaining UI-latency, email, soak, clocks and bill checks. [Acceptance matrix](iterations/003/plan.md#traceability-summary)

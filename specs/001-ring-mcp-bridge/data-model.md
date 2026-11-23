@@ -299,7 +299,7 @@ A push filter holds, per client, which sensors and priorities are pushed beyond 
 
 - **Validation:**
   - frames are JPEG and at most 1280 px (FR-016, IA §Rules 4);
-  - no public or pre-signed links: clips are links read with the requesting agent's own token (FR-018);
+  - no public or pre-signed links: the requesting agent reads with its own token. An approved service reads with its own identity and a short-lived grant for the selected photo or clip (FR-018, FR-020);
   - nothing is returned for a camera whose media switch is off (FR-020);
   - battery cameras are capped per hour, with no unprompted live view (FR-019, AC B9);
   - images are never logged or written to the audit (FR-034, SC7 C6).
@@ -728,3 +728,7 @@ Where a resolution needed a detail it did not state, this plan applied the readi
 | N2 | `event_ingested` entries do not ship to the write-once copy; WORM keeps FR-035's kinds in its two containers (PT-34) | 004 (PT-19), decided | SC5, PT-23, PT-34 |
 
 G13 (enrollment request lifetime) is decided as PT-32 for iteration 001, because enrollment ships in 001. N1 (purging between retention classes) is decided as PT-33 and applies from iteration 002, when the first chain (`events-30d`) starts, so its first 30-day purge falls 30 days after 002 goes live. The `audit-90d` and `audit-1y` chains start with their entries in iterations 003 and 004 (DRIFT-001-04).
+
+### Iteration 003 receiver approvals and staged items
+
+Settings owns the approval identified by household, camera and registered service. It stores an approval generation that changes on withdrawal or reapproval. Media owns the staged item, its source event, camera, capture time, readiness, expiry and private storage locator. Publish ready metadata only after a successful write. Retried requests for the same event, representation and audio policy share the matching item; an audio-bearing cached copy cannot satisfy a request that suppresses sound. A per-item grant binds the media item to its receiver, approval generation and expiry, five minutes from issuance. Disposal and failed-write cleanup must work in each supported mode. [Option B](iterations/003/design-analysis.md)

@@ -76,7 +76,7 @@ An agent asks for the latest frame from a camera, a short burst of frames, or th
 
 1. **Given** a camera with media allowed, **When** an agent asks for a frame no older than 60 s, **Then** it receives one image of at most 1280 px, with when it was taken, its age and where it came from (cached, event, forced or live).
 2. **Given** a battery camera that has reached its hourly cap of fresh frames, **When** an agent asks for a fresh frame, **Then** the request is refused with a battery-guard error that points to the cached frame.
-3. **Given** an event with a recorded clip, **When** an agent asks for the clip, **Then** it receives a link readable only with that agent's own authorization, plus a few key frames the model can see. There is no public or pre-signed link.
+3. **Given** an event with a recorded clip, **When** an agent asks for the clip, **Then** it receives a link the agent reads using its own authorization, plus a few key frames the model can see. There is no public or pre-signed link. With one camera approval for a service, the agent can share both a selected photo and a selected clip. The service fetches each with its own identity and an item-specific grant.
 4. **Given** the owner switched off media for a camera, **When** an agent asks for its frame or clip, **Then** no media is returned.
 
 ---
@@ -212,9 +212,9 @@ Ring sharing grants the account read access. For each household the user can sel
 
 - **FR-016**: The system MUST return a single camera frame (an image of at most 1280 px) with when it was taken, its age and its source (forced, cached, event or live), honouring a requested maximum age or a request for a fresh frame.
 - **FR-017**: The system MUST return a burst of 5 to 8 frames from one short live session.
-- **FR-018**: The system MUST return a short clip (of an event, or N seconds live) as a link readable only with the requesting agent's own authorization, plus a few key frames. It MUST never issue public or pre-signed links.
+- **FR-018**: The system MUST return a short clip (of an event, or N seconds live) as an authenticated link, plus a few key frames. The requesting agent MUST use its own authorization. To share selected media, it MAY request a short-lived grant bound to that item and a service approved under FR-020. The receiving service MUST authenticate as itself. It MUST never issue public or pre-signed links.
 - **FR-019**: The system MUST cap fresh frames and live sessions on battery cameras per hour (configurable), MUST never start live view on a battery camera unprompted, and MUST point to the cached frame when the cap is reached.
-- **FR-020**: The owner MUST be able to switch agent access to media on or off per camera. Clips keep the sound Ring recorded unless a per-camera switch drops it.
+- **FR-020**: The owner MUST be able to switch agent access to media on or off per camera. In household settings, one owner approval per camera and receiving service MUST cover both photos and video clips. A new service or camera requires its own approval. Clips keep the sound Ring recorded unless a per-camera switch drops it.
 - **FR-021**: The system MUST keep cached frames and clips for 7 days by default (configurable).
 
 **Control**

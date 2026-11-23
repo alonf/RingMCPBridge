@@ -368,3 +368,7 @@ scripts/                     # dev helpers
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 | --- | --- | --- |
 | The capacity is raised from the default 20 to 42 SP | Option B tests every risky unknown on the real hybrid path while the code is thin. Even split in two, its first part carries the foundation (CP-01 to CP-04, 11 SP), sign-in, the link and the Ring session together, which is 42 SP | Keeping 20 would spread the foundation over more iterations with no agent value at their end. Option A defers ChatGPT, the dot and the sign-in unknowns by an iteration, and Option C delays all agent value to its third iteration. The owner chose B, then the split with a raised capacity, on 2026-11-02 (see Capacity) |
+
+### Iteration 003 plan proposal
+
+The [iteration 003 plan](iterations/003/plan.md) translates the accepted on-demand staging design into a 42-point proposal. Against the original feature-map forecast, it estimates the whole slice at 49 and asks the owner whether to move the seven-point arm/light command and control-audit package together. The feature-map requirements remain in the backlog pending that verdict.

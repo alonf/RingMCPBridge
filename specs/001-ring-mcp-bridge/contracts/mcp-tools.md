@@ -260,7 +260,7 @@ Content: a `resource_link` to the clip, and the key-frame image blocks.
 | Output `data` field | Type | Notes |
 |---|---|---|
 | `media_id` | string | |
-| `uri` | string | read with the agent's own token (`web-endpoints.md`) |
+| `uri` | string | direct read with the agent's own token. For handoff, the approved service uses its own token and a grant for that clip (see [Web endpoints](web-endpoints.md)) |
 | `mime_type` | string, `video/mp4` | |
 | `duration_s` | integer | |
 | `has_sound` | boolean | [P] |
@@ -343,3 +343,9 @@ Security-event and battery-digest kinds are named in the iteration 003 and 004 p
 | 002 | `get_events`; push by the defaults only; event `frame` never present yet |
 | 003 | `get_motion`, `get_history`, `set_push_filter`, `get_frame`, `get_burst`, `get_clip`, `prepare_action` (arm, lights), `confirm_action`; event `frame` links appear; `battery.low` and the battery digest |
 | 004 | `prepare_action` gains `disarm` (off by default; never in mode A) |
+
+### Iteration 003 delegated event media
+
+Proposed additive tool `share_event_media` accepts flat required strings `location_id`, `event_id`, `device_id`, `receiver_id` and `kind` (photo or clip). Existing direct frame and clip requests keep their contract. Require the calling client's media scope and camera access. Resolve the registered receiver on the bridge; verify the camera belongs to the household and the media to that event.
+
+Return pending while Ring prepares that same item. On readiness return an authenticated bridge resource link, item identity, capture time, source, grant expiry and media type. The five-minute grant is bound to the receiver and approval generation. A missing match and a retryable upstream failure must be distinguishable; neither can yield a newer unrelated frame. Each receiver GET or Range requires its own credential and the item grant. Reapproval leaves older grants invalid. [Handoff diagram](../iterations/003/review-diagrams.md)
