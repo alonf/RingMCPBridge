@@ -529,6 +529,7 @@ describe("post-link event media pilot", () => {
     videoStatus: number,
     photoOffset = 0,
     linkedAt = START - 1,
+    redirectTo?: string,
   ) => {
     const json = Response.json.bind(Response);
     const event = {
@@ -537,11 +538,16 @@ describe("post-link event media pilot", () => {
       attributes: { event_type: "ding", start: START, end: START + 8000 },
       relationships: { source: { data: { type: "devices", id: "cam" } } },
     };
-    const requests: { path: string; body: unknown }[] = [];
+    const requests: {
+      path: string;
+      body: unknown;
+      authorization: string | null;
+    }[] = [];
     const respond = (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const path = new URL(url instanceof Request ? url.url : url).pathname;
       requests.push({
         path,
+        authorization: new Headers(init?.headers).get("authorization"),
         body:
           typeof init?.body === "string"
             ? (JSON.parse(init.body) as unknown)
@@ -566,6 +572,13 @@ describe("post-link event media pilot", () => {
                 items: [{ component_id: "1", component_type: "lens" }],
               },
             },
+          },
+        });
+      if (redirectTo && path.includes("/media/"))
+        return new Response(null, {
+          status: 303,
+          headers: {
+            location: redirectTo + path.replace("/media/", "/signed/"),
           },
         });
       if (path.endsWith("/image/download"))
@@ -619,6 +632,36 @@ describe("post-link event media pilot", () => {
       duration: 5000,
       components: [{ component_id: "1" }],
     });
+  });
+  it("fetches signed items from a Ring regional download host without forwarding the account credential", async () => {
+    const probe = fixture(
+      200,
+      0,
+      START - 1,
+      "https://download-us-east-1.prod.phoenix.devices.amazon.dev",
+    );
+    expect(await probe.run()).toMatchObject({
+      photo: { status: "available" },
+      clip: { status: "available" },
+    });
+    expect(
+      probe.requests
+        .filter((r) => r.path.includes("/signed/"))
+        .map((r) => r.authorization),
+    ).toEqual([null, null]);
+  });
+  it("rejects other origins that resemble a Ring download host", async () => {
+    const probe = fixture(
+      200,
+      0,
+      START - 1,
+      "https://download-us-east-1.prod.phoenix.devices.amazon.dev.example.org",
+    );
+    expect(await probe.run()).toMatchObject({
+      photo: { status: "upstream-error" },
+      clip: { status: "upstream-error" },
+    });
+    expect(probe.requests.some((r) => r.path.includes("/signed/"))).toBe(false);
   });
   it.each([
     [416, "missing"],

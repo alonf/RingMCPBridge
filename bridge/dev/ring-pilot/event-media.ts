@@ -116,12 +116,15 @@ async function fetchItem(
         target.port ||
         target.username ||
         target.password ||
-        ![
+        (![
           ".amazonvision.com",
           ".amazonaws.com",
           ".cloudfront.net",
           ".ring.com",
-        ].some((domain) => target.hostname.endsWith(domain))
+        ].some((domain) => target.hostname.endsWith(domain)) &&
+          !/^download-[a-z0-9-]+\.prod\.phoenix\.devices\.amazon\.dev$/.test(
+            target.hostname,
+          ))
       )
         return { status: "upstream-error", httpStatus: response.status };
       response = await send(target, {
