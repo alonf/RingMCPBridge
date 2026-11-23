@@ -245,6 +245,21 @@ export class SettingsStore {
         const removed = listed
           .map((row) => parseRow(CLIENT_ID_ROW, row, "agent").client_id)
           .filter((clientId) => !configured.has(clientId));
+        const lostMedia = new Set([
+          ...removed,
+          ...seeds
+            .filter((seed) => !seed.scopes.includes("media"))
+            .map((seed) => seed.client_id),
+        ]);
+        for (const id of lostMedia) {
+          await session.run(
+            statement(
+              "DELETE FROM camera_media_approval WHERE receiver_id=@id",
+              { id },
+            ),
+            signal,
+          );
+        }
         for (const clientId of removed) {
           await session.run(
             statement(DELETE_AGENT, { client_id: clientId }),

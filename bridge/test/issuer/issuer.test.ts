@@ -629,7 +629,7 @@ describe("the Issuer", () => {
     });
   });
 
-  it("grants read only, even when the agent asks for media and is listed for it", async () => {
+  it("grants requested read and media for a listed media agent", async () => {
     const tokens = await link(
       rig,
       DOCUMENT_AGENT.client_id,
@@ -637,7 +637,7 @@ describe("the Issuer", () => {
       "read media control",
     );
 
-    expect(tokens.scope).toBe("read");
+    expect(tokens.scope?.split(" ").sort()).toEqual(["media", "read"]);
   });
 
   it("sends every link to the owner's Entra sign-in, even in a browser that linked before", async () => {

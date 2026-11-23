@@ -133,6 +133,7 @@ export type AccessCheck =
   | {
       readonly kind: "valid";
       readonly clientId: string;
+      readonly listedClientId?: string;
       /** The owner's Entra `sub` for the bridge's app registration. */
       readonly subject: string;
       readonly scopes: readonly string[];
@@ -469,8 +470,12 @@ export class Issuer {
       };
     }
     const grant = new provider.Grant({ accountId: owner.subject, clientId });
-    grant.addResourceScope(this.#settings.resource, RESOURCE_SCOPE);
     const requested = typeof params.scope === "string" ? params.scope : "";
+    const resourceScopes = grantableScopes(agent).filter((scope) =>
+      requested.split(" ").includes(scope),
+    );
+    if (resourceScopes.length)
+      grant.addResourceScope(this.#settings.resource, resourceScopes.join(" "));
     for (const scope of requested.split(" ")) {
       if (OPENID_SCOPES.has(scope)) {
         grant.addOIDCScope(scope);
@@ -521,17 +526,17 @@ export class Issuer {
     const agent =
       (await this.#agents.byDocument(clientId, signal)) ??
       (await this.#registeredAgent(clientId, signal));
-    if (
-      agent === undefined ||
-      !grantableScopes(agent).includes(RESOURCE_SCOPE)
-    ) {
+    if (agent === undefined || grantableScopes(agent).length === 0) {
       return INVALID;
     }
     return {
       kind: "valid",
       clientId,
       subject: accountId,
-      scopes: (found.scope ?? "").split(" ").filter((scope) => scope !== ""),
+      ...(agent.client_id !== clientId && { listedClientId: agent.client_id }),
+      scopes: grantableScopes(agent).filter((scope) =>
+        (found.scope ?? "").split(" ").includes(scope),
+      ),
       expiresAt: exp,
     };
   }

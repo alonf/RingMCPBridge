@@ -40,6 +40,8 @@ import type { EventSubscriptions } from "./events-handler.ts";
 import { EVENTS_URI, legacyListen, ListenStreams } from "./listen-stream.ts";
 import { ReadLimit } from "./read-limit.ts";
 import { registerReadTools } from "./read-tools.ts";
+import { registerMediaTool } from "./share-event-media.ts";
+import type { MediaHandoff } from "../../managers/media/index.ts";
 import type { InquiryReads } from "./read-tools.ts";
 
 /** The scope every iteration 001 tool needs. */
@@ -60,6 +62,7 @@ export type TokenCheck =
   | {
       readonly kind: "valid";
       readonly clientId: string;
+      readonly listedClientId?: string;
       readonly subject: string;
       readonly scopes: readonly string[];
       /** When it ends, in seconds since 1970. */
@@ -95,6 +98,7 @@ export interface McpEndpointSettings {
 /** What the endpoint is wired with. */
 export interface McpEndpointDependencies {
   readonly inquiry: InquiryReads;
+  readonly media?: MediaHandoff;
   /** The Issuer, in mode H. */
   readonly tokens: AccessTokens;
   readonly clock: Clock;
@@ -208,7 +212,17 @@ export class McpEndpoint {
       authInfo = await verifyBearerToken(request.headers.get("authorization"), {
         verifier: this.#verifier,
         ...challenge,
+        requiredScopes: this.#dependencies.media ? [] : [READ_SCOPE],
       });
+      if (
+        !authInfo.scopes.includes(READ_SCOPE) &&
+        (!authInfo.scopes.includes("media") || request.method !== "POST")
+      ) {
+        throw new OAuthError(
+          OAuthErrorCode.InsufficientScope,
+          "This request requires a listed bridge scope.",
+        );
+      }
     } catch (error) {
       if (error instanceof TokensUnavailable) {
         return Response.json(
@@ -227,7 +241,9 @@ export class McpEndpoint {
       }
       return bearerAuthChallengeResponse(error, challenge);
     }
-    const events = this.#dependencies.events;
+    const events = authInfo.scopes.includes(READ_SCOPE)
+      ? this.#dependencies.events
+      : undefined;
     let response: Response;
     const version = request.headers.get("mcp-protocol-version");
     const legacyGet =
@@ -324,21 +340,32 @@ export class McpEndpoint {
   #server(context: McpRequestContext): McpServer {
     const server = new McpServer(SERVER_INFO);
     const clientId = context.authInfo?.clientId;
-    registerReadTools(
-      server,
-      {
-        inquiry: this.#dependencies.inquiry,
-        limit: this.#limit,
-        clock: this.#dependencies.clock,
-        logger: this.#logger,
-        ...(this.#settings.deadlineMs === undefined
-          ? {}
-          : { deadlineMs: this.#settings.deadlineMs }),
-      },
-      (signal) => ({ clientId, signal }),
-    );
-    const { events } = this.#dependencies;
-    if (events !== undefined) {
+    const canRead =
+      !context.authInfo || context.authInfo.scopes.includes(READ_SCOPE);
+    if (canRead)
+      registerReadTools(
+        server,
+        {
+          inquiry: this.#dependencies.inquiry,
+          limit: this.#limit,
+          clock: this.#dependencies.clock,
+          logger: this.#logger,
+          ...(this.#settings.deadlineMs === undefined
+            ? {}
+            : { deadlineMs: this.#settings.deadlineMs }),
+        },
+        (signal) => ({ clientId, signal }),
+      );
+    const { media, events } = this.#dependencies;
+    if (media && clientId && context.authInfo?.scopes.includes("media"))
+      registerMediaTool(
+        server,
+        media,
+        clientId,
+        this.#limit,
+        this.#dependencies.clock,
+      );
+    if (canRead && events !== undefined) {
       registerEventMethods(server, events, clientId);
       if (events.listen && context.era === "modern") {
         server.registerResource(
@@ -367,7 +394,9 @@ export class McpEndpoint {
     return {
       resource: this.#settings.resource,
       authorization_servers: [this.#settings.issuer],
-      scopes_supported: [READ_SCOPE],
+      scopes_supported: this.#dependencies.media
+        ? [READ_SCOPE, "media"]
+        : [READ_SCOPE],
       bearer_methods_supported: ["header"],
       resource_name: RESOURCE_NAME,
     };

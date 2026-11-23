@@ -254,6 +254,27 @@ export class EventMedia {
     }
   }
 
+  /** Only the representation staged for this exact event and sound policy can match. */
+  async find(
+    key: Omit<EventMediaKey, "capturedAt">,
+    signal: AbortSignal,
+  ): Promise<MediaItem | undefined> {
+    const row = await this.#store.get(
+      {
+        sql: "SELECT * FROM media WHERE location_id=@home AND device_id=@camera AND event_id=@event AND kind=@kind AND has_sound=@sound AND status IN ('pending','ready') AND expires_at>@now",
+        params: {
+          home: key.householdId,
+          camera: key.cameraId,
+          event: key.eventId,
+          kind: key.kind,
+          sound: Number(key.hasSound),
+          now: this.#clock.now(),
+        },
+      },
+      signal,
+    );
+    return row && item(row);
+  }
   async ready(id: string, signal: AbortSignal): Promise<MediaItem | undefined> {
     const row = await this.#store.get(
       {

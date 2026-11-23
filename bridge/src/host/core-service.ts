@@ -50,6 +50,11 @@ import {
 import type { QueryLayer } from "../utilities/query-layer/index.ts";
 import type { HttpFetch, OwnerSignIn } from "../utilities/security/index.ts";
 import { assembleCore } from "./core-assembly.ts";
+import { MediaHandoff } from "../core/managers/media/index.ts";
+import { EventLog } from "../core/access/event-log/index.ts";
+import type { EventMediaSource } from "../core/managers/media/index.ts";
+import { MediaPermissions } from "../core/access/settings/index.ts";
+import { MediaTickets } from "../core/access/media/index.ts";
 import type { MediaObjects } from "../core/access/media/index.ts";
 import type { CoreAssembly } from "./core-assembly.ts";
 import { BRIDGE_VERSION } from "./version.ts";
@@ -88,6 +93,7 @@ const READINESS_DATABASE_TIMEOUT_MS = 2_000;
 /** What the core service is made over. */
 export interface CoreServiceResources {
   readonly mediaObjects?: MediaObjects;
+  readonly eventMediaSource?: EventMediaSource;
   /** The core's database, not yet migrated. Closed by `stop`. */
   readonly store: QueryLayer;
   readonly secrets: CoreSecrets;
@@ -219,6 +225,20 @@ export async function startCoreService(
   core.events.subscribe("event.stored", (stored) => {
     delivery.eventStored(stored);
   });
+  const eventLog = new EventLog({ clock });
+  const media =
+    core.media &&
+    new MediaHandoff({
+      media: core.media,
+      permissions: new MediaPermissions(store),
+      tickets: new MediaTickets(store, clock),
+      state: core.state,
+      settings: core.settings,
+      publicUrl,
+      eventMatches: (home, camera, event, signal) =>
+        eventLog.fromCamera(store, home, camera, event, signal),
+      ...(resources.eventMediaSource && { source: resources.eventMediaSource }),
+    });
   const mcp = new McpEndpoint(
     {
       resource: `${publicUrl}${MCP_PATH}`,
@@ -233,6 +253,7 @@ export async function startCoreService(
       clock,
       logger,
       events: delivery,
+      ...(media && { media }),
     },
   );
   const mcpListener = getRequestListener((request) => mcp.fetch(request));

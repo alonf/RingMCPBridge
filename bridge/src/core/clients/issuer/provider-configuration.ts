@@ -39,7 +39,7 @@ const AUTHORIZATION_CODE_TTL_S = MINUTE_S;
 /** The time an agent's authorization may wait for the owner: the Entra sign-in's own limit. */
 const INTERACTION_TTL_S = 10 * MINUTE_S;
 const MS_PER_SECOND = 1000;
-const GRANTED_SCOPE = "read";
+const GRANTED_SCOPE = "read media";
 
 /** What the configuration is built from. */
 export interface ProviderParts {

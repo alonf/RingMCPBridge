@@ -30,6 +30,33 @@ const LATER = AS_OF + 60_000;
 const EXPECTED_TABLES: Readonly<
   Record<string, readonly (readonly [string, boolean])[]>
 > = {
+  camera_media_policy: [
+    ["camera_key", true],
+    ["enabled", true],
+    ["sound", true],
+    ["generation", true],
+  ],
+  camera_media_approval: [
+    ["approval_key", true],
+    ["camera_key", true],
+    ["receiver_id", true],
+    ["generation", true],
+  ],
+  media_ticket: [
+    ["token_hash", true],
+    ["media_id", true],
+    ["receiver_id", true],
+    ["policy_generation", true],
+    ["approval_generation", true],
+    ["expires_at", true],
+  ],
+  media_access_log: [
+    ["access_id", true],
+    ["media_id", true],
+    ["receiver_id", true],
+    ["operation", true],
+    ["ts", true],
+  ],
   media: [
     ["media_id", true],
     ["cache_key", true],

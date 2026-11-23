@@ -115,6 +115,51 @@
       "additionalProperties": false,
       "title": "get_events input",
       "description": "Scope: read. Events after a cursor, filtered, in seq order, with next_cursor for the next read. The cursor never skips and survives restarts. The log is the truth and push is a hint."
+    },
+    "share_event_media": {
+      "type": "object",
+      "properties": {
+        "location_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Source household identifier."
+        },
+        "device_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Source camera identifier."
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Exact recorded event identifier."
+        },
+        "receiver_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400,
+          "description": "Approved registered service identifier."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "photo",
+            "clip"
+          ],
+          "description": "Requested event representation."
+        }
+      },
+      "required": [
+        "location_id",
+        "device_id",
+        "event_id",
+        "receiver_id",
+        "kind"
+      ],
+      "additionalProperties": false
     }
   }
 }

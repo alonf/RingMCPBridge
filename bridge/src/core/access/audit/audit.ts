@@ -115,6 +115,21 @@ export class Audit {
       },
       signal,
     );
+    const now = this.#clock.now();
+    await session.run(
+      {
+        sql: "DELETE FROM media_access_log WHERE ts<@cutoff",
+        params: { cutoff: now - 90 * 86_400_000 },
+      },
+      signal,
+    );
+    await session.run(
+      {
+        sql: "DELETE FROM media_ticket WHERE expires_at<=@now",
+        params: { now },
+      },
+      signal,
+    );
   }
 
   /** Writes the entry for an event the log has just taken, inside the caller's transaction. */

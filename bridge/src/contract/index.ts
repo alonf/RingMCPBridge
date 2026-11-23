@@ -19,6 +19,8 @@ export {
 } from "./inquiry-tools.ts";
 export type { ToolContract } from "./inquiry-tools.ts";
 
+export { shareEventMediaTool } from "./share-event-media.ts";
+
 /** `get_events` (T052). */
 export {
   DEFAULT_EVENTS_PER_READ,

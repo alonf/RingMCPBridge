@@ -18,8 +18,8 @@ import type {
 /** The part of Settings the Issuer reads. */
 export type AgentListing = Pick<SettingsStore, "agent" | "agents">;
 
-/** The scopes the Issuer grants in iteration 001: `read` only (FR-030). */
-const GRANTABLE: readonly AgentScope[] = ["read"];
+/** Scopes implemented at the bridge, intersected with the current listing (FR-030). */
+const GRANTABLE: readonly AgentScope[] = ["read", "media"];
 
 /** The listed agents, as the Issuer checks clients against them. */
 export class ListedAgents {

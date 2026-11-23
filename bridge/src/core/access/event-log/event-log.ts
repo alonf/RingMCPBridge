@@ -205,10 +205,26 @@ export class EventLog {
     this.#clock = options.clock;
   }
 
-  /**
-   * Writes `event` at the end of its location's log, inside the caller's transaction, or reports
-   * that it is already there.
-   */
+  /** Match the bridge event named by an MCP caller to its source camera and household. */
+  async fromCamera(
+    session: SqlSession,
+    home: string,
+    camera: string,
+    event: string,
+    signal: AbortSignal,
+  ) {
+    return Boolean(
+      await session.get(
+        {
+          sql: "SELECT seq FROM event WHERE location_id=@home AND device_id=@camera AND event_id=@event",
+          params: { home, camera, event },
+        },
+        signal,
+      ),
+    );
+  }
+
+  /** Write the event at the end of its household log, or report its existing position. */
   async append(
     session: SqlSession,
     event: EventRecord,

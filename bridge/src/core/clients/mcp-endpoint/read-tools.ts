@@ -405,7 +405,7 @@ function internal(): Failure {
   };
 }
 
-function errorResult(failure: Failure, clock: Clock): CallToolResult {
+export function errorResult(failure: Failure, clock: Clock): CallToolResult {
   const envelope = errorEnvelope.parse({
     error: failure,
     as_of: formatUtc(clock.now()),
