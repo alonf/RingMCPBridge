@@ -12,6 +12,8 @@ import { EVENT_CURSORS } from "./0009-event-cursors.ts";
 import { RECOVERY_HEALTH } from "./0010-recovery-health.ts";
 import { EVENT_MEDIA } from "./0011-event-media.ts";
 import { MEDIA_HANDOFF } from "./0012-media-handoff.ts";
+import { MEDIA_AUDIT_CONTEXT } from "./0013-media-audit-context.ts";
+import { CAMERA_PERSON_EVENTS } from "./0014-camera-person-events.ts";
 import type { Migration } from "./migration.ts";
 
 export const CORE_MIGRATIONS: readonly Migration[] = [
@@ -27,4 +29,6 @@ export const CORE_MIGRATIONS: readonly Migration[] = [
   RECOVERY_HEALTH,
   EVENT_MEDIA,
   MEDIA_HANDOFF,
+  MEDIA_AUDIT_CONTEXT,
+  CAMERA_PERSON_EVENTS,
 ];

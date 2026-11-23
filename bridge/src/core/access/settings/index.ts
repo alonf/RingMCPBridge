@@ -1,7 +1,7 @@
 // Settings (CP-16, T022): the listed agents, the home part's enrollment keys and the global battery
 // threshold, in the core's database. Its only entry point (CD4). The Issuer reads the listing,
 // Connector Link checks keys and records enrollment requests, and the admin page approves them.
-export { MediaPermissions } from "./media-permissions.ts";
+export { MediaPermissions, cameraPersonActionIn } from "./media-permissions.ts";
 export type { CameraChange } from "./media-permissions.ts";
 
 /** The store, its limits, and the DTOs it declares. */

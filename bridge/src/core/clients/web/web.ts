@@ -89,6 +89,7 @@ export const ADMIN_PATHS: PagePaths = {
   stylesheet: `${ADMIN_PATH}/app.css`,
   script: `${ADMIN_PATH}/app.js`,
 };
+const DELETE_MEDIA = "/admin/media/delete";
 const HEALTH_PATH = `${ADMIN_PATH}/health`;
 
 const MINUTE_MS = 60_000;
@@ -178,7 +179,8 @@ export interface WebDependencies {
   readonly admin: Pick<
     AdminManager,
     "pendingEnrollment" | "approveEnrollment" | "setLocationTimeZone"
-  >;
+  > &
+    Partial<Pick<AdminManager, "deleteCachedMedia">>;
   readonly inquiry: Pick<InquiryManager, "getOwnerHealth">;
   readonly ownerSignIn: OwnerSignIn;
   readonly media?: CameraAdmin;
@@ -240,6 +242,7 @@ export class Web {
       ADMIN_PATHS.signOut,
       ADMIN_PATHS.theme,
       MEDIA_SETTINGS,
+      DELETE_MEDIA,
     ]) {
       app.use(
         path,
@@ -253,6 +256,7 @@ export class Web {
         }),
       );
     }
+    app.post(DELETE_MEDIA, (context) => this.#deleteMedia(context));
     app.post(MEDIA_SETTINGS, (context) => this.#cameraChange(context));
     app.post(ADMIN_PATHS.approve, (context) => this.#approve(context));
     app.post(ADMIN_PATHS.timeZone, (context) => this.#setTimeZone(context));
@@ -286,6 +290,19 @@ export class Web {
     });
   }
 
+  async #deleteMedia(context: WebContext) {
+    const checked = await this.#sessionForm(
+      context,
+      SESSION_FORM.extend({ confirm: z.literal("delete") }),
+    );
+    if (checked instanceof Response) return checked;
+    const { admin, serving, media } = this.#dependencies;
+    if (!media || !admin.deleteCachedMedia || !serving())
+      return context.text("Media storage unavailable.", 503);
+    await admin.deleteCachedMedia(AbortSignal.timeout(60_000));
+    this.#sessions.tell(checked.session.id, { kind: "media_deleted" });
+    return context.redirect(ADMIN_PATH + "#media-storage", HTTP_SEE_OTHER);
+  }
   async #cameraChange(context: WebContext): Promise<Response> {
     const checked = await this.#sessionForm(
       context,
@@ -296,6 +313,10 @@ export class Web {
         enabled: z.literal("on").optional(),
         sound: z.literal("on").optional(),
         approved: z.literal("on").optional(),
+        "remove[]": z.array(z.string().min(1).max(400)).optional(),
+        person_action: z
+          .enum(["inherit", "push", "store_only", "drop"])
+          .optional(),
       }),
     );
     if (checked instanceof Response) return checked;
@@ -309,7 +330,15 @@ export class Web {
         location_id,
         device_id,
         receiver_id,
-        { enabled: !!enabled, sound: !!sound, approved: !!approved },
+        {
+          enabled: !!enabled,
+          sound: !!sound,
+          approved: checked.form.person_action ? !!receiver_id : !!approved,
+          ...(checked.form["remove[]"] && { remove: checked.form["remove[]"] }),
+          ...(checked.form.person_action && {
+            personAction: checked.form.person_action,
+          }),
+        },
         AbortSignal.timeout(MANAGER_TIMEOUT_MS),
       );
     } catch (error) {
@@ -364,6 +393,10 @@ export class Web {
             return cameraSettingsUnavailable();
           }),
         }),
+        ...(this.#dependencies.media &&
+          this.#dependencies.admin.deleteCachedMedia && {
+            mediaDelete: DELETE_MEDIA,
+          }),
         notice: this.#sessions.takeNotice(session.id),
       }),
     );

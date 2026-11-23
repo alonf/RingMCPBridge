@@ -3,6 +3,7 @@
 // written once; a failed write that leaves nothing behind; the same event again after a restart,
 // as when the core stops between its commit and its ack; and two locations in parallel, each in
 // its own order. The link's side of the ack is in Connector Link's tests.
+import { MediaPermissions } from "../../access/settings/index.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -355,6 +356,42 @@ describe("Event: the event path (T047)", () => {
 
   // T050's review: a person push that arrives before the first inventory (a new core, or a new
   // key) was ranked LOW because State did not hold the camera yet (DRIFT-002-19).
+  it("applies the saved person event action only to this camera's person detections", async () => {
+    const test = await withHome();
+    const permissions = new MediaPermissions(test.layer);
+    for (const action of ["drop", "store_only", "push"] as const) {
+      await permissions.save(
+        "loc-1",
+        CAMERA.device_id,
+        "",
+        { enabled: false, sound: false, approved: false, personAction: action },
+        never,
+      );
+      await test.event.event(
+        event("person-" + action, {
+          device_id: CAMERA.device_id,
+          kind: "motion",
+          person: true,
+        }),
+        SESSION,
+        never,
+      );
+    }
+    await test.event.event(
+      event("ordinary-motion", {
+        device_id: CAMERA.device_id,
+        kind: "motion",
+        person: false,
+      }),
+      SESSION,
+      never,
+    );
+    expect(test.stored.map((row) => [row.event.event_id, row.action])).toEqual([
+      ["person-store_only", "store_only"],
+      ["person-push", "push"],
+      ["ordinary-motion", "inherit"],
+    ]);
+  });
   it("ranks a person at a camera by the device type the push carries, before State holds the camera", async () => {
     const test = await harness();
 

@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { FileMediaObjects } from "../../src/core/access/media/index.ts";
 import { startConnector } from "../../src/host/connector.ts";
 import type { RunningConnector } from "../../src/host/connector.ts";
 import { SystemClock } from "../../src/utilities/clock/index.ts";
@@ -163,6 +164,45 @@ async function connectorOn(
 }
 
 describe("the admin page end to end", () => {
+  it("deletes cached bytes only after an owner submits the confirmed same-origin form", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "camera-delete-"));
+    cleanups.push(() => rm(directory, { recursive: true, force: true }));
+    const core = await startTestCore(cleanups, {
+      mediaObjects: new FileMediaObjects(directory),
+    });
+    const media = core.running.core.media;
+    if (!media) throw new Error("Missing test store");
+    const item = await media.stage(
+      {
+        householdId: "home",
+        cameraId: "door",
+        eventId: "event",
+        capturedAt: Date.now(),
+        kind: "frame",
+        hasSound: false,
+      },
+      () => Promise.resolve({ length: 1, body: [Uint8Array.of(1)] }),
+      never(),
+    );
+    const owner = await signIn(core);
+    const formToken = field(await page(core, owner), "form_token");
+    const submit = (token: string, origin: string, confirm: string) =>
+      fetch(core.url + "/admin/media/delete", {
+        method: "POST",
+        redirect: "manual",
+        headers: { cookie: owner, origin },
+        body: new URLSearchParams({ form_token: token, confirm }),
+      });
+    expect((await submit("invalid", core.url, "delete")).status).toBe(403);
+    expect(
+      (await submit(formToken, "https://other.test", "delete")).status,
+    ).toBe(403);
+    expect((await submit(formToken, core.url, "")).status).toBe(403);
+    expect(await media.ready(item.id, never())).toBeDefined();
+    expect((await submit(formToken, core.url, "delete")).status).toBe(303);
+    expect(await media.ready(item.id, never())).toBeUndefined();
+    expect(await page(core, owner)).toContain("Cached camera media deleted.");
+  }, 30_000);
   it(
     "approves the connector whose code the owner typed, and its home's inventory lands; a second approval revokes the first key and starts the versions again",
     async () => {

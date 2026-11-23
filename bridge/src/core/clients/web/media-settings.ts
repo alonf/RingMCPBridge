@@ -21,9 +21,6 @@ export async function cameraSettings(
   const inHome = cameras.filter((c) => c.location_id === home?.location_id);
   const camera =
     inHome.find((c) => c.device_id === query.get("device_id")) ?? inHome[0];
-  const receiver =
-    receivers.find((r) => r.client_id === query.get("receiver_id")) ??
-    receivers[0];
   const policy =
     home &&
     camera &&
@@ -56,12 +53,6 @@ export async function cameraSettings(
                 ${inHome.map((c) => html`<option value="${c.device_id}" ${c === camera ? "selected" : ""}>${c.name}</option>`)}
               </select></label
             >
-            <label
-              >Receiving service
-              <select name="receiver_id">
-                ${receivers.map((r) => html`<option value="${r.client_id}" ${r === receiver ? "selected" : ""}>${r.platform ?? r.client_id}</option>`)}
-              </select></label
-            >
             <button>Show permissions</button>
           </form>`
         : html`<p>No cameras in this household.</p>`
@@ -70,9 +61,7 @@ export async function cameraSettings(
       home && camera && policy
         ? html`<form action="${MEDIA_SETTINGS}" method="post">
             <fieldset>
-              <legend>
-                ${camera.name}${receiver ? " · " + (receiver.platform ?? receiver.client_id) : ""}
-              </legend>
+              <legend>${camera.name}</legend>
               <input
                 type="hidden"
                 name="form_token"
@@ -86,11 +75,29 @@ export async function cameraSettings(
                 type="hidden"
                 name="device_id"
                 value="${camera.device_id}"
-              /><input
-                type="hidden"
-                name="receiver_id"
-                value="${receiver?.client_id ?? ""}"
               />
+              <label
+                >Person-detection events
+                <select name="person_action">
+                  ${(
+                    [
+                      ["inherit", "Use deployment setting"],
+                      ["push", "Push"],
+                      ["store_only", "Store only"],
+                      ["drop", "Drop"],
+                    ] as const
+                  ).map(
+                    ([v, label]) =>
+                      html`<option
+                        value="${v}"
+                        ${(policy.personAction ?? "inherit") === v ? "selected" : ""}
+                      >
+                        ${label}
+                      </option>`,
+                  )}
+                </select>
+              </label>
+              <p>Applies to detections forwarded by the home connector.</p>
               <label
                 ><input
                   type="checkbox"
@@ -107,24 +114,33 @@ export async function cameraSettings(
                 />
                 Include recorded sound in clips</label
               >
-              ${
-                receiver
-                  ? html`<label
-                      ><input
-                        type="checkbox"
-                        name="approved"
-                        ${policy.approvals.has(receiver.client_id) ? "checked" : ""}
-                      />
-                      Approve this service for photos and clips</label
-                    >`
-                  : html`<p>No receiving service is registered for media.</p>`
-              }
+              <fieldset>
+                <legend>Services allowed to receive photos and clips</legend>
+                ${Array.from(policy.approvals.keys(), (id) => {
+                  const name =
+                    receivers.find((r) => r.client_id === id)?.platform ?? id;
+                  return html`<label
+                    ><input
+                      type="checkbox"
+                      name="remove[]"
+                      value="${id}"
+                    />Remove approval from ${name}</label
+                  >`;
+                })}
+                ${policy.approvals.size === 0 ? html`<p>No services approved.</p>` : ""}
+                <label
+                  >Add receiving service
+                  <select name="receiver_id">
+                    <option value="">Select a service</option>
+                    ${receivers.filter((r) => !policy.approvals.has(r.client_id)).map((r) => html`<option value="${r.client_id}">${r.platform ?? r.client_id}</option>`)}
+                  </select>
+                </label>
+              </fieldset>
               <button type="submit">Save camera permissions</button>
+              <button type="reset">Cancel</button>
             </fieldset>
           </form>`
-        : !receiver
-          ? html`<p>No receiving service is registered for media.</p>`
-          : ""
+        : ""
     }
   </section>`;
 }

@@ -2,10 +2,7 @@ import type { WebDependencies } from "../src/core/clients/web/index.ts";
 type MediaAdmin = NonNullable<WebDependencies["media"]>;
 /** Independent state for each browser test's household settings. */
 export function mediaSettingsScenario(): MediaAdmin {
-  const choices = new Map<
-    string,
-    { enabled: boolean; sound: boolean; approved: boolean }
-  >();
+  const choices = new Map<string, Awaited<ReturnType<MediaAdmin["camera"]>>>();
   const locations = [
     {
       location_id: "home",
@@ -39,17 +36,20 @@ export function mediaSettingsScenario(): MediaAdmin {
     options: () => Promise.resolve({ locations, cameras, receivers }),
     camera: (_home, id) => {
       const current = choices.get(id);
-      return Promise.resolve({
-        enabled: current?.enabled ?? false,
-        sound: current?.sound ?? true,
-        generation: "preview",
-        approvals: current?.approved
-          ? new Map([["receiver", "preview"]])
-          : new Map<string, string>(),
-      });
+      return Promise.resolve(
+        current ?? {
+          enabled: false,
+          sound: true,
+          generation: "preview",
+          approvals: new Map<string, string>(),
+        },
+      );
     },
-    save: (_home, device, _receiver, change) => {
-      choices.set(device, change);
+    save: (_home, device, receiver, change) => {
+      const approvals = new Map(choices.get(device)?.approvals);
+      for (const removed of change.remove ?? []) approvals.delete(removed);
+      if (receiver && change.approved) approvals.set(receiver, "preview");
+      choices.set(device, { ...change, generation: "preview", approvals });
       return Promise.resolve();
     },
   };

@@ -72,19 +72,34 @@ test.describe("the admin page", () => {
       page.getByRole("heading", { name: "Camera permissions" }),
     ).toHaveCount(0);
     await page.getByRole("link", { name: "Sign in" }).click();
-    const approved = page.getByLabel(
-      "Approve this service for photos and clips",
-    );
-    await expect(approved).not.toBeChecked();
+    const approved = page.getByLabel("Remove approval from Test receiver");
+    await expect(approved).toHaveCount(0);
     await page.getByLabel("Allow agent media access to this camera").check();
-    await approved.check();
+    await page.getByLabel("Add receiving service").selectOption("receiver");
     await page.getByRole("button", { name: "Save camera permissions" }).click();
-    await expect(approved).toBeChecked();
+    await expect(approved).toBeVisible();
+    await approved.check();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(approved).not.toBeChecked();
+    await approved.check();
+    await page.getByLabel("Person-detection events").selectOption("store_only");
+    await page.getByRole("button", { name: "Save camera permissions" }).click();
+    await expect(approved).toHaveCount(0);
+    await expect(page.getByLabel("Person-detection events")).toHaveValue(
+      "store_only",
+    );
+    await page
+      .getByLabel("Delete cached photos and clips for all households")
+      .check();
+    await page
+      .getByRole("button", { name: "Delete all cached camera media" })
+      .click();
+    await expect(page.getByText("Cached camera media deleted.")).toBeVisible();
     await page
       .getByRole("combobox", { name: "Camera", exact: true })
       .selectOption({ label: "Garden" });
     await page.getByRole("button", { name: "Show permissions" }).click();
-    await expect(approved).not.toBeChecked();
+    await expect(approved).toHaveCount(0);
     await expect(
       page.getByLabel("Allow agent media access to this camera"),
     ).not.toBeChecked();

@@ -29,6 +29,7 @@ const allowed = {
 };
 it("serves single ranges, reports unsatisfiable requests and requires a current credential", async () => {
   const media = {
+    auditFetch: vi.fn(() => Promise.resolve()),
     authorize: vi.fn(() => Promise.resolve(item)),
     read: vi.fn(
       (
@@ -60,6 +61,13 @@ it("serves single ranges, reports unsatisfiable requests and requires a current 
   expect((await mediaDownload(new Request(url), media, tokens)).status).toBe(
     401,
   );
+  expect(media.auditFetch).toHaveBeenCalledWith(
+    item.id,
+    "",
+    "denied",
+    expect.any(AbortSignal),
+  );
+  const logger = { error: vi.fn() };
   const req = new Request(url, { headers: { authorization: "Bearer demo" } });
   expect(
     (
@@ -85,6 +93,7 @@ it("serves single ranges, reports unsatisfiable requests and requires a current 
           authorize: () => Promise.reject(new Error("store unavailable")),
         },
         tokens,
+        logger,
       )
     ).status,
   ).toBe(503);
@@ -97,4 +106,9 @@ it("serves single ranges, reports unsatisfiable requests and requires a current 
       )
     ).status,
   ).toBe(403);
+  expect(logger.error).toHaveBeenCalledWith(
+    "media_download_failed",
+    { request_id: item.id },
+    expect.any(Error),
+  );
 });

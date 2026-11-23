@@ -1,3 +1,4 @@
+import { MediaRepresentationUnavailable } from "../../access/media/index.ts";
 import type {
   EventMedia,
   EventMediaKey,
@@ -125,7 +126,29 @@ export class MediaHandoff {
     if (!policy.enabled || !approval) throw new MediaDenied();
     return { policy, approval, zone: location.time_zone };
   }
-  async share(input: ShareRequest, signal: AbortSignal) {
+  async share(input: ShareRequest, requester: string, signal: AbortSignal) {
+    try {
+      return await this.shareApproved(input, requester, signal);
+    } catch (error) {
+      if (error instanceof MediaDenied)
+        await this.deps.tickets.audit(
+          {
+            ...input,
+            receiver: input.receiver_id,
+            requester,
+            operation: "share",
+            outcome: "denied",
+          },
+          signal,
+        );
+      throw error;
+    }
+  }
+  private async shareApproved(
+    input: ShareRequest,
+    requester: string,
+    signal: AbortSignal,
+  ) {
     const { location_id, device_id, event_id, receiver_id } = input;
     const access = await this.access(
       location_id,
@@ -173,7 +196,17 @@ export class MediaHandoff {
     );
     const uri = new URL("/media/items/" + item.id, this.deps.publicUrl);
     uri.searchParams.set("grant", ticket.token);
-    await this.deps.tickets.audit(item.id, receiver_id, "share", signal);
+    await this.deps.tickets.audit(
+      {
+        ...identity,
+        item: item.id,
+        receiver: receiver_id,
+        requester,
+        operation: "share",
+        outcome: "allowed",
+      },
+      signal,
+    );
     return {
       zone: current.zone,
       data: {
@@ -198,7 +231,7 @@ export class MediaHandoff {
     const stored = await this.deps.media.find(key, signal);
     if (stored) return stored;
     const source = this.deps.source;
-    if (!source) throw new Error("Event media source unavailable.");
+    if (!source) return undefined;
     const identity = JSON.stringify([
       key.householdId,
       key.cameraId,
@@ -217,6 +250,9 @@ export class MediaHandoff {
           signal,
         );
       return result.status === "pending" ? ("pending" as const) : undefined;
+    } catch (error) {
+      if (error instanceof MediaRepresentationUnavailable) return undefined;
+      throw error;
     } finally {
       this.preparing.delete(identity);
     }
@@ -249,6 +285,32 @@ export class MediaHandoff {
       throw new MediaDenied();
     return item;
   }
+  async auditFetch(
+    itemId: string,
+    receiver: string,
+    outcome: "allowed" | "denied",
+    signal: AbortSignal,
+    knownItem?: MediaItem,
+  ) {
+    const item = knownItem ?? (await this.deps.media.ready(itemId, signal));
+    // Do not let anonymous requests for invented item IDs grow the persistent audit.
+    if (!item && !receiver) return;
+    return this.deps.tickets.audit(
+      {
+        item: itemId,
+        receiver,
+        requester: receiver,
+        operation: "fetch",
+        outcome,
+        ...(item && {
+          location_id: item.householdId,
+          device_id: item.cameraId,
+          event_id: item.eventId,
+        }),
+      },
+      signal,
+    );
+  }
   async read(
     item: MediaItem,
     receiver: string,
@@ -260,7 +322,7 @@ export class MediaHandoff {
     const bytes = await this.deps.media.read(item.id, start, length, signal);
     if (!bytes) throw new MediaDenied();
     await this.authorize(item.id, receiver, grant, signal);
-    await this.deps.tickets.audit(item.id, receiver, "fetch", signal);
+    await this.auditFetch(item.id, receiver, "allowed", signal, item);
     return bytes;
   }
 }

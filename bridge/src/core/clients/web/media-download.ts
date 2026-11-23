@@ -1,3 +1,4 @@
+import type { Logger } from "../../../utilities/logging/index.ts";
 import { MediaDenied } from "../../managers/media/index.ts";
 import type { MediaHandoff } from "../../managers/media/index.ts";
 import type { AccessTokens } from "../mcp-endpoint/index.ts";
@@ -18,8 +19,9 @@ function byteRange(header: string | null, length: number) {
 /** Every new GET, including a Range request, resolves the receiver's current identity and grant. */
 export async function mediaDownload(
   request: Request,
-  media: Pick<MediaHandoff, "authorize" | "read">,
+  media: Pick<MediaHandoff, "authorize" | "read" | "auditFetch">,
   tokens: AccessTokens,
+  logger?: Pick<Logger, "error">,
 ) {
   const headers = new Headers({
     "cache-control": "private, no-store",
@@ -37,22 +39,28 @@ export async function mediaDownload(
   const token = /^Bearer ([^\s]+)$/i.exec(
     request.headers.get("authorization") ?? "",
   )?.[1];
-  if (!token) {
-    headers.set("www-authenticate", "Bearer");
-    return empty(401);
-  }
-  if (!itemId || !grant || !/^[A-Za-z0-9_-]{43}$/.test(grant))
-    return empty(404);
+  if (!itemId) return empty(404);
   const signal = AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]);
+  let receiver: string | undefined;
   try {
-    const identity = await tokens.checkAccessToken(token, signal);
-    if (identity.kind === "unavailable") return empty(503);
+    const identity = token
+      ? await tokens.checkAccessToken(token, signal)
+      : { kind: "invalid" as const };
+    if (identity.kind === "unavailable") {
+      logger?.error("media_identity_unavailable", { request_id: itemId });
+      return empty(503);
+    }
     if (identity.kind === "invalid") {
+      await media.auditFetch(itemId, "", "denied", signal);
       headers.set("www-authenticate", "Bearer");
       return empty(401);
     }
-    if (!identity.scopes.includes("media")) return empty(403);
-    const receiver = identity.listedClientId ?? identity.clientId;
+    receiver = identity.listedClientId ?? identity.clientId;
+    if (!grant || !/^[A-Za-z0-9_-]{43}$/.test(grant)) {
+      await media.auditFetch(itemId, receiver, "denied", signal);
+      return empty(404);
+    }
+    if (!identity.scopes.includes("media")) throw new MediaDenied();
     const item = await media.authorize(itemId, receiver, grant, signal);
     const rangeHeader = request.headers.get("range");
     const range = byteRange(rangeHeader, item.length);
@@ -84,6 +92,16 @@ export async function mediaDownload(
       headers,
     });
   } catch (error) {
-    return empty(error instanceof MediaDenied ? 403 : 503);
+    if (error instanceof MediaDenied && receiver) {
+      try {
+        await media.auditFetch(itemId, receiver, "denied", signal);
+      } catch (auditError) {
+        logger?.error("media_audit_failed", { request_id: itemId }, auditError);
+        return empty(503);
+      }
+      return empty(403);
+    }
+    logger?.error("media_download_failed", { request_id: itemId }, error);
+    return empty(503);
   }
 }

@@ -24,6 +24,7 @@ import {
   type EventRule,
   type EventAction,
 } from "../../../utilities/config/index.ts";
+import { cameraPersonActionIn } from "../../access/settings/index.ts";
 import type { Audit } from "../../access/audit/index.ts";
 import type {
   EventLog,
@@ -132,11 +133,26 @@ export class EventWriter {
         ? undefined
         : (await this.#options.state.deviceIn(session, event.device_id, signal))
             ?.type);
-    const action = eventAction(
+    let action = eventAction(
       this.#options.eventRules,
       location?.ownership ?? "owned",
       { ...event, ...(deviceType ? { device_type: deviceType } : {}) },
     );
+    if (
+      location &&
+      event.device_id &&
+      event.person &&
+      (deviceType === "camera" || deviceType === "doorbell") &&
+      event.kind === "motion"
+    ) {
+      const preference = await cameraPersonActionIn(
+        session,
+        event.location_id,
+        event.device_id,
+        signal,
+      );
+      if (preference !== "inherit") action = preference;
+    }
     if (action === "drop") return { kind: "withheld" };
     if (
       location?.ownership === "shared" &&

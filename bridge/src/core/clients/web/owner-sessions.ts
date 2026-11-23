@@ -26,6 +26,7 @@ export type Notice =
   | { readonly kind: "time_zone_saved"; readonly zone: string }
   | { readonly kind: "time_zone_invalid" }
   | { readonly kind: "time_zone_not_saved" }
+  | { readonly kind: "media_deleted" }
   | { readonly kind: "no_home" };
 
 /** A signed-in owner. */

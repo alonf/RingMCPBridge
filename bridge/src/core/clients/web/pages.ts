@@ -124,6 +124,7 @@ const NOTICES: Readonly<
     { readonly tone: Tone; readonly text: string }
   >
 > = {
+  media_deleted: { tone: "ok", text: "Cached camera media deleted." },
   not_pending: {
     tone: "warn",
     text: "That request has ended, or a newer one replaced it. Nothing was approved. Compare the code shown now.",
@@ -198,6 +199,7 @@ export function adminPage(view: {
   readonly enroll: EnrollPanel;
   readonly timeZone: TimeZonePanel;
   readonly cameras?: Html;
+  readonly mediaDelete?: string;
   readonly notice: Notice | undefined;
 }): Html {
   return frame({
@@ -218,6 +220,31 @@ export function adminPage(view: {
           ${enrollSection(view.enroll, view.formToken, view.paths)}
           ${timeZoneSection(view.timeZone, view.formToken, view.paths)}
           ${view.cameras ?? ""}
+          ${
+            view.mediaDelete
+              ? html`<section id="media-storage" class="card">
+                  <h2>Cached camera media</h2>
+                  <form action="${view.mediaDelete}" method="post">
+                    <input
+                      type="hidden"
+                      name="form_token"
+                      value="${view.formToken}"
+                    />
+                    <label
+                      ><input
+                        type="checkbox"
+                        name="confirm"
+                        value="delete"
+                        required
+                      />Delete cached photos and clips for all households</label
+                    >
+                    <button type="submit">
+                      Delete all cached camera media
+                    </button>
+                  </form>
+                </section>`
+              : ""
+          }
         </main>
       </div>`,
   });

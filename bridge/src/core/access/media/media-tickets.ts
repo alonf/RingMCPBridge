@@ -76,19 +76,31 @@ export class MediaTickets {
     );
   }
   async audit(
-    item: string,
-    receiver: string,
-    operation: "share" | "fetch",
+    entry: {
+      item?: string;
+      receiver: string;
+      requester: string;
+      operation: "share" | "fetch";
+      outcome: "allowed" | "denied";
+      location_id?: string;
+      device_id?: string;
+      event_id?: string;
+    },
     signal: AbortSignal,
   ) {
     await this.db.run(
       {
-        sql: "INSERT INTO media_access_log(access_id,media_id,receiver_id,operation,ts) VALUES (@id,@item,@receiver,@operation,@now)",
+        sql: "INSERT INTO media_access_log(access_id,media_id,receiver_id,operation,ts,requester_id,outcome,location_id,device_id,event_id) VALUES (@id,@item,@receiver,@operation,@now,@requester,@outcome,@location_id,@device_id,@event_id)",
         params: {
           id: randomUUID(),
-          item,
-          receiver,
-          operation,
+          item: entry.item ?? "",
+          receiver: entry.receiver,
+          operation: entry.operation,
+          requester: entry.requester,
+          outcome: entry.outcome,
+          location_id: entry.location_id ?? null,
+          device_id: entry.device_id ?? null,
+          event_id: entry.event_id ?? null,
           now: this.clock.now(),
         },
       },

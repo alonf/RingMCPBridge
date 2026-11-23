@@ -47,6 +47,8 @@ export interface CommonSettings {
   readonly logLevel: SettingsLogLevel;
   /** Read tool calls allowed per agent per hour (FR-026, SC6). */
   readonly readsPerHour: number;
+  readonly clipsPerHour?: number;
+  readonly framesPerHour?: number;
   /** A battery at or below this percentage is low (FR-001, FR-007). */
   readonly batteryThresholdPct: number;
   /** Home data older than this is marked stale (OR3). */
@@ -77,6 +79,8 @@ export const SETTING_VARIABLES = {
   mode: "BRIDGE_MODE",
   logLevel: "BRIDGE_LOG_LEVEL",
   readsPerHour: "BRIDGE_READS_PER_HOUR",
+  clipsPerHour: "BRIDGE_CLIPS_PER_HOUR",
+  framesPerHour: "BRIDGE_FRAMES_PER_HOUR",
   batteryThresholdPct: "BRIDGE_BATTERY_THRESHOLD_PCT",
   staleAfterS: "BRIDGE_STALE_AFTER_S",
   eventRetentionDays: "BRIDGE_EVENT_RETENTION_DAYS",
@@ -101,6 +105,8 @@ function wholeNumber(
 const COMMON_SCHEMA = z
   .object({
     eventRules: eventRulesSetting,
+    clipsPerHour: wholeNumber(20, 1, MAX_READS_PER_HOUR),
+    framesPerHour: wholeNumber(60, 1, MAX_READS_PER_HOUR),
     mediaRetentionDays: wholeNumber(7, 1, MAX_RETENTION_DAYS),
     mode: z.enum(["core", "connector", "all-in-one"]),
     logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),

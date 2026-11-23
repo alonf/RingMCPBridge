@@ -24,6 +24,8 @@ const DOCKERFILE = fileURLToPath(new URL("../../Dockerfile", import.meta.url));
 /** Settings the deploy leaves to the core's recorded defaults (research.md, Config). */
 const LEFT_AT_DEFAULT: ReadonlySet<string> = new Set([
   SETTING_VARIABLES.readsPerHour,
+  SETTING_VARIABLES.clipsPerHour,
+  SETTING_VARIABLES.framesPerHour,
   SETTING_VARIABLES.batteryThresholdPct,
   SETTING_VARIABLES.staleAfterS,
   SETTING_VARIABLES.eventRetentionDays,

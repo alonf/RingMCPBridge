@@ -123,7 +123,7 @@ async function fetchAs(
   proc.stdin.end(JSON.stringify({ origin, url, token, range }));
   return received.parse(JSON.parse(await result));
 }
-async function scenario(directory?: string) {
+async function scenario(directory?: string, cacheOnly = false) {
   const data = await sample(directory);
   const clock = new SystemClock();
   const store = openSqliteQueryLayer(":memory:", { clock });
@@ -138,6 +138,7 @@ async function scenario(directory?: string) {
     redirect_uris: [redirect(clientId)],
   }));
   let preparing = true;
+  let upstream: "ok" | "old" | "oversized" | "unavailable" = "ok";
   const objects = new FileMediaObjects(folder);
   const started = Promise.withResolvers<undefined>(),
     release = Promise.withResolvers<undefined>();
@@ -155,24 +156,41 @@ async function scenario(directory?: string) {
     agents,
     readsPerHour: 24,
     mediaObjects: objects,
-    eventMediaSource: (key) => {
-      if (
-        key.householdId !== data.home ||
-        key.cameraId !== data.device ||
-        key.eventId !== data.event
-      )
-        return Promise.resolve({ status: "missing" as const });
-      if (preparing) return Promise.resolve({ status: "pending" as const });
-      const photo = key.kind === "frame";
-      if (!photo && !key.hasSound)
-        return Promise.resolve({ status: "missing" as const });
-      const bytes = photo ? data.frame : data.clip;
-      return Promise.resolve({
-        status: "available" as const,
-        capturedAt: photo ? data.photoAt : data.clipAt,
-        load: () => Promise.resolve({ length: bytes.length, body: [bytes] }),
-      });
-    },
+    ...(cacheOnly
+      ? {}
+      : {
+          eventMediaSource: (key) => {
+            if (
+              key.householdId !== data.home ||
+              key.cameraId !== data.device ||
+              key.eventId !== data.event
+            )
+              return Promise.resolve({ status: "missing" as const });
+            if (upstream === "unavailable")
+              return Promise.reject(new Error("test provider unavailable"));
+            if (preparing)
+              return Promise.resolve({ status: "pending" as const });
+            const photo = key.kind === "frame";
+            if (!photo && !key.hasSound)
+              return Promise.resolve({ status: "missing" as const });
+            const bytes = photo ? data.frame : data.clip;
+            return Promise.resolve({
+              status: "available" as const,
+              capturedAt:
+                upstream === "old"
+                  ? Date.now() - 31 * 86_400_000
+                  : photo
+                    ? data.photoAt
+                    : data.clipAt,
+              load: () =>
+                Promise.resolve({
+                  length:
+                    upstream === "oversized" ? 64 * 1024 * 1024 : bytes.length,
+                  body: [bytes],
+                }),
+            });
+          },
+        }),
   });
   const now = clock.now();
   await running.core.state.applyInventory(
@@ -283,10 +301,32 @@ async function scenario(directory?: string) {
   expect(otherCamera.structuredContent).toMatchObject({
     error: { code: "ACTION_DISABLED" },
   });
+  if (cacheOnly) {
+    expect((await share("photo")).structuredContent).toMatchObject({
+      error: { code: "NOT_FOUND", retryable: false },
+    });
+    return;
+  }
   expect((await share("photo")).structuredContent).toMatchObject({
     data: { status: "pending" },
   });
   preparing = false;
+  if (!directory) {
+    for (const condition of ["old", "oversized", "unavailable"] as const) {
+      upstream = condition;
+      const temporary = condition === "unavailable";
+      expect((await share("photo")).structuredContent).toMatchObject({
+        error: {
+          code: temporary ? "BRIDGE_UNAVAILABLE" : "NOT_FOUND",
+          retryable: temporary,
+        },
+      });
+    }
+    expect(logLines.some((line) => line.includes("media_share_failed"))).toBe(
+      true,
+    );
+    upstream = "ok";
+  }
   const issue = async (kind: "photo" | "clip") => {
     const answer = await share(kind);
     const parsed = shareEventMediaTool.reply.safeParse(
@@ -364,8 +404,46 @@ async function scenario(directory?: string) {
   );
   expect((await share("photo")).isError).toBe(true);
   if (!directory) {
+    for (let count = 3; count < 20; count++)
+      expect((await share("clip")).structuredContent).toMatchObject({
+        error: { code: "ACTION_DISABLED" },
+      });
+    expect((await share("clip")).structuredContent).toMatchObject({
+      error: { code: "RATE_LIMITED" },
+    });
+    expect((await share("photo")).structuredContent).toMatchObject({
+      error: { code: "ACTION_DISABLED" },
+    });
+    await running.core.admin.deleteCachedMedia(signal);
+    expect((await fetchAs(url, clip, receiverToken)).status).toBe(403);
+    const logs = await store.all(
+      {
+        sql: "SELECT location_id,device_id,event_id,requester_id,receiver_id,operation,outcome FROM media_access_log",
+        params: {},
+      },
+      signal,
+    );
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          location_id: data.home,
+          device_id: data.device,
+          event_id: data.event,
+          requester_id: caller,
+          receiver_id: receiver,
+          operation: "share",
+          outcome: "allowed",
+        }),
+        expect.objectContaining({ operation: "share", outcome: "denied" }),
+        expect.objectContaining({
+          operation: "fetch",
+          outcome: "denied",
+          receiver_id: caller,
+        }),
+      ]),
+    );
     let limited = false;
-    for (let attempt = 0; attempt <= 24 && !limited; attempt++) {
+    for (let attempt = 0; attempt <= 60 && !limited; attempt++) {
       const result = await share("photo");
       const failure = errorEnvelope.safeParse(result.structuredContent);
       limited = failure.success && failure.data.error.code === "RATE_LIMITED";
@@ -382,6 +460,11 @@ async function scenario(directory?: string) {
 it(
   "shares exact event items through MCP to a separately authenticated receiver",
   () => scenario(),
+  60_000,
+);
+it(
+  "returns a terminal miss when the core has only cached media",
+  () => scenario(undefined, true),
   60_000,
 );
 it.skipIf(!privateFolder)(

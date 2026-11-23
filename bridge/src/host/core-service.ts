@@ -242,7 +242,9 @@ export async function startCoreService(
     });
   const download =
     media &&
-    getRequestListener((request) => mediaDownload(request, media, issuer));
+    getRequestListener((request) =>
+      mediaDownload(request, media, issuer, logger),
+    );
   const mcp = new McpEndpoint(
     {
       resource: `${publicUrl}${MCP_PATH}`,
@@ -250,6 +252,8 @@ export async function startCoreService(
       // The endpoint's host check compares names without the port.
       allowedHosts: [new URL(publicUrl).hostname],
       readsPerHour: settings.readsPerHour,
+      ...(settings.framesPerHour && { framesPerHour: settings.framesPerHour }),
+      ...(settings.clipsPerHour && { clipsPerHour: settings.clipsPerHour }),
     },
     {
       inquiry: core.inquiry,

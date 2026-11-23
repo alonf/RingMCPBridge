@@ -89,6 +89,8 @@ export interface McpEndpointSettings {
   readonly allowedHosts: readonly string[];
   /** How many reads an agent may make in an hour: Config's `readsPerHour` (T025). */
   readonly readsPerHour: number;
+  readonly clipsPerHour?: number;
+  readonly framesPerHour?: number;
   /** How long a tool call may take; 60 s unless a test says otherwise. */
   readonly deadlineMs?: number;
   /** How long a token check may take; 5 s unless a test says otherwise. */
@@ -139,6 +141,8 @@ export class McpEndpoint {
   readonly #detachEvents?: () => void;
   readonly #app: Hono;
   readonly #limit: ReadLimit;
+  readonly #clips: ReadLimit;
+  readonly #frames: ReadLimit;
 
   constructor(
     settings: McpEndpointSettings,
@@ -149,6 +153,14 @@ export class McpEndpoint {
     this.#logger = dependencies.logger.with({ component: "mcp_endpoint" });
     const resource = new URL(settings.resource);
     this.#metadataUrl = getOAuthProtectedResourceMetadataUrl(resource);
+    this.#clips = new ReadLimit(
+      settings.clipsPerHour ?? 20,
+      dependencies.clock,
+    );
+    this.#frames = new ReadLimit(
+      settings.framesPerHour ?? 60,
+      dependencies.clock,
+    );
     this.#limit = new ReadLimit(settings.readsPerHour, dependencies.clock);
     this.#verifier = { verifyAccessToken: (token) => this.#verify(token) };
     this.#listen = new ListenStreams(dependencies.clock);
@@ -300,6 +312,7 @@ export class McpEndpoint {
         return {
           token,
           clientId: check.clientId,
+          extra: { listedClientId: check.listedClientId ?? check.clientId },
           scopes: [...check.scopes],
           expiresAt: check.expiresAt,
           resource: new URL(this.#settings.resource),
@@ -361,8 +374,11 @@ export class McpEndpoint {
       registerMediaTool(
         server,
         media,
-        clientId,
-        this.#limit,
+        typeof context.authInfo.extra?.listedClientId === "string"
+          ? context.authInfo.extra.listedClientId
+          : clientId,
+        { clip: this.#clips, photo: this.#frames },
+        this.#logger,
         this.#dependencies.clock,
       );
     if (canRead && events !== undefined) {

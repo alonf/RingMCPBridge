@@ -128,6 +128,10 @@ For the hybrid media tests, start SQL Server and Azurite with the repository's D
 
 The core keeps staged event media for seven days from capture. Set `BRIDGE_MEDIA_RETENTION_DAYS` to change the retention for newly staged items. All-in-one mode uses the `media` folder under `BRIDGE_DATA_DIR`. The hybrid core uses the private `media` container in `BRIDGE_STORAGE_ACCOUNT` through its managed identity.
 
+On the hybrid admin page, select a household and camera to manage which services can receive its photos and clips. Save applies the checked removals, the selected addition, and the camera settings together. Cancel discards unsaved edits. The person-detection preference applies to events the home connector forwards. Under **Cached camera media**, the owner can confirm deletion of cached photos and clips across all households.
+
+The hybrid core limits media requests per agent per hour. Set `BRIDGE_CLIPS_PER_HOUR` (default 20) and `BRIDGE_FRAMES_PER_HOUR` (default 60) independently of ordinary reads. A cache-only core can serve previously staged items. A missing source, an expired recording, or a representation over the size limit returns a terminal miss. Retry a temporary provider failure or pending event.
+
 To try it with no Ring account, `npm run dev:all-in-one` starts mode A over stdio against a simulated home of about 100 devices. An MCP client can start it as its server.
 
 ## Trying an official Ring private app

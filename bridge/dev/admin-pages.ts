@@ -152,6 +152,7 @@ function newScenario(query: URLSearchParams): Scenario {
       {
         ...(query.has("cameras") && { media: mediaSettingsScenario() }),
         admin: {
+          deleteCachedMedia: () => Promise.resolve(),
           pendingEnrollment: () => Promise.resolve(scenario.pending),
           approveEnrollment: (keyId) => {
             if (scenario.pending?.key_id !== keyId) {

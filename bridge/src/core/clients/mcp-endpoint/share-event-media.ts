@@ -5,6 +5,7 @@ import type { Clock } from "../../../utilities/clock/index.ts";
 import { MediaDenied } from "../../managers/media/index.ts";
 import type { MediaHandoff } from "../../managers/media/index.ts";
 import { listedOnly } from "./listed-input.ts";
+import type { Logger } from "../../../utilities/logging/index.ts";
 import type { ReadLimit } from "./read-limit.ts";
 import { errorResult } from "./read-tools.ts";
 
@@ -12,7 +13,8 @@ export function registerMediaTool(
   server: McpServer,
   media: MediaHandoff,
   clientId: string,
-  limit: ReadLimit,
+  limits: Record<"photo" | "clip", ReadLimit>,
+  logger: Logger,
   clock: Clock,
 ) {
   const tool = shareEventMediaTool;
@@ -25,17 +27,6 @@ export function registerMediaTool(
       annotations: { readOnlyHint: false, openWorldHint: false },
     },
     async (raw, ctx) => {
-      const allowance = limit.take(clientId);
-      if (!allowance.allowed)
-        return errorResult(
-          {
-            code: "RATE_LIMITED",
-            message: "Media request limit reached.",
-            retryable: true,
-            retry_after_s: allowance.retryAfterS,
-          },
-          clock,
-        );
       const input = tool.input.safeParse(raw);
       if (!input.success)
         return errorResult(
@@ -46,9 +37,21 @@ export function registerMediaTool(
           },
           clock,
         );
+      const allowance = limits[input.data.kind].take(clientId);
+      if (!allowance.allowed)
+        return errorResult(
+          {
+            code: "RATE_LIMITED",
+            message: "Media request limit reached.",
+            retryable: true,
+            retry_after_s: allowance.retryAfterS,
+          },
+          clock,
+        );
       try {
         const result = await media.share(
           input.data,
+          clientId,
           AbortSignal.any([ctx.mcpReq.signal, AbortSignal.timeout(60_000)]),
         );
         if (!result)
@@ -93,6 +96,16 @@ export function registerMediaTool(
             },
             clock,
           );
+        logger.error(
+          "media_share_failed",
+          {
+            client_id: clientId,
+            event_id: input.data.event_id,
+            device_id: input.data.device_id,
+            location_id: input.data.location_id,
+          },
+          error,
+        );
         return errorResult(
           {
             code: "BRIDGE_UNAVAILABLE",

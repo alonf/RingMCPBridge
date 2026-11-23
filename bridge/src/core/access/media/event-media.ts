@@ -83,6 +83,9 @@ async function* checkedChunks(content: MediaContent, signal: AbortSignal) {
   if (received !== content.length) throw new Error("Incomplete media object.");
 }
 
+/** This event representation cannot be served even if the client retries. */
+export class MediaRepresentationUnavailable extends RangeError {}
+
 /** The database controls visibility. No fetch or object operation holds a database transaction. */
 export class EventMedia {
   readonly #store: QueryLayer;
@@ -143,7 +146,9 @@ export class EventMedia {
       !Number.isSafeInteger(expiresAt) ||
       expiresAt <= this.#clock.now()
     )
-      throw new RangeError("Event media is outside retention.");
+      throw new MediaRepresentationUnavailable(
+        "Event media is outside retention.",
+      );
     if (kind === "frame" && hasSound)
       throw new RangeError("A frame cannot contain audio.");
     const cacheKey = createHash("sha256")
@@ -205,7 +210,9 @@ export class EventMedia {
         content.length < 1 ||
         content.length > MAX_BYTES[kind]
       ) {
-        throw new RangeError("Invalid media length for this representation.");
+        throw new MediaRepresentationUnavailable(
+          "Invalid media length for this representation.",
+        );
       }
       await this.#objects.write(
         id,

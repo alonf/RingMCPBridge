@@ -35,6 +35,7 @@ const EXPECTED_TABLES: Readonly<
     ["enabled", true],
     ["sound", true],
     ["generation", true],
+    ["person_action", false],
   ],
   camera_media_approval: [
     ["approval_key", true],
@@ -56,6 +57,11 @@ const EXPECTED_TABLES: Readonly<
     ["receiver_id", true],
     ["operation", true],
     ["ts", true],
+    ["location_id", false],
+    ["device_id", false],
+    ["event_id", false],
+    ["requester_id", false],
+    ["outcome", false],
   ],
   media: [
     ["media_id", true],
