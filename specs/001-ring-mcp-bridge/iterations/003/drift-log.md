@@ -35,7 +35,7 @@
 - **Repair request, November 23.** With the owner's approval to prepare a proposal, the governed request on Specrew 0.40.0 stopped with a missing `schema_version` property. The feature-level agenda has selected topics and workshop records but no such property. Iteration 003 has a saved camera decision and no iteration-level agenda file. The command returned no proposal or authorization phrase.
 - **Proposed recovery for review.** Reproduce the failure in an isolated copy with the same legacy record shape. Test a supported recovery that recognizes the old format and correctly targets iteration 003. Verify that all earlier decisions and the iteration 002 seal are preserved, the iteration 003 camera decision is retained, and only the intended workshop checkpoint would change. Present the generated proposal and its exact authorization phrase before applying anything to the project.
 - **Resolution** The owner directed that the feature-level agenda remain untouched. The human decision, UI layout and iteration-scoped design record passed the pre-plan gate for Option B. The earlier recovery proposal is superseded.
-- **Class closure** The pre-plan gate validates the iteration design, recorded choice and gate packet. [Gate packet](../../gates/design-analysis-003.md)
+- **Class closure**: The pre-plan gate validates the iteration design, recorded choice and gate packet. [Gate packet](../../gates/design-analysis-003.md)
 
 ### DRIFT-003-02 — Plan sync refused the execution summary after setting the phase
 
