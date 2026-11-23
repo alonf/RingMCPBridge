@@ -47,6 +47,7 @@ export interface CoreHostSettings {
   /** Azure SQL: `<server>.database.windows.net`. */
   readonly sqlServer: string;
   readonly sqlDatabase: string;
+  readonly storageAccount?: string | undefined;
   /** The vault holding the core's secrets: `https://<vault>.vault.azure.net`. */
   readonly keyVaultUrl: string;
   /** The user-assigned identity the core reaches SQL, Key Vault and Entra with. */
@@ -99,6 +100,7 @@ export const CORE_HOST_VARIABLES = {
   trustProxy: "BRIDGE_TRUST_PROXY",
   sqlServer: "BRIDGE_SQL_SERVER",
   sqlDatabase: "BRIDGE_SQL_DATABASE",
+  storageAccount: "BRIDGE_STORAGE_ACCOUNT",
   keyVaultUrl: "BRIDGE_KEY_VAULT_URL",
   managedIdentityClientId: "BRIDGE_MANAGED_IDENTITY_CLIENT_ID",
   entraTenantId: "BRIDGE_ENTRA_TENANT_ID",
@@ -217,6 +219,10 @@ export const CORE_HOST_SCHEMA: z.ZodType<CoreHostSettings> = z
     trustProxy: FLAG_SCHEMA,
     sqlServer: text(MAX_ID_LENGTH),
     sqlDatabase: text(MAX_ID_LENGTH),
+    storageAccount: z
+      .string()
+      .regex(/^[a-z0-9]{3,24}$/)
+      .optional(),
     keyVaultUrl: urlWith("https:", "https:").transform((url) => url.origin),
     managedIdentityClientId: z.string().regex(ENTRA_ID),
     entraTenantId: z.string().regex(TENANT_ID),

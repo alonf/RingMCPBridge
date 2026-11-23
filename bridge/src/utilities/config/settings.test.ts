@@ -126,6 +126,7 @@ describe("loadSettings", () => {
       batteryThresholdPct: 20,
       staleAfterMs: 120_000,
       eventRetentionDays: 30,
+      mediaRetentionDays: 7,
       local: {
         dataDir: "/var/lib/ring-bridge",
         secretsKeyPath: "/run/keys/secrets-key",
@@ -142,6 +143,7 @@ describe("loadSettings", () => {
       BRIDGE_BATTERY_THRESHOLD_PCT: "15",
       BRIDGE_STALE_AFTER_S: "90",
       BRIDGE_EVENT_RETENTION_DAYS: "14",
+      BRIDGE_MEDIA_RETENTION_DAYS: "2",
       BRIDGE_FFMPEG_PATH: "/usr/bin/ffmpeg",
     });
 
@@ -152,6 +154,7 @@ describe("loadSettings", () => {
       batteryThresholdPct: 15,
       staleAfterMs: 90_000,
       eventRetentionDays: 14,
+      mediaRetentionDays: 2,
       local: { ffmpegPath: "/usr/bin/ffmpeg" },
     });
   });

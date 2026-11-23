@@ -1,7 +1,5 @@
 // The core's Blob storage (T030; R12, DO6): for media (iteration 003) and the write-once audit copy
-// (iteration 004). Only the account is created here; its containers, their lifetimes and the WORM
-// lock arrive with those features. Access is by the core's identity only: no shared keys and no
-// public blobs.
+// (iteration 004). Event media uses the private media container and the core's managed identity.
 
 @description('The Azure region.')
 param location string
@@ -31,6 +29,17 @@ resource account 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     supportsHttpsTrafficOnly: true
     publicNetworkAccess: 'Enabled'
   }
+}
+
+resource blobs 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' existing = {
+  parent: account
+  name: 'default'
+}
+
+resource media 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobs
+  name: 'media'
+  properties: { publicAccess: 'None' }
 }
 
 resource blobDataContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {

@@ -30,6 +30,21 @@ const LATER = AS_OF + 60_000;
 const EXPECTED_TABLES: Readonly<
   Record<string, readonly (readonly [string, boolean])[]>
 > = {
+  media: [
+    ["media_id", true],
+    ["cache_key", true],
+    ["location_id", true],
+    ["device_id", true],
+    ["event_id", true],
+    ["kind", true],
+    ["has_sound", true],
+    ["source", true],
+    ["captured_at", true],
+    ["expires_at", true],
+    ["status", true],
+    ["byte_length", true],
+    ["write_until", true],
+  ],
   recovery_marker: [
     ["marker_id", true],
     ["completed_at", true],

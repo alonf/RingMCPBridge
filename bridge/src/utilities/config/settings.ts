@@ -53,6 +53,7 @@ export interface CommonSettings {
   readonly staleAfterMs: number;
   /** How long events are kept (FR-008). */
   readonly eventRetentionDays: number;
+  readonly mediaRetentionDays?: number;
 }
 
 /** The checked start-up settings: the common ones and the run mode's own. */
@@ -79,6 +80,7 @@ export const SETTING_VARIABLES = {
   batteryThresholdPct: "BRIDGE_BATTERY_THRESHOLD_PCT",
   staleAfterS: "BRIDGE_STALE_AFTER_S",
   eventRetentionDays: "BRIDGE_EVENT_RETENTION_DAYS",
+  mediaRetentionDays: "BRIDGE_MEDIA_RETENTION_DAYS",
 } as const;
 
 /** A whole number written in decimal digits, within bounds, or the default when unset. */
@@ -99,6 +101,7 @@ function wholeNumber(
 const COMMON_SCHEMA = z
   .object({
     eventRules: eventRulesSetting,
+    mediaRetentionDays: wholeNumber(7, 1, MAX_RETENTION_DAYS),
     mode: z.enum(["core", "connector", "all-in-one"]),
     logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
     readsPerHour: wholeNumber(READS_PER_HOUR_DEFAULT, 1, MAX_READS_PER_HOUR),

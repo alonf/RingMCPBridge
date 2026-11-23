@@ -27,6 +27,7 @@ const LEFT_AT_DEFAULT: ReadonlySet<string> = new Set([
   SETTING_VARIABLES.batteryThresholdPct,
   SETTING_VARIABLES.staleAfterS,
   SETTING_VARIABLES.eventRetentionDays,
+  SETTING_VARIABLES.mediaRetentionDays,
   // ChatGPT's callback host is the default; the deploy names no other (T048).
   CORE_HOST_VARIABLES.callbackHosts,
 ]);

@@ -13,6 +13,7 @@ import type {
   SettingsStore,
 } from "../../access/settings/index.ts";
 import { AdminError } from "./admin-error.ts";
+import type { EventMedia } from "../../access/media/index.ts";
 
 /** A connector key as Admin reports it: `active` with its public key, `revoked`, or `not_enrolled`. */
 export type ConnectorKeyCheck = ConnectorKey;
@@ -34,15 +35,34 @@ export type ConnectorEnrollmentApproval = EnrollmentApproval;
 
 /** What Admin is wired with. */
 export interface AdminManagerOptions {
+  readonly media?: EventMedia;
   readonly settings: SettingsStore;
 }
 
 /** The owner's use cases. One per core process. */
 export class AdminManager {
+  readonly #media: EventMedia | undefined;
   readonly #settings: SettingsStore;
 
   constructor(options: AdminManagerOptions) {
+    this.#media = options.media;
     this.#settings = options.settings;
+  }
+
+  /** Media part of the owner's delete-now operation. */
+  async deleteCachedMedia(signal: AbortSignal): Promise<void> {
+    if (!this.#media)
+      throw new AdminError("unavailable", "Media storage is not configured.");
+    try {
+      await this.#media.deleteAll(signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      throw new AdminError(
+        "unavailable",
+        "Cached media could not be deleted.",
+        { cause: error },
+      );
+    }
   }
 
   /** The key a `hello` names, for Connector Link to accept or refuse (SC2). */

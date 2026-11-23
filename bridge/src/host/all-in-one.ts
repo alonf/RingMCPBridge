@@ -43,6 +43,7 @@ import {
 import { signingKeyId } from "../utilities/security/index.ts";
 import type { SigningKeyPair } from "../utilities/security/index.ts";
 import { assembleCore } from "./core-assembly.ts";
+import { FileMediaObjects } from "../core/access/media/index.ts";
 import type { CoreAssembly } from "./core-assembly.ts";
 import { assembleHome } from "./home-assembly.ts";
 import type { LocalHome } from "./home-assembly.ts";
@@ -121,6 +122,7 @@ export async function startAllInOne(
     throw error;
   }
   const core = assembleCore({
+    mediaObjects: new FileMediaObjects(join(dataDir, "media")),
     store: layer,
     clock,
     logger,

@@ -66,6 +66,9 @@ param logLevel string
 @description('The Azure SQL server\'s host name.')
 param sqlServerHostName string
 
+@description('The private media storage account accessed with managed identity.')
+param storageAccountName string
+
 @description('The database name.')
 param sqlDatabaseName string
 
@@ -107,6 +110,7 @@ var settings = [
   // cookies are Secure (T027).
   { name: 'BRIDGE_TRUST_PROXY', value: 'true' }
   { name: 'BRIDGE_SQL_SERVER', value: sqlServerHostName }
+  { name: 'BRIDGE_STORAGE_ACCOUNT', value: storageAccountName }
   { name: 'BRIDGE_SQL_DATABASE', value: sqlDatabaseName }
   { name: 'BRIDGE_KEY_VAULT_URL', value: keyVaultUrl }
   { name: 'BRIDGE_MANAGED_IDENTITY_CLIENT_ID', value: identityClientId }

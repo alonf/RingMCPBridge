@@ -3,6 +3,8 @@
 // lease is held. It reaches no Azure library, oidc-provider or SQL Server driver: those are mode
 // H's, wired in core.ts. Hand-wired, with no container (CD3, CD5).
 import { Audit } from "../core/access/audit/index.ts";
+import { EventMedia } from "../core/access/media/index.ts";
+import type { MediaObjects } from "../core/access/media/index.ts";
 import { EventLog } from "../core/access/event-log/index.ts";
 import { CursorStore } from "../core/access/subscriptions/index.ts";
 import { GrantsStore } from "../core/access/grants/index.ts";
@@ -34,6 +36,7 @@ export const LEASE_NAME = "ring-account";
 
 /** What the core's components are built over. */
 export interface CoreAssemblyOptions {
+  readonly mediaObjects?: MediaObjects;
   /** The core's database, already migrated. */
   readonly store: QueryLayer;
   readonly clock: Clock;
@@ -54,6 +57,7 @@ export interface CoreAssemblyOptions {
 
 /** The core's components, built once per process. */
 export interface CoreAssembly {
+  readonly media?: EventMedia;
   readonly state: StateStore;
   readonly settings: SettingsStore;
   readonly grants: GrantsStore;
@@ -85,6 +89,14 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
     defaultBatteryThresholdPct: options.settings.batteryThresholdPct,
   });
   const grants = new GrantsStore({ store, clock });
+  const media =
+    options.mediaObjects &&
+    new EventMedia(
+      store,
+      options.mediaObjects,
+      clock,
+      options.settings.mediaRetentionDays,
+    );
   const eventLog = new EventLog({ clock });
   const inquiry = new InquiryManager({
     state,
@@ -110,7 +122,22 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
     logger.error("pub_sub_handler_failed", { kind: topic }, error);
   });
   const audit = new Audit({ clock });
-  const admin = new AdminManager({ settings });
+  const admin = new AdminManager({ settings, ...(media && { media }) });
+  const cleanup = new AbortController();
+  let sweep: Promise<void> | undefined;
+  let cancelSweep: (() => void) | undefined;
+  function sweepMedia(): void {
+    if (!media || sweep) return;
+    sweep = media
+      .sweep(cleanup.signal)
+      .catch((error: unknown) => {
+        if (!cleanup.signal.aborted)
+          logger.error("media_cleanup_failed", undefined, error);
+      })
+      .finally(() => {
+        sweep = undefined;
+      });
+  }
   const links = new LeasedLinks({
     lease,
     clock,
@@ -138,6 +165,7 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
   });
 
   return {
+    ...(media && { media }),
     state,
     settings,
     grants,
@@ -148,12 +176,19 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
     events,
     priorityPolicy,
     start: () => {
+      if (media && !cancelSweep) {
+        sweepMedia();
+        cancelSweep = clock.every(60_000, sweepMedia);
+      }
       lease.start();
       void lease.settled().then(() => {
         links.start();
       });
     },
     stop: async () => {
+      cancelSweep?.();
+      cleanup.abort();
+      await sweep;
       await links.stop();
       await lease.stop();
       await events.drain();

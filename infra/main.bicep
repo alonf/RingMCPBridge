@@ -168,6 +168,7 @@ module appService 'modules/app-service.bicep' = {
     publicUrl: publicUrl
     logLevel: logLevel
     sqlServerHostName: sql.outputs.serverHostName
+    storageAccountName: storage.outputs.accountName
     sqlDatabaseName: sql.outputs.databaseName
     keyVaultUrl: keyVault.outputs.vaultUri
     entraTenantId: entraTenantId

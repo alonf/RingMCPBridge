@@ -50,6 +50,7 @@ import {
 import type { QueryLayer } from "../utilities/query-layer/index.ts";
 import type { HttpFetch, OwnerSignIn } from "../utilities/security/index.ts";
 import { assembleCore } from "./core-assembly.ts";
+import type { MediaObjects } from "../core/access/media/index.ts";
 import type { CoreAssembly } from "./core-assembly.ts";
 import { BRIDGE_VERSION } from "./version.ts";
 
@@ -86,6 +87,7 @@ const READINESS_DATABASE_TIMEOUT_MS = 2_000;
 
 /** What the core service is made over. */
 export interface CoreServiceResources {
+  readonly mediaObjects?: MediaObjects;
   /** The core's database, not yet migrated. Closed by `stop`. */
   readonly store: QueryLayer;
   readonly secrets: CoreSecrets;
@@ -137,6 +139,7 @@ export async function startCoreService(
   const publicUrl = settings.core.publicUrl;
   await runMigrations(store, CORE_MIGRATIONS, { clock }, signal);
   const core = assembleCore({
+    ...(resources.mediaObjects && { mediaObjects: resources.mediaObjects }),
     store,
     clock,
     logger,

@@ -4,6 +4,10 @@
 // as when the core stops between its commit and its ack; and two locations in parallel, each in
 // its own order. The link's side of the ack is in Connector Link's tests.
 import { afterEach, describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { EventMedia, FileMediaObjects } from "../../access/media/index.ts";
 import { eventPathParts } from "../../../../test/support/index.ts";
 import { StateStore } from "../../access/state/index.ts";
 import type { DeviceState } from "../../access/state/index.ts";
@@ -266,6 +270,45 @@ async function failureOf(work: Promise<unknown>): Promise<unknown> {
 }
 
 describe("Event: the event path (T047)", () => {
+  it("publishes a doorbell press to delivery while an earlier camera clip is pending", async () => {
+    const test = await withHome();
+    const folder = await mkdtemp(join(tmpdir(), "pending-camera-"));
+    const media = new EventMedia(
+      test.layer,
+      new FileMediaObjects(folder),
+      test.clock,
+    );
+    const pending = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const upload = media.stage(
+      {
+        householdId: "loc-1",
+        cameraId: "d-cam",
+        eventId: "earlier",
+        kind: "clip",
+        hasSound: false,
+        capturedAt: START,
+      },
+      async () => {
+        pending.resolve(undefined);
+        await release.promise;
+        return { length: 1, body: [Uint8Array.of(1)] };
+      },
+      never,
+    );
+    try {
+      await pending.promise;
+      await test.event.event(event("doorbell"), SESSION, never);
+      await expect.poll(() => test.stored[0]?.event.event_id).toBe("doorbell");
+    } finally {
+      release.resolve(undefined);
+      try {
+        await upload;
+      } finally {
+        await rm(folder, { recursive: true, force: true });
+      }
+    }
+  });
   it("writes an event once, with its priority from the policy, its audit entry, and a publish after the commit", async () => {
     const test = await withHome();
 

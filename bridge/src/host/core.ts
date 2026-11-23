@@ -3,6 +3,7 @@
 // that identity signs (no client secret exists). Only `main.ts` imports this file. It reaches no
 // Ring library (the dependency rule `core-reaches-no-ring-libraries`).
 import { KeyVaultSecrets } from "../core/access/secrets/index.ts";
+import { BlobMediaObjects } from "../core/access/media/blob-media-objects.live.ts";
 import { createKeyVaultSecretClient } from "../core/access/secrets/key-vault-client.live.ts";
 import type { Clock } from "../utilities/clock/index.ts";
 import type { Settings } from "../utilities/config/index.ts";
@@ -61,6 +62,9 @@ export async function startCore(
     },
   );
   return startCoreService(settings, {
+    ...(core.storageAccount && {
+      mediaObjects: BlobMediaObjects.forAccount(core.storageAccount, identity),
+    }),
     store,
     secrets,
     ownerSignIn,

@@ -124,6 +124,10 @@ npm test
 
 The tests use SQLite by default. They also run against SQL Server when `TEST_MSSQL_HOST`, `TEST_MSSQL_PORT` and `TEST_MSSQL_PASSWORD` are set.
 
+For the hybrid media tests, start SQL Server and Azurite with the repository's Docker Compose file. Set `TEST_AZURITE_BLOB_URL=http://127.0.0.1:10010/devstoreaccount1` alongside the SQL test settings. The tests create their own private containers and use synthetic media.
+
+The core keeps staged event media for seven days from capture. Set `BRIDGE_MEDIA_RETENTION_DAYS` to change the retention for newly staged items. All-in-one mode uses the `media` folder under `BRIDGE_DATA_DIR`. The hybrid core uses the private `media` container in `BRIDGE_STORAGE_ACCOUNT` through its managed identity.
+
 To try it with no Ring account, `npm run dev:all-in-one` starts mode A over stdio against a simulated home of about 100 devices. An MCP client can start it as its server.
 
 ## Trying an official Ring private app

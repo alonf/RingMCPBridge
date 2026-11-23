@@ -10,6 +10,7 @@ import { EVENT_LOG_AND_AUDIT } from "./0007-event-log-and-audit.ts";
 import { WEBHOOK_SUBSCRIPTIONS } from "./0008-webhook-subscriptions.ts";
 import { EVENT_CURSORS } from "./0009-event-cursors.ts";
 import { RECOVERY_HEALTH } from "./0010-recovery-health.ts";
+import { EVENT_MEDIA } from "./0011-event-media.ts";
 import type { Migration } from "./migration.ts";
 
 export const CORE_MIGRATIONS: readonly Migration[] = [
@@ -23,4 +24,5 @@ export const CORE_MIGRATIONS: readonly Migration[] = [
   WEBHOOK_SUBSCRIPTIONS,
   EVENT_CURSORS,
   RECOVERY_HEALTH,
+  EVENT_MEDIA,
 ];

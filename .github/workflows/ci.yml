@@ -66,6 +66,9 @@ jobs:
           - 1433:1433
       azurite:
         image: mcr.microsoft.com/azure-storage/azurite:latest
+        env:
+          # The pinned Blob SDK sends a newer service version than the emulator advertises.
+          AZURITE_SKIP_API_VERSION_CHECK: "true"
         ports:
           - 10000:10000
     env:
