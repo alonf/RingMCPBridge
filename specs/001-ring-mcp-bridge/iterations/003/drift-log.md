@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 1
-**Resolution rate**: 100% (1/1 resolved)
+**Total drift events**: 2
+**Resolution rate**: 2/2 decided (design record accepted and one-line state correction approved)
 **Specification drift**: None detected. The iteration-scoped design record passed the pre-plan gate.
 
 ## Events
@@ -36,6 +36,17 @@
 - **Proposed recovery for review.** Reproduce the failure in an isolated copy with the same legacy record shape. Test a supported recovery that recognizes the old format and correctly targets iteration 003. Verify that all earlier decisions and the iteration 002 seal are preserved, the iteration 003 camera decision is retained, and only the intended workshop checkpoint would change. Present the generated proposal and its exact authorization phrase before applying anything to the project.
 - **Resolution** The owner directed that the feature-level agenda remain untouched. The human decision, UI layout and iteration-scoped design record passed the pre-plan gate for Option B. The earlier recovery proposal is superseded.
 - **Class closure** The pre-plan gate validates the iteration design, recorded choice and gate packet. [Gate packet](../../gates/design-analysis-003.md)
+
+### DRIFT-003-02 — Plan sync refused the execution summary after setting the phase
+
+- **Observed** On November 23, Specrew 0.40.0 wrote `Current Phase` as `plan` during the plan sync for commit `a63b013`. Its own `iteration-state-truth-gate` then refused that phase together with the sentence “Execution has not started yet.” The refusal referred to task progress, resume and gate paths but named no specific repair for this planning state.
+- **Human decision** The owner identified this as a Specrew defect and approved deleting only the following plain narrative line from the execution summary in [state.md](state.md).
+
+  ```text
+  - Execution has not started yet.
+  ```
+
+- **Class closure** NONE — the approved edit corrects this occurrence only. A general fix belongs in Specrew.
 
 <!--
   Every new ### DRIFT-... event includes:
