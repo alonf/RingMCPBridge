@@ -7,7 +7,7 @@
 **Requested Review Class**: `strongest-available`
 **Effective Review Class**: `claude, configured review class rank 85`
 **Overall Verdict**: `ready`
-**Approval Ref**: Before-implement verdict at `5023777`, recorded on 2026-11-23 at 03:43:23 UTC.
+**Approval Ref**: `—`
 **Reviewed By**: Claude reviewed the planning package in `run-20261123-024603234-c8d0446d`. The sign-off gate accepted the human disposition for its exact tree.
 **Reviewed At**: 2026-11-23T02:54:36Z
 
@@ -45,4 +45,4 @@
 
 ## Notes
 
-The verdict is the computed result of the five planning-time concern rows. The independent planning review and subsequent before-implement verdict are recorded above. Runtime evidence is collected during implementation and review.
+The verdict is the computed result of the five planning-time concern rows. After the independent planning review, the owner authorized implementation at `5023777` on 2026-11-23 at 03:43:23 UTC. Runtime evidence is collected during implementation and review.

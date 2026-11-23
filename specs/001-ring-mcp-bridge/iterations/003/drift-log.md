@@ -46,7 +46,7 @@
   - Execution has not started yet.
   ```
 
-- **Class closure** NONE — the approved edit corrects this occurrence only. A general fix belongs in Specrew.
+- **Class closure**: NONE — the approved edit corrects this occurrence only. A general fix belongs in Specrew.
 
 ### DRIFT-003-03 — Progress records lagged implementation
 
