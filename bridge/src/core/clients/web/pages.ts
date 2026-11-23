@@ -197,6 +197,7 @@ export function adminPage(view: {
   readonly health: HealthPanel;
   readonly enroll: EnrollPanel;
   readonly timeZone: TimeZonePanel;
+  readonly cameras?: Html;
   readonly notice: Notice | undefined;
 }): Html {
   return frame({
@@ -216,6 +217,7 @@ export function adminPage(view: {
           ${healthSection(view.health, view.paths)}
           ${enrollSection(view.enroll, view.formToken, view.paths)}
           ${timeZoneSection(view.timeZone, view.formToken, view.paths)}
+          ${view.cameras ?? ""}
         </main>
       </div>`,
   });

@@ -265,6 +265,7 @@ export async function startCoreService(
     { publicUrl, coreVersion: BRIDGE_VERSION },
     {
       admin: core.admin,
+      ...(media && { media }),
       inquiry: core.inquiry,
       ownerSignIn: resources.ownerSignIn,
       serving: () => core.links.serving,

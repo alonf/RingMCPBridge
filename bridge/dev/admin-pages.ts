@@ -19,6 +19,7 @@ import { SystemClock } from "../src/utilities/clock/index.ts";
 import { Logger } from "../src/utilities/logging/index.ts";
 import type { OwnerSignIn } from "../src/utilities/security/index.ts";
 
+import { mediaSettingsScenario } from "./media-settings-scenario.ts";
 const PORT = Number(process.env.ADMIN_PAGES_PORT ?? "4319");
 const BASE = `http://localhost:${String(PORT)}`;
 const CORE_VERSION = "0.2.0";
@@ -149,6 +150,7 @@ function newScenario(query: URLSearchParams): Scenario {
     web: new Web(
       { publicUrl: BASE, coreVersion: CORE_VERSION },
       {
+        ...(query.has("cameras") && { media: mediaSettingsScenario() }),
         admin: {
           pendingEnrollment: () => Promise.resolve(scenario.pending),
           approveEnrollment: (keyId) => {

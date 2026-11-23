@@ -37,6 +37,13 @@ import type {
   OwnerHealth,
 } from "../../managers/inquiry/index.ts";
 import { AdminSignIns } from "./admin-sign-ins.ts";
+import {
+  cameraSettings,
+  cameraSettingsUnavailable,
+  MEDIA_SETTINGS,
+  type CameraAdmin,
+} from "./media-settings.ts";
+import { MediaDenied } from "../../managers/media/index.ts";
 import type { Section } from "./admin-sign-ins.ts";
 import {
   clearCookie,
@@ -174,6 +181,7 @@ export interface WebDependencies {
   >;
   readonly inquiry: Pick<InquiryManager, "getOwnerHealth">;
   readonly ownerSignIn: OwnerSignIn;
+  readonly media?: CameraAdmin;
   /** Whether this core instance holds the lease: without it, nothing is approved. */
   readonly serving: () => boolean;
   readonly clock: Clock;
@@ -231,6 +239,7 @@ export class Web {
       ADMIN_PATHS.timeZone,
       ADMIN_PATHS.signOut,
       ADMIN_PATHS.theme,
+      MEDIA_SETTINGS,
     ]) {
       app.use(
         path,
@@ -244,6 +253,7 @@ export class Web {
         }),
       );
     }
+    app.post(MEDIA_SETTINGS, (context) => this.#cameraChange(context));
     app.post(ADMIN_PATHS.approve, (context) => this.#approve(context));
     app.post(ADMIN_PATHS.timeZone, (context) => this.#setTimeZone(context));
     app.post(ADMIN_PATHS.signOut, (context) => this.#signOut(context));
@@ -276,6 +286,47 @@ export class Web {
     });
   }
 
+  async #cameraChange(context: WebContext): Promise<Response> {
+    const checked = await this.#sessionForm(
+      context,
+      SESSION_FORM.extend({
+        location_id: z.string().min(1).max(256),
+        device_id: z.string().min(1).max(256),
+        receiver_id: z.string().max(400),
+        enabled: z.literal("on").optional(),
+        sound: z.literal("on").optional(),
+        approved: z.literal("on").optional(),
+      }),
+    );
+    if (checked instanceof Response) return checked;
+    const media = this.#dependencies.media;
+    if (!media || !this.#dependencies.serving())
+      return context.text("Camera settings unavailable.", 503);
+    const { location_id, device_id, receiver_id, enabled, sound, approved } =
+      checked.form;
+    try {
+      await media.save(
+        location_id,
+        device_id,
+        receiver_id,
+        { enabled: !!enabled, sound: !!sound, approved: !!approved },
+        AbortSignal.timeout(MANAGER_TIMEOUT_MS),
+      );
+    } catch (error) {
+      if (error instanceof MediaDenied)
+        return context.text("Unknown camera or receiving service.", 400);
+      throw error;
+    }
+    const selected = new URLSearchParams({
+      location_id,
+      device_id,
+      receiver_id,
+    });
+    return context.redirect(
+      ADMIN_PATH + "?" + selected.toString() + "#cameras",
+      HTTP_SEE_OTHER,
+    );
+  }
   async #page(context: WebContext): Promise<Response> {
     const theme = themeOf(context);
     const session = this.#session(context);
@@ -302,6 +353,17 @@ export class Web {
         health: panel,
         enroll,
         timeZone: zonePanel,
+        ...(this.#dependencies.media && {
+          cameras: await cameraSettings(
+            this.#dependencies.media,
+            new URL(context.req.url).searchParams,
+            session.formToken,
+            AbortSignal.timeout(MANAGER_TIMEOUT_MS),
+          ).catch(() => {
+            this.#logger.warn("camera_settings_unavailable");
+            return cameraSettingsUnavailable();
+          }),
+        }),
         notice: this.#sessions.takeNotice(session.id),
       }),
     );

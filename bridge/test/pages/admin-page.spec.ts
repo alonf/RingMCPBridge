@@ -64,6 +64,31 @@ async function approveWith(page: Page, typed: string): Promise<void> {
 }
 
 test.describe("the admin page", () => {
+  test("the owner approves photos and clips for one camera", async ({
+    page,
+  }) => {
+    await open(page, "cameras=1&sign_in=none");
+    await expect(
+      page.getByRole("heading", { name: "Camera permissions" }),
+    ).toHaveCount(0);
+    await page.getByRole("link", { name: "Sign in" }).click();
+    const approved = page.getByLabel(
+      "Approve this service for photos and clips",
+    );
+    await expect(approved).not.toBeChecked();
+    await page.getByLabel("Allow agent media access to this camera").check();
+    await approved.check();
+    await page.getByRole("button", { name: "Save camera permissions" }).click();
+    await expect(approved).toBeChecked();
+    await page
+      .getByRole("combobox", { name: "Camera", exact: true })
+      .selectOption({ label: "Garden" });
+    await page.getByRole("button", { name: "Show permissions" }).click();
+    await expect(approved).not.toBeChecked();
+    await expect(
+      page.getByLabel("Allow agent media access to this camera"),
+    ).not.toBeChecked();
+  });
   test("signed out: the sign-in page", async ({ page }, testInfo) => {
     await open(page, "sign_in=none");
 
