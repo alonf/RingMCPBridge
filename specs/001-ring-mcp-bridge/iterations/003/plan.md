@@ -2,7 +2,7 @@
 
 **Schema**: v1
 **Spec**: [../../spec.md](../../spec.md)
-**Status**: planning
+**Status**: executing
 **Capacity**: 42/42 story_points
 **Started**: 2026-11-23
 **Completed**:
@@ -29,11 +29,11 @@ The full feature-map slice is estimated at 49 points. This plan proposes 42 poin
 
 | Task | Title | Requirement | Story | Effort | Owner | Owner File Globs | Status | Agent | Actual | Verdict |
 | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- |
-| M01 | Prove that the linked official API can identify a specific event JPEG and clip; run clip playback spike S7 | FR-014, FR-016, FR-018 | US3 | 3 | Implementer | bridge/dev/ring-pilot/** | planned | — | — | — |
-| M02 | Stage event-matched media privately with capture metadata, concurrent-request deduplication, retention and delete-now | FR-014, FR-016, FR-018, FR-021, FR-037 | US3 | 5 | Implementer | bridge/src/core/**, infra/** | planned | — | — | — |
-| M03 | Implement authenticated handoff, receiver registration lookup, item grants, revocation and media-access audit | FR-018, FR-020, FR-026, FR-030, FR-034, FR-035 | US3 | 5 | Implementer | bridge/src/core/**, bridge/src/contract/** | planned | — | — | — |
-| M04 | Build the approved household settings screen, camera permissions, sound setting and durable approval changes | FR-020, FR-036, FR-039 | US3, US8 | 3.5 | Implementer | bridge/src/core/** | planned | — | — | — |
-| M05 | Deliver a real event JPEG and clip to a separate test receiver; verify withdrawal between reads | FR-016, FR-018, FR-020 | US3 | 2 | Implementer | bridge/test/** | planned | — | — | — |
+| M01 | Prove that the linked official API can identify a specific event JPEG and clip; run clip playback spike S7 | FR-014, FR-016, FR-018 | US3 | 3 | Implementer | bridge/dev/ring-pilot/** | in-progress | Codex | — | — |
+| M02 | Stage event-matched media privately with capture metadata, concurrent-request deduplication, retention and delete-now | FR-014, FR-016, FR-018, FR-021, FR-037 | US3 | 5 | Implementer | bridge/src/core/**, infra/** | done | Codex | — | — |
+| M03 | Implement authenticated handoff, receiver registration lookup, item grants, revocation and media-access audit | FR-018, FR-020, FR-026, FR-030, FR-034, FR-035 | US3 | 5 | Implementer | bridge/src/core/**, bridge/src/contract/** | in-progress | Codex | — | — |
+| M04 | Build the approved household settings screen, camera permissions, sound setting and durable approval changes | FR-020, FR-036, FR-039 | US3, US8 | 3.5 | Implementer | bridge/src/core/** | done | Codex | — | — |
+| M05 | Deliver a real event JPEG and clip to a separate test receiver; verify withdrawal between reads | FR-016, FR-018, FR-020 | US3 | 2 | Implementer | bridge/test/** | in-progress | Codex | — | — |
 | M06 | Implement direct cached/fresh frame, bounded burst and finite clip capture with rate and battery guards | FR-016, FR-017, FR-018, FR-019, FR-026 | US3 | 4 | Implementer | bridge/src/connector/**, bridge/src/core/** | planned | — | — | — |
 | F01 | Implement household sensor-type and individual-camera event rules, per-client opt-ins and policy precedence | FR-008, FR-009, FR-010, FR-011, FR-036 | US2, US8 | 3.5 | Implementer | bridge/src/core/** | planned | — | — | — |
 | Q01 | Implement motion windows, active rooms, occupancy and paged device/household history, including existing control entries | FR-003, FR-004 | US1 | 3 | Implementer | bridge/src/core/** | planned | — | — | — |

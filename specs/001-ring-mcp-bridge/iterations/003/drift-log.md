@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 2
-**Resolution rate**: 2/2 decided (design record accepted and one-line state correction approved)
+**Total drift events**: 3
+**Resolution rate**: 2/3 closed. DRIFT-003-03 awaits the next governed state projection.
 **Specification drift**: None detected. The iteration-scoped design record passed the pre-plan gate.
 
 ## Events
@@ -47,6 +47,12 @@
   ```
 
 - **Class closure** NONE — the approved edit corrects this occurrence only. A general fix belongs in Specrew.
+
+### DRIFT-003-03 — Progress records lagged implementation
+
+- **Observed** The pre-implementation planning snapshot still appears in the generated iteration state. The authoritative before-implement verdict is at `5023777`. The first media handoff checkpoint reviewed code through `c34b962`.
+- **Reconciliation** The iteration plan records M02 and M04 as done and M01, M03 and M05 as in progress. [Task checkboxes](../../tasks.md) and [field evidence](quality/quality-evidence.md) identify the outstanding acceptance checks. The hardening record identifies the historical Claude review and owner verdict. Estimates are not used as actual effort.
+- **Class closure**: Reconcile the generated state at the next authorized boundary sync and compare it with the task rows. The owner's instruction reserves that sync for the next crossing.
 
 <!--
   Every new ### DRIFT-... event includes:

@@ -5,11 +5,11 @@
 **Feature Ref**: `specs/001-ring-mcp-bridge/spec.md`
 **Iteration Ref**: `specs/001-ring-mcp-bridge/iterations/003`
 **Requested Review Class**: `strongest-available`
-**Effective Review Class**: `(pending hardening review)`
+**Effective Review Class**: `claude, configured review class rank 85`
 **Overall Verdict**: `ready`
-**Approval Ref**: `—`
-**Reviewed By**: Reviewer (pending)
-**Reviewed At**: 2026-11-22T20:59:04Z
+**Approval Ref**: Before-implement verdict at `5023777`, recorded on 2026-11-23 at 03:43:23 UTC.
+**Reviewed By**: Claude reviewed the planning package in `run-20261123-024603234-c8d0446d`. The sign-off gate accepted the human disposition for its exact tree.
+**Reviewed At**: 2026-11-23T02:54:36Z
 
 <!--
   Concern Review schema (validator-enforced):
@@ -45,4 +45,4 @@
 
 ## Notes
 
-The verdict is the computed result of the five planning-time concern rows. Independent hardening review and the before-implement decision are still pending. Runtime evidence is collected during implementation and review.
+The verdict is the computed result of the five planning-time concern rows. The independent planning review and subsequent before-implement verdict are recorded above. Runtime evidence is collected during implementation and review.
