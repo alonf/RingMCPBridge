@@ -90,7 +90,7 @@ These are planning estimates, not measured velocity. Iteration 002 recorded no f
 
 ## Notes
 
-- Proposed receiver contract, stored relationships and live-test procedure are in the [tool contract](../../contracts/mcp-tools.md), [data model](../../data-model.md) and [quickstart](../../quickstart.md). The [interaction diagram](review-diagrams.md) identifies which credential is used for each read.
+- Proposed receiver contract, stored relationships and live-test procedure are in the [tool contract](../../contracts/mcp-tools.md), [data model](../../data-model.md) and [quickstart](../../quickstart.md). The [interaction diagram](design-diagrams.md) identifies which credential is used for each read.
 - Receiver grants start only when an item is ready. A transfer already authorized can finish; each subsequent GET or Range must recheck current approval. Registry and camera-media switches apply even on cache hits. Missing storage or authorization state fails closed.
 - The owner-approved household filters and camera approvals serve different purposes. Delegated media permission grants no control or additional household visibility. Receiver delivery and test scope stop at a fetch by an authenticated second identity.
 - Request any physical scenario and operational changes separately when the pilot needs them. No deployment or real alarm operation is part of plan approval.
