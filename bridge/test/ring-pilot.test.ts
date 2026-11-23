@@ -523,3 +523,132 @@ describe("official Ring private-app pilot", () => {
     ).toBe("Bearer fixture");
   });
 });
+
+describe("post-link event media pilot", () => {
+  const fixture = (
+    videoStatus: number,
+    photoOffset = 0,
+    linkedAt = START - 1,
+  ) => {
+    const json = Response.json.bind(Response);
+    const event = {
+      id: "evt",
+      type: "history-events",
+      attributes: { event_type: "ding", start: START, end: START + 8000 },
+      relationships: { source: { data: { type: "devices", id: "cam" } } },
+    };
+    const requests: { path: string; body: unknown }[] = [];
+    const respond = (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const path = new URL(url instanceof Request ? url.url : url).pathname;
+      requests.push({
+        path,
+        body:
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as unknown)
+            : null,
+      });
+      if (path.endsWith("/devices"))
+        return json({
+          data: [
+            {
+              id: "cam",
+              attributes: { name: "Outside" },
+              relationships: { location: { data: { id: "home" } } },
+            },
+          ],
+        });
+      if (path.endsWith("/events")) return json({ data: [event] });
+      if (path.endsWith("/capabilities"))
+        return json({
+          data: {
+            attributes: {
+              components: {
+                items: [{ component_id: "1", component_type: "lens" }],
+              },
+            },
+          },
+        });
+      if (path.endsWith("/image/download"))
+        return new Response(Uint8Array.from([255, 216, 1, 255, 217]), {
+          headers: {
+            "content-type": "image/jpeg",
+            "x-media-timestamp": String(START + photoOffset),
+          },
+        });
+      return new Response(
+        Uint8Array.from([
+          0, 0, 0, 16, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0,
+        ]),
+        {
+          status: videoStatus,
+          headers: {
+            "content-type": "video/mp4",
+            "x-media-timestamp": String(START),
+          },
+        },
+      );
+    };
+    return {
+      requests,
+      run: (eventId?: string, now = START + 200000) =>
+        ringClient(ID, "example", (url, init) =>
+          Promise.resolve(respond(url, init)),
+        ).eventMedia("example", "Outside", "ding", linkedAt, now, eventId),
+    };
+  };
+  it("binds both requests to the same completed event and module", async () => {
+    const probe = fixture(200);
+    expect(await probe.run()).toMatchObject({
+      eventId: "evt",
+      deviceId: "cam",
+      householdId: "home",
+      photo: { status: "available" },
+      clip: { status: "available" },
+    });
+    expect(
+      probe.requests.find((r) => r.path.endsWith("/image/download"))?.body,
+    ).toMatchObject({
+      start_timestamp: START,
+      end_timestamp: START + 4999,
+      components: [{ component_id: "1" }],
+    });
+    expect(
+      probe.requests.find((r) => r.path.endsWith("/video/download"))?.body,
+    ).toMatchObject({
+      timestamp: START,
+      duration: 5000,
+      components: [{ component_id: "1" }],
+    });
+  });
+  it.each([
+    [416, "missing"],
+    [425, "pending"],
+    [503, "upstream-error"],
+  ] as const)(
+    "keeps photo evidence separate from clip HTTP %s",
+    async (code, status) => {
+      expect(await fixture(code).run()).toMatchObject({
+        photo: { status: "available" },
+        clip: { status, httpStatus: code },
+      });
+    },
+  );
+  it("preserves the selected event on retry and distinguishes a recent missing recording", async () => {
+    expect(await fixture(416).run("evt", START + 15000)).toMatchObject({
+      clip: { status: "pending", httpStatus: 416 },
+    });
+    const other = fixture(200);
+    await expect(other.run("different-event")).rejects.toThrow(
+      /No matching completed/,
+    );
+    expect(other.requests.some((r) => r.path.includes("/media/"))).toBe(false);
+  });
+  it("rejects a later JPEG and never requests media for a pre-link event", async () => {
+    expect(await fixture(200, 8001).run()).toMatchObject({
+      photo: { status: "unmatched" },
+    });
+    const probe = fixture(200, 0, START + 1);
+    await expect(probe.run()).rejects.toThrow(/event/i);
+    expect(probe.requests.some((r) => r.path.includes("/media/"))).toBe(false);
+  });
+});

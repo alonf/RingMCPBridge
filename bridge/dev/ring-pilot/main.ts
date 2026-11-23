@@ -6,6 +6,8 @@ import type { Snapshot } from "./snapshot.ts";
 import { pilotApp } from "./app.ts";
 import { ringClient } from "./client.ts";
 import { PilotLinks } from "./links.ts";
+import { EventProbeError } from "./event-media.ts";
+import { runEventProbe } from "./probe-command.ts";
 
 const {
   RING_PILOT_ID: id,
@@ -41,7 +43,32 @@ const links = new PilotLinks(
   id,
   secret,
 );
-if (process.argv[2] === "--browser-code") {
+if (process.argv[2] === "--event-probe") {
+  try {
+    if (
+      !(await runEventProbe(
+        ringClient(id, secret),
+        links,
+        privateDir,
+        process.argv[3] ?? "",
+        process.argv[4] ?? "",
+        process.argv[5],
+        process.argv[6],
+      ))
+    )
+      process.exitCode = 2;
+  } catch (error) {
+    // Provider bodies, validation errors and redirect addresses can contain private data.
+    const message =
+      error instanceof EventProbeError
+        ? error.message
+        : "Could not verify the event source or access Ring.";
+    console.error(message);
+    process.exitCode = 1;
+  } finally {
+    links.close();
+  }
+} else if (process.argv[2] === "--browser-code") {
   try {
     console.info(
       "One-time browser code (10 minutes):",

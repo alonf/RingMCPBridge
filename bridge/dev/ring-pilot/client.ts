@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { downloadSnapshot, SnapshotError } from "./snapshot.ts";
+import { EventProbeError, probeEventMedia } from "./event-media.ts";
 
 const API = "https://api.amazonvision.com/v1";
 const INTEGRATION = API + "/accounts/me/app-integrations";
@@ -16,10 +17,18 @@ const profile = z.object({
   }),
 });
 const inventory = z.object({
+  links: z.object({ next: z.string().nullish() }).optional(),
   data: z.array(
     z.object({
       id: z.string(),
       attributes: z.object({ name: z.string().optional() }).optional(),
+      relationships: z
+        .object({
+          location: z
+            .object({ data: z.object({ id: z.string().min(1) }).nullish() })
+            .optional(),
+        })
+        .optional(),
     }),
   ),
 });
@@ -50,7 +59,7 @@ export function ringClient(
   const auth = (token: string) => ({ authorization: "Bearer " + token });
   async function devices(token: string) {
     const result = await request(API + "/devices", { headers: auth(token) });
-    return inventory.parse(await result.json()).data;
+    return inventory.parse(await result.json());
   }
   return {
     async refresh(refreshToken: string) {
@@ -108,12 +117,12 @@ export function ringClient(
       });
     },
     async devices(token: string) {
-      return (await devices(token)).map(
+      return (await devices(token)).data.map(
         (device) => device.attributes?.name ?? device.id,
       );
     },
     async snapshot(token: string, name: string, end: number, linkedAt: number) {
-      const matches = (await devices(token)).filter(
+      const matches = (await devices(token)).data.filter(
         (device) => device.attributes?.name === name,
       );
       const [device] = matches;
@@ -128,6 +137,40 @@ export function ringClient(
         send,
         end,
         linkedAt,
+      );
+    },
+    async eventMedia(
+      token: string,
+      name: string,
+      kind: "ding" | "motion",
+      linkedAt: number,
+      now: number,
+      eventId?: string,
+    ) {
+      const page = await devices(token);
+      const matches = page.data.filter(
+        (device) => device.attributes?.name === name,
+      );
+      const [device] = matches;
+      if (
+        page.links?.next ||
+        matches.length !== 1 ||
+        !device?.relationships?.location?.data?.id
+      )
+        throw new EventProbeError(
+          "A single shared camera and its household must be identifiable in the inventory.",
+        );
+      return probeEventMedia(
+        API,
+        device.id,
+        device.relationships.location.data.id,
+        kind,
+        linkedAt,
+        now,
+        eventId,
+        token,
+        ringRequest,
+        send,
       );
     },
   };

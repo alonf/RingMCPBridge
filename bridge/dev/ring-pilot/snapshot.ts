@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const DAY_MS = 86_400_000;
 const MAX_BYTES = 8 * 1024 * 1024;
-const capabilities = z.object({
+export const capabilities = z.object({
   data: z.object({
     attributes: z.object({
       components: z
@@ -47,7 +47,7 @@ function checkStatus(status: number, step: SnapshotStep) {
     );
 }
 
-async function readJpeg(response: Response) {
+export async function readJpeg(response: Response) {
   if (
     response.headers.get("content-type")?.split(";")[0] !== "image/jpeg" ||
     !response.body

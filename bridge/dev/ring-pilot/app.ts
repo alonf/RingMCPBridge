@@ -67,7 +67,7 @@ const digest = (text: string) =>
 export function pilotApp(
   clientId: string,
   signingKey: string,
-  ring: ReturnType<typeof ringClient>,
+  ring: Omit<ReturnType<typeof ringClient>, "eventMedia">,
   now = Date.now,
   snapshotTarget?: { name: string; save: (image: Snapshot) => Promise<void> },
   store?: PilotLinks,
