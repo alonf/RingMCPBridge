@@ -55,6 +55,7 @@ import { EventLog } from "../core/access/event-log/index.ts";
 import type { EventMediaSource } from "../core/managers/media/index.ts";
 import { MediaPermissions } from "../core/access/settings/index.ts";
 import { MediaTickets } from "../core/access/media/index.ts";
+import { mediaDownload } from "../core/clients/web/index.ts";
 import type { MediaObjects } from "../core/access/media/index.ts";
 import type { CoreAssembly } from "./core-assembly.ts";
 import { BRIDGE_VERSION } from "./version.ts";
@@ -239,6 +240,9 @@ export async function startCoreService(
         eventLog.fromCamera(store, home, camera, event, signal),
       ...(resources.eventMediaSource && { source: resources.eventMediaSource }),
     });
+  const download =
+    media &&
+    getRequestListener((request) => mediaDownload(request, media, issuer));
   const mcp = new McpEndpoint(
     {
       resource: `${publicUrl}${MCP_PATH}`,
@@ -318,6 +322,8 @@ export async function startCoreService(
         report.status === "ready" ? HTTP_OK : HTTP_UNAVAILABLE,
         report,
       );
+    } else if (download && url.pathname.startsWith("/media/items/")) {
+      await download(request, response);
     } else if (url.pathname === AUTHORIZATION_SERVER_METADATA_PATH) {
       request.url = `${ISSUER_DISCOVERY_PATH}${url.search}`;
       issuer.handle(request, response);

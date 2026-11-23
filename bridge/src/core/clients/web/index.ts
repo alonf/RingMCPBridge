@@ -1,5 +1,6 @@
 // Web (T029): the admin page, served by the core in mode H. Its only entry point (CD4). The Host
 // serves its paths and hands it the sign-in return the Issuer does not own.
+export { mediaDownload } from "./media-download.ts";
 
 /** The admin page, its settings and what it is wired with. */
 export {
