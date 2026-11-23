@@ -189,3 +189,4 @@ The household and camera selectors define which approvals the owner is editing. 
 - **Decision verdict**: On November 23, 2026, the owner replied “B” to the three alternatives and “yes for the ui” to the proposed household settings screen.
 - **Reason**: The owner selected the recommended option and gave no additional rationale. The design rationale is recorded under Crew Recommendation.
 - **Modifications or instructions**: Accept Option B and the screen as presented. Issue five-minute item grants once the requested event photo or clip is ready. Withdrawal denies the next GET or range request; an already authorized transfer may finish. Reapproval requires a new grant. Receiver live view is outside this handoff.
+- **Decision recorded in commit**: 62e18a08b877811b9a66986718f79146d65e40ad
