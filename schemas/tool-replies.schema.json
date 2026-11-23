@@ -1262,6 +1262,12 @@
               "additionalProperties": false
             }
           ]
+        },
+        "retry_after_s": {
+          "description": "For a pending item, wait this many seconds before requesting the same event again.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [

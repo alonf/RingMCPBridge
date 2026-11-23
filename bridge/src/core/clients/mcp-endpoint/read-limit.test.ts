@@ -36,6 +36,22 @@ describe("the read rate limit", () => {
     expect(limit.take("agent")).toMatchObject({ allowed: false });
   });
 
+  it("releases only its own reservation even across expiry and repeated release", async () => {
+    const clock = new FakeClock(START),
+      limit = new ReadLimit(2, clock);
+    const pending = limit.reserve("agent");
+    if (!pending.allowed) throw new Error("expected a reservation");
+    limit.take("agent");
+    pending.release();
+    pending.release();
+    expect(limit.take("agent").allowed).toBe(true);
+    expect(limit.take("agent").allowed).toBe(false);
+    await clock.advance(HOUR_MS);
+    limit.take("agent");
+    pending.release();
+    expect(limit.take("agent").allowed).toBe(true);
+    expect(limit.take("agent").allowed).toBe(false);
+  });
   it("counts each agent apart", () => {
     const limit = new ReadLimit(1, new FakeClock(START));
     limit.take("agent");

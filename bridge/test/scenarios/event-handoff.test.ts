@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from "vitest";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -154,7 +154,7 @@ async function scenario(directory?: string, cacheOnly = false) {
   const { url, running, logLines } = await startTestCore(cleanups, {
     store,
     agents,
-    readsPerHour: 24,
+    readsPerHour: 160,
     mediaObjects: objects,
     ...(cacheOnly
       ? {}
@@ -273,7 +273,8 @@ async function scenario(directory?: string, cacheOnly = false) {
     (await agent.client.listTools()).tools.some(
       (t) => t.name === "share_event_media",
     ),
-  ).toBe(true);
+  ).toBe(!cacheOnly);
+  if (cacheOnly) return;
   const share = (kind: string, eventId = data.event) =>
     agent.client.callTool({
       name: "share_event_media",
@@ -301,11 +302,11 @@ async function scenario(directory?: string, cacheOnly = false) {
   expect(otherCamera.structuredContent).toMatchObject({
     error: { code: "ACTION_DISABLED" },
   });
-  if (cacheOnly) {
-    expect((await share("photo")).structuredContent).toMatchObject({
-      error: { code: "NOT_FOUND", retryable: false },
+  for (let retry = 0; retry < 21; retry++) {
+    expect((await share("clip")).structuredContent).toMatchObject({
+      data: { status: "pending" },
+      retry_after_s: 10,
     });
-    return;
   }
   expect((await share("photo")).structuredContent).toMatchObject({
     data: { status: "pending" },
@@ -416,6 +417,18 @@ async function scenario(directory?: string, cacheOnly = false) {
     });
     await running.core.admin.deleteCachedMedia(signal);
     expect((await fetchAs(url, clip, receiverToken)).status).toBe(403);
+    const unrelated = new URL(clip);
+    unrelated.pathname = "/media/items/" + randomUUID();
+    const logSize = () =>
+      store.get(
+        { sql: "SELECT COUNT(*) AS n FROM media_access_log", params: {} },
+        signal,
+      );
+    const before = await logSize();
+    expect((await fetchAs(url, unrelated.href, receiverToken)).status).toBe(
+      403,
+    );
+    expect(await logSize()).toEqual(before);
     const logs = await store.all(
       {
         sql: "SELECT location_id,device_id,event_id,requester_id,receiver_id,operation,outcome FROM media_access_log",
@@ -463,7 +476,7 @@ it(
   60_000,
 );
 it(
-  "returns a terminal miss when the core has only cached media",
+  "omits the sharing tool when the core has only cached media",
   () => scenario(undefined, true),
   60_000,
 );

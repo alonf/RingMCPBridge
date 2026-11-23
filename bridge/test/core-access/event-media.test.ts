@@ -384,7 +384,9 @@ describeStoreMatrix("private event media", (backend) => {
       );
       Object.assign(objects, { listPage });
       await expect(media[operation](signal)).rejects.toThrow(
-        "persistent failure",
+        operation === "sweep"
+          ? "persistent failure"
+          : "Object cleanup is pending",
       );
       if (operation === "sweep")
         await expect(media.sweep(signal)).rejects.toThrow("persistent failure");
@@ -556,9 +558,15 @@ describeStoreMatrix("private event media", (backend) => {
     );
     try {
       await expect(admin.deleteCachedMedia(signal)).rejects.toMatchObject({
-        kind: "unavailable",
+        kind: "cleanup_pending",
       });
       expect(await media.ready(ready.id, signal)).toBeUndefined();
+      expect(
+        await store.all(
+          { sql: "SELECT action,ts FROM owner_media_change", params: {} },
+          signal,
+        ),
+      ).toEqual([{ action: "delete_cached_media", ts: clock.now() }]);
     } finally {
       release.resolve(undefined);
     }

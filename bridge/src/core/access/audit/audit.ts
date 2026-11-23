@@ -118,6 +118,13 @@ export class Audit {
     const now = this.#clock.now();
     await session.run(
       {
+        sql: "DELETE FROM owner_media_change WHERE ts<@cutoff",
+        params: { cutoff: now - 365 * 86_400_000 },
+      },
+      signal,
+    );
+    await session.run(
+      {
         sql: "DELETE FROM media_access_log WHERE ts<@cutoff",
         params: { cutoff: now - 90 * 86_400_000 },
       },

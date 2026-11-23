@@ -124,6 +124,22 @@ const NOTICES: Readonly<
     { readonly tone: Tone; readonly text: string }
   >
 > = {
+  media_save_unavailable: {
+    tone: "warn",
+    text: "The bridge could not check the camera settings. Your changes have not been applied.",
+  },
+  media_save_unknown: {
+    tone: "warn",
+    text: "The bridge could not confirm the save. Reload the camera permissions before retrying.",
+  },
+  media_delete_unknown: {
+    tone: "warn",
+    text: "The bridge could not confirm deletion. Check storage availability, then retry deletion.",
+  },
+  media_cleanup_pending: {
+    tone: "warn",
+    text: "Access to the cached items has been withdrawn. The bridge will retry removing the stored files.",
+  },
   media_deleted: { tone: "ok", text: "Cached camera media deleted." },
   not_pending: {
     tone: "warn",

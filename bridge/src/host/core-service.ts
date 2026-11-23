@@ -32,7 +32,7 @@ import {
 } from "../core/clients/delivery/index.ts";
 import type { CallbackTransport } from "../core/clients/delivery/index.ts";
 import { Issuer, IssuerError } from "../core/clients/issuer/index.ts";
-import { McpEndpoint } from "../core/clients/mcp-endpoint/index.ts";
+import { McpEndpoint, ReadLimit } from "../core/clients/mcp-endpoint/index.ts";
 import { keptFromSharedLocation } from "../core/engines/classify/index.ts";
 import {
   ADMIN_PATH,
@@ -231,7 +231,11 @@ export async function startCoreService(
     core.media &&
     new MediaHandoff({
       media: core.media,
-      permissions: new MediaPermissions(store),
+      permissions: new MediaPermissions(store, () => clock.now()),
+      sharedPersonEventsAllowed: keptFromSharedLocation(
+        core.priorityPolicy,
+        "motion",
+      ),
       tickets: new MediaTickets(store, clock),
       state: core.state,
       settings: core.settings,
@@ -240,10 +244,11 @@ export async function startCoreService(
         eventLog.fromCamera(store, home, camera, event, signal),
       ...(resources.eventMediaSource && { source: resources.eventMediaSource }),
     });
+  const downloadLimit = new ReadLimit(settings.readsPerHour, clock);
   const download =
     media &&
     getRequestListener((request) =>
-      mediaDownload(request, media, issuer, logger),
+      mediaDownload(request, media, issuer, downloadLimit, logger),
     );
   const mcp = new McpEndpoint(
     {
@@ -261,7 +266,7 @@ export async function startCoreService(
       clock,
       logger,
       events: delivery,
-      ...(media && { media }),
+      ...(media && resources.eventMediaSource && { media }),
     },
   );
   const mcpListener = getRequestListener((request) => mcp.fetch(request));

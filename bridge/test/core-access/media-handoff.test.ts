@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { Audit } from "../../src/core/access/audit/index.ts";
 import { MediaPermissions } from "../../src/core/access/settings/media-permissions.ts";
 import { FakeClock } from "../../src/utilities/clock/index.ts";
 import { MediaTickets } from "../../src/core/access/media/index.ts";
@@ -50,7 +51,7 @@ describeStoreMatrix("per-camera media approval", (backend) => {
     const db = await backend.emptyDatabase();
     try {
       await runMigrations(db, CORE_MIGRATIONS, { clock }, signal);
-      const settings = new MediaPermissions(db);
+      const settings = new MediaPermissions(db, () => clock.now());
       expect((await settings.camera("home", "door", signal)).enabled).toBe(
         false,
       );
@@ -83,6 +84,57 @@ describeStoreMatrix("per-camera media approval", (backend) => {
         { enabled: true, sound: true, approved: true },
         signal,
       );
+      const changes = await db.all(
+        {
+          sql: "SELECT action, location_id, device_id, receiver_id, ts FROM owner_media_change",
+          params: {},
+        },
+        signal,
+      );
+      expect(changes).toHaveLength(5);
+      expect(changes).toEqual(
+        expect.arrayContaining([
+          {
+            action: "approval_removed",
+            location_id: "home",
+            device_id: "door",
+            receiver_id: "one",
+            ts: clock.now(),
+          },
+          {
+            action: "camera_settings",
+            location_id: "home",
+            device_id: "door",
+            receiver_id: null,
+            ts: clock.now(),
+          },
+          {
+            action: "approval_added",
+            location_id: "home",
+            device_id: "door",
+            receiver_id: "two",
+            ts: clock.now(),
+          },
+        ]),
+      );
+      const audit = new Audit({ clock });
+      const count = () =>
+        db.get(
+          { sql: "SELECT COUNT(*) AS n FROM owner_media_change", params: {} },
+          signal,
+        );
+      await clock.advance(365 * 86_400_000);
+      await db.transaction(
+        (tx) => audit.purgeEventsBefore(tx, clock.now(), signal),
+        signal,
+      );
+      expect(await count()).toEqual({ n: 5 });
+      await clock.advance(1);
+      await db.transaction(
+        (tx) => audit.purgeEventsBefore(tx, clock.now(), signal),
+        signal,
+      );
+      expect(await count()).toEqual({ n: 0 });
       const current = await new MediaPermissions(db).camera(
         "home",
         "door",

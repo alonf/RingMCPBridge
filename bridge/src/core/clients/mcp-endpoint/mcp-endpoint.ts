@@ -141,6 +141,7 @@ export class McpEndpoint {
   readonly #detachEvents?: () => void;
   readonly #app: Hono;
   readonly #limit: ReadLimit;
+  readonly #mediaRequests: ReadLimit;
   readonly #clips: ReadLimit;
   readonly #frames: ReadLimit;
 
@@ -153,6 +154,10 @@ export class McpEndpoint {
     this.#logger = dependencies.logger.with({ component: "mcp_endpoint" });
     const resource = new URL(settings.resource);
     this.#metadataUrl = getOAuthProtectedResourceMetadataUrl(resource);
+    this.#mediaRequests = new ReadLimit(
+      settings.readsPerHour,
+      dependencies.clock,
+    );
     this.#clips = new ReadLimit(
       settings.clipsPerHour ?? 20,
       dependencies.clock,
@@ -377,7 +382,11 @@ export class McpEndpoint {
         typeof context.authInfo.extra?.listedClientId === "string"
           ? context.authInfo.extra.listedClientId
           : clientId,
-        { clip: this.#clips, photo: this.#frames },
+        {
+          clip: this.#clips,
+          photo: this.#frames,
+          requests: this.#mediaRequests,
+        },
         this.#logger,
         this.#dependencies.clock,
       );

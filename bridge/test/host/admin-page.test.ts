@@ -5,8 +5,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FileMediaObjects } from "../../src/core/access/media/index.ts";
+import * as deployment from "../../src/host/priority-policy.ts";
+import { QueryLayerError } from "../../src/utilities/query-layer/index.ts";
+import { MediaPermissions } from "../../src/core/access/settings/index.ts";
 import { startConnector } from "../../src/host/connector.ts";
 import type { RunningConnector } from "../../src/host/connector.ts";
 import { SystemClock } from "../../src/utilities/clock/index.ts";
@@ -164,11 +167,100 @@ async function connectorOn(
 }
 
 describe("the admin page end to end", () => {
+  it("enforces the deployment policy on shared camera forms and explains an unconfirmed save", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "shared-camera-policy-"));
+    cleanups.push(() => rm(directory, { recursive: true, force: true }));
+    const policy = deployment.readPriorityPolicy();
+    const deploymentPolicy = vi
+      .spyOn(deployment, "readPriorityPolicy")
+      .mockReturnValueOnce({ ...policy, sharedLocationKinds: [] });
+    try {
+      const core = await startTestCore(cleanups, {
+        mediaObjects: new FileMediaObjects(directory),
+      });
+      const now = Date.now();
+      await core.running.core.state.applyInventory(
+        {
+          snapshot_version: 0,
+          locations: [
+            {
+              location_id: "shared",
+              name: "Shared household",
+              ownership: "shared",
+              time_zone: "UTC",
+              as_of: now,
+              state_version: 1,
+            },
+          ],
+          devices: [
+            {
+              device_id: "door",
+              location_id: "shared",
+              name: "Door",
+              type: "doorbell",
+              power_mode: "wired",
+              online: true,
+              state: {},
+              as_of: now,
+              state_version: 2,
+            },
+          ],
+        },
+        never(),
+      );
+      const owner = await signIn(core);
+      const shown = await page(core, owner);
+      expect(shown).toMatch(/name="person_action"\s+disabled/);
+      expect(shown).toContain("deployment policy drops person detections");
+      const fields = {
+        form_token: field(shown, "form_token"),
+        camera_form: "settings",
+        location_id: "shared",
+        device_id: "door",
+        receiver_id: "",
+      };
+      const submit = (extra: Record<string, string>) =>
+        fetch(core.url + "/admin/cameras", {
+          method: "POST",
+          redirect: "manual",
+          headers: { cookie: owner, origin: core.url },
+          body: new URLSearchParams({ ...fields, ...extra }),
+        });
+      for (const choice of ["push", "store_only"])
+        expect((await submit({ person_action: choice })).status).toBe(400);
+      expect((await submit({ enabled: "on" })).status).toBe(303);
+      const lookup = vi
+        .spyOn(core.running.core.state, "device")
+        .mockRejectedValueOnce(new Error("Inventory unavailable."));
+      try {
+        expect((await submit({})).status).toBe(303);
+        expect(await page(core, owner)).toContain(
+          "changes have not been applied",
+        );
+      } finally {
+        lookup.mockRestore();
+      }
+      const outage = vi
+        .spyOn(MediaPermissions.prototype, "save")
+        .mockRejectedValueOnce(
+          new QueryLayerError("store_down", "Unavailable."),
+        );
+      try {
+        expect((await submit({})).status).toBe(303);
+        expect(await page(core, owner)).toContain("could not confirm the save");
+      } finally {
+        outage.mockRestore();
+      }
+    } finally {
+      deploymentPolicy.mockRestore();
+    }
+  }, 30_000);
   it("deletes cached bytes only after an owner submits the confirmed same-origin form", async () => {
     const directory = await mkdtemp(join(tmpdir(), "camera-delete-"));
     cleanups.push(() => rm(directory, { recursive: true, force: true }));
+    const objects = new FileMediaObjects(directory);
     const core = await startTestCore(cleanups, {
-      mediaObjects: new FileMediaObjects(directory),
+      mediaObjects: objects,
     });
     const media = core.running.core.media;
     if (!media) throw new Error("Missing test store");
@@ -199,6 +291,18 @@ describe("the admin page end to end", () => {
     ).toBe(403);
     expect((await submit(formToken, core.url, "")).status).toBe(403);
     expect(await media.ready(item.id, never())).toBeDefined();
+    const failure = vi
+      .spyOn(objects, "remove")
+      .mockRejectedValue(new Error("Storage unavailable"));
+    try {
+      expect((await submit(formToken, core.url, "delete")).status).toBe(303);
+      expect(await media.ready(item.id, never())).toBeUndefined();
+      expect(await page(core, owner)).toContain(
+        "will retry removing the stored files",
+      );
+    } finally {
+      failure.mockRestore();
+    }
     expect((await submit(formToken, core.url, "delete")).status).toBe(303);
     expect(await media.ready(item.id, never())).toBeUndefined();
     expect(await page(core, owner)).toContain("Cached camera media deleted.");

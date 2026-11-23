@@ -17,7 +17,7 @@ export type ReadAllowance =
 export class ReadLimit {
   readonly #perHour: number;
   readonly #clock: Clock;
-  readonly #reads = new Map<string, number[]>();
+  readonly #reads = new Map<string, { at: number }[]>();
 
   constructor(perHour: number, clock: Clock) {
     if (!Number.isInteger(perHour) || perHour < 1) {
@@ -34,22 +34,36 @@ export class ReadLimit {
 
   /** Counts a read by `client` now, if its limit allows one. */
   take(client: string): ReadAllowance {
+    const slot = this.reserve(client);
+    return slot.allowed ? { allowed: true } : slot;
+  }
+
+  /** Reserve before asynchronous work; release only a pending or retryable attempt. */
+  reserve(client: string) {
     const now = this.#clock.now();
     const recent = (this.#reads.get(client) ?? []).filter(
-      (at) => at > now - HOUR_MS,
+      ({ at }) => at > now - HOUR_MS,
     );
     this.#reads.set(client, recent);
     const [oldest] = recent;
     if (recent.length >= this.#perHour && oldest !== undefined) {
       return {
-        allowed: false,
+        allowed: false as const,
         retryAfterS: Math.max(
           1,
-          Math.ceil((oldest + HOUR_MS - now) / MS_PER_SECOND),
+          Math.ceil((oldest.at + HOUR_MS - now) / MS_PER_SECOND),
         ),
       };
     }
-    recent.push(now);
-    return { allowed: true };
+    const slot = { at: now };
+    recent.push(slot);
+    return {
+      allowed: true as const,
+      release: () => {
+        const slots = this.#reads.get(client);
+        const index = slots?.indexOf(slot) ?? -1;
+        if (slots && index >= 0) slots.splice(index, 1);
+      },
+    };
   }
 }

@@ -1,3 +1,4 @@
+import { recordOwnerMediaChange } from "../audit/index.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type { Clock } from "../../../utilities/clock/index.ts";
 import {
@@ -82,6 +83,9 @@ async function* checkedChunks(content: MediaContent, signal: AbortSignal) {
   }
   if (received !== content.length) throw new Error("Incomplete media object.");
 }
+
+/** The deletion transaction committed. The sweep will retry object removal. */
+export class MediaCleanupPending extends Error {}
 
 /** This event representation cannot be served even if the client retries. */
 export class MediaRepresentationUnavailable extends RangeError {}
@@ -322,14 +326,29 @@ export class EventMedia {
 
   /** Invalidate all existing items atomically before the first object operation. */
   async deleteAll(signal: AbortSignal): Promise<void> {
-    await this.#store.run(
-      {
-        sql: "UPDATE media SET status='deleting' WHERE status<>'deleting'",
-        params: {},
-      },
-      signal,
-    );
-    await this.collect("all-pages", signal);
+    await this.#store.transaction(async (tx) => {
+      await tx.run(
+        {
+          sql: "UPDATE media SET status='deleting' WHERE status<>'deleting'",
+          params: {},
+        },
+        signal,
+      );
+      await recordOwnerMediaChange(
+        tx,
+        { action: "delete_cached_media" },
+        this.#clock.now(),
+        signal,
+      );
+    }, signal);
+    try {
+      await this.collect("all-pages", signal);
+    } catch (cause) {
+      throw new MediaCleanupPending(
+        "Access has been withdrawn. Object cleanup is pending.",
+        { cause },
+      );
+    }
   }
   async sweep(signal: AbortSignal): Promise<void> {
     await this.#store.run(

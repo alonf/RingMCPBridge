@@ -1,7 +1,7 @@
 import type { Logger } from "../../../utilities/logging/index.ts";
 import { MediaDenied } from "../../managers/media/index.ts";
 import type { MediaHandoff } from "../../managers/media/index.ts";
-import type { AccessTokens } from "../mcp-endpoint/index.ts";
+import type { AccessTokens, ReadLimit } from "../mcp-endpoint/index.ts";
 
 function byteRange(header: string | null, length: number) {
   if (header === null) return { start: 0, end: length - 1 };
@@ -21,6 +21,7 @@ export async function mediaDownload(
   request: Request,
   media: Pick<MediaHandoff, "authorize" | "read" | "auditFetch">,
   tokens: AccessTokens,
+  limit: Pick<ReadLimit, "take">,
   logger?: Pick<Logger, "error">,
 ) {
   const headers = new Headers({
@@ -49,6 +50,15 @@ export async function mediaDownload(
     if (identity.kind === "unavailable") {
       logger?.error("media_identity_unavailable", { request_id: itemId });
       return empty(503);
+    }
+    const bucket =
+      identity.kind === "valid"
+        ? "receiver:" + (identity.listedClientId ?? identity.clientId)
+        : "anonymous";
+    const allowance = limit.take(bucket);
+    if (!allowance.allowed) {
+      headers.set("retry-after", String(allowance.retryAfterS));
+      return empty(429);
     }
     if (identity.kind === "invalid") {
       await media.auditFetch(itemId, "", "denied", signal);
@@ -87,7 +97,13 @@ export async function mediaDownload(
         "content-range",
         `bytes ${String(range.start)}-${String(range.end)}/${String(item.length)}`,
       );
-    return new Response(new Uint8Array(bytes), {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    });
+    return new Response(body, {
       status: rangeHeader ? 206 : 200,
       headers,
     });

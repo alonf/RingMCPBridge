@@ -14,7 +14,8 @@ export async function cameraSettings(
   formToken: string,
   signal: AbortSignal,
 ) {
-  const { locations, cameras, receivers } = await media.options(signal);
+  const { locations, cameras, receivers, sharedPersonEventsAllowed } =
+    await media.options(signal);
   const home =
     locations.find((l) => l.location_id === query.get("location_id")) ??
     locations[0];
@@ -25,6 +26,8 @@ export async function cameraSettings(
     home &&
     camera &&
     (await media.camera(home.location_id, camera.device_id, signal));
+  const blocksPerson =
+    home?.ownership === "shared" && !sharedPersonEventsAllowed;
   return html`<section
     id="cameras"
     class="card"
@@ -62,6 +65,7 @@ export async function cameraSettings(
         ? html`<form action="${MEDIA_SETTINGS}" method="post">
             <fieldset>
               <legend>${camera.name}</legend>
+              <input type="hidden" name="camera_form" value="settings" />
               <input
                 type="hidden"
                 name="form_token"
@@ -78,7 +82,7 @@ export async function cameraSettings(
               />
               <label
                 >Person-detection events
-                <select name="person_action">
+                <select name="person_action" ${blocksPerson ? "disabled" : ""}>
                   ${(
                     [
                       ["inherit", "Use deployment setting"],
@@ -90,14 +94,16 @@ export async function cameraSettings(
                     ([v, label]) =>
                       html`<option
                         value="${v}"
-                        ${(policy.personAction ?? "inherit") === v ? "selected" : ""}
+                        ${(blocksPerson ? "drop" : (policy.personAction ?? "inherit")) === v ? "selected" : ""}
                       >
                         ${label}
                       </option>`,
                   )}
                 </select>
               </label>
-              <p>Applies to detections forwarded by the home connector.</p>
+              <p>
+                ${blocksPerson ? "The deployment policy drops person detections from shared households." : "Applies to detections forwarded by the home connector."}
+              </p>
               <label
                 ><input
                   type="checkbox"

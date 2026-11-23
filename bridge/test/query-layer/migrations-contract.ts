@@ -30,6 +30,17 @@ const LATER = AS_OF + 60_000;
 const EXPECTED_TABLES: Readonly<
   Record<string, readonly (readonly [string, boolean])[]>
 > = {
+  owner_media_change: [
+    ["change_id", true],
+    ["ts", true],
+    ["action", true],
+    ["location_id", false],
+    ["device_id", false],
+    ["receiver_id", false],
+    ["enabled", false],
+    ["sound", false],
+    ["person_action", false],
+  ],
   camera_media_policy: [
     ["camera_key", true],
     ["enabled", true],

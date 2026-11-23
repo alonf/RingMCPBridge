@@ -33,3 +33,11 @@ The owner can review all approvals, add or remove services, cancel unsaved edits
 Product fixes are in `787e37d`. The full browser suite passed 138 cases across six viewport/theme combinations. The separate SQL Server, SQLite and Azurite run passed 81 tests with three skips. Type checking and the dependency rules passed.
 
 The [hardening record](hardening-gate.md) identifies the independent review and the before-implement authorization. The iteration plan records task progress. The generated state summary awaits reconciliation at the next authorized boundary. [Drift log](../drift-log.md)
+
+## Second media handoff review · 24 November 2026
+
+The MCP scenario repeats a pending clip request 21 times and then obtains the clip. The reply gives a ten-second retry interval. Share attempts and receiver downloads have separate per-client request limits. An over-limit download returns HTTP 429 before reading the item. An authenticated request for an unknown item leaves the access log unchanged.
+
+Camera policy changes, receiving-service approvals and withdrawals, and owner-requested cache deletion write a configuration audit row in the same transaction as the change. The audit keeps identifiers and policy settings for 365 days. The owner-page tests exercise a rejected shared-household preference, an inventory lookup failure before saving, an unconfirmed write, and object storage failure after deletion has already withdrawn access.
+
+A core configured with storage alone omits `share_event_media` from its MCP tool list. The production milestone remains open until a fresh Ring detection resolves to media for the same household, camera and event. Recorded-event replay exercises that flow locally.

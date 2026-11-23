@@ -44,5 +44,16 @@ export const shareEventMediaTool = {
       }),
     ]),
     "The event media handoff reply.",
-  ),
+  )
+    .safeExtend({
+      retry_after_s: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "For a pending item, wait this many seconds before requesting the same event again.",
+        ),
+    })
+    .describe("The event media handoff reply."),
 } satisfies ToolContract;

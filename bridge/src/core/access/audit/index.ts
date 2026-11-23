@@ -15,3 +15,5 @@ export type {
   EventIngestedEntry,
   IngestedEvent,
 } from "./audit.ts";
+
+export { recordOwnerMediaChange } from "./owner-media-change.ts";

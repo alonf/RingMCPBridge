@@ -34,6 +34,7 @@ export type EventMediaSource = (
     }
 >;
 export class MediaDenied extends Error {}
+export class MediaSettingsUnavailable extends Error {}
 interface Dependencies {
   media: EventMedia;
   permissions: MediaPermissions;
@@ -41,6 +42,7 @@ interface Dependencies {
   state: StateStore;
   settings: SettingsStore;
   source?: EventMediaSource;
+  sharedPersonEventsAllowed: boolean;
   publicUrl: string;
   eventMatches: (
     home: string,
@@ -67,6 +69,7 @@ export class MediaHandoff {
       settings.agents(signal),
     ]);
     return {
+      sharedPersonEventsAllowed: this.deps.sharedPersonEventsAllowed,
       locations,
       cameras: devices.filter((d) => isCamera(d.type)),
       receivers: agents.filter(
@@ -84,8 +87,25 @@ export class MediaHandoff {
     change: CameraChange,
     signal: AbortSignal,
   ) {
-    await this.checkCamera(home, device, signal);
-    if (change.approved) await this.checkReceiver(receiver, signal);
+    try {
+      const location = await this.checkCamera(home, device, signal);
+      if (
+        location.ownership === "shared" &&
+        !this.deps.sharedPersonEventsAllowed &&
+        (change.personAction === "push" || change.personAction === "store_only")
+      ) {
+        throw new MediaDenied(
+          "The shared-household deployment setting blocks person detections.",
+        );
+      }
+      if (change.approved) await this.checkReceiver(receiver, signal);
+    } catch (cause) {
+      if (cause instanceof MediaDenied) throw cause;
+      throw new MediaSettingsUnavailable(
+        "The camera settings could not be checked.",
+        { cause },
+      );
+    }
     await this.deps.permissions.save(home, device, receiver, change, signal);
   }
   private async checkCamera(home: string, device: string, signal: AbortSignal) {
@@ -293,8 +313,8 @@ export class MediaHandoff {
     knownItem?: MediaItem,
   ) {
     const item = knownItem ?? (await this.deps.media.ready(itemId, signal));
-    // Do not let anonymous requests for invented item IDs grow the persistent audit.
-    if (!item && !receiver) return;
+    // An unknown item cannot disclose media. Audit attempts against known items.
+    if (!item) return;
     return this.deps.tickets.audit(
       {
         item: itemId,
@@ -302,11 +322,9 @@ export class MediaHandoff {
         requester: receiver,
         operation: "fetch",
         outcome,
-        ...(item && {
-          location_id: item.householdId,
-          device_id: item.cameraId,
-          event_id: item.eventId,
-        }),
+        location_id: item.householdId,
+        device_id: item.cameraId,
+        event_id: item.eventId,
       },
       signal,
     );

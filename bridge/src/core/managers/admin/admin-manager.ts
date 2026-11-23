@@ -13,7 +13,10 @@ import type {
   SettingsStore,
 } from "../../access/settings/index.ts";
 import { AdminError } from "./admin-error.ts";
-import type { EventMedia } from "../../access/media/index.ts";
+import {
+  MediaCleanupPending,
+  type EventMedia,
+} from "../../access/media/index.ts";
 
 /** A connector key as Admin reports it: `active` with its public key, `revoked`, or `not_enrolled`. */
 export type ConnectorKeyCheck = ConnectorKey;
@@ -56,6 +59,12 @@ export class AdminManager {
     try {
       await this.#media.deleteAll(signal);
     } catch (error) {
+      if (error instanceof MediaCleanupPending)
+        throw new AdminError(
+          "cleanup_pending",
+          "Access was withdrawn. Cleanup will retry.",
+          { cause: error },
+        );
       signal.throwIfAborted();
       throw new AdminError(
         "unavailable",

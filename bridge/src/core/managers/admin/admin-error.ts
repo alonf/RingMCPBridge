@@ -6,7 +6,7 @@
  *   down (`BRIDGE_UNAVAILABLE`), or, on the link, by closing so the home tries again.
  * - `failed`: something the bridge did not expect, such as a row Settings did not write.
  */
-export type AdminErrorKind = "unavailable" | "failed";
+export type AdminErrorKind = "unavailable" | "failed" | "cleanup_pending";
 
 /** An Admin use case that did not succeed. */
 export class AdminError extends Error {

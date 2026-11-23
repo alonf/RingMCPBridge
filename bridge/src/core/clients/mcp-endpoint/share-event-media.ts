@@ -13,7 +13,7 @@ export function registerMediaTool(
   server: McpServer,
   media: MediaHandoff,
   clientId: string,
-  limits: Record<"photo" | "clip", ReadLimit>,
+  limits: Record<"photo" | "clip" | "requests", ReadLimit>,
   logger: Logger,
   clock: Clock,
 ) {
@@ -37,7 +37,10 @@ export function registerMediaTool(
           },
           clock,
         );
-      const allowance = limits[input.data.kind].take(clientId);
+      const request = limits.requests.take(clientId);
+      const allowance = request.allowed
+        ? limits[input.data.kind].reserve(clientId)
+        : request;
       if (!allowance.allowed)
         return errorResult(
           {
@@ -63,9 +66,11 @@ export function registerMediaTool(
             },
             clock,
           );
+        if (result.data.status === "pending") allowance.release();
         const now = clock.now();
         const reply = tool.reply.parse({
           data: result.data,
+          ...(result.data.status === "pending" && { retry_after_s: 10 }),
           as_of: formatUtc(now),
           as_of_local: formatInTimeZone(now, result.zone),
           freshness: "live",
@@ -96,6 +101,7 @@ export function registerMediaTool(
             },
             clock,
           );
+        allowance.release();
         logger.error(
           "media_share_failed",
           {

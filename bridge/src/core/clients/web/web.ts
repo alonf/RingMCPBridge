@@ -23,6 +23,7 @@ import { z } from "zod";
 import { isValidTimeZone } from "../../../utilities/clock/index.ts";
 import type { Clock } from "../../../utilities/clock/index.ts";
 import type { Logger } from "../../../utilities/logging/index.ts";
+import { QueryLayerError } from "../../../utilities/query-layer/index.ts";
 import { SecurityError } from "../../../utilities/security/index.ts";
 import type {
   OwnerIdentity,
@@ -43,7 +44,10 @@ import {
   MEDIA_SETTINGS,
   type CameraAdmin,
 } from "./media-settings.ts";
-import { MediaDenied } from "../../managers/media/index.ts";
+import {
+  MediaDenied,
+  MediaSettingsUnavailable,
+} from "../../managers/media/index.ts";
 import type { Section } from "./admin-sign-ins.ts";
 import {
   clearCookie,
@@ -299,8 +303,18 @@ export class Web {
     const { admin, serving, media } = this.#dependencies;
     if (!media || !admin.deleteCachedMedia || !serving())
       return context.text("Media storage unavailable.", 503);
-    await admin.deleteCachedMedia(AbortSignal.timeout(60_000));
-    this.#sessions.tell(checked.session.id, { kind: "media_deleted" });
+    let kind: Notice["kind"] = "media_deleted";
+    try {
+      await admin.deleteCachedMedia(AbortSignal.timeout(60_000));
+    } catch (error) {
+      if (!(error instanceof AdminError || isTimeout(error))) throw error;
+      this.#logger.error("web_media_delete_incomplete", {}, error);
+      kind =
+        error instanceof AdminError && error.kind === "cleanup_pending"
+          ? "media_cleanup_pending"
+          : "media_delete_unknown";
+    }
+    this.#sessions.tell(checked.session.id, { kind });
     return context.redirect(ADMIN_PATH + "#media-storage", HTTP_SEE_OTHER);
   }
   async #cameraChange(context: WebContext): Promise<Response> {
@@ -313,6 +327,7 @@ export class Web {
         enabled: z.literal("on").optional(),
         sound: z.literal("on").optional(),
         approved: z.literal("on").optional(),
+        camera_form: z.literal("settings").optional(),
         "remove[]": z.array(z.string().min(1).max(400)).optional(),
         person_action: z
           .enum(["inherit", "push", "store_only", "drop"])
@@ -333,7 +348,10 @@ export class Web {
         {
           enabled: !!enabled,
           sound: !!sound,
-          approved: checked.form.person_action ? !!receiver_id : !!approved,
+          approved:
+            checked.form.camera_form || checked.form.person_action
+              ? !!receiver_id
+              : !!approved,
           ...(checked.form["remove[]"] && { remove: checked.form["remove[]"] }),
           ...(checked.form.person_action && {
             personAction: checked.form.person_action,
@@ -343,8 +361,27 @@ export class Web {
       );
     } catch (error) {
       if (error instanceof MediaDenied)
-        return context.text("Unknown camera or receiving service.", 400);
-      throw error;
+        return context.text(
+          error.message || "Unknown camera or receiving service.",
+          400,
+        );
+      if (!(
+        error instanceof MediaSettingsUnavailable ||
+        error instanceof QueryLayerError ||
+        isTimeout(error)
+      ))
+        throw error;
+      this.#logger.error(
+        "web_camera_save_failed",
+        { device_id, location_id },
+        error,
+      );
+      this.#sessions.tell(checked.session.id, {
+        kind:
+          error instanceof MediaSettingsUnavailable
+            ? "media_save_unavailable"
+            : "media_save_unknown",
+      });
     }
     const selected = new URLSearchParams({
       location_id,

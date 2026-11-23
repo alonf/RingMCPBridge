@@ -33,7 +33,13 @@ export function mediaSettingsScenario(): MediaAdmin {
     },
   ];
   return {
-    options: () => Promise.resolve({ locations, cameras, receivers }),
+    options: () =>
+      Promise.resolve({
+        locations,
+        cameras,
+        receivers,
+        sharedPersonEventsAllowed: true,
+      }),
     camera: (_home, id) => {
       const current = choices.get(id);
       return Promise.resolve(

@@ -1,3 +1,4 @@
+import { recordOwnerMediaChange } from "../audit/index.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { upsertStatement } from "../../../utilities/query-layer/index.ts";
 import type { EventAction } from "../../../utilities/config/index.ts";
@@ -47,7 +48,9 @@ export async function cameraPersonActionIn(
 /** Each receiver has its own generation. A camera switch change invalidates all of its tickets. */
 export class MediaPermissions {
   private readonly db: QueryLayer;
-  constructor(db: QueryLayer) {
+  private readonly now: () => number;
+  constructor(db: QueryLayer, now: () => number = Date.now) {
+    this.now = now;
     this.db = db;
   }
   async camera(
@@ -88,7 +91,7 @@ export class MediaPermissions {
     const enabled = Number(change.enabled),
       sound = Number(change.sound);
     await this.db.transaction(async (tx) => {
-      await tx.run(
+      const inserted = await tx.run(
         upsertStatement(tx.dialect, {
           table: "camera_media_policy",
           key: ["camera_key"],
@@ -102,7 +105,7 @@ export class MediaPermissions {
         }),
         signal,
       );
-      await tx.run(
+      const updated = await tx.run(
         {
           sql: "UPDATE camera_media_policy SET enabled=@enabled,sound=@sound,generation=@generation WHERE camera_key=@camera_key AND (enabled<>@enabled OR sound<>@sound)",
           params: {
@@ -114,25 +117,53 @@ export class MediaPermissions {
         },
         signal,
       );
+      let personUpdated = 0;
       if (change.personAction !== undefined)
-        await tx.run(
+        personUpdated = await tx.run(
           {
-            sql: "UPDATE camera_media_policy SET person_action=@action WHERE camera_key=@camera_key",
+            sql: "UPDATE camera_media_policy SET person_action=@action WHERE camera_key=@camera_key AND COALESCE(person_action,'inherit')<>@action",
             params: { action: change.personAction, camera_key: cameraKey },
           },
           signal,
         );
-      for (const removed of change.remove ?? [])
-        await tx.run(
+      const at = this.now();
+      if (inserted || updated || personUpdated) {
+        await recordOwnerMediaChange(
+          tx,
+          {
+            action: "camera_settings",
+            home,
+            camera,
+            enabled,
+            sound,
+            personAction:
+              change.personAction ??
+              (await cameraPersonActionIn(tx, home, camera, signal)),
+          },
+          at,
+          signal,
+        );
+      }
+      const removeApproval = async (removed: string) => {
+        const affected = await tx.run(
           {
             sql: "DELETE FROM camera_media_approval WHERE approval_key=@id",
             params: { id: key(home, camera, removed) },
           },
           signal,
         );
+        if (affected)
+          await recordOwnerMediaChange(
+            tx,
+            { action: "approval_removed", home, camera, receiver: removed },
+            at,
+            signal,
+          );
+      };
+      for (const removed of change.remove ?? []) await removeApproval(removed);
       if (!receiver) return;
       if (change.approved) {
-        await tx.run(
+        const added = await tx.run(
           upsertStatement(tx.dialect, {
             table: "camera_media_approval",
             key: ["approval_key"],
@@ -146,14 +177,15 @@ export class MediaPermissions {
           }),
           signal,
         );
+        if (added)
+          await recordOwnerMediaChange(
+            tx,
+            { action: "approval_added", home, camera, receiver },
+            at,
+            signal,
+          );
       } else {
-        await tx.run(
-          {
-            sql: "DELETE FROM camera_media_approval WHERE approval_key=@approval_key",
-            params: { approval_key: approvalKey },
-          },
-          signal,
-        );
+        await removeApproval(receiver);
       }
     }, signal);
   }
