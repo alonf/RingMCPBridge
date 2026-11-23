@@ -72,6 +72,9 @@ param agents string = '[]'
 @description('New agent registrations accepted an hour; empty leaves the core\'s default of 10.')
 param registrationsPerHour string = ''
 
+@description('Days to keep newly staged event media from capture (1 to 3650).')
+param mediaRetentionDays string = '7'
+
 
 @description('The role definition id of Key Vault Secrets User, looked up by name at deploy time.')
 param keyVaultReaderRoleId string
@@ -177,6 +180,7 @@ module appService 'modules/app-service.bicep' = {
     eventRules: empty(eventRules) ? '[]' : eventRules
     agents: agents
     registrationsPerHour: registrationsPerHour
+    mediaRetentionDays: mediaRetentionDays
   }
 }
 

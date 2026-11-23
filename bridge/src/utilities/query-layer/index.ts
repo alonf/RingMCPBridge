@@ -17,6 +17,7 @@ export type {
  * one retry on a passing failure. The Host wires one per database.
  */
 export { QueryLayer, RETRY_PAUSE_MS } from "./query-layer.ts";
+export { untilAborted } from "./until-aborted.ts";
 export type { QueryLayerOptions } from "./query-layer.ts";
 
 /** The SQLite Query layer, for the connector's outbox and for mode A. */

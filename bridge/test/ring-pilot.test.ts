@@ -530,6 +530,7 @@ describe("post-link event media pilot", () => {
     photoOffset = 0,
     linkedAt = START - 1,
     redirectTo?: string,
+    clipHeaders?: Record<string, string>,
   ) => {
     const json = Response.json.bind(Response);
     const event = {
@@ -597,6 +598,7 @@ describe("post-link event media pilot", () => {
           headers: {
             "content-type": "video/mp4",
             "x-media-timestamp": String(START),
+            ...clipHeaders,
           },
         },
       );
@@ -633,6 +635,24 @@ describe("post-link event media pilot", () => {
       components: [{ component_id: "1" }],
     });
   });
+  it.each([
+    ["2500", "available"],
+    ["4000", "available"],
+    [undefined, "unmatched"],
+    ["0", "unmatched"],
+    ["-1", "unmatched"],
+    ["4001", "unmatched"],
+    ["NaN", "unmatched"],
+  ] as const)(
+    "checks duration %s on a partial clip starting inside the event",
+    async (length, status) => {
+      const probe = fixture(206, 0, START - 1, undefined, {
+        "x-media-timestamp": String(START + 1000),
+        ...(length === undefined ? {} : { "x-media-length": length }),
+      });
+      expect(await probe.run()).toMatchObject({ clip: { status } });
+    },
+  );
   it("fetches signed items from a Ring regional download host without forwarding the account credential", async () => {
     const probe = fixture(
       200,

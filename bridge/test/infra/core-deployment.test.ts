@@ -27,7 +27,6 @@ const LEFT_AT_DEFAULT: ReadonlySet<string> = new Set([
   SETTING_VARIABLES.batteryThresholdPct,
   SETTING_VARIABLES.staleAfterS,
   SETTING_VARIABLES.eventRetentionDays,
-  SETTING_VARIABLES.mediaRetentionDays,
   // ChatGPT's callback host is the default; the deploy names no other (T048).
   CORE_HOST_VARIABLES.callbackHosts,
 ]);
@@ -83,6 +82,17 @@ describe("the core's deployment", () => {
 
     expect(settings.get("BRIDGE_MODE")).toBe("'core'");
     expect(settings.get("BRIDGE_TRUST_PROXY")).toBe("'true'");
+  });
+  it("passes the configured media retention from the deployment into the core", () => {
+    expect(appSettings().get("BRIDGE_MEDIA_RETENTION_DAYS")).toBe(
+      "mediaRetentionDays",
+    );
+    expect(infraFile("main.bicep")).toContain(
+      "param mediaRetentionDays string = '7'",
+    );
+    expect(infraFile("main.bicep")).toContain(
+      "mediaRetentionDays: mediaRetentionDays",
+    );
   });
 
   it("tells the core its public URL from the host name Azure gave the app, never a guessed one", () => {

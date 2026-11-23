@@ -215,6 +215,7 @@ jobs:
           BRIDGE_EVENT_RULES: ${{ secrets.BRIDGE_EVENT_RULES }}
           BRIDGE_AGENTS: ${{ vars.BRIDGE_AGENTS }}
           BRIDGE_REGISTRATIONS_PER_HOUR: ${{ vars.BRIDGE_REGISTRATIONS_PER_HOUR }}
+          BRIDGE_MEDIA_RETENTION_DAYS: ${{ vars.BRIDGE_MEDIA_RETENTION_DAYS }}
           BRIDGE_LOG_LEVEL: ${{ vars.BRIDGE_LOG_LEVEL }}
         run: node scripts/deploy-parameters.mjs "$RUNNER_TEMP/parameters.json"
       - name: Preview the changes (what-if)

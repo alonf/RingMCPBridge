@@ -188,6 +188,7 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
     stop: async () => {
       cancelSweep?.();
       cleanup.abort();
+      await media?.stop();
       await sweep;
       await links.stop();
       await lease.stop();

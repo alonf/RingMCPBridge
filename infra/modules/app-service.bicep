@@ -94,6 +94,9 @@ param agents string
 @description('New agent registrations accepted an hour; empty leaves the core\'s default of 10.')
 param registrationsPerHour string
 
+@description('Days to keep newly staged event media from capture.')
+param mediaRetentionDays string
+
 
 // The port the image listens on (bridge/Dockerfile's EXPOSE), told to App Service and the core.
 var port = '8080'
@@ -118,6 +121,7 @@ var settings = [
   { name: 'BRIDGE_ENTRA_CLIENT_ID', value: entraClientId }
   { name: 'BRIDGE_OWNER_OBJECT_ID', value: ownerObjectId }
   { name: 'BRIDGE_EVENT_RULES', value: eventRules }
+  { name: 'BRIDGE_MEDIA_RETENTION_DAYS', value: mediaRetentionDays }
   { name: 'BRIDGE_AGENTS', value: agents }
 ]
 var optionalSettings = empty(registrationsPerHour)

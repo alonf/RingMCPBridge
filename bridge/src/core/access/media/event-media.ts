@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Clock } from "../../../utilities/clock/index.ts";
-import { upsertStatement } from "../../../utilities/query-layer/index.ts";
+import {
+  untilAborted,
+  upsertStatement,
+} from "../../../utilities/query-layer/index.ts";
 import type {
   QueryLayer,
   SqlRow,
@@ -10,6 +13,8 @@ import type { MediaObjects } from "./media-objects.ts";
 const DAY_MS = 86_400_000;
 // A crashed producer cannot hold an event claim for the whole retention period.
 const WRITE_TIMEOUT_MS = 10 * 60_000;
+const CLEANUP_TIMEOUT_MS = 10_000;
+const MAX_BYTES = { frame: 8 * 1024 * 1024, clip: 32 * 1024 * 1024 };
 export interface EventMediaKey {
   readonly householdId: string;
   readonly cameraId: string;
@@ -48,8 +53,6 @@ function item(row: SqlRow): MediaItem {
 }
 async function* checkedChunks(content: MediaContent, signal: AbortSignal) {
   let received = 0;
-  if (!Number.isSafeInteger(content.length) || content.length < 1)
-    throw new RangeError("Invalid media length.");
   for await (const chunk of content.body) {
     signal.throwIfAborted();
     received += chunk.length;
@@ -66,6 +69,8 @@ export class EventMedia {
   readonly #objects: MediaObjects;
   readonly #clock: Clock;
   readonly #retentionMs: number;
+  readonly #shutdown = new AbortController();
+  readonly #staging = new Set<Promise<MediaItem>>();
   constructor(
     store: QueryLayer,
     objects: MediaObjects,
@@ -78,6 +83,27 @@ export class EventMedia {
     this.#retentionMs = retentionDays * DAY_MS;
   }
   async stage(
+    key: EventMediaKey,
+    load: (signal: AbortSignal) => Promise<MediaContent>,
+    signal: AbortSignal,
+  ): Promise<MediaItem> {
+    // The request owns its wait. Once claimed, the core owns the upload.
+    const claimSignal = AbortSignal.any([signal, this.#shutdown.signal]);
+    claimSignal.throwIfAborted();
+    const work = this.claimAndStage(key, load, claimSignal);
+    this.#staging.add(work);
+    const tracked = work.finally(() => {
+      this.#staging.delete(work);
+    });
+    return untilAborted(tracked, signal);
+  }
+
+  async stop(): Promise<void> {
+    this.#shutdown.abort();
+    await Promise.allSettled(this.#staging);
+  }
+
+  private async claimAndStage(
     key: EventMediaKey,
     load: (signal: AbortSignal) => Promise<MediaContent>,
     signal: AbortSignal,
@@ -146,9 +172,20 @@ export class EventMedia {
     const cancelTimeout = this.#clock.schedule(WRITE_TIMEOUT_MS, () => {
       timeout.abort();
     });
-    const writeSignal = AbortSignal.any([signal, timeout.signal]);
+    const writeSignal = AbortSignal.any([
+      this.#shutdown.signal,
+      timeout.signal,
+    ]);
     try {
-      const content = await load(writeSignal);
+      writeSignal.throwIfAborted();
+      const content = await untilAborted(load(writeSignal), writeSignal);
+      if (
+        !Number.isSafeInteger(content.length) ||
+        content.length < 1 ||
+        content.length > MAX_BYTES[kind]
+      ) {
+        throw new RangeError("Invalid media length for this representation.");
+      }
       await this.#objects.write(
         id,
         checkedChunks(content, writeSignal),
@@ -164,19 +201,35 @@ export class EventMedia {
       if (!published) throw new Error("Media unavailable.");
       return item({ ...row, status: "ready", byte_length: content.length });
     } catch (error) {
-      // Even a cancelled request owns cleanup. A failed removal leaves a durable tombstone for a sweep.
-      const cleanup = new AbortController().signal;
-      await this.#store.run(
-        {
-          sql: "UPDATE media SET status='deleting', write_until=0 WHERE media_id=@id",
-          params: { id },
-        },
-        cleanup,
-      );
-      await this.remove(id, cleanup);
+      timeout.abort(); // Stop the upstream transfer, including a body rejected before its first chunk.
+      await this.cleanupFailedWrite(id);
       throw error;
     } finally {
       cancelTimeout();
+    }
+  }
+
+  private async cleanupFailedWrite(id: string): Promise<void> {
+    const cleanup = new AbortController();
+    const cancel = this.#clock.schedule(CLEANUP_TIMEOUT_MS, () => {
+      cleanup.abort();
+    });
+    try {
+      await untilAborted(
+        this.#store.run(
+          {
+            sql: "UPDATE media SET status='deleting', write_until=0 WHERE media_id=@id",
+            params: { id },
+          },
+          cleanup.signal,
+        ),
+        cleanup.signal,
+      );
+      await untilAborted(this.remove(id, cleanup.signal), cleanup.signal);
+    } catch {
+      // Preserve the staging error. The sweep retries tombstones and expired pending claims.
+    } finally {
+      cancel();
     }
   }
 
@@ -204,6 +257,7 @@ export class EventMedia {
       !Number.isSafeInteger(length) ||
       start < 0 ||
       length < 1 ||
+      length > MAX_BYTES[current.kind] ||
       length > current.length - start
     )
       throw new RangeError("Invalid media range.");
@@ -259,6 +313,7 @@ export class EventMedia {
   }
   private async remove(id: string, signal: AbortSignal): Promise<void> {
     await this.#objects.remove(id, signal);
+    signal.throwIfAborted();
     // A writer still uploading must release its own claim or time out before its tombstone disappears.
     await this.#store.run(
       {

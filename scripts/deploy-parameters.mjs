@@ -95,6 +95,12 @@ export const PARAMETERS = [
     optional: true,
   },
   {
+    name: "mediaRetentionDays",
+    variable: "BRIDGE_MEDIA_RETENTION_DAYS",
+    from: "runbook",
+    optional: true,
+  },
+  {
     name: "logLevel",
     variable: "BRIDGE_LOG_LEVEL",
     from: "runbook",

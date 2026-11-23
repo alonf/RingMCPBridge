@@ -12,7 +12,9 @@ The probe is the prerequisite for event media. Test the provider shape in `bridg
 
 ## 2. Stage media and authorize receiver reads
 
-T065 follows T064. T066 and T067 use T065’s item contract. T068 uses T067’s grant contract. Serialize changes touching shared media storage or contract files. Verify the storage and access tests with `npm test` and `npm run schemas:check`.
+T065 follows T064’s provider correlation check. That check passed for two recorded events. T064 stays open for playback with sound in ChatGPT and Claude. [Iteration 003 evidence](iterations/003/media-evidence.md)
+
+T066 and T067 use T065’s item contract. T068 uses T067’s grant contract. Serialize changes touching shared media storage or contract files. Verify the storage and access tests with `npm test` and `npm run schemas:check`.
 
 - [X] T065 [US3] [assigned_to: Implementer] [effort: 3] M02. Implement private event-item staging in `bridge/src/core/access/media/` and `infra/modules/storage.bicep`. Key by event, camera, representation and audio policy. Record capture time, source and readiness. Publish ready only after the write succeeds. On a duplicate request reuse the matching item. Prove a partial write cannot be served and event delivery proceeds while media is pending. (Trace: FR-014, FR-016, FR-018)
 - [X] T066 [US3] [assigned_to: Implementer] [effort: 2] M02. Implement configurable expiry (default seven days), cleanup after failed writes and owner delete-now in `bridge/src/core/access/media/` and `bridge/src/core/managers/admin/admin-manager.ts`. Exercise both storage modes, repeated deletion and a read racing deletion. After deletion or expiry the receiver cannot fetch the item. (Trace: FR-021, FR-037)

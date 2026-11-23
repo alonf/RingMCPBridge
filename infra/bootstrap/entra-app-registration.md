@@ -107,9 +107,10 @@ Get-Content agents.json -Raw | gh variable set BRIDGE_AGENTS --env production --
 
 An agent you leave out cannot link. Removing one later ends its links.
 
-Two more variables are optional, set the same way:
+These optional variables are set the same way:
 
 - `BRIDGE_REGISTRATIONS_PER_HOUR`: how many new agent registrations the core accepts an hour, from 1 to 1000. Unset, 10.
+- `BRIDGE_MEDIA_RETENTION_DAYS` sets how many days the core keeps newly staged photos and clips from capture. Use 1 to 3650. The deployment default is 7.
 - `BRIDGE_LOG_LEVEL`: `debug`, `info`, `warn` or `error`. Unset, `info`.
 
 A change takes effect at the next deploy.
