@@ -208,7 +208,7 @@ describe("official Ring private-app pilot", () => {
   ])(
     "requests a JPEG within consent starting at %s and keeps credentials off the signed download",
     async (linkedAt, expectedStart) => {
-      const url = "https://download.example.org/v1/download";
+      const url = "https://example-test.cloudfront.net/v1/download";
       const jpeg = Uint8Array.of(255, 216, 1, 255, 217);
       const send = vi
         .fn<typeof fetch>()
@@ -274,7 +274,7 @@ describe("official Ring private-app pilot", () => {
         data: [{ id: "demo", attributes: { name: "Outside" } }],
       }),
       Response.json({ data: { attributes: {} } }),
-      Response.redirect("https://download.example.org/frame", 303),
+      Response.redirect("https://example-test.cloudfront.net/frame", 303),
     ];
     const send = vi.fn<typeof fetch>();
     for (const response of responses.slice(0, failingRequest))
@@ -289,6 +289,28 @@ describe("official Ring private-app pilot", () => {
       ),
     ).rejects.toThrow("Ring returned HTTP 403 while " + step + ".");
     expect(send).toHaveBeenCalledTimes(failingRequest + 1);
+  });
+  it("checks the snapshot download host before sending the request", async () => {
+    const send = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          data: [{ id: "demo", attributes: { name: "Outside" } }],
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ data: { attributes: {} } }))
+      .mockResolvedValueOnce(
+        Response.redirect("https://unlisted.example.test/image", 303),
+      );
+    await expect(
+      ringClient(ID, "example", send).snapshot(
+        "fixture",
+        "Outside",
+        START,
+        START - 60_000,
+      ),
+    ).rejects.toThrow("invalid media location");
+    expect(send).toHaveBeenCalledTimes(3);
   });
   it("refuses an ambiguous inventory match and explains when the requested window is empty", async () => {
     const device = { id: "some-id", attributes: { name: "Outside" } };

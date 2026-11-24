@@ -1,5 +1,7 @@
 // Settings (T022) on SQLite and on SQL Server: the agent listing seeded from configuration, the
 // enrollment keys (SC2, PT-32, FR-032) and the battery threshold.
+import { createHash } from "node:crypto";
+import { MediaPermissions } from "../../src/core/access/settings/index.ts";
 import { expect, it } from "vitest";
 import {
   ENROLLMENT_REQUEST_TTL_MS,
@@ -169,6 +171,67 @@ describeStoreMatrix("Settings", (store) => {
     ).resolves.toBeUndefined();
   });
 
+  it("audits each affected camera when configuration removes a receiver or its media scope", async () => {
+    const { settings, layer } = await setUp();
+    const media = new MediaPermissions(layer);
+    const signal = never();
+    await settings.seedAgents(
+      [CHAT_AGENT, RELAY].map((seed) => ({ ...seed, scopes: ["media"] })),
+      signal,
+    );
+    for (const id of [CHAT_AGENT.client_id, RELAY.client_id])
+      await media.save(
+        "home",
+        "door",
+        id,
+        { enabled: true, sound: false, approved: true },
+        signal,
+      );
+    await media.save(
+      "old-home",
+      "old-device",
+      RELAY.client_id,
+      { enabled: true, sound: false, approved: true },
+      signal,
+    );
+    await exec(
+      layer,
+      "DELETE FROM owner_media_change WHERE device_id='old-device'",
+    );
+    // Simulate an approval written by v15: its prior audit can resolve the camera hash.
+    await exec(
+      layer,
+      "UPDATE camera_media_approval SET location_id=NULL,device_id=NULL WHERE receiver_id=@id",
+      { id: RELAY.client_id },
+    );
+    await settings.seedAgents([CHAT_AGENT], signal);
+    await settings.seedAgents([CHAT_AGENT], signal);
+    const removed = await layer.all(
+      {
+        sql: "SELECT receiver_id,location_id,device_id,camera_key FROM owner_media_change WHERE action='approval_removed'",
+        params: {},
+      },
+      signal,
+    );
+    const cameraKey = (home: string, camera: string) =>
+      createHash("sha256")
+        .update(JSON.stringify([home, camera]))
+        .digest("hex");
+    expect(removed).toHaveLength(3);
+    expect(removed).toContainEqual({
+      receiver_id: RELAY.client_id,
+      location_id: null,
+      device_id: null,
+      camera_key: cameraKey("old-home", "old-device"),
+    });
+    for (const id of [CHAT_AGENT.client_id, RELAY.client_id])
+      expect(removed).toContainEqual({
+        receiver_id: id,
+        location_id: "home",
+        device_id: "door",
+        camera_key: cameraKey("home", "door"),
+      });
+  });
   it("refuses a seed that lists a client twice or holds a value it cannot store, changing nothing", async () => {
     const { settings } = await setUp();
     await settings.seedAgents([RELAY], never());

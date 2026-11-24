@@ -45,6 +45,53 @@ export async function cameraPersonActionIn(
   );
   return personAction(row?.person_action);
 }
+/** Withdraw and audit exactly the rows removed by this transaction. Older rows
+ * carry a hash only. Match it against known IDs, preserving the hash even if
+ * the camera and its history have already disappeared. */
+export async function withdrawReceiverIn(
+  tx: SqlSession,
+  receiver: string,
+  at: number,
+  signal: AbortSignal,
+) {
+  const columns = ["camera_key", "location_id", "device_id"];
+  const sql =
+    tx.dialect === "tsql"
+      ? `DELETE FROM camera_media_approval OUTPUT ${columns.map((c) => "DELETED." + c).join(",")} WHERE receiver_id=@receiver`
+      : `DELETE FROM camera_media_approval WHERE receiver_id=@receiver RETURNING ${columns.join(",")}`;
+  const removed = await tx.all({ sql, params: { receiver } }, signal);
+  const legacy = new Map<string, { home: string; camera: string }>();
+  if (
+    removed.some((row) => row.location_id === null || row.device_id === null)
+  ) {
+    const known = await tx.all(
+      {
+        sql: "SELECT location_id,device_id FROM device UNION SELECT location_id,device_id FROM media UNION SELECT location_id,device_id FROM owner_media_change WHERE location_id IS NOT NULL AND device_id IS NOT NULL",
+        params: {},
+      },
+      signal,
+    );
+    for (const row of known) {
+      const home = String(row.location_id),
+        camera = String(row.device_id);
+      legacy.set(key(home, camera), { home, camera });
+    }
+  }
+  for (const row of removed) {
+    const cameraKey = String(row.camera_key);
+    const ids =
+      typeof row.location_id === "string" && typeof row.device_id === "string"
+        ? { home: row.location_id, camera: row.device_id }
+        : legacy.get(cameraKey);
+    await recordOwnerMediaChange(
+      tx,
+      { action: "approval_removed", receiver, cameraKey, ...ids },
+      at,
+      signal,
+    );
+  }
+}
+
 /** Each receiver has its own generation. A camera switch change invalidates all of its tickets. */
 export class MediaPermissions {
   private readonly db: QueryLayer;
@@ -171,6 +218,8 @@ export class MediaPermissions {
               approval_key: approvalKey,
               camera_key: cameraKey,
               receiver_id: receiver,
+              location_id: home,
+              device_id: camera,
               generation: randomUUID(),
             },
             onConflict: "ignore",

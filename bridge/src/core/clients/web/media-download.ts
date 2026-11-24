@@ -3,6 +3,9 @@ import { MediaDenied } from "../../managers/media/index.ts";
 import type { MediaHandoff } from "../../managers/media/index.ts";
 import type { AccessTokens, ReadLimit } from "../mcp-endpoint/index.ts";
 
+const DOWNLOAD_CHUNK_BYTES = 256 * 1024;
+const READ_TIMEOUT_MS = 30_000;
+
 function byteRange(header: string | null, length: number) {
   if (header === null) return { start: 0, end: length - 1 };
   const match = /^bytes=(\d*)-(\d*)$/.exec(header);
@@ -41,7 +44,11 @@ export async function mediaDownload(
     request.headers.get("authorization") ?? "",
   )?.[1];
   if (!itemId) return empty(404);
-  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]);
+  const cancelled = new AbortController();
+  const connection = AbortSignal.any([request.signal, cancelled.signal]);
+  const deadline = () =>
+    AbortSignal.any([connection, AbortSignal.timeout(READ_TIMEOUT_MS)]);
+  const signal = deadline();
   let receiver: string | undefined;
   try {
     const identity = token
@@ -51,21 +58,22 @@ export async function mediaDownload(
       logger?.error("media_identity_unavailable", { request_id: itemId });
       return empty(503);
     }
-    const bucket =
-      identity.kind === "valid"
-        ? "receiver:" + (identity.listedClientId ?? identity.clientId)
-        : "anonymous";
-    const allowance = limit.take(bucket);
+    if (identity.kind === "invalid") {
+      headers.set("www-authenticate", "Bearer");
+      if (limit.take("anonymous").allowed)
+        await media
+          .auditFetch(itemId, "", "denied", signal)
+          .catch((error: unknown) =>
+            logger?.error("media_audit_failed", { request_id: itemId }, error),
+          );
+      return empty(401);
+    }
+    receiver = identity.listedClientId ?? identity.clientId;
+    const allowance = limit.take("receiver:" + receiver);
     if (!allowance.allowed) {
       headers.set("retry-after", String(allowance.retryAfterS));
       return empty(429);
     }
-    if (identity.kind === "invalid") {
-      await media.auditFetch(itemId, "", "denied", signal);
-      headers.set("www-authenticate", "Bearer");
-      return empty(401);
-    }
-    receiver = identity.listedClientId ?? identity.clientId;
     if (!grant || !/^[A-Za-z0-9_-]{43}$/.test(grant)) {
       await media.auditFetch(itemId, receiver, "denied", signal);
       return empty(404);
@@ -78,31 +86,55 @@ export async function mediaDownload(
       headers.set("content-range", "bytes */" + String(item.length));
       return empty(416);
     }
-    const bytes = await media.read(
-      item,
-      receiver,
-      grant,
-      range.start,
-      range.end - range.start + 1,
-      signal,
-    );
+    const recipient = receiver;
+    let offset = range.start;
+    const nextChunk = async () => {
+      const chunkSignal = offset === range.start ? signal : deadline();
+      chunkSignal.throwIfAborted();
+      const size = Math.min(DOWNLOAD_CHUNK_BYTES, range.end - offset + 1);
+      const chunk = await media.read(
+        item,
+        recipient,
+        grant,
+        offset,
+        size,
+        chunkSignal,
+        offset === range.start,
+      );
+      if (chunk.byteLength !== size) throw new Error("Incomplete media range.");
+      offset += size;
+      return chunk;
+    };
+    // Authorize the first bytes before sending successful headers.
+    const first = await nextChunk();
     headers.set(
       "content-type",
       item.kind === "frame" ? "image/jpeg" : "video/mp4",
     );
-    headers.set("content-length", String(bytes.length));
+    headers.set("content-length", String(range.end - range.start + 1));
     headers.set("accept-ranges", "bytes");
     if (rangeHeader)
       headers.set(
         "content-range",
         `bytes ${String(range.start)}-${String(range.end)}/${String(item.length)}`,
       );
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(bytes);
-        controller.close();
+    const body = new ReadableStream<Uint8Array>(
+      {
+        start(controller) {
+          controller.enqueue(first);
+          if (offset > range.end) controller.close();
+        },
+        async pull(controller) {
+          const chunk = await nextChunk();
+          controller.enqueue(chunk);
+          if (offset > range.end) controller.close();
+        },
+        cancel() {
+          cancelled.abort();
+        },
       },
-    });
+      { highWaterMark: 0 },
+    );
     return new Response(body, {
       status: rangeHeader ? 206 : 200,
       headers,

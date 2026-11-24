@@ -1,3 +1,4 @@
+import { mediaLocation } from "./media-location.ts";
 import { z } from "zod";
 
 const DAY_MS = 86_400_000;
@@ -121,12 +122,8 @@ export async function downloadSnapshot(
   checkStatus(result.status, "requesting a snapshot");
   let media = result;
   if (result.status === 303) {
-    const location = new URL(result.headers.get("location") ?? "");
-    if (
-      location.protocol !== "https:" ||
-      location.username ||
-      location.password
-    )
+    const location = mediaLocation(result.headers.get("location"));
+    if (!location)
       throw new SnapshotError("Ring returned an invalid media location.");
     // Only the signed URL from Ring goes to its download service.
     media = await send(location, {

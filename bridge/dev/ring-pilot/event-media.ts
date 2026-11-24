@@ -1,3 +1,4 @@
+import { mediaLocation } from "./media-location.ts";
 import { z } from "zod";
 import { capabilities, readJpeg } from "./snapshot.ts";
 
@@ -110,22 +111,8 @@ async function fetchItem(
       body: JSON.stringify({ ...body, components }),
     });
     if (response.status === 303 || response.status === 301) {
-      const target = new URL(response.headers.get("location") ?? "");
-      if (
-        target.protocol !== "https:" ||
-        target.port ||
-        target.username ||
-        target.password ||
-        (![
-          ".amazonvision.com",
-          ".amazonaws.com",
-          ".cloudfront.net",
-          ".ring.com",
-        ].some((domain) => target.hostname.endsWith(domain)) &&
-          !/^download-[a-z0-9-]+\.prod\.phoenix\.devices\.amazon\.dev$/.test(
-            target.hostname,
-          ))
-      )
+      const target = mediaLocation(response.headers.get("location"));
+      if (!target)
         return { status: "upstream-error", httpStatus: response.status };
       response = await send(target, {
         method: "GET",

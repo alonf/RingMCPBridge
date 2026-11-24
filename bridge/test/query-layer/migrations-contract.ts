@@ -40,6 +40,7 @@ const EXPECTED_TABLES: Readonly<
     ["enabled", false],
     ["sound", false],
     ["person_action", false],
+    ["camera_key", false],
   ],
   camera_media_policy: [
     ["camera_key", true],
@@ -53,6 +54,8 @@ const EXPECTED_TABLES: Readonly<
     ["camera_key", true],
     ["receiver_id", true],
     ["generation", true],
+    ["location_id", false],
+    ["device_id", false],
   ],
   media_ticket: [
     ["token_hash", true],

@@ -41,3 +41,11 @@ The MCP scenario repeats a pending clip request 21 times and then obtains the cl
 Camera policy changes, receiving-service approvals and withdrawals, and owner-requested cache deletion write a configuration audit row in the same transaction as the change. The audit keeps identifiers and policy settings for 365 days. The owner-page tests exercise a rejected shared-household preference, an inventory lookup failure before saving, an unconfirmed write, and object storage failure after deletion has already withdrawn access.
 
 A core configured with storage alone omits `share_event_media` from its MCP tool list. The production milestone remains open until a fresh Ring detection resolves to media for the same household, camera and event. Recorded-event replay exercises that flow locally.
+
+## Third media handoff review · 24 November 2026
+
+The media-only OAuth scenario exercises the running MCP endpoint with event delivery enabled. Before the fix, the listen request returned HTTP 200. The test did not establish that any household payload was delivered. The endpoint now inspects the bounded JSON-RPC body before handing it to the SDK. A media-only client can list its sharing tool, while listening and resource subscription return HTTP 403 with the required read scope.
+
+Receiver GETs read at most 256 KiB per storage operation as the client consumes the body. Cancellation stops further reads. Each chunk rechecks the item grant before delivery. Exhaustion of the anonymous audit allowance preserves the HTTP 401 bearer challenge.
+
+Configuration-driven withdrawals record the affected receiver and camera in the deletion transaction. An older approval can be identified by an exact camera hash match against inventory, media or audit history. A vanished camera retains its original hash in the withdrawal record. Both pilot media paths validate a signed download destination before contacting it.

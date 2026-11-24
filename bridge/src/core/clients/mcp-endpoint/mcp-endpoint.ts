@@ -16,6 +16,7 @@
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import {
   bearerAuthChallengeResponse,
+  readRequestBody,
   SUPPORTED_PROTOCOL_VERSIONS,
   createMcpHandler,
   getOAuthProtectedResourceMetadataUrl,
@@ -258,9 +259,9 @@ export class McpEndpoint {
       }
       return bearerAuthChallengeResponse(error, challenge);
     }
-    const events = authInfo.scopes.includes(READ_SCOPE)
-      ? this.#dependencies.events
-      : undefined;
+    if (!authInfo.scopes.includes(READ_SCOPE))
+      return this.#serveMediaRequest(request, authInfo);
+    const events = this.#dependencies.events;
     let response: Response;
     const version = request.headers.get("mcp-protocol-version");
     const legacyGet =
@@ -302,6 +303,50 @@ export class McpEndpoint {
         );
       },
     );
+  }
+
+  /** Gate event methods on the authenticated JSON-RPC body before dispatch, including legacy batches. */
+  async #serveMediaRequest(
+    request: Request,
+    authInfo: AuthInfo,
+  ): Promise<Response> {
+    let parsedBody: unknown;
+    try {
+      const body = await readRequestBody(request);
+      if (body.tooLarge) return new Response(null, { status: 413 });
+      parsedBody = JSON.parse(body.text);
+    } catch {
+      return Response.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32700, message: "Invalid JSON-RPC request." },
+        },
+        { status: 400 },
+      );
+    }
+    const messages: unknown[] = Array.isArray(parsedBody)
+      ? parsedBody
+      : [parsedBody];
+    const eventMethod = (message: unknown) =>
+      typeof message === "object" &&
+      message !== null &&
+      "method" in message &&
+      (message.method === "subscriptions/listen" ||
+        message.method === "resources/subscribe" ||
+        message.method === "resources/unsubscribe");
+    if (messages.some(eventMethod))
+      return bearerAuthChallengeResponse(
+        new OAuthError(
+          OAuthErrorCode.InsufficientScope,
+          "Reading household events requires read scope.",
+        ),
+        {
+          requiredScopes: [READ_SCOPE],
+          resourceMetadataUrl: this.#metadataUrl,
+        },
+      );
+    return this.#handler.fetch(request, { authInfo, parsedBody });
   }
 
   async stop(): Promise<void> {

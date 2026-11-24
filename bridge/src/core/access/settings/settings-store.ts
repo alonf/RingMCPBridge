@@ -10,6 +10,7 @@
 //
 // DTO fields that data-model.md or the link contract names keep those names; times are UTC
 // milliseconds since 1970, stored and in the DTOs (see ../README.md).
+import { withdrawReceiverIn } from "./media-permissions.ts";
 import { z } from "zod";
 import { isValidTimeZone } from "../../../utilities/clock/index.ts";
 import type { Clock } from "../../../utilities/clock/index.ts";
@@ -251,15 +252,8 @@ export class SettingsStore {
             .filter((seed) => !seed.scopes.includes("media"))
             .map((seed) => seed.client_id),
         ]);
-        for (const id of lostMedia) {
-          await session.run(
-            statement(
-              "DELETE FROM camera_media_approval WHERE receiver_id=@id",
-              { id },
-            ),
-            signal,
-          );
-        }
+        for (const id of lostMedia)
+          await withdrawReceiverIn(session, id, this.#clock.now(), signal);
         for (const clientId of removed) {
           await session.run(
             statement(DELETE_AGENT, { client_id: clientId }),

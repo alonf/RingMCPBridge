@@ -336,11 +336,13 @@ export class MediaHandoff {
     start: number,
     length: number,
     signal: AbortSignal,
+    firstChunk = true,
   ) {
     const bytes = await this.deps.media.read(item.id, start, length, signal);
     if (!bytes) throw new MediaDenied();
     await this.authorize(item.id, receiver, grant, signal);
-    await this.auditFetch(item.id, receiver, "allowed", signal, item);
+    if (firstChunk)
+      await this.auditFetch(item.id, receiver, "allowed", signal, item);
     return bytes;
   }
 }

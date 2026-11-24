@@ -275,6 +275,48 @@ async function scenario(directory?: string, cacheOnly = false) {
     ),
   ).toBe(!cacheOnly);
   if (cacheOnly) return;
+  const mediaOnly = await linkAgent(endpoint, redirect(receiver), "media");
+  const mediaClient = await connectOverHttp(endpoint, {
+    accessToken: mediaOnly,
+  });
+  cleanups.push(() => mediaClient.close());
+  expect(
+    (await mediaClient.client.listTools()).tools.map((tool) => tool.name),
+  ).toEqual(["share_event_media"]);
+  for (const method of ["subscriptions/listen", "resources/subscribe"]) {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer " + mediaOnly,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-protocol-version": "2026-07-28",
+        "mcp-method": method,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method,
+        params: {
+          ["_meta"]: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "io.modelcontextprotocol/clientInfo": {
+              name: "receiver",
+              version: "1",
+            },
+          },
+          notifications: { resourceSubscriptions: ["ring://bridge/events"] },
+        },
+      }),
+    });
+    try {
+      expect(response.status).toBe(403);
+      expect(response.headers.get("www-authenticate")).toContain("read");
+    } finally {
+      await response.body?.cancel();
+    }
+  }
   const share = (kind: string, eventId = data.event) =>
     agent.client.callTool({
       name: "share_event_media",

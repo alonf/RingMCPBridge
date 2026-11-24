@@ -17,6 +17,13 @@ type OwnerChange =
       camera: string;
       receiver: string;
     }
+  | {
+      action: "approval_removed";
+      receiver: string;
+      cameraKey: string;
+      home?: string;
+      camera?: string;
+    }
   | { action: "delete_cached_media" };
 
 export async function recordOwnerMediaChange(
@@ -27,13 +34,14 @@ export async function recordOwnerMediaChange(
 ) {
   await tx.run(
     {
-      sql: "INSERT INTO owner_media_change(change_id,ts,action,location_id,device_id,receiver_id,enabled,sound,person_action) VALUES (@id,@at,@action,@home,@camera,@receiver,@enabled,@sound,@person)",
+      sql: "INSERT INTO owner_media_change(change_id,ts,action,location_id,device_id,receiver_id,enabled,sound,person_action,camera_key) VALUES (@id,@at,@action,@home,@camera,@receiver,@enabled,@sound,@person,@cameraKey)",
       params: {
         id: randomUUID(),
         at,
         action: change.action,
         home: "home" in change ? change.home : null,
         camera: "camera" in change ? change.camera : null,
+        cameraKey: "cameraKey" in change ? change.cameraKey : null,
         receiver: "receiver" in change ? change.receiver : null,
         enabled: change.action === "camera_settings" ? change.enabled : null,
         sound: change.action === "camera_settings" ? change.sound : null,
