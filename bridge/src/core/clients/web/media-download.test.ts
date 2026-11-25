@@ -27,6 +27,51 @@ const allowed = {
   scopes: ["media"],
   expiresAt: 4102444800,
 };
+it.each(["anonymous", "grant", "scope", "withdrawn", "range"] as const)(
+  "commits the %s denial if the receiver disconnects during the audit",
+  async (reason) => {
+    const connection = new AbortController();
+    const headers = new Headers();
+    if (reason !== "anonymous") headers.set("authorization", "Bearer demo");
+    if (reason === "range") headers.set("range", "bytes=9-");
+    const committed: string[] = [];
+    const response = await mediaDownload(
+      new Request(reason === "grant" ? url.slice(0, url.indexOf("?")) : url, {
+        headers,
+        signal: connection.signal,
+      }),
+      {
+        authorize: () =>
+          reason === "withdrawn"
+            ? Promise.reject(new MediaDenied())
+            : Promise.resolve(item),
+        read: () => Promise.reject(new Error("Unexpected media read")),
+        auditFetch: async (_id, _receiver, outcome, signal) => {
+          connection.abort();
+          await Promise.resolve();
+          signal.throwIfAborted();
+          committed.push(outcome);
+        },
+      },
+      {
+        checkAccessToken: () =>
+          Promise.resolve({
+            ...allowed,
+            scopes: reason === "scope" ? [] : allowed.scopes,
+          }),
+      },
+      { take: () => ({ allowed: true }) },
+    );
+    expect(committed).toEqual([
+      reason === "range" ? "range_rejected" : "denied",
+    ]);
+    expect(response.status).toBe(
+      { anonymous: 401, grant: 404, scope: 403, withdrawn: 403, range: 416 }[
+        reason
+      ],
+    );
+  },
+);
 it("serves single ranges, reports unsatisfiable requests and requires a current credential", async () => {
   const media = {
     auditFetch: vi.fn(() => Promise.resolve()),

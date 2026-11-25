@@ -70,7 +70,12 @@ export async function mediaDownload(
       headers.set("www-authenticate", "Bearer");
       if (limit.take("anonymous").allowed)
         await media
-          .auditFetch(itemId, "", "denied", signal)
+          .auditFetch(
+            itemId,
+            "",
+            "denied",
+            AbortSignal.timeout(READ_TIMEOUT_MS),
+          )
           .catch((error: unknown) =>
             logger?.error("media_audit_failed", { request_id: itemId }, error),
           );
@@ -83,7 +88,12 @@ export async function mediaDownload(
       return empty(429);
     }
     if (!grant || !/^[A-Za-z0-9_-]{43}$/.test(grant)) {
-      await media.auditFetch(itemId, receiver, "denied", signal);
+      await media.auditFetch(
+        itemId,
+        receiver,
+        "denied",
+        AbortSignal.timeout(READ_TIMEOUT_MS),
+      );
       return empty(404);
     }
     if (!identity.scopes.includes("media")) throw new MediaDenied();
@@ -92,7 +102,13 @@ export async function mediaDownload(
     const rangeHeader = request.headers.get("range");
     const range = byteRange(rangeHeader, item.length);
     if (!range) {
-      await media.auditFetch(itemId, receiver, "range_rejected", signal, item);
+      await media.auditFetch(
+        itemId,
+        receiver,
+        "range_rejected",
+        AbortSignal.timeout(READ_TIMEOUT_MS),
+        item,
+      );
       headers.set("content-range", "bytes */" + String(item.length));
       return empty(416);
     }
@@ -214,7 +230,7 @@ export async function mediaDownload(
           itemId,
           receiver,
           "denied",
-          signal,
+          AbortSignal.timeout(READ_TIMEOUT_MS),
           authorizedItem,
         );
       } catch (auditError) {

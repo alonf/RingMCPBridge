@@ -36,6 +36,10 @@ export type EventMediaSource = (
 export class MediaDenied extends Error {}
 export class MediaSettingsUnavailable extends Error {}
 interface Dependencies {
+  lifetime: {
+    readonly signal: AbortSignal;
+    track<T>(work: Promise<T>): Promise<T>;
+  };
   media: EventMedia;
   permissions: MediaPermissions;
   tickets: MediaTickets;
@@ -146,28 +150,39 @@ export class MediaHandoff {
     if (!policy.enabled || !approval) throw new MediaDenied();
     return { policy, approval, zone: location.time_zone };
   }
-  async share(input: ShareRequest, requester: string, signal: AbortSignal) {
-    try {
-      return await this.shareApproved(input, requester, signal);
-    } catch (error) {
-      if (error instanceof MediaDenied)
-        await this.deps.tickets.audit(
-          {
-            ...input,
-            receiver: input.receiver_id,
-            requester,
-            operation: "share",
-            outcome: "denied",
-          },
-          signal,
-        );
-      throw error;
-    }
+  async share(
+    input: ShareRequest,
+    requester: string,
+    requestSignal: AbortSignal,
+    onStageStarted: () => void,
+  ) {
+    const { lifetime } = this.deps;
+    const signal = AbortSignal.any([requestSignal, lifetime.signal]);
+    signal.throwIfAborted();
+    return lifetime.track(
+      this.shareApproved(input, requester, signal, onStageStarted).catch(
+        async (error: unknown) => {
+          if (error instanceof MediaDenied)
+            await this.deps.tickets.audit(
+              {
+                ...input,
+                receiver: input.receiver_id,
+                requester,
+                operation: "share",
+                outcome: "denied",
+              },
+              AbortSignal.timeout(30_000),
+            );
+          throw error;
+        },
+      ),
+    );
   }
   private async shareApproved(
     input: ShareRequest,
     requester: string,
     signal: AbortSignal,
+    onStageStarted: () => void,
   ) {
     const { location_id, device_id, event_id, receiver_id } = input;
     const access = await this.access(
@@ -187,7 +202,7 @@ export class MediaHandoff {
       kind: input.kind === "photo" ? ("frame" as const) : ("clip" as const),
       hasSound: input.kind === "clip" && access.policy.sound,
     };
-    const item = await this.resolve(key, signal);
+    const item = await this.resolve(key, signal, onStageStarted);
     if (!item) return undefined;
     const identity = { location_id, device_id, event_id };
     if (item === "pending" || item.status === "pending")
@@ -247,6 +262,7 @@ export class MediaHandoff {
   private async resolve(
     key: Omit<EventMediaKey, "capturedAt">,
     signal: AbortSignal,
+    onStageStarted: () => void,
   ) {
     const stored = await this.deps.media.find(key, signal);
     if (stored) return stored;
@@ -263,12 +279,15 @@ export class MediaHandoff {
     this.preparing.add(identity);
     try {
       const result = await untilAborted(source(key, signal), signal);
-      if (result.status === "available")
+      if (result.status === "available") {
+        signal.throwIfAborted();
+        onStageStarted();
         return await this.deps.media.stage(
           { ...key, capturedAt: result.capturedAt },
           result.load,
           signal,
         );
+      }
       return result.status === "pending" ? ("pending" as const) : undefined;
     } catch (error) {
       if (error instanceof MediaRepresentationUnavailable) return undefined;

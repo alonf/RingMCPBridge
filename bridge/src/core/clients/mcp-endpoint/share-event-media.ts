@@ -51,12 +51,15 @@ export function registerMediaTool(
           },
           clock,
         );
+      const signal = AbortSignal.any([
+        ctx.mcpReq.signal,
+        AbortSignal.timeout(60_000),
+      ]);
+      const transfer = { started: false };
       try {
-        const result = await media.share(
-          input.data,
-          clientId,
-          AbortSignal.any([ctx.mcpReq.signal, AbortSignal.timeout(60_000)]),
-        );
+        const result = await media.share(input.data, clientId, signal, () => {
+          transfer.started = true;
+        });
         if (!result)
           return errorResult(
             {
@@ -101,7 +104,8 @@ export function registerMediaTool(
             },
             clock,
           );
-        allowance.release();
+        // Once staging begins the core may finish the transfer after the caller leaves.
+        if (!transfer.started || !signal.aborted) allowance.release();
         logger.error(
           "media_share_failed",
           {

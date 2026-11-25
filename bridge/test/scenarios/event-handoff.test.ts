@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -138,6 +138,7 @@ async function scenario(directory?: string, cacheOnly = false) {
     redirect_uris: [redirect(clientId)],
   }));
   let preparing = true;
+  let onLoad: (() => void) | undefined;
   let upstream: "ok" | "old" | "oversized" | "unavailable" = "ok";
   const objects = new FileMediaObjects(folder);
   const started = Promise.withResolvers<undefined>(),
@@ -184,12 +185,14 @@ async function scenario(directory?: string, cacheOnly = false) {
                   : photo
                     ? data.photoAt
                     : data.clipAt,
-              load: () =>
-                Promise.resolve({
+              load: () => {
+                onLoad?.();
+                return Promise.resolve({
                   length:
                     upstream === "oversized" ? 64 * 1024 * 1024 : bytes.length,
                   body: [bytes],
-                }),
+                });
+              },
             });
           },
         }),
@@ -330,6 +333,23 @@ async function scenario(directory?: string, cacheOnly = false) {
         kind,
       },
     });
+  // Fire the share deadline deterministically at a particular storage operation.
+  async function withShareDeadline<T>(run: (expire: () => void) => Promise<T>) {
+    const deadline = new AbortController();
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    const stub = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((ms) =>
+        ms === 60_000 ? deadline.signal : timeout(ms),
+      );
+    try {
+      return await run(() => {
+        deadline.abort();
+      });
+    } finally {
+      stub.mockRestore();
+    }
+  }
   expect(
     (await share("photo", "missing-event")).structuredContent,
   ).toMatchObject({ error: { code: "NOT_FOUND" } });
@@ -371,6 +391,29 @@ async function scenario(directory?: string, cacheOnly = false) {
       true,
     );
     upstream = "ok";
+    await withShareDeadline(async (expire) => {
+      onLoad = expire;
+      try {
+        expect((await share("clip")).structuredContent).toMatchObject({
+          error: { code: "BRIDGE_UNAVAILABLE" },
+        });
+      } finally {
+        onLoad = undefined;
+      }
+    });
+    await vi.waitFor(async () => {
+      const item = await running.core.media?.find(
+        {
+          householdId: data.home,
+          cameraId: data.device,
+          eventId: data.event,
+          kind: "clip",
+          hasSound: true,
+        },
+        signal,
+      );
+      expect(item?.status).toBe("ready");
+    });
   }
   const issue = async (kind: "photo" | "clip") => {
     const answer = await share(kind);
@@ -507,7 +550,26 @@ async function scenario(directory?: string, cacheOnly = false) {
   );
   expect((await share("photo")).isError).toBe(true);
   if (!directory) {
-    for (let count = 3; count < 20; count++)
+    await withShareDeadline(async (expire) => {
+      const run = store.run.bind(store);
+      const onAudit = vi.fn(expire);
+      const write = vi
+        .spyOn(store, "run")
+        .mockImplementation((query, signal) => {
+          if (query.sql.startsWith("INSERT INTO media_access_log")) onAudit();
+          return run(query, signal);
+        });
+      try {
+        expect((await share("photo")).structuredContent).toMatchObject({
+          error: { code: "ACTION_DISABLED" },
+        });
+        expect(onAudit).toHaveBeenCalledOnce();
+      } finally {
+        write.mockRestore();
+      }
+    });
+    // The clip whose transfer continued after its caller timed out used one slot.
+    for (let count = 4; count < 20; count++)
       expect((await share("clip")).structuredContent).toMatchObject({
         error: { code: "ACTION_DISABLED" },
       });

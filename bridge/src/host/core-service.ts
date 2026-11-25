@@ -230,9 +230,11 @@ export async function startCoreService(
     delivery.eventStored(stored);
   });
   const eventLog = new EventLog({ clock });
+  const downloads = new DownloadLifetime();
   const media =
     core.media &&
     new MediaHandoff({
+      lifetime: downloads,
       media: core.media,
       permissions: new MediaPermissions(store, () => clock.now()),
       sharedPersonEventsAllowed: keptFromSharedLocation(
@@ -248,7 +250,6 @@ export async function startCoreService(
       ...(resources.eventMediaSource && { source: resources.eventMediaSource }),
     });
   const downloadLimit = new ReadLimit(settings.readsPerHour, clock);
-  const downloads = new DownloadLifetime();
   const download =
     media &&
     getRequestListener((request) =>
