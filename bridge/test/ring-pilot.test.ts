@@ -1,11 +1,14 @@
 import { createHmac } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { pilotApp } from "../dev/ring-pilot/app.ts";
 import { InvalidRingGrant, ringClient } from "../dev/ring-pilot/client.ts";
 import { PilotLinks } from "../dev/ring-pilot/links.ts";
+import type { Cleanups } from "./host/core-fixture.ts";
+import { verifyEventHandoff } from "./scenarios/event-handoff-scenario.ts";
+import { runEventProbe } from "../dev/ring-pilot/probe-command.ts";
 
 const START = 1_800_000_000_000;
 const SIGNING = "synthetic test key";
@@ -22,8 +25,9 @@ const form = (data: Record<string, string>, cookie = "") => ({
 function setup(
   snapshotTarget?: Parameters<typeof pilotApp>[4],
   store?: PilotLinks,
+  startedAt = START,
 ) {
-  const clock = { now: START };
+  const clock = { now: startedAt };
   const ring = {
     exchange: vi
       .fn()
@@ -49,7 +53,7 @@ function setup(
   );
   const issue = (code = "test-code") =>
     app.request(TOKEN, form({ code, client_id: ID }));
-  const time = String(START);
+  const time = String(startedAt);
   const nonce = createHmac("sha256", SIGNING)
     .update(time + ":account1")
     .digest("base64url");
@@ -67,6 +71,91 @@ function setup(
   return { ring, app, issue, visit, consent, clock, nonce, time };
 }
 describe("official Ring private-app pilot", () => {
+  it("records only the first signed notification for the watched account, camera, kind and time", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ring-watch-"));
+    const db = join(dir, "pilot.sqlite");
+    const server = new PilotLinks(db, ID, "test-key");
+    const operator = new PilotLinks(db, ID, "test-key");
+    try {
+      const { app, issue, consent } = setup(undefined, server);
+      await issue();
+      await (
+        await consent()
+      )();
+      const watch = operator.watchRecording(
+        "account1",
+        "cam",
+        "motion",
+        START - 1,
+      );
+      const deliver = (
+        account = "account1",
+        source = "cam",
+        type = "motion_detected",
+        timestamp = START,
+        signing = SIGNING,
+        id = "first",
+      ) => {
+        const body = JSON.stringify({
+          meta: { version: "1.1", account_id: account, request_id: id },
+          data: {
+            id,
+            type,
+            attributes: {
+              source_type: "devices",
+              source,
+              timestamp,
+              component_ids: ["0"],
+            },
+          },
+        });
+        return app.request(HOOK, {
+          method: "POST",
+          body,
+          headers: {
+            "X-Signature":
+              "sha256=" +
+              createHmac("sha256", signing).update(body).digest("hex"),
+          },
+        });
+      };
+      expect(
+        (await deliver("account1", "cam", "motion_detected", START, "invalid"))
+          .status,
+      ).toBe(403);
+      for (const result of [
+        await deliver("other"),
+        await deliver("account1", "other"),
+        await deliver("account1", "cam", "button_press"),
+        await deliver("account1", "cam", "motion_detected", START - 2),
+        await deliver("account1", "cam", "motion_detected", START + 1),
+      ])
+        expect(result.status).toBe(200);
+      expect(operator.watchedRecording(watch, START)).toBeUndefined();
+      expect((await deliver()).status).toBe(200);
+      await deliver();
+      await deliver(
+        "account1",
+        "cam",
+        "motion_detected",
+        START,
+        SIGNING,
+        "second",
+      );
+      expect(operator.watchedRecording(watch, START)).toEqual({
+        eventId: "first",
+        time: START,
+        components: ["0"],
+      });
+      expect(() => operator.watchedRecording(watch, START + 600_000)).toThrow();
+      server.remove("account1");
+      expect(() => operator.watchedRecording(watch, START)).toThrow();
+    } finally {
+      operator.close();
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it("restores a confirmed grant and browser after restart, rotates tokens once across concurrent reads and signs in a new browser", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ring-pilot-test-"));
     const database = join(dir, "private.sqlite");
@@ -548,11 +637,12 @@ describe("official Ring private-app pilot", () => {
 
 describe("post-link event media pilot", () => {
   const fixture = (
-    videoStatus: number,
+    videoStatus: number | (() => number),
     photoOffset = 0,
     linkedAt = START - 1,
     redirectTo?: string,
     clipHeaders?: Record<string, string>,
+    capturedAt = START,
   ) => {
     const json = Response.json.bind(Response);
     const event = {
@@ -608,7 +698,7 @@ describe("post-link event media pilot", () => {
         return new Response(Uint8Array.from([255, 216, 1, 255, 217]), {
           headers: {
             "content-type": "image/jpeg",
-            "x-media-timestamp": String(START + photoOffset),
+            "x-media-timestamp": String(capturedAt + photoOffset),
           },
         });
       return new Response(
@@ -616,23 +706,175 @@ describe("post-link event media pilot", () => {
           0, 0, 0, 16, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0,
         ]),
         {
-          status: videoStatus,
+          status: typeof videoStatus === "number" ? videoStatus : videoStatus(),
           headers: {
             "content-type": "video/mp4",
-            "x-media-timestamp": String(START),
+            "x-media-timestamp": String(capturedAt),
             ...clipHeaders,
           },
         },
       );
     };
+    const client = ringClient(ID, "example", (url, init) =>
+      Promise.resolve(respond(url, init)),
+    );
     return {
       requests,
+      client,
       run: (eventId?: string, now = START + 200000) =>
-        ringClient(ID, "example", (url, init) =>
-          Promise.resolve(respond(url, init)),
-        ).eventMedia("example", "Outside", "ding", linkedAt, now, eventId),
+        client.eventMedia("example", "Outside", "ding", linkedAt, now, eventId),
     };
   };
+  it("carries a signed doorbell callback through MCP history and media sharing to the separate receiver", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ring-probe-"));
+    const store = new PilotLinks(":memory:", ID, "synthetic key");
+    const cleanups: Cleanups = [];
+    const captureAt = Date.now() - 20_000;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(captureAt - 1);
+      const { app, issue, consent, clock } = setup(
+        undefined,
+        store,
+        captureAt - 1,
+      );
+      await issue();
+      await (
+        await consent()
+      )();
+      vi.setSystemTime(captureAt);
+      const probe = fixture(
+        200,
+        0,
+        captureAt - 1,
+        undefined,
+        undefined,
+        captureAt,
+      );
+      const armed = Promise.withResolvers<undefined>();
+      const watch = store.watchRecording.bind(store);
+      vi.spyOn(store, "watchRecording").mockImplementation((...args) => {
+        const id = watch(...args);
+        armed.resolve(undefined);
+        return id;
+      });
+      const work = runEventProbe(
+        probe.client,
+        store,
+        dir,
+        "Outside",
+        "ding",
+        undefined,
+        undefined,
+        true,
+      );
+      await Promise.race([armed.promise, work]);
+      clock.now = captureAt;
+      const body = JSON.stringify({
+        meta: {
+          version: "1.1",
+          account_id: "account1",
+          request_id: "delivery",
+        },
+        data: {
+          id: "callback-event",
+          type: "button_press",
+          attributes: {
+            source_type: "devices",
+            source: "cam",
+            timestamp: captureAt,
+            component_ids: ["1"],
+          },
+        },
+      });
+      expect(
+        (
+          await app.request(HOOK, {
+            method: "POST",
+            body,
+            headers: {
+              "X-Signature":
+                "sha256=" +
+                createHmac("sha256", SIGNING).update(body).digest("hex"),
+            },
+          })
+        ).status,
+      ).toBe(200);
+      clock.now = captureAt + 11_000;
+      vi.setSystemTime(clock.now);
+      expect(await work).toBe(true);
+      const [folder] = readdirSync(dir);
+      const output = join(dir, folder ?? "");
+      expect(
+        JSON.parse(readFileSync(join(output, "event.json"), "utf8")),
+      ).toMatchObject({
+        eventId: "callback-event",
+        identitySource: "signed-webhook",
+        householdId: "home",
+        deviceId: "cam",
+        kind: "ding",
+        start: captureAt,
+        end: captureAt + 5000,
+        photo: { status: "available" },
+        clip: { status: "available" },
+      });
+      expect(probe.requests.some((r) => r.path.endsWith("/events"))).toBe(
+        false,
+      );
+      vi.useRealTimers();
+      await verifyEventHandoff(cleanups, output);
+    } finally {
+      vi.useRealTimers();
+      for (const clean of cleanups.reverse()) await clean();
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+  it("rejects mismatched callback lenses, moved cameras and pre-link recordings before fetching bytes", async () => {
+    const probe = fixture(200);
+    const get = (
+      householdId: string,
+      components: string[],
+      linkedAt = START - 1,
+    ) =>
+      probe.client.callbackMedia(
+        "example",
+        { deviceId: "cam", householdId },
+        { time: START, eventId: "callback", components },
+        linkedAt,
+        START + 20_000,
+      );
+    await expect(get("other", ["1"])).rejects.toThrow();
+    await expect(get("home", ["0"])).rejects.toThrow();
+    await expect(get("home", ["0", "1"])).rejects.toThrow();
+    await expect(get("home", ["1"], START + 1)).rejects.toThrow();
+    expect(probe.requests.some((r) => r.path.includes("/media/"))).toBe(false);
+  });
+  it("retries only the pending clip with the same lens and interval after rechecking camera access", async () => {
+    const status = vi.fn().mockReturnValueOnce(425).mockReturnValue(200);
+    const probe = fixture(() => Number(status()));
+    const refreshed = vi.fn(() => Promise.resolve("renewed"));
+    const result = await probe.client.callbackMedia(
+      "example",
+      { deviceId: "cam", householdId: "home" },
+      { eventId: "callback", time: START, components: ["1"] },
+      START - 1,
+      START + 10_000,
+      refreshed,
+    );
+    expect(result.photo.status).toBe("available");
+    expect(result.clip.status).toBe("available");
+    expect(refreshed).toHaveBeenCalledExactlyOnceWith(0);
+    expect(
+      probe.requests.filter((r) => r.path.endsWith("/image/download")),
+    ).toHaveLength(1);
+    const clips = probe.requests.filter((r) =>
+      r.path.endsWith("/video/download"),
+    );
+    expect(clips).toHaveLength(2);
+    expect(clips[0]?.body).toEqual(clips[1]?.body);
+    expect(clips[1]?.authorization).toBe("Bearer renewed");
+  });
   it("binds both requests to the same completed event and module", async () => {
     const probe = fixture(200);
     expect(await probe.run()).toMatchObject({

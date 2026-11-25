@@ -12,6 +12,7 @@ import { z } from "zod";
 import { InvalidRingGrant, type ringClient } from "./client.ts";
 import type { PilotLinks, SavedLink } from "./links.ts";
 import { SnapshotError, type Snapshot } from "./snapshot.ts";
+import { recordingCallback } from "./camera-callback.ts";
 
 const LINK_WINDOW = 600_000;
 const GRANT_WINDOW = 30 * 86_400_000;
@@ -67,7 +68,10 @@ const digest = (text: string) =>
 export function pilotApp(
   clientId: string,
   signingKey: string,
-  ring: Omit<ReturnType<typeof ringClient>, "eventMedia">,
+  ring: Pick<
+    ReturnType<typeof ringClient>,
+    "exchange" | "identity" | "activate" | "devices" | "snapshot" | "refresh"
+  >,
   now = Date.now,
   snapshotTarget?: { name: string; save: (image: Snapshot) => Promise<void> },
   store?: PilotLinks,
@@ -523,10 +527,20 @@ export function pilotApp(
     if (!equal(signature, c.req.header("X-Signature") ?? ""))
       return c.text("Invalid signature", 403);
     let event;
+    let payload: unknown;
     try {
-      event = webhook.parse(JSON.parse(raw.toString("utf8")));
+      payload = JSON.parse(raw.toString("utf8"));
+      event = webhook.parse(payload);
     } catch {
       return c.text("Invalid event", 400);
+    }
+    if (
+      event.data.type === "motion_detected" ||
+      event.data.type === "button_press"
+    ) {
+      const recording = recordingCallback(payload);
+      if (!recording) return c.text("Invalid recording notification", 400);
+      store?.receiveRecording(recording, now());
     }
     if (event.data.type === "app_integration_removed") {
       const account = event.meta?.account_id ?? event.data.attributes?.source;
@@ -538,6 +552,7 @@ export function pilotApp(
   });
   async function maintain() {
     expire();
+    store?.expireWatches(now());
     await Promise.allSettled(
       [...tickets.values()]
         .filter(

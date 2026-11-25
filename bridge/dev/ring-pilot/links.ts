@@ -2,6 +2,10 @@ import { createHash, hkdfSync, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { open, seal } from "../../src/utilities/security/sealing.ts";
+import {
+  RecordingWatchError,
+  type RecordingCallback,
+} from "./camera-callback.ts";
 
 const savedLink = z.object({
   account: z.string().min(1),
@@ -17,6 +21,13 @@ const savedLink = z.object({
 export type SavedLink = z.infer<typeof savedLink>;
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 const CODE_LIFETIME = 10 * 60_000;
+const CALLBACK_WAIT_MS = 10 * 60_000;
+const recording = z.object({
+  eventId: z.string().min(1),
+  time: z.number().int().nonnegative(),
+  components: z.array(z.string()),
+  subType: z.string().optional(),
+});
 
 /** Confirmed Ring grants stay encrypted on the home computer. Unclaimed tokens never enter the store. */
 export class PilotLinks {
@@ -30,6 +41,86 @@ export class PilotLinks {
     this.#db.exec(
       "PRAGMA busy_timeout=3000; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS links (owner TEXT PRIMARY KEY, record BLOB NOT NULL, code TEXT, deadline INTEGER); CREATE TABLE IF NOT EXISTS browsers (session TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES links(owner) ON DELETE CASCADE, deadline INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS nonces (nonce TEXT PRIMARY KEY, deadline INTEGER NOT NULL)",
     );
+    this.#db.exec(`CREATE TABLE IF NOT EXISTS recording_watches (
+      owner TEXT PRIMARY KEY REFERENCES links(owner) ON DELETE CASCADE,
+      watch TEXT NOT NULL UNIQUE, device TEXT NOT NULL, kind TEXT NOT NULL,
+      start INTEGER NOT NULL, deadline INTEGER NOT NULL, record BLOB)`);
+  }
+  /** One local watch per linked account. Removing or replacing the link clears its watch. */
+  watchRecording(
+    account: string,
+    device: string,
+    kind: "motion" | "ding",
+    now: number,
+  ) {
+    const watch = randomBytes(16).toString("hex");
+    this.expireWatches(now);
+    const result = this.#db
+      .prepare(
+        "INSERT INTO recording_watches(owner,watch,device,kind,start,deadline) VALUES(?,?,?,?,?,?) ON CONFLICT(owner) DO NOTHING",
+      )
+      .run(
+        hash(account),
+        watch,
+        hash(device),
+        kind,
+        now,
+        now + CALLBACK_WAIT_MS,
+      );
+    if (!result.changes)
+      throw new RecordingWatchError(
+        "This account already has an active recording watch.",
+      );
+    return watch;
+  }
+  receiveRecording(event: RecordingCallback, now: number) {
+    if (event.time > now) return;
+    const { eventId, time, components, subType } = event;
+    const encrypted = seal(
+      this.#key,
+      Buffer.from(JSON.stringify({ eventId, time, components, subType })),
+      "secrets-file",
+    );
+    this.#db
+      .prepare(
+        `UPDATE recording_watches SET record=? WHERE owner=? AND device=? AND kind=?
+      AND start<=? AND deadline>? AND record IS NULL`,
+      )
+      .run(
+        encrypted,
+        hash(event.account),
+        hash(event.deviceId),
+        event.kind,
+        time,
+        now,
+      );
+  }
+  watchedRecording(watch: string, now: number) {
+    const row = this.#db
+      .prepare(
+        "SELECT record FROM recording_watches WHERE watch=? AND deadline>?",
+      )
+      .get(watch, now);
+    if (!row)
+      throw new RecordingWatchError(
+        "The recording watch expired or the account link changed.",
+      );
+    if (!(row.record instanceof Uint8Array)) return undefined;
+    return recording.parse(
+      JSON.parse(
+        Buffer.from(open(this.#key, row.record, "secrets-file")).toString(
+          "utf8",
+        ),
+      ),
+    );
+  }
+  finishWatch(watch: string) {
+    this.#db.prepare("DELETE FROM recording_watches WHERE watch=?").run(watch);
+  }
+  expireWatches(now: number) {
+    this.#db
+      .prepare("DELETE FROM recording_watches WHERE deadline<=?")
+      .run(now);
   }
   load(): SavedLink[] {
     return this.#db

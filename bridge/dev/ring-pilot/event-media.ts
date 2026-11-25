@@ -34,7 +34,7 @@ type Result =
       status: "pending" | "missing" | "upstream-error" | "unmatched";
       httpStatus?: number;
     };
-const PROBE_MS = 5000;
+export const PROBE_MS = 5000;
 const PROCESSING_WINDOW_MS = 120_000;
 const MAX_BYTES = 32 * 1024 * 1024;
 
@@ -164,7 +164,6 @@ export async function probeEventMedia(
   send: typeof fetch,
 ) {
   const id = encodeURIComponent(deviceId);
-  const deviceUrl = api + "/devices/" + id;
   const headers = {
     authorization: "Bearer " + token,
     "content-type": "application/json",
@@ -192,18 +191,61 @@ export async function probeEventMedia(
     throw new EventProbeError(
       "No matching completed post-link event on this history page.",
     );
+  const start = event.attributes.start;
+  const end = Math.min(start + PROBE_MS, event.attributes.end);
+  return downloadEventWindow(
+    { eventId: event.id, deviceId, householdId, start, end },
+    [],
+    api,
+    headers,
+    now,
+    request,
+    send,
+  );
+}
+
+export const CALLBACK_MEDIA_DELAY_MS = PROBE_MS + 5000;
+/** Both representations use the device, lens and time window of the same recording. */
+export async function downloadEventWindow(
+  source: {
+    eventId: string;
+    deviceId: string;
+    householdId: string;
+    start: number;
+    end: number;
+  },
+  componentIds: readonly string[],
+  api: string,
+  headers: Record<string, string>,
+  now: number,
+  request: Request,
+  send: typeof fetch,
+  retryHeaders?: (
+    attempt: number,
+  ) => Promise<Record<string, string> | undefined>,
+) {
+  const { start, end } = source;
+  const deviceUrl = api + "/devices/" + encodeURIComponent(source.deviceId);
   const info = await request(deviceUrl + "/capabilities", { headers });
   if (!info.ok)
     throw new EventProbeError(
       "Ring capabilities returned HTTP " + String(info.status) + ".",
     );
   const { components } = capabilities.parse(await info.json()).data.attributes;
-  const lenses = components?.items.filter((c) => c.component_type === "lens");
-  if (lenses && lenses.length !== 1)
-    throw new EventProbeError("History does not identify a unique event lens.");
+  const lenses = components?.items.filter(
+    (c) =>
+      c.component_type === "lens" &&
+      (!componentIds.length || componentIds.includes(c.component_id)),
+  );
+  if (
+    componentIds.length > 1 ||
+    (componentIds.length && !lenses) ||
+    (lenses && lenses.length !== 1)
+  )
+    throw new EventProbeError(
+      "The event does not identify a unique camera lens.",
+    );
   const selected = lenses?.map((lens) => ({ component_id: lens.component_id }));
-  const start = event.attributes.start;
-  const end = Math.min(start + PROBE_MS, event.attributes.end);
   const window = {
     deviceUrl,
     headers,
@@ -212,7 +254,20 @@ export async function probeEventMedia(
     end,
     recordingMayBeProcessing: now < end + PROCESSING_WINDOW_MS,
   };
-  const photo = await fetchItem("image", window, request, send);
-  const clip = await fetchItem("video", window, request, send);
-  return { eventId: event.id, deviceId, householdId, start, end, photo, clip };
+  let photo = await fetchItem("image", window, request, send);
+  let clip = await fetchItem("video", window, request, send);
+  for (
+    let attempt = 0;
+    retryHeaders && (photo.status === "pending" || clip.status === "pending");
+    attempt++
+  ) {
+    const fresh = await retryHeaders(attempt);
+    if (!fresh) break;
+    const retryWindow = { ...window, headers: fresh };
+    if (photo.status === "pending")
+      photo = await fetchItem("image", retryWindow, request, send);
+    if (clip.status === "pending")
+      clip = await fetchItem("video", retryWindow, request, send);
+  }
+  return { ...source, photo, clip };
 }

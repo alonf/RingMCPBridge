@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { downloadSnapshot, SnapshotError } from "./snapshot.ts";
-import { EventProbeError, probeEventMedia } from "./event-media.ts";
+import {
+  CALLBACK_MEDIA_DELAY_MS,
+  downloadEventWindow,
+  EventProbeError,
+  PROBE_MS,
+  probeEventMedia,
+} from "./event-media.ts";
+import type { RecordingCallback } from "./camera-callback.ts";
 
 const API = "https://api.amazonvision.com/v1";
 const INTEGRATION = API + "/accounts/me/app-integrations";
@@ -61,7 +68,75 @@ export function ringClient(
     const result = await request(API + "/devices", { headers: auth(token) });
     return inventory.parse(await result.json());
   }
+  async function eventCamera(
+    token: string,
+    camera: { name: string } | { id: string },
+  ) {
+    const page = await devices(token);
+    const matches = page.data.filter((device) =>
+      "id" in camera
+        ? device.id === camera.id
+        : device.attributes?.name === camera.name,
+    );
+    const [device] = matches;
+    if (
+      page.links?.next ||
+      matches.length !== 1 ||
+      !device?.relationships?.location?.data?.id
+    )
+      throw new EventProbeError(
+        "A single shared camera and its household must be identifiable in the inventory.",
+      );
+    return {
+      deviceId: device.id,
+      householdId: device.relationships.location.data.id,
+    };
+  }
   return {
+    eventCamera,
+    async callbackMedia(
+      token: string,
+      camera: { deviceId: string; householdId: string },
+      receipt: Pick<RecordingCallback, "time" | "eventId" | "components">,
+      linkedAt: number,
+      now: number,
+      retryToken?: (attempt: number) => Promise<string | undefined>,
+    ) {
+      if (
+        receipt.time < linkedAt ||
+        now < receipt.time + CALLBACK_MEDIA_DELAY_MS
+      )
+        throw new EventProbeError(
+          "The recording window must follow linking and finish processing first.",
+        );
+      async function headersFor(token: string) {
+        const current = await eventCamera(token, { id: camera.deviceId });
+        if (camera.householdId !== current.householdId)
+          throw new EventProbeError(
+            "The camera household changed during the recording watch.",
+          );
+        return { ...auth(token), "content-type": "application/json" };
+      }
+      return downloadEventWindow(
+        {
+          ...camera,
+          eventId: receipt.eventId,
+          start: receipt.time,
+          end: receipt.time + PROBE_MS,
+        },
+        receipt.components,
+        API,
+        await headersFor(token),
+        now,
+        ringRequest,
+        send,
+        retryToken &&
+          (async (attempt) => {
+            const fresh = await retryToken(attempt);
+            return fresh ? headersFor(fresh) : undefined;
+          }),
+      );
+    },
     async refresh(refreshToken: string) {
       const body = new URLSearchParams({
         grant_type: "refresh_token",
@@ -147,23 +222,11 @@ export function ringClient(
       now: number,
       eventId?: string,
     ) {
-      const page = await devices(token);
-      const matches = page.data.filter(
-        (device) => device.attributes?.name === name,
-      );
-      const [device] = matches;
-      if (
-        page.links?.next ||
-        matches.length !== 1 ||
-        !device?.relationships?.location?.data?.id
-      )
-        throw new EventProbeError(
-          "A single shared camera and its household must be identifiable in the inventory.",
-        );
+      const camera = await eventCamera(token, { name });
       return probeEventMedia(
         API,
-        device.id,
-        device.relationships.location.data.id,
+        camera.deviceId,
+        camera.householdId,
         kind,
         linkedAt,
         now,

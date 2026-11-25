@@ -7,6 +7,7 @@ import { pilotApp } from "./app.ts";
 import { ringClient } from "./client.ts";
 import { PilotLinks } from "./links.ts";
 import { EventProbeError } from "./event-media.ts";
+import { RecordingWatchError } from "./camera-callback.ts";
 import { runEventProbe } from "./probe-command.ts";
 
 const {
@@ -54,13 +55,14 @@ if (process.argv[2] === "--event-probe") {
         process.argv[4] ?? "",
         process.argv[5],
         process.argv[6],
+        process.argv[7] === "--wait-for-callback",
       ))
     )
       process.exitCode = 2;
   } catch (error) {
     // Provider bodies, validation errors and redirect addresses can contain private data.
     const message =
-      error instanceof EventProbeError
+      error instanceof EventProbeError || error instanceof RecordingWatchError
         ? error.message
         : "Could not verify the event source or access Ring.";
     console.error(message);

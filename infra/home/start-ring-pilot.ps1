@@ -1,7 +1,7 @@
 # Run the private-app linking spike in the foreground on the home computer.
 [CmdletBinding()]
 param([Parameter(Mandatory)][Alias('CredentialCsv')][string]$CsvPath, [string]$SnapshotDevice, [switch]$BrowserCode, [string]$AccountHint,
-      [string]$EventDevice, [ValidateSet('ding','motion')][string]$EventKind, [string]$EventId)
+      [string]$EventDevice, [ValidateSet('ding','motion')][string]$EventKind, [string]$EventId, [switch]$WaitForCallback)
 $ErrorActionPreference = 'Stop'
 $entry = Join-Path $PSScriptRoot '../../bridge/dev/ring-pilot/main.ts'
 $rows = @(Import-Csv -LiteralPath $CsvPath -Header Key,Value)
@@ -10,11 +10,13 @@ $processInfo.FileName = (Get-Command node -CommandType Application | Select-Obje
 $processInfo.UseShellExecute = $false
 $processInfo.ArgumentList.Add((Resolve-Path -LiteralPath $entry).Path)
 $processInfo.Environment['RING_PILOT_PRIVATE_DIR'] = Split-Path -Parent (Resolve-Path -LiteralPath $CsvPath).Path
-if ($EventDevice -or $EventKind -or $EventId) {
+if ($EventDevice -or $EventKind -or $EventId -or $WaitForCallback) {
     if (!$EventDevice -or !$EventKind -or $BrowserCode -or $SnapshotDevice) { throw 'Use -EventDevice and -EventKind together for a local event probe.' }
+    if ($WaitForCallback -and $EventId) { throw 'Choose either a new signed callback or a history event ID.' }
     foreach ($argument in @('--event-probe', $EventDevice, $EventKind, [string]$EventId, [string]$AccountHint)) {
         $processInfo.ArgumentList.Add($argument)
     }
+    if ($WaitForCallback) { $processInfo.ArgumentList.Add('--wait-for-callback') }
 } elseif ($BrowserCode) {
     $processInfo.ArgumentList.Add('--browser-code')
     if ($AccountHint) { $processInfo.ArgumentList.Add($AccountHint) }

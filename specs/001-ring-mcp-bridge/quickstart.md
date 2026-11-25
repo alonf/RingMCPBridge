@@ -335,6 +335,14 @@ pwsh -File ./infra/home/start-ring-pilot.ps1 -CredentialCsv 'C:\private\ring-app
 
 One attempt requests up to five seconds within that recording. The printed private directory contains the available media and a manifest identifying the household, camera, event and actual media times. Check the JPEG and MP4 separately. On a pending result, retry with the same event ID from the private manifest. For a multi-lens camera the history probe stops if it cannot identify a single lens. Confirm clip playback locally and record actual playback in each target client separately. Keep the media, manifest, signed addresses and credentials out of repository evidence.
 
+To test a fresh detection, run the updated home pilot behind its configured HTTPS tunnel. From a second terminal, start a ten-minute watch for one linked camera. Use the camera's exact name and choose `motion` or `ding`. If several Ring accounts are linked, add `-AccountHint` for the intended account.
+
+```powershell
+pwsh -File ./infra/home/start-ring-pilot.ps1 -CredentialCsv 'C:\private\ring-app.csv' -EventDevice 'Camera name' -EventKind motion -WaitForCallback
+```
+
+The watch accepts the first matching signed notification after it starts. The pilot looks up the household in that account's inventory, waits for the five-second recording window to finish processing, and requests both media items. The private manifest records the callback event ID, device, household, window and `identitySource` of `signed-webhook`. Link removal cancels the watch. A missed callback or an ambiguous camera leaves the fresh detection unverified.
+
 To replay a captured detection through a local hybrid core, point the test at the private directory printed by the probe. It starts an OAuth issuer with a local Entra stand-in and gives the MCP client and the separate receiver different tokens. The receiver checks the returned bytes. The test uses an isolated database and a temporary private object directory.
 
 ```powershell

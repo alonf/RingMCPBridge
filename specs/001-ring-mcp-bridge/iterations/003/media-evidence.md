@@ -1,5 +1,13 @@
 # Iteration 003 camera media evidence
 
+## Signed camera callback handoff, 26 November 2026
+
+The home pilot can watch one selected camera on a linked account. A signed motion or doorbell notification supplies the device, event ID, event time and any contributing camera component. The pilot resolves the household from that account's inventory. It uses the same five-second window for both media requests and retries only a representation still processing. Removing the link cancels its watch. [Ring webhook media fields](https://developer.amazon.com/docs/ring/api-documentation.html) · [Field procedure](../../quickstart.md#iteration-003-acceptance-run-planned)
+
+A local test delivered a signed synthetic doorbell notification through the webhook handler. The receiver harness imported the resulting private manifest and media, and the MCP client took the event, camera and household identifiers from `get_events`. The separate receiver fetched matching bytes with its own credential and item grant. The same MCP lookup and handoff also passed for the two Ring recordings saved on 23 November.
+
+The new callback path still needs a fresh field observation. The deployed connector-to-core path also needs to carry that verified identity to the production media source. ChatGPT and Claude playback with sound remains open.
+
 ## Retention limit for interrupted Blob uploads
 
 Delete-now invalidates the media item in the bridge and removes committed objects. If an upload stops before its block list is committed, Azure may still hold individual blocks. The bridge cannot serve those blocks as media, and its committed-object scan cannot confirm their physical removal. Azure documents garbage collection after a week without a successful block upload or block-list commit for that blob. This service-level limit also applies when the configured bridge retention is shorter. The expiry timing has not been measured on live Azure. [Microsoft Azure Storage Put Block remarks](https://learn.microsoft.com/en-us/rest/api/storageservices/put-block#remarks)

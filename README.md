@@ -165,6 +165,8 @@ If the pilot lists multiple accounts, repeat the command with `-AccountHint` and
 
 To try one stored camera snapshot, add `-SnapshotDevice 'Camera name'` to the launcher. Use the exact name from your shared inventory. In the linked browser, choose the button to save the latest snapshot. The pilot searches from the later of account-link confirmation or 24 hours ago and saves one JPEG beside the private credentials CSV, with Ring's UTC capture time in its filename. For a device with several lenses it uses the first lens Ring lists.
 
+To capture the JPEG and clip for a new detection, start the linked pilot, then use `-EventDevice 'Camera name' -EventKind motion -WaitForCallback` in a second terminal with the same credentials CSV. This watches one camera for ten minutes and saves the first matching signed event to a private directory. The local receiver test can then request those items using the event identity returned by MCP. [Camera handoff quickstart](specs/001-ring-mcp-bridge/quickstart.md#iteration-003-acceptance-run-planned)
+
 ## Where things are
 
 - `bridge/`: the bridge itself, with the core, the home connector, the all-in-one host and their tests.
