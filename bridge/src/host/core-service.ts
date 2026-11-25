@@ -36,6 +36,8 @@ import { McpEndpoint, ReadLimit } from "../core/clients/mcp-endpoint/index.ts";
 import { keptFromSharedLocation } from "../core/engines/classify/index.ts";
 import {
   ADMIN_PATH,
+  DownloadLifetime,
+  mediaDownload,
   SIGN_IN_RETURN_PATH,
   Web,
 } from "../core/clients/web/index.ts";
@@ -55,7 +57,6 @@ import { EventLog } from "../core/access/event-log/index.ts";
 import type { EventMediaSource } from "../core/managers/media/index.ts";
 import { MediaPermissions } from "../core/access/settings/index.ts";
 import { MediaTickets } from "../core/access/media/index.ts";
-import { mediaDownload } from "../core/clients/web/index.ts";
 import type { MediaObjects } from "../core/access/media/index.ts";
 import type { CoreAssembly } from "./core-assembly.ts";
 import { BRIDGE_VERSION } from "./version.ts";
@@ -90,6 +91,8 @@ const HTTP_SERVER_ERROR = 500;
 const HTTP_UNAVAILABLE = 503;
 /** How long the readiness check waits for the database. */
 const READINESS_DATABASE_TIMEOUT_MS = 2_000;
+/** Give interrupted media downloads up to one storage operation's deadline to persist their audits. */
+const DOWNLOAD_SHUTDOWN_TIMEOUT_MS = 30_000;
 
 /** What the core service is made over. */
 export interface CoreServiceResources {
@@ -245,10 +248,13 @@ export async function startCoreService(
       ...(resources.eventMediaSource && { source: resources.eventMediaSource }),
     });
   const downloadLimit = new ReadLimit(settings.readsPerHour, clock);
+  const downloads = new DownloadLifetime();
   const download =
     media &&
     getRequestListener((request) =>
-      mediaDownload(request, media, issuer, downloadLimit, logger),
+      downloads.track(
+        mediaDownload(request, media, issuer, downloadLimit, logger, downloads),
+      ),
     );
   const mcp = new McpEndpoint(
     {
@@ -388,7 +394,14 @@ export async function startCoreService(
         });
         server.closeAllConnections();
         linkServer.close("core_stopping");
-        await closed;
+        const deadline = AbortSignal.timeout(DOWNLOAD_SHUTDOWN_TIMEOUT_MS);
+        await Promise.all([
+          closed,
+          downloads.stop(deadline).catch((error: unknown) => {
+            if (!deadline.aborted) throw error;
+            logger.error("media_download_shutdown_timeout", undefined, error);
+          }),
+        ]);
         await core.stop();
         issuer.close();
         await store.close();

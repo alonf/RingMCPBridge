@@ -1,4 +1,5 @@
 import type { Logger } from "../../../utilities/logging/index.ts";
+import type { DownloadLifetime } from "./download-lifetime.ts";
 import { MediaDenied } from "../../managers/media/index.ts";
 import type { MediaHandoff } from "../../managers/media/index.ts";
 import type { AccessTokens, ReadLimit } from "../mcp-endpoint/index.ts";
@@ -26,6 +27,7 @@ export async function mediaDownload(
   tokens: AccessTokens,
   limit: Pick<ReadLimit, "take">,
   logger?: Pick<Logger, "error">,
+  lifetime?: DownloadLifetime,
 ) {
   const headers = new Headers({
     "cache-control": "private, no-store",
@@ -33,6 +35,7 @@ export async function mediaDownload(
     "x-content-type-options": "nosniff",
   });
   const empty = (status: number) => new Response(null, { status, headers });
+  if (lifetime?.signal.aborted) return empty(503);
   if (request.method !== "GET") {
     headers.set("allow", "GET");
     return empty(405);
@@ -45,7 +48,10 @@ export async function mediaDownload(
   )?.[1];
   if (!itemId) return empty(404);
   const cancelled = new AbortController();
-  const connection = AbortSignal.any([request.signal, cancelled.signal]);
+  const disconnect = lifetime
+    ? AbortSignal.any([request.signal, lifetime.signal])
+    : request.signal;
+  const connection = AbortSignal.any([disconnect, cancelled.signal]);
   const deadline = () =>
     AbortSignal.any([connection, AbortSignal.timeout(READ_TIMEOUT_MS)]);
   const signal = deadline();
@@ -122,7 +128,8 @@ export async function mediaDownload(
     const auditInterruption = (outcome: "denied" | "incomplete") => {
       // Cancellation and a rejected storage read can describe the same interruption.
       // The connection's signal may already be aborted when the audit starts.
-      failureAudit ??= media
+      if (failureAudit) return failureAudit;
+      const write = media
         .auditFetch(
           itemId,
           recipient,
@@ -133,6 +140,7 @@ export async function mediaDownload(
         .catch((error: unknown) =>
           logger?.error("media_audit_failed", { request_id: itemId }, error),
         );
+      failureAudit = lifetime ? lifetime.track(write) : write;
       return failureAudit;
     };
     const abortListener = new AbortController();
@@ -155,11 +163,11 @@ export async function mediaDownload(
             controller.error(new Error("Media download interrupted."));
             void auditInterruption("incomplete");
           };
-          if (request.signal.aborted) {
+          if (disconnect.aborted) {
             onDisconnect();
             return;
           }
-          request.signal.addEventListener("abort", onDisconnect, {
+          disconnect.addEventListener("abort", onDisconnect, {
             once: true,
             signal: abortListener.signal,
           });
