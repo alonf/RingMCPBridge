@@ -130,6 +130,15 @@ const NOTICES: Readonly<
     tone: "warn",
     text: "The bridge could not check the camera settings. Your changes have not been applied.",
   },
+  media_saved: { tone: "ok", text: "Camera permissions saved." },
+  media_save_stale: {
+    tone: "warn",
+    text: "Camera settings changed since you opened this form. Review the current settings and submit your changes again.",
+  },
+  media_delete_stale: {
+    tone: "warn",
+    text: "No cached media was deleted. Sign in again to confirm deletion.",
+  },
   media_save_unknown: {
     tone: "warn",
     text: "The bridge could not confirm the save. Reload the camera permissions before retrying.",
@@ -220,6 +229,10 @@ export function adminPage(view: {
   readonly mediaDelete?: { readonly action: string; readonly fresh: boolean };
   readonly notice: Notice | undefined;
 }): Html {
+  const mediaLinks = html`
+    ${view.cameras !== undefined ? html`<li><a href="${view.paths.page}#cameras">Camera permissions</a></li>` : ""}
+    ${view.mediaDelete ? html`<li><a href="${view.paths.page}#media-storage">Cached camera media</a></li>` : ""}
+  `;
   return frame({
     paths: view.paths,
     theme: view.theme,
@@ -227,10 +240,12 @@ export function adminPage(view: {
     formToken: view.formToken,
     body: html`<details class="menu">
         <summary>Menu</summary>
-        ${navigation(view.paths, "Sections menu")}
+        ${navigation(view.paths, "Sections menu", mediaLinks)}
       </details>
       <div class="shell">
-        <div class="side">${navigation(view.paths, "Sections")}</div>
+        <div class="side">
+          ${navigation(view.paths, "Sections", mediaLinks)}
+        </div>
         <main id="main">
           <h1 class="page-title">Bridge admin</h1>
           ${view.notice === undefined ? "" : notice(view.notice)}
@@ -380,12 +395,13 @@ function frame(view: {
     </html>`;
 }
 
-function navigation(paths: PagePaths, label: string): Html {
+function navigation(paths: PagePaths, label: string, mediaLinks: Html): Html {
   return html`<nav aria-label="${label}">
     <ul class="nav-list">
       <li><a href="${paths.page}#health">Health</a></li>
       <li><a href="${paths.page}#enroll">Enroll connector</a></li>
       <li><a href="${paths.page}#time-zone">Time zone</a></li>
+      ${mediaLinks}
     </ul>
   </nav>`;
 }

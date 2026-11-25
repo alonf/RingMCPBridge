@@ -29,6 +29,9 @@ export type Notice =
   | {
       readonly kind:
         | "media_deleted"
+        | "media_delete_stale"
+        | "media_save_stale"
+        | "media_saved"
         | "media_save_unknown"
         | "media_save_unavailable"
         | "media_delete_unknown"

@@ -72,6 +72,12 @@ test.describe("the admin page", () => {
       page.getByRole("heading", { name: "Camera permissions" }),
     ).toHaveCount(0);
     await page.getByRole("link", { name: "Sign in" }).click();
+    for (const section of ["cameras", "media-storage"]) {
+      await expect(page.locator(`nav a[href="/admin#${section}"]`)).toHaveCount(
+        2,
+      );
+      await expect(page.locator(`#${section}`)).toHaveCount(1);
+    }
     const approved = page.getByLabel(
       "Remove approval from Test receiver (receiver)",
       { exact: true },

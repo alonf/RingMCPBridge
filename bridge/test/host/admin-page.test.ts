@@ -87,7 +87,7 @@ async function page(core: StartedCore, session: string): Promise<string> {
 }
 
 function field(shown: string, name: string): string {
-  return new RegExp(`name="${name}" value="([^"]+)"`).exec(shown)?.[1] ?? "";
+  return new RegExp(`name="${name}"\\s+value="([^"]*)"`).exec(shown)?.[1] ?? "";
 }
 
 /** Compares the code on the page, types it, and approves: the page shown after. */
@@ -218,6 +218,8 @@ describe("the admin page end to end", () => {
       const fields = {
         form_token: field(shown, "form_token"),
         camera_form: "settings",
+        expected_generation: field(shown, "expected_generation"),
+        expected_person_action: field(shown, "expected_person_action"),
         location_id: "shared",
         device_id: "door",
         receiver_id: "",
@@ -231,7 +233,30 @@ describe("the admin page end to end", () => {
         });
       for (const choice of ["push", "store_only"])
         expect((await submit({ person_action: choice })).status).toBe(400);
-      expect((await submit({ enabled: "on" })).status).toBe(303);
+      expect((await submit({ enabled: "on", sound: "on" })).status).toBe(303);
+      const enabledPage = await page(core, owner);
+      expect(enabledPage).toContain("Camera permissions saved.");
+      const enabledGeneration = field(enabledPage, "expected_generation");
+      expect(enabledGeneration).not.toBe("");
+      expect(
+        (await submit({ expected_generation: enabledGeneration })).status,
+      ).toBe(303);
+      // The earlier tab still shows media enabled. Its save must not re-enable access.
+      expect(
+        (
+          await submit({
+            expected_generation: enabledGeneration,
+            enabled: "on",
+            sound: "on",
+          })
+        ).status,
+      ).toBe(303);
+      const conflict = await page(core, owner);
+      expect(conflict).toContain(
+        "Camera settings changed since you opened this form",
+      );
+      expect(conflict).not.toMatch(/name="enabled"\s+checked/);
+      expect(conflict).not.toMatch(/name="sound"\s+checked/);
       const lookup = vi
         .spyOn(core.running.core.state, "device")
         .mockRejectedValueOnce(new Error("Inventory unavailable."));
@@ -301,6 +326,7 @@ describe("the admin page end to end", () => {
     try {
       expect((await submit(formToken, core.url, "DELETE")).status).toBe(303);
       const stale = await page(core, owner);
+      expect(stale).toContain("No cached media was deleted");
       expect(stale).toContain("sign-in?then=media-storage");
       expect(stale).not.toContain('action="/admin/media/delete"');
       expect(await media.ready(item.id, never())).toBeDefined();

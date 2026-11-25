@@ -54,7 +54,7 @@ export function mediaSettingsScenario(): MediaAdmin {
       for (const removed of change.remove ?? []) approvals.delete(removed);
       if (receiver && change.approved) approvals.set(receiver, "preview");
       choices.set(device, { ...change, generation: "preview", approvals });
-      return Promise.resolve();
+      return Promise.resolve("saved");
     },
   };
 }

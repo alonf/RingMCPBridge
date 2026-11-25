@@ -10,6 +10,51 @@ import {
 
 import { describeStoreMatrix } from "../support/index.ts";
 describeStoreMatrix("per-camera media approval", (backend) => {
+  it("rejects an old person-detection choice before changing approvals or writing an audit row", async () => {
+    const clock = new FakeClock(1000);
+    const signal = new AbortController().signal;
+    const db = await backend.emptyDatabase();
+    try {
+      await runMigrations(db, CORE_MIGRATIONS, { clock }, signal);
+      const settings = new MediaPermissions(db);
+      const switches = { enabled: true, sound: true, approved: true };
+      await settings.save("home", "door", "one", switches, signal);
+      const original = await settings.camera("home", "door", signal);
+      const expected = {
+        generation: original.generation,
+        personAction: "inherit" as const,
+      };
+      await settings.save(
+        "home",
+        "door",
+        "",
+        { ...switches, expected, personAction: "drop" },
+        signal,
+      );
+      const auditCount = () =>
+        db.get(
+          { sql: "SELECT COUNT(*) AS n FROM owner_media_change", params: {} },
+          signal,
+        );
+      const before = await auditCount();
+      expect(
+        await settings.save(
+          "home",
+          "door",
+          "two",
+          { ...switches, expected, personAction: "inherit", remove: ["one"] },
+          signal,
+        ),
+      ).toBe("stale");
+      const after = await settings.camera("home", "door", signal);
+      expect(after.personAction).toBe("drop");
+      expect(after.generation).toBe(original.generation);
+      expect(after.approvals).toEqual(original.approvals);
+      expect(await auditCount()).toEqual(before);
+    } finally {
+      await db.close();
+    }
+  });
   it("checks the grant against its receiver, item, both generations and the exact five-minute boundary", async () => {
     const clock = new FakeClock(1234),
       signal = new AbortController().signal;

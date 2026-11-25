@@ -301,8 +301,10 @@ export class Web {
       SESSION_FORM.extend({ confirm: z.string().optional() }),
     );
     if (checked instanceof Response) return checked;
-    if (!this.#fresh(checked.session))
+    if (!this.#fresh(checked.session)) {
+      this.#sessions.tell(checked.session.id, { kind: "media_delete_stale" });
       return context.redirect(ADMIN_PATH + "#media-storage", HTTP_SEE_OTHER);
+    }
     if (checked.form.confirm !== MEDIA_DELETE_CONFIRMATION)
       return this.#refuse(
         context,
@@ -336,6 +338,13 @@ export class Web {
         sound: z.literal("on").optional(),
         approved: z.literal("on").optional(),
         camera_form: z.literal("settings").optional(),
+        expected_generation: z.string().max(128),
+        expected_person_action: z.enum([
+          "inherit",
+          "push",
+          "store_only",
+          "drop",
+        ]),
         "remove[]": z.array(z.string().min(1).max(400)).optional(),
         person_action: z
           .enum(["inherit", "push", "store_only", "drop"])
@@ -349,12 +358,16 @@ export class Web {
     const { location_id, device_id, receiver_id, enabled, sound, approved } =
       checked.form;
     try {
-      await media.save(
+      const result = await media.save(
         location_id,
         device_id,
         receiver_id,
         {
           enabled: !!enabled,
+          expected: {
+            generation: checked.form.expected_generation,
+            personAction: checked.form.expected_person_action,
+          },
           sound: !!sound,
           approved:
             checked.form.camera_form || checked.form.person_action
@@ -367,6 +380,9 @@ export class Web {
         },
         AbortSignal.timeout(MANAGER_TIMEOUT_MS),
       );
+      this.#sessions.tell(checked.session.id, {
+        kind: result === "stale" ? "media_save_stale" : "media_saved",
+      });
     } catch (error) {
       if (error instanceof MediaDenied)
         return context.text(

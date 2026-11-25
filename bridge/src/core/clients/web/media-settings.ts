@@ -3,7 +3,7 @@ import type { MediaHandoff } from "../../managers/media/index.ts";
 
 export const MEDIA_SETTINGS = "/admin/cameras";
 export const cameraSettingsUnavailable = () =>
-  html`<section class="card">
+  html`<section id="cameras" class="card">
     <h2>Camera permissions</h2>
     <p>Camera settings could not be loaded.</p>
   </section>`;
@@ -72,6 +72,16 @@ export async function cameraSettings(
             <fieldset>
               <legend>${camera.name}</legend>
               <input type="hidden" name="camera_form" value="settings" />
+              <input
+                type="hidden"
+                name="expected_generation"
+                value="${policy.generation}"
+              />
+              <input
+                type="hidden"
+                name="expected_person_action"
+                value="${policy.personAction ?? "inherit"}"
+              />
               <input
                 type="hidden"
                 name="form_token"

@@ -106,7 +106,7 @@ export class MediaHandoff {
         { cause },
       );
     }
-    await this.deps.permissions.save(home, device, receiver, change, signal);
+    return this.deps.permissions.save(home, device, receiver, change, signal);
   }
   private async checkCamera(home: string, device: string, signal: AbortSignal) {
     const [location, camera] = await Promise.all([

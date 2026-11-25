@@ -15,6 +15,10 @@ export interface CameraPermission {
   readonly approvals: ReadonlyMap<string, string>;
 }
 export interface CameraChange {
+  readonly expected?: {
+    readonly generation: string;
+    readonly personAction: EventAction;
+  };
   readonly enabled: boolean;
   readonly sound: boolean;
   readonly approved: boolean;
@@ -132,12 +136,29 @@ export class MediaPermissions {
     receiver: string,
     change: CameraChange,
     signal: AbortSignal,
-  ): Promise<void> {
+  ): Promise<"saved" | "stale"> {
     const cameraKey = key(home, camera);
     const approvalKey = key(home, camera, receiver);
     const enabled = Number(change.enabled),
       sound = Number(change.sound);
-    await this.db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
+      if (change.expected) {
+        // Serialize the comparison with writes, including the first save of an unseen camera.
+        // SQLite already holds the write lock at the start of this transaction.
+        const lock = tx.dialect === "tsql" ? " WITH (UPDLOCK,HOLDLOCK)" : "";
+        const current = await tx.get(
+          {
+            sql: `SELECT generation,person_action FROM camera_media_policy${lock} WHERE camera_key=@camera_key`,
+            params: { camera_key: cameraKey },
+          },
+          signal,
+        );
+        if (
+          (current?.generation ?? "") !== change.expected.generation ||
+          personAction(current?.person_action) !== change.expected.personAction
+        )
+          return "stale" as const;
+      }
       const inserted = await tx.run(
         upsertStatement(tx.dialect, {
           table: "camera_media_policy",
@@ -208,7 +229,7 @@ export class MediaPermissions {
           );
       };
       for (const removed of change.remove ?? []) await removeApproval(removed);
-      if (!receiver) return;
+      if (!receiver) return "saved" as const;
       if (change.approved) {
         const added = await tx.run(
           upsertStatement(tx.dialect, {
@@ -236,6 +257,7 @@ export class MediaPermissions {
       } else {
         await removeApproval(receiver);
       }
+      return "saved" as const;
     }, signal);
   }
 }
