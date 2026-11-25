@@ -10,6 +10,68 @@ import {
 
 import { describeStoreMatrix } from "../support/index.ts";
 describeStoreMatrix("per-camera media approval", (backend) => {
+  it("rejects an old add after approval and withdrawal return the receiver list to its original state", async () => {
+    const signal = new AbortController().signal;
+    const db = await backend.emptyDatabase();
+    try {
+      await runMigrations(
+        db,
+        CORE_MIGRATIONS,
+        { clock: new FakeClock(1000) },
+        signal,
+      );
+      const settings = new MediaPermissions(db);
+      const switches = { enabled: true, sound: false, approved: true };
+      await settings.save("home", "door", "existing", switches, signal);
+      const before = await settings.camera("home", "door", signal);
+      const expected = {
+        generation: before.generation,
+        personAction: "inherit" as const,
+        approvalRevision: before.approvalRevision,
+      };
+      await settings.save(
+        "home",
+        "door",
+        "guest",
+        { ...switches, expected },
+        signal,
+      );
+      await settings.save(
+        "home",
+        "door",
+        "guest",
+        { ...switches, approved: false },
+        signal,
+      );
+      expect(
+        await settings.save(
+          "home",
+          "door",
+          "guest",
+          { ...switches, expected },
+          signal,
+        ),
+      ).toBe("stale");
+      const after = await settings.camera("home", "door", signal);
+      expect(after.approvals).toEqual(before.approvals);
+      expect(after.generation).toBe(before.generation);
+      expect(after.approvalRevision).not.toBe(before.approvalRevision);
+      expect(
+        await settings.save(
+          "home",
+          "door",
+          "guest",
+          {
+            ...switches,
+            expected: { ...expected, approvalRevision: after.approvalRevision },
+          },
+          signal,
+        ),
+      ).toBe("saved");
+    } finally {
+      await db.close();
+    }
+  });
   it("rejects an old person-detection choice before changing approvals or writing an audit row", async () => {
     const clock = new FakeClock(1000);
     const signal = new AbortController().signal;
@@ -22,6 +84,7 @@ describeStoreMatrix("per-camera media approval", (backend) => {
       const original = await settings.camera("home", "door", signal);
       const expected = {
         generation: original.generation,
+        approvalRevision: original.approvalRevision,
         personAction: "inherit" as const,
       };
       await settings.save(

@@ -204,8 +204,15 @@ describeStoreMatrix("Settings", (store) => {
       "UPDATE camera_media_approval SET location_id=NULL,device_id=NULL WHERE receiver_id=@id",
       { id: RELAY.client_id },
     );
+    const before = await media.camera("home", "door", signal);
     await settings.seedAgents([CHAT_AGENT], signal);
+    const after = await media.camera("home", "door", signal);
+    expect(after.approvalRevision).not.toBe(before.approvalRevision);
+    expect(after.generation).toBe(before.generation);
     await settings.seedAgents([CHAT_AGENT], signal);
+    expect((await media.camera("home", "door", signal)).approvalRevision).toBe(
+      after.approvalRevision,
+    );
     const removed = await layer.all(
       {
         sql: "SELECT receiver_id,location_id,device_id,camera_key FROM owner_media_change WHERE action='approval_removed'",

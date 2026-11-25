@@ -64,6 +64,35 @@ async function approveWith(page: Page, typed: string): Promise<void> {
 }
 
 test.describe("the admin page", () => {
+  test("an older tab cannot restore a withdrawn camera receiver", async ({
+    page,
+    context,
+  }) => {
+    await open(page, "cameras=1");
+    const oldTab = await context.newPage();
+    await oldTab.goto("/admin");
+    const receiver = "Test receiver (receiver)";
+    const save = (tab: Page) =>
+      tab.getByRole("button", { name: "Save camera permissions" }).click();
+    await oldTab
+      .getByLabel("Add receiving service")
+      .selectOption({ label: receiver });
+    await page
+      .getByLabel("Add receiving service")
+      .selectOption({ label: receiver });
+    await save(page);
+    await page
+      .getByLabel("Remove approval from " + receiver, { exact: true })
+      .check();
+    await save(page);
+    await save(oldTab);
+    await expect(notice(oldTab)).toContainText(
+      "Camera settings changed since you opened this form",
+    );
+    await expect(
+      oldTab.getByLabel("Remove approval from " + receiver, { exact: true }),
+    ).toHaveCount(0);
+  });
   test("the owner approves photos and clips for one camera", async ({
     page,
   }) => {

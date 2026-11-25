@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { WebDependencies } from "../src/core/clients/web/index.ts";
 type MediaAdmin = NonNullable<WebDependencies["media"]>;
 /** Independent state for each browser test's household settings. */
@@ -45,15 +46,33 @@ export function mediaSettingsScenario(): MediaAdmin {
           enabled: false,
           sound: true,
           generation: "preview",
+          approvalRevision: "",
           approvals: new Map<string, string>(),
         },
       );
     },
     save: (_home, device, receiver, change) => {
-      const approvals = new Map(choices.get(device)?.approvals);
-      for (const removed of change.remove ?? []) approvals.delete(removed);
-      if (receiver && change.approved) approvals.set(receiver, "preview");
-      choices.set(device, { ...change, generation: "preview", approvals });
+      const current = choices.get(device);
+      let approvalRevision = current?.approvalRevision ?? "";
+      if (
+        change.expected &&
+        change.expected.approvalRevision !== approvalRevision
+      )
+        return Promise.resolve("stale");
+      const approvals = new Map(current?.approvals);
+      for (const removed of change.remove ?? []) {
+        if (approvals.delete(removed)) approvalRevision = randomUUID();
+      }
+      if (receiver && change.approved && !approvals.has(receiver)) {
+        approvalRevision = randomUUID();
+        approvals.set(receiver, approvalRevision);
+      }
+      choices.set(device, {
+        ...change,
+        generation: "preview",
+        approvalRevision,
+        approvals,
+      });
       return Promise.resolve("saved");
     },
   };

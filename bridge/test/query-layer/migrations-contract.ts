@@ -48,6 +48,7 @@ const EXPECTED_TABLES: Readonly<
     ["sound", true],
     ["generation", true],
     ["person_action", false],
+    ["approval_revision", false],
   ],
   camera_media_approval: [
     ["approval_key", true],

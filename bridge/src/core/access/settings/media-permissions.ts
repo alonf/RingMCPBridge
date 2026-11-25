@@ -11,12 +11,14 @@ export interface CameraPermission {
   readonly enabled: boolean;
   readonly sound: boolean;
   readonly generation: string;
+  readonly approvalRevision: string;
   readonly personAction?: EventAction;
   readonly approvals: ReadonlyMap<string, string>;
 }
 export interface CameraChange {
   readonly expected?: {
     readonly generation: string;
+    readonly approvalRevision: string;
     readonly personAction: EventAction;
   };
   readonly enabled: boolean;
@@ -28,6 +30,19 @@ export interface CameraChange {
 
 function key(...parts: string[]): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+}
+async function advanceApprovalRevision(
+  tx: SqlSession,
+  cameraKey: string,
+  signal: AbortSignal,
+) {
+  await tx.run(
+    {
+      sql: "UPDATE camera_media_policy SET approval_revision=@revision WHERE camera_key=@cameraKey",
+      params: { revision: randomUUID(), cameraKey },
+    },
+    signal,
+  );
 }
 function personAction(value: unknown): EventAction {
   return value === "drop" || value === "push" || value === "store_only"
@@ -83,6 +98,7 @@ export async function withdrawReceiverIn(
   }
   for (const row of removed) {
     const cameraKey = String(row.camera_key);
+    await advanceApprovalRevision(tx, cameraKey, signal);
     const ids =
       typeof row.location_id === "string" && typeof row.device_id === "string"
         ? { home: row.location_id, camera: row.device_id }
@@ -112,7 +128,7 @@ export class MediaPermissions {
     const cameraKey = key(home, camera);
     const rows = await this.db.all(
       {
-        sql: "SELECT p.enabled,p.sound,p.person_action,p.generation,a.receiver_id,a.generation AS approval FROM camera_media_policy p LEFT JOIN camera_media_approval a ON a.camera_key=p.camera_key WHERE p.camera_key=@camera_key",
+        sql: "SELECT p.enabled,p.sound,p.person_action,p.generation,p.approval_revision,a.receiver_id,a.generation AS approval FROM camera_media_policy p LEFT JOIN camera_media_approval a ON a.camera_key=p.camera_key WHERE p.camera_key=@camera_key",
         params: { camera_key: cameraKey },
       },
       signal,
@@ -123,6 +139,7 @@ export class MediaPermissions {
       sound: policy ? policy.sound === 1 : true,
       personAction: personAction(policy?.person_action),
       generation: String(policy?.generation ?? ""),
+      approvalRevision: String(policy?.approval_revision ?? ""),
       approvals: new Map(
         rows
           .filter((row) => typeof row.receiver_id === "string")
@@ -148,13 +165,15 @@ export class MediaPermissions {
         const lock = tx.dialect === "tsql" ? " WITH (UPDLOCK,HOLDLOCK)" : "";
         const current = await tx.get(
           {
-            sql: `SELECT generation,person_action FROM camera_media_policy${lock} WHERE camera_key=@camera_key`,
+            sql: `SELECT generation,person_action,approval_revision FROM camera_media_policy${lock} WHERE camera_key=@camera_key`,
             params: { camera_key: cameraKey },
           },
           signal,
         );
         if (
           (current?.generation ?? "") !== change.expected.generation ||
+          (current?.approval_revision ?? "") !==
+            change.expected.approvalRevision ||
           personAction(current?.person_action) !== change.expected.personAction
         )
           return "stale" as const;
@@ -220,13 +239,15 @@ export class MediaPermissions {
           },
           signal,
         );
-        if (affected)
+        if (affected) {
+          await advanceApprovalRevision(tx, cameraKey, signal);
           await recordOwnerMediaChange(
             tx,
             { action: "approval_removed", home, camera, receiver: removed },
             at,
             signal,
           );
+        }
       };
       for (const removed of change.remove ?? []) await removeApproval(removed);
       if (!receiver) return "saved" as const;
@@ -247,13 +268,15 @@ export class MediaPermissions {
           }),
           signal,
         );
-        if (added)
+        if (added) {
+          await advanceApprovalRevision(tx, cameraKey, signal);
           await recordOwnerMediaChange(
             tx,
             { action: "approval_added", home, camera, receiver },
             at,
             signal,
           );
+        }
       } else {
         await removeApproval(receiver);
       }

@@ -339,6 +339,7 @@ export class Web {
         approved: z.literal("on").optional(),
         camera_form: z.literal("settings").optional(),
         expected_generation: z.string().max(128),
+        expected_approval_revision: z.string().max(36),
         expected_person_action: z.enum([
           "inherit",
           "push",
@@ -366,6 +367,7 @@ export class Web {
           enabled: !!enabled,
           expected: {
             generation: checked.form.expected_generation,
+            approvalRevision: checked.form.expected_approval_revision,
             personAction: checked.form.expected_person_action,
           },
           sound: !!sound,

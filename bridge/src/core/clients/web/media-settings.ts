@@ -79,6 +79,11 @@ export async function cameraSettings(
               />
               <input
                 type="hidden"
+                name="expected_approval_revision"
+                value="${policy.approvalRevision}"
+              />
+              <input
+                type="hidden"
                 name="expected_person_action"
                 value="${policy.personAction ?? "inherit"}"
               />

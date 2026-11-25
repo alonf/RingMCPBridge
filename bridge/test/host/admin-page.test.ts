@@ -219,6 +219,7 @@ describe("the admin page end to end", () => {
         form_token: field(shown, "form_token"),
         camera_form: "settings",
         expected_generation: field(shown, "expected_generation"),
+        expected_approval_revision: field(shown, "expected_approval_revision"),
         expected_person_action: field(shown, "expected_person_action"),
         location_id: "shared",
         device_id: "door",

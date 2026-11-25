@@ -103,7 +103,6 @@ export async function mediaDownload(
         offset === range.start,
       );
       if (chunk.byteLength !== size) throw new Error("Incomplete media range.");
-      offset += size;
       return chunk;
     };
     // Authorize the first bytes before sending successful headers.
@@ -119,46 +118,76 @@ export async function mediaDownload(
         "content-range",
         `bytes ${String(range.start)}-${String(range.end)}/${String(item.length)}`,
       );
+    let failureAudit: Promise<void> | undefined;
+    const auditInterruption = (outcome: "denied" | "incomplete") => {
+      // Cancellation and a rejected storage read can describe the same interruption.
+      // The connection's signal may already be aborted when the audit starts.
+      failureAudit ??= media
+        .auditFetch(
+          itemId,
+          recipient,
+          outcome,
+          AbortSignal.timeout(READ_TIMEOUT_MS),
+          item,
+        )
+        .catch((error: unknown) =>
+          logger?.error("media_audit_failed", { request_id: itemId }, error),
+        );
+      return failureAudit;
+    };
+    const abortListener = new AbortController();
+    const enqueue = (
+      controller: ReadableStreamDefaultController<Uint8Array>,
+      chunk: Uint8Array,
+    ) => {
+      connection.throwIfAborted();
+      controller.enqueue(chunk);
+      offset += chunk.byteLength;
+      if (offset > range.end) {
+        abortListener.abort();
+        controller.close();
+      }
+    };
     const body = new ReadableStream<Uint8Array>(
       {
         start(controller) {
-          controller.enqueue(first);
-          if (offset > range.end) controller.close();
+          const onDisconnect = () => {
+            controller.error(new Error("Media download interrupted."));
+            void auditInterruption("incomplete");
+          };
+          if (request.signal.aborted) {
+            onDisconnect();
+            return;
+          }
+          request.signal.addEventListener("abort", onDisconnect, {
+            once: true,
+            signal: abortListener.signal,
+          });
+          enqueue(controller, first);
         },
         async pull(controller) {
           try {
             const chunk = await nextChunk();
-            connection.throwIfAborted();
-            controller.enqueue(chunk);
-            if (offset > range.end) controller.close();
+            enqueue(controller, chunk);
           } catch (error) {
+            abortListener.abort();
             logger?.error(
               "media_download_failed",
               { request_id: itemId },
               error,
             );
-            // The storage deadline or connection may have expired. Record the
-            // outcome using the identity already checked for this response.
-            try {
-              await media.auditFetch(
-                itemId,
-                recipient,
-                error instanceof MediaDenied ? "denied" : "incomplete",
-                AbortSignal.timeout(READ_TIMEOUT_MS),
-                item,
-              );
-            } catch (auditError) {
-              logger?.error(
-                "media_audit_failed",
-                { request_id: itemId },
-                auditError,
-              );
-            }
+            await auditInterruption(
+              error instanceof MediaDenied ? "denied" : "incomplete",
+            );
             controller.error(new Error("Media download interrupted."));
           }
         },
         cancel() {
+          abortListener.abort();
           cancelled.abort();
+          return offset <= range.end
+            ? auditInterruption("incomplete")
+            : undefined;
         },
       },
       { highWaterMark: 0 },

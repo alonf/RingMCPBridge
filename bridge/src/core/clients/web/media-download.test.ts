@@ -158,6 +158,7 @@ it("serves single ranges, reports unsatisfiable requests and requires a current 
 });
 
 it("reads a large download on demand and stops at cancellation", async () => {
+  const auditFetch = vi.fn(() => Promise.resolve());
   const size = 2 * 1024 * 1024;
   const large = { ...item, length: size };
   const read = vi.fn(
@@ -174,7 +175,7 @@ it("reads a large download on demand and stops at cancellation", async () => {
     {
       authorize: () => Promise.resolve(large),
       read,
-      auditFetch: () => Promise.resolve(),
+      auditFetch,
     },
     { checkAccessToken: () => Promise.resolve(allowed) },
     { take: () => ({ allowed: true }) },
@@ -197,6 +198,52 @@ it("reads a large download on demand and stops at cancellation", async () => {
     await reader.cancel();
   }
   expect(read).toHaveBeenCalledTimes(2);
+  expect(auditFetch).toHaveBeenCalledExactlyOnceWith(
+    item.id,
+    "receiver",
+    "incomplete",
+    expect.any(AbortSignal),
+    large,
+  );
+});
+
+it("audits a disconnect racing the last storage read exactly once with a live signal", async () => {
+  const connection = new AbortController();
+  const large = { ...item, length: 512 * 1024 };
+  const pendingRead = Promise.withResolvers<Uint8Array>();
+  const started = Promise.withResolvers<undefined>();
+  const auditFetch = vi.fn(() => Promise.resolve());
+  const response = await mediaDownload(
+    new Request(url, {
+      headers: { authorization: "Bearer demo" },
+      signal: connection.signal,
+    }),
+    {
+      authorize: () => Promise.resolve(large),
+      auditFetch,
+      read: vi
+        .fn()
+        .mockResolvedValueOnce(new Uint8Array(256 * 1024))
+        .mockImplementationOnce(() => {
+          started.resolve(undefined);
+          return pendingRead.promise;
+        }),
+    },
+    { checkAccessToken: () => Promise.resolve(allowed) },
+    { take: () => ({ allowed: true }) },
+  );
+  const download = response.arrayBuffer();
+  await started.promise;
+  connection.abort();
+  pendingRead.resolve(new Uint8Array(256 * 1024));
+  await expect(download).rejects.toThrow("Media download interrupted.");
+  expect(auditFetch).toHaveBeenCalledExactlyOnceWith(
+    item.id,
+    "receiver",
+    "incomplete",
+    expect.objectContaining({ aborted: false }),
+    large,
+  );
 });
 
 it.each(["denied", "storage", "short", "timeout"] as const)(
