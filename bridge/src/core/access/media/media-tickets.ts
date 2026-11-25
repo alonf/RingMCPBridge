@@ -81,7 +81,7 @@ export class MediaTickets {
       receiver: string;
       requester: string;
       operation: "share" | "fetch";
-      outcome: "allowed" | "denied";
+      outcome: "allowed" | "denied" | "incomplete" | "range_rejected";
       location_id?: string;
       device_id?: string;
       event_id?: string;

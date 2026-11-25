@@ -70,7 +70,20 @@ it("serves single ranges, reports unsatisfiable requests and requires a current 
     expect(res.status).toBe(206);
     expect(res.headers.get("content-range")).toBe(expected);
   }
-  expect((await get("bytes=9-")).status).toBe(416);
+  for (const header of ["bytes=9-", "invalid", "bytes=0-1,3-4"]) {
+    media.auditFetch.mockClear();
+    const invalidRange = await get(header);
+    expect(invalidRange.status).toBe(416);
+    expect(invalidRange.headers.get("content-range")).toBe("bytes */8");
+    expect(media.auditFetch).toHaveBeenCalledWith(
+      item.id,
+      "receiver",
+      "range_rejected",
+      expect.any(AbortSignal),
+      item,
+    );
+  }
+  media.auditFetch.mockClear();
   expect(
     (await mediaDownload(new Request(url), media, tokens, limit)).status,
   ).toBe(401);
@@ -185,3 +198,48 @@ it("reads a large download on demand and stops at cancellation", async () => {
   }
   expect(read).toHaveBeenCalledTimes(2);
 });
+
+it.each(["denied", "storage", "short", "timeout"] as const)(
+  "records a %s failure after headers and aborts the body",
+  async (failure) => {
+    const large = { ...item, length: 512 * 1024 };
+    const problem =
+      failure === "denied"
+        ? new MediaDenied()
+        : failure === "timeout"
+          ? new DOMException("timed out", "TimeoutError")
+          : new Error("storage offline");
+    const read = vi.fn().mockResolvedValueOnce(new Uint8Array(256 * 1024));
+    if (failure === "short") read.mockResolvedValueOnce(new Uint8Array(1));
+    else read.mockRejectedValueOnce(problem);
+    const media = {
+      authorize: () => Promise.resolve(large),
+      read,
+      auditFetch: vi.fn(() => Promise.resolve()),
+    };
+    const logger = { error: vi.fn() };
+    const response = await mediaDownload(
+      new Request(url, { headers: { authorization: "Bearer demo" } }),
+      media,
+      { checkAccessToken: () => Promise.resolve(allowed) },
+      { take: () => ({ allowed: true }) },
+      logger,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.arrayBuffer()).rejects.toThrow(
+      "Media download interrupted.",
+    );
+    expect(media.auditFetch).toHaveBeenCalledWith(
+      item.id,
+      "receiver",
+      failure === "denied" ? "denied" : "incomplete",
+      expect.any(AbortSignal),
+      large,
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      "media_download_failed",
+      { request_id: item.id },
+      expect.any(Error),
+    );
+  },
+);

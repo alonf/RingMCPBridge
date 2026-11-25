@@ -56,7 +56,7 @@ async function sample(directory?: string) {
       home: "sample-home",
       device: "sample-camera",
       event: "sample-event",
-      frame: Buffer.from("sample photo"),
+      frame: Buffer.alloc(700_000, 0x41),
       clip: Buffer.from("sample clip"),
       photoAt: now,
       clipAt: now,
@@ -143,8 +143,10 @@ async function scenario(directory?: string, cacheOnly = false) {
   const started = Promise.withResolvers<undefined>(),
     release = Promise.withResolvers<undefined>();
   let pauseRead = false;
+  let afterFirstChunk: (() => Promise<void>) | undefined;
   const read = objects.read.bind(objects);
   objects.read = async (...args) => {
+    if (args[1] > 0 && afterFirstChunk) await afterFirstChunk();
     if (pauseRead) {
       started.resolve(undefined);
       await release.promise;
@@ -406,6 +408,9 @@ async function scenario(directory?: string, cacheOnly = false) {
     206,
   );
   expect((await fetchAs(url, clip, callerToken)).status).toBe(403);
+  expect((await fetchAs(url, photo, receiverToken, "bytes=-0")).status).toBe(
+    416,
+  );
   const wrongItem = new URL(photo);
   wrongItem.pathname = new URL(clip).pathname;
   expect((await fetchAs(url, wrongItem.href, receiverToken)).status).toBe(403);
@@ -429,6 +434,61 @@ async function scenario(directory?: string, cacheOnly = false) {
   expect((await fetchAs(url, await issue("clip"), receiverToken)).status).toBe(
     200,
   );
+  async function finishAcrossChange(change: "withdraw" | "expire") {
+    const link = await issue("photo");
+    const reached = Promise.withResolvers<undefined>(),
+      resume = Promise.withResolvers<undefined>();
+    afterFirstChunk = () => {
+      reached.resolve(undefined);
+      return resume.promise;
+    };
+    const transfer = fetchAs(
+      url,
+      link,
+      receiverToken,
+      change === "expire" ? "bytes=0-" : undefined,
+    );
+    try {
+      await Promise.race([
+        reached.promise,
+        transfer.then(() => {
+          throw new Error("Expected another storage read");
+        }),
+      ]);
+      if (change === "withdraw") await set(false);
+      else {
+        const grant = new URL(link).searchParams.get("grant");
+        if (!grant) throw new Error("Missing item grant");
+        await store.run(
+          {
+            sql: "UPDATE media_ticket SET expires_at=@now WHERE token_hash=@hash",
+            params: {
+              now: clock.now(),
+              hash: createHash("sha256").update(grant).digest("hex"),
+            },
+          },
+          signal,
+        );
+      }
+    } finally {
+      afterFirstChunk = undefined;
+      resume.resolve(undefined);
+    }
+    const completed = await transfer;
+    expect(completed.status).toBe(change === "expire" ? 206 : 200);
+    expect(completed.digest).toBe(
+      createHash("sha256").update(data.frame).digest("hex"),
+    );
+    expect((await fetchAs(url, link, receiverToken)).status).toBe(403);
+    expect((await fetchAs(url, link, receiverToken, "bytes=1-2")).status).toBe(
+      403,
+    );
+    if (change === "withdraw") await set(true);
+  }
+  if (!directory) {
+    await finishAcrossChange("withdraw");
+    await finishAcrossChange("expire");
+  }
   await permissions.save(
     data.home,
     data.device,
@@ -490,6 +550,12 @@ async function scenario(directory?: string, cacheOnly = false) {
           outcome: "allowed",
         }),
         expect.objectContaining({ operation: "share", outcome: "denied" }),
+        expect.objectContaining({
+          operation: "fetch",
+          outcome: "range_rejected",
+          receiver_id: receiver,
+          event_id: data.event,
+        }),
         expect.objectContaining({
           operation: "fetch",
           outcome: "denied",

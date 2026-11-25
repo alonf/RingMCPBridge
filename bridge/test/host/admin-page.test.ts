@@ -57,8 +57,11 @@ function cookie(response: Response, name: string): string {
 }
 
 /** Plays the owner's browser through a fresh sign-in: the session cookie. */
-async function signIn(core: StartedCore): Promise<string> {
-  const started = await fetch(`${core.url}/admin/sign-in?then=enroll`, {
+async function signIn(
+  core: StartedCore,
+  section: "enroll" | "media-storage" = "enroll",
+): Promise<string> {
+  const started = await fetch(`${core.url}/admin/sign-in?then=${section}`, {
     redirect: "manual",
   });
   const callback = await core.standIn.signInAsOwner(
@@ -71,7 +74,7 @@ async function signIn(core: StartedCore): Promise<string> {
       headers: { cookie: cookie(started, "admin_sign_in") },
     },
   );
-  expect(returned.headers.get("location")).toBe("/admin#enroll");
+  expect(returned.headers.get("location")).toBe(`/admin#${section}`);
   return cookie(returned, "admin_session");
 }
 
@@ -276,8 +279,8 @@ describe("the admin page end to end", () => {
       () => Promise.resolve({ length: 1, body: [Uint8Array.of(1)] }),
       never(),
     );
-    const owner = await signIn(core);
-    const formToken = field(await page(core, owner), "form_token");
+    let owner = await signIn(core);
+    let formToken = field(await page(core, owner), "form_token");
     const submit = (token: string, origin: string, confirm: string) =>
       fetch(core.url + "/admin/media/delete", {
         method: "POST",
@@ -285,17 +288,32 @@ describe("the admin page end to end", () => {
         headers: { cookie: owner, origin },
         body: new URLSearchParams({ form_token: token, confirm }),
       });
-    expect((await submit("invalid", core.url, "delete")).status).toBe(403);
+    expect((await submit("invalid", core.url, "DELETE")).status).toBe(403);
     expect(
-      (await submit(formToken, "https://other.test", "delete")).status,
+      (await submit(formToken, "https://other.test", "DELETE")).status,
     ).toBe(403);
     expect((await submit(formToken, core.url, "")).status).toBe(403);
     expect(await media.ready(item.id, never())).toBeDefined();
+    expect((await submit(formToken, core.url, "delete")).status).toBe(403);
+    const aged = vi
+      .spyOn(SystemClock.prototype, "now")
+      .mockReturnValue(Date.now() + 5 * 60_000);
+    try {
+      expect((await submit(formToken, core.url, "DELETE")).status).toBe(303);
+      const stale = await page(core, owner);
+      expect(stale).toContain("sign-in?then=media-storage");
+      expect(stale).not.toContain('action="/admin/media/delete"');
+      expect(await media.ready(item.id, never())).toBeDefined();
+    } finally {
+      aged.mockRestore();
+    }
+    owner = await signIn(core, "media-storage");
+    formToken = field(await page(core, owner), "form_token");
     const failure = vi
       .spyOn(objects, "remove")
       .mockRejectedValue(new Error("Storage unavailable"));
     try {
-      expect((await submit(formToken, core.url, "delete")).status).toBe(303);
+      expect((await submit(formToken, core.url, "DELETE")).status).toBe(303);
       expect(await media.ready(item.id, never())).toBeUndefined();
       expect(await page(core, owner)).toContain(
         "will retry removing the stored files",
@@ -303,7 +321,7 @@ describe("the admin page end to end", () => {
     } finally {
       failure.mockRestore();
     }
-    expect((await submit(formToken, core.url, "delete")).status).toBe(303);
+    expect((await submit(formToken, core.url, "DELETE")).status).toBe(303);
     expect(await media.ready(item.id, never())).toBeUndefined();
     expect(await page(core, owner)).toContain("Cached camera media deleted.");
   }, 30_000);

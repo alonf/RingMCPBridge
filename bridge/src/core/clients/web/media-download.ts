@@ -83,6 +83,7 @@ export async function mediaDownload(
     const rangeHeader = request.headers.get("range");
     const range = byteRange(rangeHeader, item.length);
     if (!range) {
+      await media.auditFetch(itemId, receiver, "range_rejected", signal, item);
       headers.set("content-range", "bytes */" + String(item.length));
       return empty(416);
     }
@@ -125,9 +126,36 @@ export async function mediaDownload(
           if (offset > range.end) controller.close();
         },
         async pull(controller) {
-          const chunk = await nextChunk();
-          controller.enqueue(chunk);
-          if (offset > range.end) controller.close();
+          try {
+            const chunk = await nextChunk();
+            connection.throwIfAborted();
+            controller.enqueue(chunk);
+            if (offset > range.end) controller.close();
+          } catch (error) {
+            logger?.error(
+              "media_download_failed",
+              { request_id: itemId },
+              error,
+            );
+            // The storage deadline or connection may have expired. Record the
+            // outcome using the identity already checked for this response.
+            try {
+              await media.auditFetch(
+                itemId,
+                recipient,
+                error instanceof MediaDenied ? "denied" : "incomplete",
+                AbortSignal.timeout(READ_TIMEOUT_MS),
+                item,
+              );
+            } catch (auditError) {
+              logger?.error(
+                "media_audit_failed",
+                { request_id: itemId },
+                auditError,
+              );
+            }
+            controller.error(new Error("Media download interrupted."));
+          }
         },
         cancel() {
           cancelled.abort();

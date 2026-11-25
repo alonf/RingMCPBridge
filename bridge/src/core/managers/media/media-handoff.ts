@@ -308,7 +308,7 @@ export class MediaHandoff {
   async auditFetch(
     itemId: string,
     receiver: string,
-    outcome: "allowed" | "denied",
+    outcome: "allowed" | "denied" | "incomplete" | "range_rejected",
     signal: AbortSignal,
     knownItem?: MediaItem,
   ) {
@@ -340,9 +340,12 @@ export class MediaHandoff {
   ) {
     const bytes = await this.deps.media.read(item.id, start, length, signal);
     if (!bytes) throw new MediaDenied();
-    await this.authorize(item.id, receiver, grant, signal);
-    if (firstChunk)
+    // Commit access just before the first bytes. The store still checks the
+    // item's retention and deletion state on every subsequent read.
+    if (firstChunk) {
+      await this.authorize(item.id, receiver, grant, signal);
       await this.auditFetch(item.id, receiver, "allowed", signal, item);
+    }
     return bytes;
   }
 }

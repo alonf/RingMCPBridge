@@ -10,7 +10,7 @@ const PENDING_TTL_MS = 10 * 60_000;
 const MAX_PENDING = 20;
 
 /** The admin page's sections a sign-in returns to. */
-export type Section = "health" | "enroll";
+export type Section = "health" | "enroll" | "media-storage";
 
 /** A sign-in in flight. */
 export interface AdminSignIn {

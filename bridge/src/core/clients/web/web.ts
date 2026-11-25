@@ -64,6 +64,7 @@ import { pageScript } from "./page-script.ts";
 import {
   adminPage,
   CONFIRMATION_MAX_LENGTH,
+  MEDIA_DELETE_CONFIRMATION,
   healthSection,
   refusedPage,
   signedOutHealth,
@@ -297,9 +298,16 @@ export class Web {
   async #deleteMedia(context: WebContext) {
     const checked = await this.#sessionForm(
       context,
-      SESSION_FORM.extend({ confirm: z.literal("delete") }),
+      SESSION_FORM.extend({ confirm: z.string().optional() }),
     );
     if (checked instanceof Response) return checked;
+    if (!this.#fresh(checked.session))
+      return context.redirect(ADMIN_PATH + "#media-storage", HTTP_SEE_OTHER);
+    if (checked.form.confirm !== MEDIA_DELETE_CONFIRMATION)
+      return this.#refuse(
+        context,
+        `Type ${MEDIA_DELETE_CONFIRMATION} to confirm deletion of cached media.`,
+      );
     const { admin, serving, media } = this.#dependencies;
     if (!media || !admin.deleteCachedMedia || !serving())
       return context.text("Media storage unavailable.", 503);
@@ -432,7 +440,7 @@ export class Web {
         }),
         ...(this.#dependencies.media &&
           this.#dependencies.admin.deleteCachedMedia && {
-            mediaDelete: DELETE_MEDIA,
+            mediaDelete: { action: DELETE_MEDIA, fresh: this.#fresh(session) },
           }),
         notice: this.#sessions.takeNotice(session.id),
       }),
@@ -448,8 +456,9 @@ export class Web {
   }
 
   async #startSignIn(context: WebContext): Promise<Response> {
+    const section = context.req.query("then");
     const then: Section =
-      context.req.query("then") === "enroll" ? "enroll" : "health";
+      section === "enroll" || section === "media-storage" ? section : "health";
     let redirect: SignInRedirect;
     try {
       redirect = await this.#dependencies.ownerSignIn.begin(

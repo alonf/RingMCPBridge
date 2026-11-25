@@ -10,6 +10,8 @@ import type { Theme } from "./styles.ts";
 
 type Html = ReturnType<typeof html>;
 
+export const MEDIA_DELETE_CONFIRMATION = "DELETE";
+
 /** Where the page's parts are served. */
 export interface PagePaths {
   readonly page: string;
@@ -215,7 +217,7 @@ export function adminPage(view: {
   readonly enroll: EnrollPanel;
   readonly timeZone: TimeZonePanel;
   readonly cameras?: Html;
-  readonly mediaDelete?: string;
+  readonly mediaDelete?: { readonly action: string; readonly fresh: boolean };
   readonly notice: Notice | undefined;
 }): Html {
   return frame({
@@ -240,24 +242,43 @@ export function adminPage(view: {
             view.mediaDelete
               ? html`<section id="media-storage" class="card">
                   <h2>Cached camera media</h2>
-                  <form action="${view.mediaDelete}" method="post">
-                    <input
-                      type="hidden"
-                      name="form_token"
-                      value="${view.formToken}"
-                    />
-                    <label
-                      ><input
-                        type="checkbox"
-                        name="confirm"
-                        value="delete"
-                        required
-                      />Delete cached photos and clips for all households</label
-                    >
-                    <button type="submit">
-                      Delete all cached camera media
-                    </button>
-                  </form>
+                  ${
+                    view.mediaDelete.fresh
+                      ? html`<form
+                          action="${view.mediaDelete.action}"
+                          method="post"
+                        >
+                          <input
+                            type="hidden"
+                            name="form_token"
+                            value="${view.formToken}"
+                          />
+                          <label
+                            >Type ${MEDIA_DELETE_CONFIRMATION} to delete cached
+                            photos and clips for all households
+                            <input
+                              type="text"
+                              name="confirm"
+                              required
+                              pattern="${MEDIA_DELETE_CONFIRMATION}"
+                              autocomplete="off"
+                              spellcheck="false"
+                            />
+                          </label>
+                          <button type="submit">
+                            Delete all cached camera media
+                          </button>
+                        </form>`
+                      : html`<p>
+                            Deleting cached media requires a sign-in less than
+                            five minutes old.
+                          </p>
+                          <a
+                            class="button"
+                            href="${view.paths.signIn}?then=media-storage"
+                            >Sign in again to delete cached media</a
+                          >`
+                  }
                 </section>`
               : ""
           }

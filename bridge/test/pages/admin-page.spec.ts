@@ -89,8 +89,10 @@ test.describe("the admin page", () => {
       "store_only",
     );
     await page
-      .getByLabel("Delete cached photos and clips for all households")
-      .check();
+      .getByRole("textbox", {
+        name: "Type DELETE to delete cached photos and clips for all households",
+      })
+      .fill("DELETE");
     await page
       .getByRole("button", { name: "Delete all cached camera media" })
       .click();

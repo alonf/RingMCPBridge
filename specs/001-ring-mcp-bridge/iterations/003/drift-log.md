@@ -22,8 +22,8 @@
 
 ## Summary
 
-**Total drift events**: 3
-**Resolution rate**: 2/3 closed. DRIFT-003-03 awaits the next governed state projection.
+**Total drift events**: 4
+**Resolution rate**: 3/4 closed. DRIFT-003-03 awaits the next governed state projection.
 **Specification drift**: None detected. The iteration-scoped design record passed the pre-plan gate.
 
 ## Events
@@ -53,6 +53,13 @@
 - **Observed** The pre-implementation planning snapshot still appears in the generated iteration state. The authoritative before-implement verdict is at `5023777`. The first media handoff checkpoint reviewed code through `c34b962`.
 - **Reconciliation** The iteration plan records M02 and M04 as done and M01, M03 and M05 as in progress. [Task checkboxes](../../tasks.md) and [field evidence](quality/quality-evidence.md) identify the outstanding acceptance checks. The hardening record identifies the historical Claude review and owner verdict. Estimates are not used as actual effort.
 - **Class closure**: Reconcile the generated state at the next authorized boundary sync and compare it with the task rows. The owner's instruction reserves that sync for the next crossing.
+
+### DRIFT-003-04 — Media deletion and download behavior
+
+- **Observed** At `2d8fcfe`, cache deletion accepted a checkbox from a stale owner session. Streaming rechecked the grant after the response started. Rejected ranges and failures after the first chunk lacked audit evidence.
+- **Requirement citation** FR-037 and FR-039 govern owner deletion. FR-018 and FR-020 and the [Option B decision](design-analysis.md) govern transfer authorization. FR-034 and FR-035 govern logging and audit.
+- **Resolution** Restored the approved deletion and transfer behavior and recorded range and interruption outcomes. [Verification](quality/quality-evidence.md)
+- **Class closure**: Owner-route tests check stale and fresh sign-ins. Multi-chunk receiver tests change the approval or grant after transfer starts, verify the received bytes, and check both forms of subsequent request. Download tests check the audit and log when a later read fails.
 
 <!--
   Every new ### DRIFT-... event includes:

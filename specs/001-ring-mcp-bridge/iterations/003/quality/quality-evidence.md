@@ -46,6 +46,14 @@ A core configured with storage alone omits `share_event_media` from its MCP tool
 
 The media-only OAuth scenario exercises the running MCP endpoint with event delivery enabled. Before the fix, the listen request returned HTTP 200. The test did not establish that any household payload was delivered. The endpoint now inspects the bounded JSON-RPC body before handing it to the SDK. A media-only client can list its sharing tool, while listening and resource subscription return HTTP 403 with the required read scope.
 
-Receiver GETs read at most 256 KiB per storage operation as the client consumes the body. Cancellation stops further reads. Each chunk rechecks the item grant before delivery. Exhaustion of the anonymous audit allowance preserves the HTTP 401 bearer challenge.
+Receiver GETs read at most 256 KiB per storage operation as the client consumes the body. Cancellation stops further reads. At this checkpoint, each chunk rechecked the item grant before delivery. The correction below restores the approved per-request behavior. Exhaustion of the anonymous audit allowance preserves the HTTP 401 bearer challenge.
 
 Configuration-driven withdrawals record the affected receiver and camera in the deletion transaction. An older approval can be identified by an exact camera hash match against inventory, media or audit history. A vanished camera retains its original hash in the withdrawal record. Both pilot media paths validate a signed download destination before contacting it.
+
+## Media deletion and interrupted downloads · 25 November 2026
+
+The delete form requires the owner to type `DELETE`. Both page rendering and submission check the age of the sign-in. The running admin-route test submits a previously opened form after the freshness window, checks the item remains available, signs in again, and returns to the media section.
+
+For the receiver regression, the core pauses a 700,000-byte transfer during its second storage read. The test withdraws camera approval during a GET and expires the stored grant during a Range request. The receiver verifies the full digest both times. Subsequent GET and Range requests using the same grant return HTTP 403. Item retention and delete-now continue to apply during transfer.
+
+Rejected byte ranges have a distinct audit outcome. Storage failures, short reads and timeouts during delivery record an incomplete fetch and log the item identifier. Losing access to the stored item during transfer records a denied fetch. These outcomes preserve the history of the initial authorized access.
