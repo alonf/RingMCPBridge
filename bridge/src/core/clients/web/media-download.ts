@@ -56,6 +56,8 @@ export async function mediaDownload(
     AbortSignal.any([connection, AbortSignal.timeout(READ_TIMEOUT_MS)]);
   const signal = deadline();
   let receiver: string | undefined;
+  let authorizedItem:
+    Awaited<ReturnType<MediaHandoff["authorize"]>> | undefined;
   try {
     const identity = token
       ? await tokens.checkAccessToken(token, signal)
@@ -86,6 +88,7 @@ export async function mediaDownload(
     }
     if (!identity.scopes.includes("media")) throw new MediaDenied();
     const item = await media.authorize(itemId, receiver, grant, signal);
+    authorizedItem = item;
     const rangeHeader = request.headers.get("range");
     const range = byteRange(rangeHeader, item.length);
     if (!range) {
@@ -207,7 +210,13 @@ export async function mediaDownload(
   } catch (error) {
     if (error instanceof MediaDenied && receiver) {
       try {
-        await media.auditFetch(itemId, receiver, "denied", signal);
+        await media.auditFetch(
+          itemId,
+          receiver,
+          "denied",
+          signal,
+          authorizedItem,
+        );
       } catch (auditError) {
         logger?.error("media_audit_failed", { request_id: itemId }, auditError);
         return empty(503);

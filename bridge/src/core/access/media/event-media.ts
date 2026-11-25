@@ -296,6 +296,23 @@ export class EventMedia {
     );
     return row && item(row);
   }
+  /** Identity for the audit trail, including items that can no longer be read. */
+  async auditIdentity(id: string, signal: AbortSignal) {
+    const row = await this.#store.get(
+      {
+        sql: "SELECT location_id,device_id,event_id FROM media WHERE media_id=@id",
+        params: { id },
+      },
+      signal,
+    );
+    return (
+      row && {
+        householdId: String(row.location_id),
+        cameraId: String(row.device_id),
+        eventId: String(row.event_id),
+      }
+    );
+  }
   /** Return bytes only if the item is still readable when the object read completes. */
   async read(
     id: string,
@@ -395,7 +412,7 @@ export class EventMedia {
     async function attempt<T>(work: () => Promise<T>): Promise<T | undefined> {
       signal.throwIfAborted();
       try {
-        return await work();
+        return await untilAborted(work(), signal);
       } catch (error) {
         signal.throwIfAborted();
         failure ??=

@@ -1,7 +1,7 @@
 // The shared core and home assemblies (T027 part 2): the home and the core link up in one process,
 // a standby core refuses links, and when the lease holder loses its lease the other core takes over
 // with no moment where both run the link, and the home links to it again.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { OutboxStore } from "../../src/connector/access/outbox-store/index.ts";
 import type { RingPushPort } from "../../src/connector/access/ring-adapter/index.ts";
 import { RESEND_TICK_MS } from "../../src/connector/clients/home-scheduler/index.ts";
@@ -87,6 +87,48 @@ async function rig(): Promise<Rig> {
     key: await generateSigningKeyPair(),
   };
 }
+
+it("retries background media cleanup after an object listing stalls", async () => {
+  const test = await rig();
+  const entered = Promise.withResolvers<AbortSignal>();
+  const stalled = Promise.withResolvers<{ ids: string[] }>();
+  const remove = vi.fn(() => Promise.resolve());
+  const listPage = vi
+    .fn<
+      (
+        cursor: string | undefined,
+        signal: AbortSignal,
+      ) => Promise<{ ids: string[] }>
+    >()
+    .mockResolvedValue({ ids: ["untracked"] })
+    .mockImplementationOnce((_cursor, signal) => {
+      entered.resolve(signal);
+      return stalled.promise;
+    });
+  const assembly = assembleCore({
+    store: test.layer,
+    clock: test.clock,
+    logger: test.logger,
+    settings: SETTINGS,
+    mediaObjects: { write: vi.fn(), read: vi.fn(), remove, listPage },
+  });
+  assembly.start();
+  try {
+    const first = await entered.promise;
+    await test.clock.advance(60_000);
+    expect(first.aborted).toBe(true);
+    await expect.poll(() => listPage.mock.calls.length).toBe(2);
+    expect(listPage.mock.calls[1]?.[1].aborted).toBe(false);
+    await expect.poll(() => remove.mock.calls.length).toBe(1);
+    expect(remove).toHaveBeenCalledWith(
+      "untracked",
+      listPage.mock.calls[1]?.[1],
+    );
+  } finally {
+    stalled.resolve({ ids: [] });
+    await assembly.stop();
+  }
+});
 
 function core(
   test: Rig,

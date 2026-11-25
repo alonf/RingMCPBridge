@@ -517,6 +517,36 @@ async function scenario(directory?: string, cacheOnly = false) {
     expect((await share("photo")).structuredContent).toMatchObject({
       error: { code: "ACTION_DISABLED" },
     });
+    for (const [uri, invalidate] of [
+      [photo, "UPDATE media SET expires_at=0 WHERE media_id=@id"],
+      [clip, "UPDATE media SET status='deleting' WHERE media_id=@id"],
+    ] as const) {
+      const id = new URL(uri).pathname.split("/").at(-1) ?? "";
+      const denialCount = async () =>
+        Number(
+          (
+            await store.get(
+              {
+                sql: "SELECT COUNT(*) AS n FROM media_access_log WHERE media_id=@id AND location_id=@home AND device_id=@device AND event_id=@event AND receiver_id=@receiver AND operation='fetch' AND outcome='denied'",
+                params: {
+                  id,
+                  home: data.home,
+                  device: data.device,
+                  event: data.event,
+                  receiver,
+                },
+              },
+              signal,
+            )
+          )?.n,
+        );
+      await store.run({ sql: invalidate, params: { id } }, signal);
+      const beforeDenial = await denialCount();
+      const rejected = await fetchAs(url, uri, receiverToken);
+      expect(rejected.status).toBe(403);
+      expect(rejected.length).toBe(0);
+      expect(await denialCount()).toBe(beforeDenial + 1);
+    }
     await running.core.admin.deleteCachedMedia(signal);
     expect((await fetchAs(url, clip, receiverToken)).status).toBe(403);
     const unrelated = new URL(clip);

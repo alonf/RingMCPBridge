@@ -150,6 +150,13 @@ it("serves single ranges, reports unsatisfiable requests and requires a current 
       )
     ).status,
   ).toBe(403);
+  expect(media.auditFetch).toHaveBeenLastCalledWith(
+    item.id,
+    "receiver",
+    "denied",
+    expect.any(AbortSignal),
+    item,
+  );
   expect(logger.error).toHaveBeenCalledWith(
     "media_download_failed",
     { request_id: item.id },

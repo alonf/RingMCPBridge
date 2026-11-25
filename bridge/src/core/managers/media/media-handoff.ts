@@ -312,7 +312,8 @@ export class MediaHandoff {
     signal: AbortSignal,
     knownItem?: MediaItem,
   ) {
-    const item = knownItem ?? (await this.deps.media.ready(itemId, signal));
+    const item =
+      knownItem ?? (await this.deps.media.auditIdentity(itemId, signal));
     // An unknown item cannot disclose media. Audit attempts against known items.
     if (!item) return;
     return this.deps.tickets.audit(

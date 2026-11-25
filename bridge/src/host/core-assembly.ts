@@ -34,6 +34,9 @@ import { readPriorityPolicy } from "./priority-policy.ts";
  */
 export const LEASE_NAME = "ring-account";
 
+const MEDIA_SWEEP_INTERVAL_MS = 60_000;
+const MEDIA_SWEEP_TIMEOUT_MS = 45_000;
+
 /** What the core's components are built over. */
 export interface CoreAssemblyOptions {
   readonly mediaObjects?: MediaObjects;
@@ -128,13 +131,18 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
   let cancelSweep: (() => void) | undefined;
   function sweepMedia(): void {
     if (!media || sweep) return;
+    const deadline = new AbortController();
+    const cancelDeadline = clock.schedule(MEDIA_SWEEP_TIMEOUT_MS, () => {
+      deadline.abort(new Error("Media cleanup timed out."));
+    });
     sweep = media
-      .sweep(cleanup.signal)
+      .sweep(AbortSignal.any([cleanup.signal, deadline.signal]))
       .catch((error: unknown) => {
         if (!cleanup.signal.aborted)
           logger.error("media_cleanup_failed", undefined, error);
       })
       .finally(() => {
+        cancelDeadline();
         sweep = undefined;
       });
   }
@@ -178,7 +186,7 @@ export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
     start: () => {
       if (media && !cancelSweep) {
         sweepMedia();
-        cancelSweep = clock.every(60_000, sweepMedia);
+        cancelSweep = clock.every(MEDIA_SWEEP_INTERVAL_MS, sweepMedia);
       }
       lease.start();
       void lease.settled().then(() => {
