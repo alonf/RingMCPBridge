@@ -16,6 +16,12 @@ export async function cameraSettings(
 ) {
   const { locations, cameras, receivers, sharedPersonEventsAllowed } =
     await media.options(signal);
+  const receiverLabels = new Map(
+    receivers.map(({ client_id: id, platform }) => [
+      id,
+      platform && platform !== id ? `${platform} (${id})` : id,
+    ]),
+  );
   const home =
     locations.find((l) => l.location_id === query.get("location_id")) ??
     locations[0];
@@ -123,8 +129,7 @@ export async function cameraSettings(
               <fieldset>
                 <legend>Services allowed to receive photos and clips</legend>
                 ${Array.from(policy.approvals.keys(), (id) => {
-                  const name =
-                    receivers.find((r) => r.client_id === id)?.platform ?? id;
+                  const name = receiverLabels.get(id) ?? id;
                   return html`<label
                     ><input
                       type="checkbox"
@@ -138,7 +143,12 @@ export async function cameraSettings(
                   >Add receiving service
                   <select name="receiver_id">
                     <option value="">Select a service</option>
-                    ${receivers.filter((r) => !policy.approvals.has(r.client_id)).map((r) => html`<option value="${r.client_id}">${r.platform ?? r.client_id}</option>`)}
+                    ${Array.from(receiverLabels)
+                      .filter(([id]) => !policy.approvals.has(id))
+                      .map(
+                        ([id, label]) =>
+                          html`<option value="${id}">${label}</option>`,
+                      )}
                   </select>
                 </label>
               </fieldset>

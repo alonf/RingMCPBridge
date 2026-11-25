@@ -24,14 +24,12 @@ export function mediaSettingsScenario(): MediaAdmin {
     as_of: 0,
     state_version: 2 + i,
   }));
-  const receivers = [
-    {
-      client_id: "receiver",
-      platform: "Test receiver",
-      scopes: ["media" as const],
-      redirect_uris: [],
-    },
-  ];
+  const receivers = ["receiver", "second-receiver"].map((id) => ({
+    client_id: id,
+    platform: "Test receiver",
+    scopes: ["media" as const],
+    redirect_uris: [],
+  }));
   return {
     options: () =>
       Promise.resolve({

@@ -72,12 +72,23 @@ test.describe("the admin page", () => {
       page.getByRole("heading", { name: "Camera permissions" }),
     ).toHaveCount(0);
     await page.getByRole("link", { name: "Sign in" }).click();
-    const approved = page.getByLabel("Remove approval from Test receiver");
+    const approved = page.getByLabel(
+      "Remove approval from Test receiver (receiver)",
+      { exact: true },
+    );
+    const other = page.getByLabel(
+      "Remove approval from Test receiver (second-receiver)",
+      { exact: true },
+    );
+    const add = page.getByLabel("Add receiving service");
     await expect(approved).toHaveCount(0);
     await page.getByLabel("Allow agent media access to this camera").check();
-    await page.getByLabel("Add receiving service").selectOption("receiver");
+    await add.selectOption({ label: "Test receiver (receiver)" });
     await page.getByRole("button", { name: "Save camera permissions" }).click();
     await expect(approved).toBeVisible();
+    await add.selectOption({ label: "Test receiver (second-receiver)" });
+    await page.getByRole("button", { name: "Save camera permissions" }).click();
+    await expect(other).toBeVisible();
     await approved.check();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(approved).not.toBeChecked();
@@ -85,6 +96,13 @@ test.describe("the admin page", () => {
     await page.getByLabel("Person-detection events").selectOption("store_only");
     await page.getByRole("button", { name: "Save camera permissions" }).click();
     await expect(approved).toHaveCount(0);
+    await expect(other).toBeVisible();
+    await expect(
+      add.getByRole("option", {
+        name: "Test receiver (receiver)",
+        exact: true,
+      }),
+    ).toHaveAttribute("value", "receiver");
     await expect(page.getByLabel("Person-detection events")).toHaveValue(
       "store_only",
     );
