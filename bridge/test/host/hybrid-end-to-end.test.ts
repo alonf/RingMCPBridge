@@ -8,20 +8,10 @@
 // send its Entra, Key Vault and SQL sign-in elsewhere, and those would stay in the image the owner
 // deploys. So it runs in-process; the image is smoke-tested in each mode by
 // `scripts/image-smoke.mjs` instead (DRIFT-001-64).
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { linkAgent } from "./link-agent.ts";
 import { afterEach, expect, it } from "vitest";
-import { startConnector } from "../../src/host/connector.ts";
-import { SystemClock } from "../../src/utilities/clock/index.ts";
-import { loadSettings } from "../../src/utilities/config/index.ts";
-import { Logger } from "../../src/utilities/logging/index.ts";
-import {
-  generateSigningKeyPair,
-  signingKeyId,
-} from "../../src/utilities/security/index.ts";
-import { ScenarioEngine, standardHome } from "../scenarios/index.ts";
+import { linkTestHome } from "./link-test-home.ts";
+import { standardHome } from "../scenarios/index.ts";
 import {
   connectOverHttp,
   describeStoreMatrix,
@@ -35,9 +25,6 @@ import {
 } from "./core-fixture.ts";
 import type { Cleanups } from "./core-fixture.ts";
 
-const CODE = "home-code-e2e";
-const REMOVE_TRIES = 20;
-const REMOVE_PAUSE_MS = 250;
 // SQL Server's migrations and the link's start take seconds.
 const END_TO_END_TIMEOUT_MS = 60_000;
 
@@ -55,61 +42,6 @@ function never(): AbortSignal {
   return new AbortController().signal;
 }
 
-/** A linked home: the connector on its own data folder, enrolled and approved by the owner. */
-async function linkHome(
-  core: Awaited<ReturnType<typeof startTestCore>>,
-): Promise<void> {
-  const dataDir = await mkdtemp(join(tmpdir(), "ring-bridge-e2e-"));
-  cleanups.push(() =>
-    rm(dataDir, {
-      recursive: true,
-      force: true,
-      maxRetries: REMOVE_TRIES,
-      retryDelay: REMOVE_PAUSE_MS,
-    }),
-  );
-  const settings = loadSettings({
-    BRIDGE_MODE: "connector",
-    BRIDGE_CORE_URL: `${core.url.replace("http:", "ws:")}/link`,
-    BRIDGE_DATA_DIR: dataDir,
-    BRIDGE_SECRETS_KEY_FILE: join(dataDir, "secrets.key"),
-  });
-  if (settings.mode !== "connector") {
-    throw new Error("expected the connector's settings");
-  }
-  const clock = new SystemClock();
-  const key = await generateSigningKeyPair();
-  const connector = await startConnector(settings, {
-    clock,
-    logger: new Logger({
-      sink: () => undefined,
-      now: () => clock.now(),
-      minLevel: "debug",
-    }),
-    openHome: () =>
-      Promise.resolve({
-        ring: new ScenarioEngine(clock),
-        key,
-        enrollmentCode: CODE,
-        close: () => Promise.resolve(),
-      }),
-    connectorVersion: "0.1.0",
-    onFatal: (error) => {
-      throw error;
-    },
-  });
-  cleanups.push(() => connector.stop());
-  await eventually(
-    async () =>
-      (await core.running.core.settings.pendingEnrollment(never()))
-        ?.enrollment_code === CODE,
-  );
-  await core.running.core.settings.approveEnrollment(
-    signingKeyId(key.publicKey),
-    never(),
-  );
-}
-
 /** The agent's link as an MCP client makes it: discovery, registration, the owner's sign-in, the code. */
 interface Reply<T> {
   readonly data: T;
@@ -124,7 +56,7 @@ describeStoreMatrix("mode H end to end", (store) => {
         store: await store.emptyDatabase(),
       });
       await eventually(() => core.running.core.links.serving);
-      await linkHome(core);
+      await linkTestHome(core, cleanups);
       const home = standardHome();
       await eventually(
         async () =>

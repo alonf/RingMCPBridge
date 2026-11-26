@@ -2,6 +2,7 @@ import { mediaLocation } from "./media-location.ts";
 import { z } from "zod";
 import { capabilities, readJpeg } from "./snapshot.ts";
 import { clipDurationMs } from "./clip-timing.ts";
+import { recordingEventId } from "../../src/connector/engines/normalize/index.ts";
 
 export class EventProbeError extends Error {}
 
@@ -290,5 +291,5 @@ export async function downloadEventWindow(
     if (clip.status === "pending")
       clip = await fetchItem("video", window, request, send);
   }
-  return { ...source, photo, clip };
+  return { ...source, bridgeEventId: recordingEventId(source), photo, clip };
 }

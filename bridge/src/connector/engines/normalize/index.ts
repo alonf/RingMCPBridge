@@ -20,3 +20,4 @@ export type {
   NormalizeFailure,
   RingPushInput,
 } from "./normalize.ts";
+export { recordingEventId } from "./recording-id.ts";

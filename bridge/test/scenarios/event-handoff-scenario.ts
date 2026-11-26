@@ -13,7 +13,8 @@ import {
   errorEnvelope,
 } from "../../src/contract/index.ts";
 import { FileMediaObjects } from "../../src/core/access/media/index.ts";
-import { EventLog } from "../../src/core/access/event-log/index.ts";
+import { replayRecordedEvent } from "./recorded-event-connector.ts";
+import { recordingEventId } from "../../src/connector/engines/normalize/index.ts";
 import { MediaPermissions } from "../../src/core/access/settings/index.ts";
 import { SystemClock } from "../../src/utilities/clock/index.ts";
 import { openSqliteQueryLayer } from "../../src/utilities/query-layer/index.ts";
@@ -33,6 +34,7 @@ const evidence = z.object({
   householdId: z.string().min(1),
   deviceId: z.string().min(1),
   eventId: z.string().min(1),
+  bridgeEventId: z.string().optional(),
   kind: z.enum(["ding", "motion"]).optional(),
   start: z.number(),
   end: z.number(),
@@ -67,15 +69,13 @@ async function sample(directory?: string) {
     JSON.parse(await readFile(join(directory, "event.json"), "utf8")),
   );
   if (!info.success) throw new Error("Incomplete private pilot evidence.");
-  const {
-    householdId: home,
-    deviceId: device,
-    eventId: event,
-    start,
-    end,
-    photo,
-    clip: video,
-  } = info.data;
+  const bridgeEvent = recordingEventId(info.data);
+  if (
+    info.data.bridgeEventId !== undefined &&
+    info.data.bridgeEventId !== bridgeEvent
+  )
+    throw new Error("Private recording has a conflicting bridge event ID.");
+  const { start, end, photo, clip: video } = info.data;
   const [frame, clip] = (await Promise.all(
     ["event.jpg", "event.mp4"].map((name) => readFile(join(directory, name))),
   )) as [Buffer, Buffer];
@@ -95,9 +95,11 @@ async function sample(directory?: string) {
   )
     throw new Error("Private evidence does not match its event window.");
   return {
-    home,
-    device,
-    event,
+    // The fixture explicitly pairs this private recording with a simulated
+    // bridge camera. The two inventories may use different identifiers.
+    home: "receiver-test-home",
+    device: "receiver-test-camera",
+    event: bridgeEvent,
     kind:
       info.data.kind === "ding"
         ? "doorbell.ding"
@@ -169,7 +171,7 @@ export async function verifyEventHandoff(
     }
     return read(...args);
   };
-  const { url, running, logLines } = await startTestCore(cleanups, {
+  const core = await startTestCore(cleanups, {
     store,
     agents,
     readsPerHour: 160,
@@ -212,55 +214,8 @@ export async function verifyEventHandoff(
           },
         }),
   });
-  const now = clock.now();
-  await running.core.state.applyInventory(
-    {
-      snapshot_version: 0,
-      locations: [
-        {
-          location_id: data.home,
-          ownership: "owned",
-          name: "Pilot home",
-          time_zone: "UTC",
-          as_of: now,
-          state_version: 1,
-        },
-      ],
-      devices: [
-        {
-          device_id: data.device,
-          location_id: data.home,
-          type: "camera",
-          name: "Pilot camera",
-          power_mode: "wired",
-          online: true,
-          state: {},
-          as_of: now,
-          state_version: 2,
-        },
-      ],
-    },
-    signal,
-  );
-  await store.transaction(
-    (tx) =>
-      new EventLog({ clock }).append(
-        tx,
-        {
-          event_id: data.event,
-          location_id: data.home,
-          device_id: data.device,
-          kind: data.kind,
-          priority: data.kind === "doorbell.ding" ? "HIGH" : "MEDIUM",
-          occurred_at: data.eventAt,
-          received_at: now,
-          summary: "Recorded detection",
-          late: false,
-        },
-        signal,
-      ),
-    signal,
-  );
+  const { url, running, logLines } = core;
+  await replayRecordedEvent(core, store, cleanups, data);
   const permissions = new MediaPermissions(store);
   const set = (approved: boolean) =>
     permissions.save(
@@ -347,6 +302,7 @@ export async function verifyEventHandoff(
   if (
     !reported?.device ||
     reported.event_id !== data.event ||
+    Date.parse(reported.occurred_at) !== data.eventAt ||
     reported.device.id !== data.device ||
     reported.location_id !== data.home
   )

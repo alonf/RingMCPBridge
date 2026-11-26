@@ -8,7 +8,9 @@ A local test delivered a signed synthetic doorbell notification through the webh
 
 A signed motion callback supplied the identity for a live Ring retrieval on 26 November. The five-second clip request exceeded the event window. The pilot automatically retried from the same start with a four-second request, and Ring returned a clip starting 1 ms into the window with a measured duration of 4,061 ms. The JPEG timestamp was 4,999 ms into the same window. A separately authenticated local receiver retrieved both saved items through the MCP handoff and verified their bytes. Range reads succeeded and withdrawal denied further access. Private media and identifiers stay on the home computer.
 
-The deployed connector-to-core path still needs to carry that verified identity to the production media source. ChatGPT and Claude playback with sound remains open.
+Replaying that recording through the connector exposed a 140-character Ring event ID. The core event writer accepts up to 128 characters. The pilot now records a stable bridge ID derived from the complete Ring household, device and event IDs. The receiver scenario queues the bridge ID in the home outbox, closes it, starts an enrolled connector and reads the event through MCP after the core commits it. The scenario uses a simulated camera binding and serves the saved bytes locally.
+
+The official and bridge camera IDs differed in a live inventory comparison. Connecting the live callback to existing camera permissions requires an explicit pairing and a choice of alert source for paired cameras. Production media transport and ChatGPT and Claude playback with sound remain open.
 
 ## Retention limit for interrupted Blob uploads
 

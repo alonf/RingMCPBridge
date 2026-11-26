@@ -852,6 +852,8 @@ describe("post-link event media pilot", () => {
         JSON.parse(readFileSync(join(output, "event.json"), "utf8")),
       ).toMatchObject({
         eventId: "callback-event",
+        bridgeEventId:
+          "ring-recording-10d1a01e69e821de800f0268257b7006c89279443761e8372064aaab7b2026f9",
         identitySource: "signed-webhook",
         householdId: "home",
         deviceId: "cam",
