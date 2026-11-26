@@ -1,13 +1,13 @@
 # Run in the private directory that holds the Ring-issued credential CSV.
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string]$CredentialCsv,
+    [Parameter(Mandatory)][Alias('CredentialCsv')][string]$CsvPath,
     [Parameter(Mandatory)][string]$CameraPairsFile,
     [Parameter(Mandatory)][DateTimeOffset]$ActiveFrom,
     [switch]$Container
 )
 $ErrorActionPreference = 'Stop'
-$csv = Get-Item -LiteralPath $CredentialCsv
+$csv = Get-Item -LiteralPath $CsvPath
 $rows = @(Import-Csv -LiteralPath $csv.FullName -Header Key,Value)
 function Read-Field([string]$label) {
     $found = @($rows | Where-Object { $_.Key.Trim() -eq $label })
