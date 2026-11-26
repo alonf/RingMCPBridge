@@ -129,7 +129,8 @@ export async function runEventProbe(
       flag: "wx",
       mode: 0o600,
     });
-    return { status: item.status, time: item.time, size: item.bytes.length };
+    const { bytes, ...metadata } = item;
+    return { ...metadata, size: bytes.length };
   };
   const result = {
     ...source,

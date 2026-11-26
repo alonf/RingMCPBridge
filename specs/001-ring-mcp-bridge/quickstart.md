@@ -327,6 +327,8 @@ The slice follows the plan's resolution of the iteration-width conflict (`resear
 
 ### Iteration 003 acceptance run (planned)
 
+Install FFmpeg on the home computer and check that `ffprobe -version` runs in the pilot's shell. The clip probe measures the MP4 container and its audio and video tracks before saving a clip. If the recording extends beyond the event window, the pilot requests one second less from the same start time and lens. It saves the clip only when its measured end fits. The manifest records the actual start, measured end and requested duration in milliseconds. The pilot tests also require `ffmpeg` to generate synthetic recordings.
+
 For the T064 capability check, choose a linked camera and event kind you authorize the home pilot to retrieve. The command below reads the latest completed doorbell press on the first history page. Use `-EventKind motion` for motion, or add `-EventId` to pin a particular event on that page. Leave the linked home pilot running to maintain its access token.
 
 ```powershell

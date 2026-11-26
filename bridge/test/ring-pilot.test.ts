@@ -1,8 +1,9 @@
 import { createHmac } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { pilotApp } from "../dev/ring-pilot/app.ts";
 import { InvalidRingGrant, ringClient } from "../dev/ring-pilot/client.ts";
 import { PilotLinks } from "../dev/ring-pilot/links.ts";
@@ -636,6 +637,45 @@ describe("official Ring private-app pilot", () => {
 });
 
 describe("post-link event media pilot", () => {
+  // Synthetic black video and silent audio. Neither fixture contains household data.
+  const clips = new Map<number, Uint8Array<ArrayBuffer>>();
+  function syntheticClip(seconds: number) {
+    const clip = clips.get(seconds);
+    if (!clip) throw new Error("Missing synthetic clip");
+    return clip;
+  }
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), "pilot-timing-"));
+    try {
+      for (const duration of [1, 5.1]) {
+        const file = join(dir, String(duration) + ".mp4");
+        execFileSync("ffmpeg", [
+          "-v",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "color=s=16x16:r=10",
+          "-f",
+          "lavfi",
+          "-i",
+          "anullsrc=r=8000:cl=mono",
+          "-t",
+          String(duration),
+          "-c:v",
+          "mpeg4",
+          "-c:a",
+          "aac",
+          "-movflags",
+          "+faststart",
+          file,
+        ]);
+        clips.set(duration, Uint8Array.from(readFileSync(file)));
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   const fixture = (
     videoStatus: number | (() => number),
     photoOffset = 0,
@@ -643,6 +683,8 @@ describe("post-link event media pilot", () => {
     redirectTo?: string,
     clipHeaders?: Record<string, string>,
     capturedAt = START,
+    videoBytes: (duration: number) => Uint8Array<ArrayBuffer> = () =>
+      syntheticClip(1),
   ) => {
     const json = Response.json.bind(Response);
     const event = {
@@ -702,9 +744,10 @@ describe("post-link event media pilot", () => {
           },
         });
       return new Response(
-        Uint8Array.from([
-          0, 0, 0, 16, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0,
-        ]),
+        videoBytes(
+          (requests.at(-1)?.body as { duration?: number } | null)?.duration ??
+            0,
+        ),
         {
           status: typeof videoStatus === "number" ? videoStatus : videoStatus(),
           headers: {
@@ -874,6 +917,97 @@ describe("post-link event media pilot", () => {
     expect(clips).toHaveLength(2);
     expect(clips[0]?.body).toEqual(clips[1]?.body);
     expect(clips[1]?.authorization).toBe("Bearer renewed");
+  });
+  it.each([0, 1])(
+    "recovers a measured overrun at offset %i without moving the event or lens",
+    async (offset) => {
+      const probe = fixture(
+        200,
+        0,
+        START - 1,
+        undefined,
+        {
+          "x-media-timestamp": String(START + offset),
+        },
+        START,
+        (duration) => syntheticClip(duration === 5000 ? 5.1 : 1),
+      );
+      const result = await probe.client.callbackMedia(
+        "example",
+        { deviceId: "cam", householdId: "home" },
+        { time: START, eventId: "callback", components: ["1"] },
+        START - 1,
+        START + 20_000,
+      );
+      expect(result.clip).toMatchObject({
+        status: "available",
+        time: START + offset,
+        measuredEnd: START + offset + 1000,
+      });
+      const video = probe.requests.filter((r) =>
+        r.path.endsWith("/video/download"),
+      );
+      expect(video).toHaveLength(2);
+      for (const [i, duration] of [5000, 4000].entries())
+        expect(video[i]?.body).toMatchObject({
+          timestamp: START,
+          duration,
+          components: [{ component_id: "1" }],
+        });
+      expect(
+        probe.requests.filter((r) => r.path.endsWith("/image/download")),
+      ).toHaveLength(1);
+    },
+  );
+  it("withholds an overlong retry and rejects media with unreadable timing", async () => {
+    for (const [bytes, attempts] of [
+      [syntheticClip(5.1), 2],
+      [Uint8Array.from(Buffer.from("0000ftyp")), 1],
+    ] as const) {
+      const probe = fixture(
+        200,
+        0,
+        START - 1,
+        undefined,
+        undefined,
+        START,
+        () => bytes,
+      );
+      expect((await probe.run()).clip).toEqual({ status: "unmatched" });
+      expect(
+        probe.requests.filter((r) => r.path.endsWith("/video/download")),
+      ).toHaveLength(attempts);
+    }
+  });
+  it("keeps the shorter request when Ring needs another processing poll", async () => {
+    const statuses = [200, 425, 200];
+    const probe = fixture(
+      () => statuses.shift() ?? 500,
+      0,
+      START - 1,
+      undefined,
+      undefined,
+      START,
+      (duration) => syntheticClip(duration === 5000 ? 5.1 : 1),
+    );
+    const result = await probe.client.callbackMedia(
+      "example",
+      { deviceId: "cam", householdId: "home" },
+      { time: START, eventId: "callback", components: ["1"] },
+      START - 1,
+      START + 20_000,
+      () => Promise.resolve("renewed"),
+    );
+    expect(result.clip).toMatchObject({
+      status: "available",
+      requestedMs: 4000,
+    });
+    const requests = probe.requests.filter((r) =>
+      r.path.endsWith("/video/download"),
+    );
+    expect(requests).toHaveLength(3);
+    expect(requests[1]?.body).toEqual(requests[2]?.body);
+    expect(requests[2]?.authorization).toBe("Bearer renewed");
   });
   it("binds both requests to the same completed event and module", async () => {
     const probe = fixture(200);

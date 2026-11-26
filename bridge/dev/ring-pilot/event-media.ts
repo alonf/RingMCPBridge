@@ -1,6 +1,7 @@
 import { mediaLocation } from "./media-location.ts";
 import { z } from "zod";
 import { capabilities, readJpeg } from "./snapshot.ts";
+import { clipDurationMs } from "./clip-timing.ts";
 
 export class EventProbeError extends Error {}
 
@@ -29,7 +30,13 @@ const history = z.object({
 
 type Request = (url: string, init: RequestInit) => Promise<Response>;
 type Result =
-  | { status: "available"; time: number; bytes: Buffer }
+  | {
+      status: "available";
+      time: number;
+      bytes: Buffer;
+      measuredEnd?: number;
+      requestedMs?: number;
+    }
   | {
       status: "pending" | "missing" | "upstream-error" | "unmatched";
       httpStatus?: number;
@@ -77,6 +84,7 @@ interface EventWindow {
   components: { component_id: string }[] | undefined;
   start: number;
   end: number;
+  clipDurationMs: number;
   recordingMayBeProcessing: boolean;
 }
 
@@ -100,7 +108,7 @@ async function fetchItem(
       }
     : {
         timestamp: start,
-        duration: end - start,
+        duration: window.clipDurationMs,
         video_options: { codec: "avc" },
         audio_options: { audio_enabled: true },
       };
@@ -133,7 +141,7 @@ async function fetchItem(
       const length = Number(response.headers.get("x-media-length"));
       if (!Number.isSafeInteger(length) || length <= 0 || time + length > end)
         return { status: "unmatched" };
-    } else if (!photo && time !== start) return { status: "unmatched" };
+    }
     if (
       response.headers.get("content-type")?.split(";")[0] !==
       (photo ? "image/jpeg" : "video/mp4")
@@ -144,7 +152,19 @@ async function fetchItem(
     const bytes = await boundedBytes(response);
     if (bytes.toString("ascii", 4, 8) !== "ftyp")
       return { status: "unmatched" };
-    return { status: "available", time, bytes };
+    const duration = await clipDurationMs(bytes);
+    if (duration === undefined) return { status: "unmatched" };
+    const measuredEnd = time + duration;
+    const requestedMs = window.clipDurationMs;
+    if (measuredEnd <= end)
+      return { status: "available", time, measuredEnd, requestedMs, bytes };
+    // Ring can return encoder padding beyond the requested end. Retry once
+    // from the same start and keep the shorter duration across processing polls.
+    if (requestedMs === end - start && requestedMs > 1000) {
+      window.clipDurationMs = requestedMs - 1000;
+      return await fetchItem("video", window, request, send);
+    }
+    return { status: "unmatched" };
   } catch {
     return { status: "upstream-error" };
   }
@@ -252,6 +272,7 @@ export async function downloadEventWindow(
     components: selected,
     start,
     end,
+    clipDurationMs: end - start,
     recordingMayBeProcessing: now < end + PROCESSING_WINDOW_MS,
   };
   let photo = await fetchItem("image", window, request, send);
@@ -263,11 +284,11 @@ export async function downloadEventWindow(
   ) {
     const fresh = await retryHeaders(attempt);
     if (!fresh) break;
-    const retryWindow = { ...window, headers: fresh };
+    window.headers = fresh;
     if (photo.status === "pending")
-      photo = await fetchItem("image", retryWindow, request, send);
+      photo = await fetchItem("image", window, request, send);
     if (clip.status === "pending")
-      clip = await fetchItem("video", retryWindow, request, send);
+      clip = await fetchItem("video", window, request, send);
   }
   return { ...source, photo, clip };
 }

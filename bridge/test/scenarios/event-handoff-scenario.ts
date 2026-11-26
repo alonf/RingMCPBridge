@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { clipDurationMs } from "../../dev/ring-pilot/clip-timing.ts";
 import {
   getEventsTool,
   shareEventMediaTool,
@@ -44,6 +45,7 @@ const evidence = z.object({
     status: z.literal("available"),
     time: z.number(),
     size: z.number(),
+    measuredEnd: z.number().int().optional(),
   }),
 });
 async function sample(directory?: string) {
@@ -57,6 +59,7 @@ async function sample(directory?: string) {
       frame: Buffer.alloc(700_000, 0x41),
       clip: Buffer.from("sample clip"),
       photoAt: now,
+      eventAt: now,
       clipAt: now,
     };
   }
@@ -83,7 +86,12 @@ async function sample(directory?: string) {
     clip.toString("ascii", 4, 8) !== "ftyp" ||
     photo.time < start ||
     photo.time >= end ||
-    video.time !== start
+    video.time < start ||
+    video.time >= end ||
+    (video.measuredEnd === undefined
+      ? video.time !== start
+      : video.measuredEnd > end ||
+        video.measuredEnd - video.time !== (await clipDurationMs(clip)))
   )
     throw new Error("Private evidence does not match its event window.");
   return {
@@ -97,6 +105,7 @@ async function sample(directory?: string) {
     frame,
     clip,
     photoAt: photo.time,
+    eventAt: start,
     clipAt: video.time,
   };
 }
@@ -243,7 +252,7 @@ export async function verifyEventHandoff(
           device_id: data.device,
           kind: data.kind,
           priority: data.kind === "doorbell.ding" ? "HIGH" : "MEDIUM",
-          occurred_at: data.clipAt,
+          occurred_at: data.eventAt,
           received_at: now,
           summary: "Recorded detection",
           late: false,

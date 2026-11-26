@@ -6,7 +6,9 @@ The home pilot can watch one selected camera on a linked account. A signed motio
 
 A local test delivered a signed synthetic doorbell notification through the webhook handler. The receiver harness imported the resulting private manifest and media, and the MCP client took the event, camera and household identifiers from `get_events`. The separate receiver fetched matching bytes with its own credential and item grant. The same MCP lookup and handoff also passed for the two Ring recordings saved on 23 November.
 
-The new callback path still needs a fresh field observation. The deployed connector-to-core path also needs to carry that verified identity to the production media source. ChatGPT and Claude playback with sound remains open.
+A signed motion callback supplied the identity for a live Ring retrieval on 26 November. The five-second clip request exceeded the event window. The pilot automatically retried from the same start with a four-second request, and Ring returned a clip starting 1 ms into the window with a measured duration of 4,061 ms. The JPEG timestamp was 4,999 ms into the same window. A separately authenticated local receiver retrieved both saved items through the MCP handoff and verified their bytes. Range reads succeeded and withdrawal denied further access. Private media and identifiers stay on the home computer.
+
+The deployed connector-to-core path still needs to carry that verified identity to the production media source. ChatGPT and Claude playback with sound remains open.
 
 ## Retention limit for interrupted Blob uploads
 

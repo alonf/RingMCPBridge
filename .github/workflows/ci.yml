@@ -83,6 +83,8 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci --ignore-scripts
+      - name: Ensure FFmpeg is available for pilot clip tests
+        run: command -v ffmpeg && command -v ffprobe || (sudo apt-get update && sudo apt-get install -y ffmpeg)
       - name: Unit and integration tests with the coverage gate
         run: npx vitest run --coverage
 
