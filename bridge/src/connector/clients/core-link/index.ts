@@ -5,6 +5,7 @@
 export { CoreLink, RECONNECT_BACKOFF, reconnectDelayMs } from "./core-link.ts";
 export type { CoreLinkOptions } from "./core-link.ts";
 export type { HomeMediaSource } from "./home-media.ts";
+export type { PartnerHandler } from "./home-partner.ts";
 
 /** Who the connector is, and how long the core may take to open a session. */
 export { HANDSHAKE_TIMEOUT_MS } from "./home-session.ts";

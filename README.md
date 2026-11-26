@@ -134,7 +134,11 @@ The hybrid core offers `share_event_media` when it has storage and an event medi
 
 To try it with no Ring account, `npm run dev:all-in-one` starts mode A over stdio against a simulated home of about 100 devices. An MCP client can start it as its server.
 
-## Trying an official Ring private app
+## Production Ring callbacks
+
+Set the four account-linking fields in the Ring Developer Console to your Azure core's HTTPS origin followed by the paths in the table below. The core reaches the home connector over its enrolled outbound connection. The Ring signing key and linked account tokens stay on the home connector. MCP clients connect to the same Azure origin at `/mcp`. [Production camera setup](specs/001-ring-mcp-bridge/quickstart.md#pair-an-official-ring-camera-with-the-connector)
+
+## Trying an official Ring private app locally
 
 The account-linking pilot runs separately on your Windows home computer. It lets you see which devices Ring returns for the account and permissions you select. With Node 24, the repository dependencies and PowerShell 7 installed, start it from the project root. Keep the credentials CSV you downloaded from Ring outside the checkout.
 

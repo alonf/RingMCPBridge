@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pilotApp } from "../connector/access/ring-partner/app.ts";
+import { partnerOperations } from "./partner-operations.ts";
 import { ringClient } from "../connector/access/ring-partner/client.ts";
 import { CALLBACK_MEDIA_DELAY_MS } from "../connector/access/ring-partner/event-media.ts";
 import type { HomeMediaSource } from "../connector/clients/core-link/index.ts";
@@ -42,7 +43,7 @@ export async function startPartnerWebhook(
   );
   const ring = ringClient(config.clientId, config.clientSecret, send);
   try {
-    const { app, maintain, linkedRecording } = pilotApp(
+    const partnerApp = pilotApp(
       config.clientId,
       config.signingKey,
       ring,
@@ -56,6 +57,16 @@ export async function startPartnerWebhook(
         receive: ingest.pairedRecording.bind(ingest),
       },
     );
+    const { app, maintain, linkedRecording } = partnerApp;
+    const handleOperation = partnerOperations(partnerApp);
+    const operations = new Set<Promise<unknown>>();
+    const handle: typeof handleOperation = (operation) => {
+      if (stopped.signal.aborted || operations.size >= 8)
+        return Promise.resolve({ status: 503 });
+      const work = handleOperation(operation);
+      operations.add(work);
+      return work.finally(() => operations.delete(work));
+    };
     const listen = getRequestListener(app.fetch);
     const server = createServer((req, res) => {
       void listen(req, res).catch(() => res.destroy());
@@ -142,10 +153,10 @@ export async function startPartnerWebhook(
           else resolve();
         }),
       );
-      await Promise.allSettled([...transfers, maintenance]);
+      await Promise.allSettled([...transfers, ...operations, maintenance]);
       store.close();
     }
-    return { mediaSource, close };
+    return { mediaSource, handle, close };
   } catch (error) {
     store.close();
     throw error;

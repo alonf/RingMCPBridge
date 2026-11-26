@@ -59,10 +59,14 @@ export class LeasedLinks {
     this.#options = options;
   }
 
-  get mediaSource() {
+  get pairedSession() {
     return this.#options.lease.held
-      ? this.#term?.link.mediaSession?.mediaSource
+      ? this.#term?.link.currentSession
       : undefined;
+  }
+  get mediaSource() {
+    const session = this.pairedSession;
+    return session?.mediaCapable ? session.mediaSource : undefined;
   }
 
   /** Whether this instance is running the link now. */

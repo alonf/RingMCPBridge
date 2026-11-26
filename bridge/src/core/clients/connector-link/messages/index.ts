@@ -4,6 +4,11 @@
 // reader, and imports only zod and the Link transport.
 
 export {
+  partnerResult,
+  partnerReply,
+  type PartnerResult,
+} from "./partner-reply.ts";
+export {
   mediaCapable,
   mediaHeader,
   mediaReply,

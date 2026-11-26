@@ -15,6 +15,9 @@
 // and the home dials again after them (SC2).
 import { randomUUID } from "node:crypto";
 import { MediaTransfer } from "./media-transfer.ts";
+import { PartnerCalls } from "./partner-calls.ts";
+import type { PartnerOperation } from "../../../connector/clients/core-link/messages/index.ts";
+import type { PartnerResult } from "./messages/index.ts";
 import type { EventMediaSource } from "../../managers/media/index.ts";
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import { isAcceptedLinkVersion } from "../../../utilities/link-transport/index.ts";
@@ -162,9 +165,11 @@ export class CoreSession {
   #releaseFrame: (() => void) | undefined;
   #inventoryAsked = false;
   readonly #media: MediaTransfer;
+  readonly #partner: PartnerCalls;
 
   constructor(context: CoreSessionContext) {
     this.#context = context;
+    this.#partner = new PartnerCalls(context.link);
     this.#media = new MediaTransfer(context.link);
     this.#logger = context.logger;
   }
@@ -182,20 +187,32 @@ export class CoreSession {
   get mediaCapable() {
     return this.isOpen && this.#media.capable;
   }
-  readonly mediaSource: EventMediaSource = async (key, signal) => {
+  async #activeKey() {
     const keyId = this.keyId;
-    const active = async () => {
-      if (!this.isOpen || !keyId) return false;
-      const key = await this.#checkKey(keyId);
-      if (!key) throw new Error("Cannot verify the home connector key.");
-      return key.kind === "active" && this.isOpen;
-    };
-    if (!(await active())) return { status: "missing" };
+    if (!this.isOpen || !keyId) return false;
+    const key = await this.#checkKey(keyId);
+    if (!key) throw new Error("Cannot verify the home connector key.");
+    return key.kind === "active" && this.isOpen;
+  }
+  async partnerCall(
+    operation: PartnerOperation,
+    signal: AbortSignal,
+  ): Promise<PartnerResult> {
+    if (!this.#partner.capable || !(await this.#activeKey()))
+      return { status: 503 };
+    const result = await this.#partner.call(
+      operation,
+      AbortSignal.any([signal, this.#signal]),
+    );
+    return this.isOpen && (await this.#activeKey()) ? result : { status: 503 };
+  }
+  readonly mediaSource: EventMediaSource = async (key, signal) => {
+    if (!(await this.#activeKey())) return { status: "missing" };
     const result = await this.#media.request(
       key,
       AbortSignal.any([signal, this.#signal]),
     );
-    if (result.status === "available" && !(await active()))
+    if (result.status === "available" && !(await this.#activeKey()))
       return { status: "missing" };
     return result;
   };
@@ -258,7 +275,11 @@ export class CoreSession {
     if (this.#state.phase === "closed") {
       return;
     }
-    if (this.isOpen && this.#media.receive(frame)) return;
+    if (
+      this.isOpen &&
+      (this.#media.receive(frame) || this.#partner.receive(frame))
+    )
+      return;
     const receivedAt = this.#context.clock.now();
     if (this.#state.phase !== "open" && this.#pendingFrames > 0) {
       this.#refuse(frame.type);

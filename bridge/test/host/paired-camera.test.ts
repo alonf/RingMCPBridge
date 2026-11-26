@@ -243,17 +243,14 @@ it("commits one signed detection in the paired household and forgets its private
   };
   async function post(value: unknown, key = signingKey) {
     const body = JSON.stringify(value);
-    const res = await fetch(
-      "http://127.0.0.1:" + String(port) + "/ring/webhook",
-      {
-        method: "POST",
-        body,
-        headers: {
-          "x-signature":
-            "sha256=" + createHmac("sha256", key).update(body).digest("hex"),
-        },
+    const res = await fetch(core.url + "/ring/webhook", {
+      method: "POST",
+      body,
+      headers: {
+        "x-signature":
+          "sha256=" + createHmac("sha256", key).update(body).digest("hex"),
       },
-    );
+    });
     await res.text();
     return res.status;
   }

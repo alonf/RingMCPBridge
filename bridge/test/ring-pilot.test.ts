@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { pilotApp } from "../src/connector/access/ring-partner/app.ts";
+import { ringIngress } from "../src/host/ring-ingress.ts";
+import { partnerOperations } from "../src/host/partner-operations.ts";
 import {
   InvalidRingGrant,
   ringClient,
@@ -31,6 +33,7 @@ function setup(
   snapshotTarget?: Parameters<typeof pilotApp>[4],
   store?: PilotLinks,
   startedAt = START,
+  azureIngress = false,
 ) {
   const clock = { now: startedAt };
   const ring = {
@@ -48,7 +51,7 @@ function setup(
     snapshot: vi.fn<ReturnType<typeof ringClient>["snapshot"]>(),
     refresh: vi.fn<ReturnType<typeof ringClient>["refresh"]>(),
   };
-  const { app } = pilotApp(
+  const partner = pilotApp(
     ID,
     SIGNING,
     ring,
@@ -56,6 +59,9 @@ function setup(
     snapshotTarget,
     store,
   );
+  const app = azureIngress
+    ? ringIngress(partnerOperations(partner))
+    : partner.app;
   const issue = (code = "test-code") =>
     app.request(TOKEN, form({ code, client_id: ID }));
   const time = String(startedAt);
@@ -75,6 +81,63 @@ function setup(
   }
   return { ring, app, issue, visit, consent, clock, nonce, time };
 }
+describe("permanent Ring HTTPS endpoints", () => {
+  it("exchanges the code, confirms the signed account in its browser, and keeps application cookies off the home link", async () => {
+    const { issue, visit, consent, ring, app, time, nonce } = setup(
+      undefined,
+      undefined,
+      START,
+      true,
+    );
+    expect((await issue()).status).toBe(200);
+    const page = await visit();
+    const body = await page.text();
+    expect(body).toContain("o***r@example.com");
+    const proof = /name="proof"\s+value="([^"]+)"/.exec(body)?.[1] ?? "";
+    expect(proof).toHaveLength(43);
+    expect(
+      (
+        await app.request(
+          LINK,
+          form({ time, nonce, proof }, "some-admin-cookie=test"),
+        )
+      ).status,
+    ).toBe(403);
+    expect(ring.activate).not.toHaveBeenCalled();
+    const confirmed = await (await consent())();
+    expect(confirmed.status).toBe(303);
+    expect(confirmed.headers.get("location")).toBe("/ring/home");
+    expect((await visit()).status).toBe(403);
+    expect(ring.activate).toHaveBeenCalledTimes(2);
+    expect(
+      (
+        await app.request(
+          "/ring/home?" + new URLSearchParams({ time, nonce }).toString(),
+        )
+      ).headers.get("location"),
+    ).toContain("/ring/link?");
+  });
+  it("rejects excessive bodies and unknown operations and reports an offline home", async () => {
+    const service = vi.fn(() => Promise.resolve({ status: 503 as const }));
+    const app = ringIngress(service);
+    expect((await app.request("/ring/other")).status).toBe(404);
+    expect(
+      (await app.request(HOOK, { method: "POST", body: "{}" })).status,
+    ).toBe(403);
+    expect(
+      (
+        await app.request(
+          TOKEN,
+          form({ code: "c".repeat(70000), client_id: ID }),
+        )
+      ).status,
+    ).toBe(413);
+    expect(service).not.toHaveBeenCalled();
+    expect(
+      (await app.request(TOKEN, form({ code: "c", client_id: ID }))).status,
+    ).toBe(503);
+  });
+});
 describe("official Ring private-app pilot", () => {
   it("records only the first signed notification for the watched account, camera, kind and time", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ring-watch-"));

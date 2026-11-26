@@ -11,6 +11,7 @@
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import { LINK_PROTOCOL_VERSION } from "../../../utilities/link-transport/index.ts";
 import { HomeMedia, type HomeMediaSource } from "./home-media.ts";
+import { HomePartner, type PartnerHandler } from "./home-partner.ts";
 import type {
   LinkClosed,
   LinkConnection,
@@ -59,6 +60,7 @@ export interface CoreLinkIdentity {
 /** What one session works with. */
 export interface HomeSessionContext {
   readonly mediaSource?: HomeMediaSource | undefined;
+  readonly partner?: PartnerHandler | undefined;
   readonly link: LinkConnection;
   readonly slot: LinkSlot;
   readonly ingest: Ingest;
@@ -83,12 +85,15 @@ export class HomeSession {
   readonly #context: HomeSessionContext;
   readonly #logger: Logger;
   #phase: Phase;
+  readonly #partner: HomePartner | undefined;
   #opened = false;
   readonly #media: HomeMedia | undefined;
   #cancelHandshake: Cancel = () => undefined;
 
   constructor(context: HomeSessionContext) {
     this.#context = context;
+    if (context.partner)
+      this.#partner = new HomePartner(context.link, context.partner);
     if (context.mediaSource)
       this.#media = new HomeMedia(context.link, context.mediaSource);
     this.#logger = context.logger.with({ session_id: context.sessionId });
@@ -122,7 +127,11 @@ export class HomeSession {
   }
 
   #received(frame: LinkFrame, signal: AbortSignal): void {
-    if (this.#phase === "open" && this.#media?.receive(frame)) return;
+    if (
+      this.#phase === "open" &&
+      (this.#media?.receive(frame) || this.#partner?.receive(frame))
+    )
+      return;
     const message = readCoreMessage(frame);
     if (message === undefined) {
       this.#logger.warn("core_link_message_refused", {
@@ -256,6 +265,8 @@ export class HomeSession {
       return;
     }
     this.#phase = "open";
+    if (this.#partner)
+      void this.#context.link.send({ type: "partner_capable", body: {} });
     this.#opened = true;
     if (this.#media)
       void this.#context.link.send({ type: "media_capable", body: {} });

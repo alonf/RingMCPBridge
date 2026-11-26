@@ -94,6 +94,9 @@ export async function startConnector(
     Awaited<ReturnType<typeof startPartnerWebhook>> | undefined;
   const homeSide = assembleHome({
     ...(partner && {
+      partner: (operation) =>
+        partnerService?.handle(operation) ??
+        Promise.resolve({ status: 503 as const }),
       mediaSource: (request, signal) =>
         partnerService?.mediaSource(request, signal) ??
         Promise.resolve({ status: "missing" as const }),

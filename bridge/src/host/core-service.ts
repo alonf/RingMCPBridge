@@ -21,6 +21,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { getRequestListener } from "@hono/node-server";
+import { ringIngress } from "./ring-ingress.ts";
 import type { CoreSecrets } from "../core/access/secrets/index.ts";
 import {
   DeliveryKeySource,
@@ -325,6 +326,13 @@ export async function startCoreService(
     return { status: ready ? "ready" : "not_ready", checks };
   };
 
+  const ringListener = getRequestListener(
+    ringIngress(
+      (operation, signal) =>
+        core.links.pairedSession?.partnerCall(operation, signal) ??
+        Promise.resolve({ status: 503 }),
+    ).fetch,
+  );
   const server = createServer((request, response) => {
     route(request, response).catch((error: unknown) => {
       logger.error("core_request_failed", undefined, error);
@@ -338,7 +346,9 @@ export async function startCoreService(
     response: ServerResponse,
   ): Promise<void> => {
     const url = new URL(request.url ?? "/", publicUrl);
-    if (url.pathname === "/livez") {
+    if (url.pathname.startsWith("/ring/")) {
+      await ringListener(request, response);
+    } else if (url.pathname === "/livez") {
       answer(response, HTTP_OK, { status: "ok" });
     } else if (url.pathname === "/readyz") {
       const report = await readiness();

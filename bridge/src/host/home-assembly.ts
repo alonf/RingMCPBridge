@@ -13,6 +13,7 @@ import { CoreLink } from "../connector/clients/core-link/index.ts";
 import type {
   CoreLinkIdentity,
   HomeMediaSource,
+  PartnerHandler,
 } from "../connector/clients/core-link/index.ts";
 import { HomeScheduler } from "../connector/clients/home-scheduler/index.ts";
 import { PushListener } from "../connector/clients/push-listener/index.ts";
@@ -44,6 +45,7 @@ export interface LocalHome {
 /** What the home part's components are built over. */
 export interface HomeAssemblyOptions {
   readonly mediaSource?: HomeMediaSource | undefined;
+  readonly partner?: PartnerHandler | undefined;
   readonly pairedCameras?: readonly CameraPair[] | undefined;
   readonly eventRules?: readonly EventRule[] | undefined;
   readonly ring: RingPort;
@@ -90,6 +92,7 @@ export function assembleHome(options: HomeAssemblyOptions): HomeAssembly {
   });
   const coreLink = new CoreLink({
     mediaSource: options.mediaSource,
+    partner: options.partner,
     dial: options.dial,
     slot,
     ingest,

@@ -15,6 +15,7 @@ import { signingKeyId } from "../../../utilities/security/index.ts";
 import type { Ingest } from "../../managers/ingest/index.ts";
 import { HomeSession } from "./home-session.ts";
 import type { HomeMediaSource } from "./home-media.ts";
+import type { PartnerHandler } from "./home-partner.ts";
 import type { CoreLinkIdentity, SessionEnd } from "./home-session.ts";
 
 /** The reconnect backoff: 1 s, doubling to a 30 s cap, with full jitter (OR5, FR-042). */
@@ -25,6 +26,7 @@ const STOPPING = "connector_stopping";
 /** What Core Link is wired with. */
 export interface CoreLinkOptions {
   readonly mediaSource?: HomeMediaSource | undefined;
+  readonly partner?: PartnerHandler | undefined;
   /** Opens one link to the core: the Link transport's `dialLink` to the configured `wss:` URL. */
   readonly dial: (signal: AbortSignal) => Promise<DialOutcome>;
   /** Where the open session's link is put, for Ingest to send on. */
@@ -133,6 +135,7 @@ export class CoreLink {
     const session = new HomeSession({
       link: outcome.link,
       mediaSource: this.#options.mediaSource,
+      partner: this.#options.partner,
       slot: this.#options.slot,
       ingest: this.#options.ingest,
       identity: this.#options.identity,

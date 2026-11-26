@@ -631,5 +631,9 @@ export function pilotApp(
       ? { receipt, access, linkedAt: ticket.linkedAt, stillAuthorized }
       : undefined;
   }
-  return { app, expire, maintain, linkedRecording };
+  const confirmationAccount = (time: string, nonce: string) => {
+    expire();
+    return match(time, nonce)?.masked;
+  };
+  return { app, expire, maintain, linkedRecording, confirmationAccount };
 }

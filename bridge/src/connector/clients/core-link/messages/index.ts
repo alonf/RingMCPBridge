@@ -3,6 +3,11 @@
 // declarations without reaching the home's components; it exports schemas, types and the reader.
 
 export {
+  partnerOperation,
+  partnerRequest,
+  type PartnerOperation,
+} from "./partner-request.ts";
+export {
   mediaRequest,
   mediaCancel,
   type MediaRequest,
