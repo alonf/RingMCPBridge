@@ -1,9 +1,15 @@
-import { CALLBACK_MEDIA_DELAY_MS, EventProbeError } from "./event-media.ts";
+import {
+  CALLBACK_MEDIA_DELAY_MS,
+  EventProbeError,
+} from "../../src/connector/access/ring-partner/event-media.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { PilotLinks, SavedLink } from "./links.ts";
-import type { ringClient } from "./client.ts";
+import type {
+  PilotLinks,
+  SavedLink,
+} from "../../src/connector/access/ring-partner/links.ts";
+import type { ringClient } from "../../src/connector/access/ring-partner/client.ts";
 
 async function waitForRecording(
   ring: ReturnType<typeof ringClient>,
@@ -86,10 +92,9 @@ export async function runEventProbe(
   eventId?: string,
   accountHint?: string,
   fromCallback = false,
+  bridgeEventId?: string,
 ) {
-  if (!camera || (kind !== "ding" && kind !== "motion"))
-    throw new EventProbeError("Choose one camera and ding or motion.");
-  if (fromCallback && eventId)
+  if ((fromCallback && eventId) || (bridgeEventId && (fromCallback || eventId)))
     throw new EventProbeError(
       "Choose either a new signed callback or a history event ID.",
     );
@@ -112,16 +117,59 @@ export async function runEventProbe(
     throw new EventProbeError(
       "The saved access token has expired. Resume the linked home pilot before running the probe.",
     );
-  const { photo, clip, ...source } = fromCallback
-    ? await waitForRecording(ring, links, link, camera, kind, link.linkedAt)
-    : await ring.eventMedia(
-        link.access,
-        camera,
-        kind,
-        link.linkedAt,
-        now,
-        eventId,
+  async function fromPairedEvent(
+    link: SavedLink,
+    id: string,
+    linkedAt: number,
+  ) {
+    const receipt = links.recordingById(link.account, id, now);
+    if (!receipt)
+      throw new EventProbeError(
+        "No such paired recording for this account and event kind.",
       );
+    const cameraId = {
+      deviceId: receipt.deviceId,
+      householdId: receipt.householdId,
+    };
+    const result = await ring.callbackMedia(
+      link.access,
+      cameraId,
+      receipt,
+      linkedAt,
+      now,
+    );
+    if (
+      result.bridgeEventId !== id ||
+      !links
+        .load()
+        .some(
+          (item) =>
+            item.account === link.account &&
+            item.session === link.session &&
+            item.expires > Date.now(),
+        )
+    )
+      throw new EventProbeError(
+        "The original recording or Ring link is no longer available.",
+      );
+    return {
+      ...result,
+      kind: receipt.kind,
+      identitySource: "signed-webhook",
+      componentIds: receipt.components,
+      ...(receipt.subType && { subType: receipt.subType }),
+    };
+  }
+  const linkedAt = link.linkedAt;
+  const read = () => {
+    if (bridgeEventId) return fromPairedEvent(link, bridgeEventId, linkedAt);
+    if (!camera || (kind !== "ding" && kind !== "motion"))
+      throw new EventProbeError("Choose one camera and ding or motion.");
+    return fromCallback
+      ? waitForRecording(ring, links, link, camera, kind, linkedAt)
+      : ring.eventMedia(link.access, camera, kind, linkedAt, now, eventId);
+  };
+  const { photo, clip, ...source } = await read();
   const folder = await mkdtemp(join(directory, "ring-event-probe-"));
   const persist = async (filename: string, item: typeof photo) => {
     if (item.status !== "available") return item;

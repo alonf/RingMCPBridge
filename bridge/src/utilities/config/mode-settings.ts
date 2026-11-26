@@ -70,6 +70,7 @@ export interface CoreHostSettings {
 
 /** The home part (connector). */
 export interface HomeSettings {
+  readonly ringPartnerFile?: string | undefined;
   /** The core's link: `wss://<host>/link`. */
   readonly coreUrl: string;
   /** The folder holding the outbox and the Secrets File. */
@@ -113,6 +114,7 @@ export const CORE_HOST_VARIABLES = {
 
 /** The variable behind each of the connector's settings. */
 export const HOME_VARIABLES = {
+  ringPartnerFile: "BRIDGE_RING_PARTNER_FILE",
   coreUrl: "BRIDGE_CORE_URL",
   dataDir: "BRIDGE_DATA_DIR",
   secretsKeyPath: "BRIDGE_SECRETS_KEY_FILE",
@@ -244,6 +246,7 @@ export const CORE_HOST_SCHEMA: z.ZodType<CoreHostSettings> = z
   }));
 
 export const HOME_SCHEMA: z.ZodType<HomeSettings> = z.object({
+  ringPartnerFile: text(MAX_ID_LENGTH).optional(),
   coreUrl: urlWith("wss:", "ws:").transform((url) => url.href),
   dataDir: text(MAX_ID_LENGTH),
   secretsKeyPath: text(MAX_ID_LENGTH),

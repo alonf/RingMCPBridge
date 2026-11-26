@@ -10,7 +10,7 @@ A signed motion callback supplied the identity for a live Ring retrieval on 26 N
 
 Replaying that recording through the connector exposed a 140-character Ring event ID. The core event writer accepts up to 128 characters. The pilot now records a stable bridge ID derived from the complete Ring household, device and event IDs. The receiver scenario queues the bridge ID in the home outbox, closes it, starts an enrolled connector and reads the event through MCP after the core commits it. The scenario uses a simulated camera binding and serves the saved bytes locally.
 
-The official and bridge camera IDs differed in a live inventory comparison. Connecting the live callback to existing camera permissions requires an explicit pairing and a choice of alert source for paired cameras. Production media transport and ChatGPT and Claude playback with sound remain open.
+The owner approved explicit camera pairing with the signed callback as the alert source. The home connector now hosts the Ring callback and account-link handler when configured with a private pairing file. A local test registered a connector, delivered signed callbacks over HTTP and verified that repeat deliveries produced one event under the paired bridge camera. The home recording reference retained the original lens and capture time and was removed on unlink. The unpaired and pre-cutover community paths remain available. Live cutover, production media transfer over the connector link, and ChatGPT and Claude playback with sound remain open. [Pairing procedure](../../quickstart.md#pair-an-official-ring-camera-with-the-connector)
 
 ## Retention limit for interrupted Blob uploads
 

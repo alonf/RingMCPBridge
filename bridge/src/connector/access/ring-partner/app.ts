@@ -12,7 +12,11 @@ import { z } from "zod";
 import { InvalidRingGrant, type ringClient } from "./client.ts";
 import type { PilotLinks, SavedLink } from "./links.ts";
 import { SnapshotError, type Snapshot } from "./snapshot.ts";
-import { recordingCallback } from "./camera-callback.ts";
+import {
+  recordingCallback,
+  type RecordingCallback,
+} from "./camera-callback.ts";
+import type { CameraPair } from "./pairings.ts";
 
 const LINK_WINDOW = 600_000;
 const GRANT_WINDOW = 30 * 86_400_000;
@@ -75,6 +79,15 @@ export function pilotApp(
   now = Date.now,
   snapshotTarget?: { name: string; save: (image: Snapshot) => Promise<void> },
   store?: PilotLinks,
+  paired?: {
+    cameras: readonly CameraPair[];
+    household: (access: string, device: string) => Promise<string | undefined>;
+    receive: (
+      pair: CameraPair,
+      receipt: RecordingCallback,
+      remember: (id: string) => void,
+    ) => Promise<void>;
+  },
 ) {
   const app = new Hono();
   const tickets = new Map<string, Ticket>();
@@ -520,6 +533,34 @@ export function pilotApp(
       ticket.busy = false;
     }
   });
+  async function forwardPaired(recording: RecordingCallback) {
+    if (!paired || !store) return;
+    const pair = paired.cameras.find(
+      (p) =>
+        p.accountId === recording.account &&
+        p.ringDeviceId === recording.deviceId,
+    );
+    if (!pair) return;
+    const ticket = [...tickets.values()].find(
+      (t) => t.session && t.account === recording.account && active(t),
+    );
+    if (
+      ticket?.linkedAt === undefined ||
+      recording.time < Math.max(ticket.linkedAt, Date.parse(pair.activeFrom)) ||
+      recording.time > now() ||
+      recording.time <= now() - GRANT_WINDOW
+    )
+      return;
+    const household = await paired.household(
+      await usableAccess(ticket),
+      recording.deviceId,
+    );
+    if (household !== pair.ringHouseholdId || !active(ticket)) return;
+    await paired.receive(pair, recording, (id) => {
+      if (!active(ticket)) throw new Error("Account link changed.");
+      store.savePairedRecording(id, household, recording);
+    });
+  }
   app.post("/ring/webhook", async (c) => {
     const raw = Buffer.from(await c.req.arrayBuffer());
     const signature =
@@ -541,6 +582,11 @@ export function pilotApp(
       const recording = recordingCallback(payload);
       if (!recording) return c.text("Invalid recording notification", 400);
       store?.receiveRecording(recording, now());
+      try {
+        await forwardPaired(recording);
+      } catch {
+        return c.text("Recording intake temporarily unavailable", 503);
+      }
     }
     if (event.data.type === "app_integration_removed") {
       const account = event.meta?.account_id ?? event.data.attributes?.source;

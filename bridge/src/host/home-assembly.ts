@@ -2,6 +2,7 @@
 // and the outbox, Core Link dialing the core, and the scheduler's resends and heartbeats. It
 // reaches no Ring library: the caller hands in the Ring port, the Ring Adapter in production and
 // the scenario engine in development and tests. Hand-wired, with no container (CD3, CD5).
+import type { CameraPair } from "../connector/access/ring-partner/index.ts";
 import type { OutboxStore } from "../connector/access/outbox-store/index.ts";
 import type {
   RingHistoryPort,
@@ -39,6 +40,7 @@ export interface LocalHome {
 
 /** What the home part's components are built over. */
 export interface HomeAssemblyOptions {
+  readonly pairedCameras?: readonly CameraPair[] | undefined;
   readonly eventRules?: readonly EventRule[] | undefined;
   readonly ring: RingPort;
   /** Ring's push notifications; with none, no Push Listener is built. */
@@ -72,6 +74,7 @@ export function assembleHome(options: HomeAssemblyOptions): HomeAssembly {
   const { clock, logger } = options;
   const slot = new LinkSlot();
   const ingest = new Ingest({
+    pairedCameras: options.pairedCameras,
     ring: options.ring,
     eventRules: options.eventRules,
     outbox: options.outbox,

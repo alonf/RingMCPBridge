@@ -68,15 +68,44 @@ export function ringClient(
     const result = await request(API + "/devices", { headers: auth(token) });
     return inventory.parse(await result.json());
   }
+  async function currentCameraHousehold(token: string, deviceId: string) {
+    const result = await ringRequest(
+      API + "/devices/" + encodeURIComponent(deviceId),
+      { headers: auth(token) },
+    );
+    if (result.status === 403 || result.status === 404) return undefined;
+    if (!result.ok)
+      throw new EventProbeError("Ring camera lookup temporarily unavailable.");
+    const { data } = z
+      .object({
+        data: z.object({
+          type: z.literal("devices"),
+          id: z.string(),
+          relationships: z.object({
+            location: z.object({ data: z.object({ id: z.string().min(1) }) }),
+          }),
+        }),
+      })
+      .parse(await result.json());
+    return data.id === deviceId
+      ? data.relationships.location.data.id
+      : undefined;
+  }
   async function eventCamera(
     token: string,
     camera: { name: string } | { id: string },
   ) {
+    if ("id" in camera) {
+      const householdId = await currentCameraHousehold(token, camera.id);
+      if (!householdId)
+        throw new EventProbeError(
+          "The camera is unavailable to the linked account.",
+        );
+      return { deviceId: camera.id, householdId };
+    }
     const page = await devices(token);
-    const matches = page.data.filter((device) =>
-      "id" in camera
-        ? device.id === camera.id
-        : device.attributes?.name === camera.name,
+    const matches = page.data.filter(
+      (device) => device.attributes?.name === camera.name,
     );
     const [device] = matches;
     if (
@@ -94,6 +123,7 @@ export function ringClient(
   }
   return {
     eventCamera,
+    currentCameraHousehold,
     async callbackMedia(
       token: string,
       camera: { deviceId: string; householdId: string },

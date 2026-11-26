@@ -155,6 +155,8 @@ Save the settings. In the developer console, use **Connect Ring account** to add
 
 Sign in to the Ring Appstore with that same account and select the private app. Choose **Connect App**, select devices and follow Ring's link to the pilot. On the pilot page, check the masked account and select **Confirm connection**. The next page lists the devices returned by Ring. You can return to the pilot homepage from Ring using the same browser. [Ring Appstore](https://ring.com/appstore) Â· [Ring's device-sharing instructions](https://ring.com/support/articles/e2sg9/Ring-appstore-third-party-integrations)
 
+To use signed callbacks for selected cameras on the home connector, pair their Ring and bridge IDs and choose when the alert source switches. [Camera pairing and setup](specs/001-ring-mcp-bridge/quickstart.md#pair-an-official-ring-camera-with-the-connector)
+
 The pilot encrypts each confirmed account’s tokens in a SQLite file beside the private credentials CSV. Keep that directory private and reuse the same CSV and directory across restarts. When Ring supplies a refresh token, the pilot renews access while it runs. A browser sign-in lasts up to 30 days. To open the same connection on a different phone or browser, run this on the home computer and enter the single-use code on the pilot homepage within ten minutes.
 
 ```powershell

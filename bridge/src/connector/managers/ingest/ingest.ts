@@ -84,7 +84,12 @@ import {
   historyEvent,
   modeChangeEvent,
   normalizePush,
+  recordingEventId,
 } from "../../engines/normalize/index.ts";
+import type {
+  CameraPair,
+  RecordingCallback,
+} from "../../access/ring-partner/index.ts";
 import type { NormalizedEvent } from "../../engines/normalize/index.ts";
 import { deviceEntry, HomeView } from "./home-view.ts";
 import type { TimedChange } from "./home-view.ts";
@@ -106,6 +111,7 @@ export type InventoryOutcome =
 
 /** What Ingest is wired with. */
 export interface IngestOptions {
+  readonly pairedCameras?: readonly CameraPair[] | undefined;
   readonly eventRules?: readonly EventRule[] | undefined;
   readonly ring: RingPort;
   readonly outbox: OutboxStore;
@@ -153,6 +159,7 @@ const UNCANCELLED = new AbortController().signal;
 
 /** The home's state path into the outbox and onto the link. One instance per connector process. */
 export class Ingest {
+  readonly #paired: readonly CameraPair[];
   readonly #eventRules: readonly EventRule[] | undefined;
   readonly #ring: RingPort;
   readonly #outbox: OutboxStore;
@@ -187,6 +194,7 @@ export class Ingest {
   #sessionStarting = false;
 
   constructor(options: IngestOptions) {
+    this.#paired = options.pairedCameras ?? [];
     this.#eventRules = options.eventRules;
     this.#ring = options.ring;
     this.#outbox = options.outbox;
@@ -275,8 +283,75 @@ export class Ingest {
       });
       return;
     }
-    if (this.#keeps(normalized.event, push.ownership))
+    if (
+      !this.#usesCallback(normalized.event) &&
+      this.#keeps(normalized.event, push.ownership)
+    )
       this.#queueEvent(normalized.event, receivedAt);
+  }
+
+  #usesCallback(event: NormalizedEvent) {
+    return (
+      (event.kind === "motion" || event.kind === "doorbell.ding") &&
+      this.#paired.some(
+        (p) =>
+          p.deviceId === event.device_id &&
+          p.locationId === event.location_id &&
+          event.occurred_at >= Date.parse(p.activeFrom),
+      )
+    );
+  }
+
+  /** Acknowledge a signed callback only after its private reference and outbox entry are durable. */
+  async pairedRecording(
+    pair: CameraPair,
+    receipt: RecordingCallback,
+    remember: (id: string) => void,
+  ) {
+    const now = this.#clock.now();
+    const view = this.#latest?.view;
+    if (!view) throw new Error("Waiting for home inventory.");
+    const device = view.device(pair.deviceId),
+      location = view.location(pair.locationId);
+    if (
+      !location ||
+      device?.location_id !== pair.locationId ||
+      (device.type !== "camera" && device.type !== "doorbell")
+    )
+      return;
+    const event: NormalizedEvent = {
+      event_id: recordingEventId({
+        householdId: pair.ringHouseholdId,
+        deviceId: receipt.deviceId,
+        eventId: receipt.eventId,
+      }),
+      location_id: location.location_id,
+      device_id: device.device_id,
+      device_type: device.type,
+      name: device.name,
+      occurred_at: receipt.time,
+      kind: receipt.kind === "ding" ? "doorbell.ding" : "motion",
+      ...(receipt.kind === "motion" &&
+        receipt.subType === "human" && { person: true }),
+      summary:
+        receipt.kind === "ding"
+          ? `The doorbell ${device.name} was pressed.`
+          : receipt.subType === "human"
+            ? `A person was seen by ${device.name}.`
+            : `Motion at ${device.name}.`,
+    };
+    if (eventAction(this.#eventRules, location.ownership, event) === "drop")
+      return;
+    await this.#step(async () => {
+      remember(event.event_id);
+      await this.#outbox.appendEvent(
+        event.event_id,
+        () => eventBody(event, now),
+        UNCANCELLED,
+      );
+    });
+    this.#lastRingEventAt = now;
+    this.#continueSending(UNCANCELLED);
   }
 
   /**
@@ -350,7 +425,8 @@ export class Ingest {
           this.#count("push_unusable");
           continue;
         }
-        if (!this.#keeps(event, found.ownership)) continue;
+        if (this.#usesCallback(event) || !this.#keeps(event, found.ownership))
+          continue;
         const body = eventBody(event, now, true);
         const written = await this.#step(() =>
           this.#outbox.appendEvent(body.event_id, () => body, signal),

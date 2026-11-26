@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { clipDurationMs } from "../../dev/ring-pilot/clip-timing.ts";
+import { clipDurationMs } from "../../src/connector/access/ring-partner/clip-timing.ts";
 import {
   getEventsTool,
   shareEventMediaTool,

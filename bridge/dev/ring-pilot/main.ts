@@ -2,12 +2,12 @@ import { serve } from "@hono/node-server";
 import { createHash, randomUUID } from "node:crypto";
 import { rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Snapshot } from "./snapshot.ts";
-import { pilotApp } from "./app.ts";
-import { ringClient } from "./client.ts";
-import { PilotLinks } from "./links.ts";
-import { EventProbeError } from "./event-media.ts";
-import { RecordingWatchError } from "./camera-callback.ts";
+import type { Snapshot } from "../../src/connector/access/ring-partner/snapshot.ts";
+import { pilotApp } from "../../src/connector/access/ring-partner/app.ts";
+import { ringClient } from "../../src/connector/access/ring-partner/client.ts";
+import { PilotLinks } from "../../src/connector/access/ring-partner/links.ts";
+import { EventProbeError } from "../../src/connector/access/ring-partner/event-media.ts";
+import { RecordingWatchError } from "../../src/connector/access/ring-partner/camera-callback.ts";
 import { runEventProbe } from "./probe-command.ts";
 
 const {
@@ -56,6 +56,7 @@ if (process.argv[2] === "--event-probe") {
         process.argv[5],
         process.argv[6],
         process.argv[7] === "--wait-for-callback",
+        process.argv[8],
       ))
     )
       process.exitCode = 2;

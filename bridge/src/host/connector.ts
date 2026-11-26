@@ -31,11 +31,13 @@ import { openHomeOutbox } from "./home-files.ts";
 import { pushShapesFile } from "./push-shapes-file.ts";
 import { HostError } from "./host-error.ts";
 import { openRingHome } from "./ring-home.live.ts";
+import { readPartnerConfig, startPartnerWebhook } from "./partner-webhook.ts";
 
 type ConnectorSettings = Extract<Settings, { readonly mode: "connector" }>;
 
 /** What the connector is started with, besides its settings. */
 export interface ConnectorParts {
+  readonly partnerFetch?: typeof fetch;
   readonly clock: Clock;
   readonly logger: Logger;
   /** Opens the home side; `onConnectionStuck` is the owner's (y). */
@@ -60,6 +62,9 @@ export async function startConnector(
 ): Promise<RunningConnector> {
   const { clock, logger } = parts;
   const { home: homeSettings } = settings;
+  const partner = homeSettings.ringPartnerFile
+    ? await readPartnerConfig(homeSettings.ringPartnerFile)
+    : undefined;
   await mkdir(homeSettings.dataDir, { recursive: true });
   const outbox = await openHomeOutbox(homeSettings.dataDir, clock);
   let home: LocalHome;
@@ -86,6 +91,7 @@ export async function startConnector(
     );
   }
   const homeSide = assembleHome({
+    pairedCameras: partner?.pairs,
     ring: home.ring,
     eventRules: settings.eventRules,
     ...(home.history === undefined ? {} : { history: home.history }),
@@ -118,11 +124,28 @@ export async function startConnector(
       ? {}
       : { intervalMs: parts.healthWriteIntervalMs }),
   });
+  let stopPartner: (() => Promise<void>) | undefined;
+  try {
+    if (partner)
+      stopPartner = await startPartnerWebhook(
+        partner,
+        homeSettings.dataDir,
+        homeSide.ingest,
+        clock,
+        logger,
+        parts.partnerFetch,
+      );
+  } catch (error) {
+    await home.close();
+    await outbox.close();
+    throw error;
+  }
   homeSide.start();
   health.start();
   logger.info("bridge_started", { mode: "connector" });
   return {
     stop: async () => {
+      await stopPartner?.();
       await homeSide.stop();
       await health.stop();
       await home.close();

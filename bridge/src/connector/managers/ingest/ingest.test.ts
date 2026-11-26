@@ -1178,7 +1178,11 @@ describe("Ingest: Ring's push", () => {
     };
   }
 
-  function pushIngest(store: OutboxStore, slot: LinkSlot): Ingest {
+  function pushIngest(
+    store: OutboxStore,
+    slot: LinkSlot,
+    paired = false,
+  ): Ingest {
     const ingest = new Ingest({
       ring: new ScenarioEngine(clock),
       outbox: store,
@@ -1190,10 +1194,38 @@ describe("Ingest: Ring's push", () => {
         minLevel: "debug",
       }),
       pushOn: true,
+      ...(paired && {
+        pairedCameras: [
+          {
+            activeFrom: new Date(START).toISOString(),
+            accountId: "owner",
+            ringDeviceId: "provider",
+            ringHouseholdId: "home",
+            locationId: "loc-1",
+            deviceId: pushDevice,
+          },
+        ],
+      }),
     });
     ingests.push(ingest);
     return ingest;
   }
+
+  it("suppresses the paired doorbell push while another camera still reaches the outbox", async () => {
+    const store = await openStore();
+    const ingest = pushIngest(store, new LinkSlot(), true);
+    ingest.pushReceived(doorbellPush("before", START - 1));
+    ingest.pushReceived(doorbellPush("paired"));
+    ingest.pushReceived({
+      ...doorbellPush("unpaired"),
+      device_id: "other-camera",
+    });
+    await ingest.flush();
+    expect((await store.takeDueEvents(signal)).map((e) => e.eventId)).toEqual([
+      "before-d",
+      "unpaired-d",
+    ]);
+  });
 
   it("writes a push to the outbox as the core's event message, under Ring's event id", async () => {
     const store = await openStore();
@@ -1561,8 +1593,24 @@ describe("Ingest: the catch-up", () => {
     }
   }
 
-  function catchUpIngest(store: OutboxStore, history: RingHistoryPort): Ingest {
+  function catchUpIngest(
+    store: OutboxStore,
+    history: RingHistoryPort,
+    paired = false,
+  ): Ingest {
     const ingest = new Ingest({
+      ...(paired && {
+        pairedCameras: [
+          {
+            activeFrom: new Date(0).toISOString(),
+            accountId: "owner",
+            ringDeviceId: "provider",
+            ringHouseholdId: "home",
+            locationId: "loc-1",
+            deviceId: "42",
+          },
+        ],
+      }),
       ring: new ScenarioEngine(clock),
       outbox: store,
       link: new LinkSlot(),
@@ -1638,6 +1686,21 @@ describe("Ingest: the catch-up", () => {
     expect(history.asked).toEqual([START - 3 * hour]);
     expect((await store.cameraCheckpoints(signal)).get("42")).toBe(START);
     expect(lines.join("\n")).not.toContain("Front Door");
+  });
+
+  it("keeps community catch-up for the unpaired camera only", async () => {
+    const store = await openStore(),
+      history = new FakeHistory();
+    const ingest = catchUpIngest(store, history, true);
+    await store.startCatchup(START - hour, signal);
+    history.entries = [
+      entry("paired", START - 1),
+      entry("unpaired", START - 1, { device_id: "other-camera" }),
+    ];
+    await ingest.catchUp(signal);
+    expect((await store.takeDueEvents(signal)).map((e) => e.eventId)).toEqual([
+      "unpaired-m",
+    ]);
   });
 
   it("stores an event seen both by push and by catch-up once, even when the mark did not move with the push", async () => {

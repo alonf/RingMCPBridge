@@ -1,7 +1,8 @@
 import { createHash, hkdfSync, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { open, seal } from "../../src/utilities/security/sealing.ts";
+import { open, seal } from "../../../utilities/security/index.ts";
+import { recordingEventId } from "../../engines/normalize/index.ts";
 import {
   RecordingWatchError,
   type RecordingCallback,
@@ -28,6 +29,12 @@ const recording = z.object({
   components: z.array(z.string()),
   subType: z.string().optional(),
 });
+const pairedRecording = recording.extend({
+  householdId: z.string(),
+  account: z.string(),
+  deviceId: z.string(),
+  kind: z.enum(["ding", "motion"]),
+});
 
 /** Confirmed Ring grants stay encrypted on the home computer. Unclaimed tokens never enter the store. */
 export class PilotLinks {
@@ -45,6 +52,57 @@ export class PilotLinks {
       owner TEXT PRIMARY KEY REFERENCES links(owner) ON DELETE CASCADE,
       watch TEXT NOT NULL UNIQUE, device TEXT NOT NULL, kind TEXT NOT NULL,
       start INTEGER NOT NULL, deadline INTEGER NOT NULL, record BLOB)`);
+    this.#db.exec(`CREATE TABLE IF NOT EXISTS paired_recordings (
+      owner TEXT NOT NULL REFERENCES links(owner) ON DELETE CASCADE,
+      event TEXT NOT NULL, deadline INTEGER NOT NULL, record BLOB NOT NULL,
+      PRIMARY KEY(owner,event));
+      CREATE INDEX IF NOT EXISTS paired_recording_expiry ON paired_recordings(deadline)`);
+  }
+  /** Keep the exact provider reference under the same encrypted account grant as its tokens. */
+  savePairedRecording(
+    eventId: string,
+    householdId: string,
+    event: RecordingCallback,
+  ) {
+    const owner = hash(event.account);
+    const bytes = Buffer.from(JSON.stringify({ householdId, ...event }));
+    const stored = this.#db
+      .prepare("SELECT record FROM paired_recordings WHERE owner=? AND event=?")
+      .get(owner, eventId);
+    if (stored) {
+      if (
+        !(stored.record instanceof Uint8Array) ||
+        !bytes.equals(open(this.#key, stored.record, "secrets-file"))
+      )
+        throw new Error("Conflicting recording reference.");
+      return;
+    }
+    this.#db
+      .prepare("INSERT INTO paired_recordings VALUES(?,?,?,?)")
+      .run(
+        owner,
+        eventId,
+        event.time + 30 * 86_400_000,
+        seal(this.#key, bytes, "secrets-file"),
+      );
+  }
+  recordingById(account: string, eventId: string, now: number) {
+    const row = this.#db
+      .prepare(
+        "SELECT record FROM paired_recordings WHERE owner=? AND event=? AND deadline>?",
+      )
+      .get(hash(account), eventId, now);
+    if (!(row?.record instanceof Uint8Array)) return undefined;
+    const value = pairedRecording.parse(
+      JSON.parse(
+        Buffer.from(open(this.#key, row.record, "secrets-file")).toString(
+          "utf8",
+        ),
+      ),
+    );
+    return value.account === account && recordingEventId(value) === eventId
+      ? value
+      : undefined;
   }
   /** One local watch per linked account. Removing or replacing the link clears its watch. */
   watchRecording(
@@ -118,6 +176,9 @@ export class PilotLinks {
     this.#db.prepare("DELETE FROM recording_watches WHERE watch=?").run(watch);
   }
   expireWatches(now: number) {
+    this.#db
+      .prepare("DELETE FROM paired_recordings WHERE deadline<=?")
+      .run(now);
     this.#db
       .prepare("DELETE FROM recording_watches WHERE deadline<=?")
       .run(now);

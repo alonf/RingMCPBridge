@@ -29,7 +29,11 @@ export async function linkTestHome(
   cleanups: Cleanups,
   home?: HomeSnapshot,
   queuedEvent?: EventMessage,
-): Promise<void> {
+  partner?: {
+    prepare: (dataDir: string) => Promise<string>;
+    send: typeof fetch;
+  },
+) {
   const dataDir = await mkdtemp(join(tmpdir(), "ring-bridge-e2e-"));
   cleanups.push(() =>
     rm(dataDir, {
@@ -44,6 +48,9 @@ export async function linkTestHome(
     BRIDGE_CORE_URL: `${core.url.replace("http:", "ws:")}/link`,
     BRIDGE_DATA_DIR: dataDir,
     BRIDGE_SECRETS_KEY_FILE: join(dataDir, "secrets.key"),
+    ...(partner && {
+      BRIDGE_RING_PARTNER_FILE: await partner.prepare(dataDir),
+    }),
   });
   if (settings.mode !== "connector") {
     throw new Error("expected the connector's settings");
@@ -63,6 +70,7 @@ export async function linkTestHome(
   }
   const key = await generateSigningKeyPair();
   const connector = await startConnector(settings, {
+    ...(partner && { partnerFetch: partner.send }),
     clock,
     logger: new Logger({
       sink: () => undefined,
@@ -91,4 +99,5 @@ export async function linkTestHome(
     signingKeyId(key.publicKey),
     never(),
   );
+  return dataDir;
 }

@@ -4,12 +4,16 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { pilotApp } from "../dev/ring-pilot/app.ts";
-import { InvalidRingGrant, ringClient } from "../dev/ring-pilot/client.ts";
-import { PilotLinks } from "../dev/ring-pilot/links.ts";
+import { pilotApp } from "../src/connector/access/ring-partner/app.ts";
+import {
+  InvalidRingGrant,
+  ringClient,
+} from "../src/connector/access/ring-partner/client.ts";
+import { PilotLinks } from "../src/connector/access/ring-partner/links.ts";
 import type { Cleanups } from "./host/core-fixture.ts";
 import { verifyEventHandoff } from "./scenarios/event-handoff-scenario.ts";
 import { runEventProbe } from "../dev/ring-pilot/probe-command.ts";
+import { recordingEventId } from "../src/connector/engines/normalize/index.ts";
 
 const START = 1_800_000_000_000;
 const SIGNING = "synthetic test key";
@@ -708,6 +712,14 @@ describe("post-link event media pilot", () => {
             ? (JSON.parse(init.body) as unknown)
             : null,
       });
+      if (path.endsWith("/devices/cam"))
+        return json({
+          data: {
+            type: "devices",
+            id: "cam",
+            relationships: { location: { data: { id: "home" } } },
+          },
+        });
       if (path.endsWith("/devices"))
         return json({
           data: [
@@ -894,6 +906,69 @@ describe("post-link event media pilot", () => {
     await expect(get("home", ["0", "1"])).rejects.toThrow();
     await expect(get("home", ["1"], START + 1)).rejects.toThrow();
     expect(probe.requests.some((r) => r.path.includes("/media/"))).toBe(false);
+  });
+  it("fetches the exact saved callback by the bridge alert ID and rejects it after unlink", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ring-paired-read-")),
+      links = new PilotLinks(":memory:", ID, "test-key");
+    const now = Date.now(),
+      time = now - 20_000;
+    const account = "owner",
+      deviceId = "cam",
+      householdId = "home",
+      eventId = "original-ring-id";
+    const id = recordingEventId({ deviceId, householdId, eventId });
+    const probe = fixture(200, 0, time - 1, undefined, undefined, time);
+    const read = (bridgeId: string) =>
+      runEventProbe(
+        probe.client,
+        links,
+        dir,
+        "",
+        "",
+        undefined,
+        undefined,
+        false,
+        bridgeId,
+      );
+    try {
+      links.save({
+        account,
+        masked: "o***",
+        access: "test",
+        session: "session",
+        expires: now + 100_000,
+        linkedAt: time - 1,
+        sessionExpiry: now + 100_000,
+        tokenExpiry: now + 100_000,
+      });
+      links.savePairedRecording(id, householdId, {
+        account,
+        deviceId,
+        eventId,
+        time,
+        kind: "ding",
+        components: ["1"],
+      });
+      await expect(read("wrong")).rejects.toThrow("No such paired recording");
+      expect(await read(id)).toBe(true);
+      const [folder] = readdirSync(dir);
+      expect(
+        JSON.parse(readFileSync(join(dir, folder ?? "", "event.json"), "utf8")),
+      ).toMatchObject({
+        eventId,
+        bridgeEventId: id,
+        identitySource: "signed-webhook",
+        componentIds: ["1"],
+      });
+      expect(probe.requests.some((r) => r.path.endsWith("/events"))).toBe(
+        false,
+      );
+      links.remove(account);
+      await expect(read(id)).rejects.toThrow("confirmed account");
+    } finally {
+      links.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
   it("retries only the pending clip with the same lens and interval after rechecking camera access", async () => {
     const status = vi.fn().mockReturnValueOnce(425).mockReturnValue(200);

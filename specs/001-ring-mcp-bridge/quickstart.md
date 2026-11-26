@@ -325,6 +325,21 @@ The slice follows the plan's resolution of the iteration-width conflict (`resear
 | Also in 002: FR-043 (part) | Out-of-band email and SMS when no heartbeat (minute tick) for 10 minutes, or the home is offline for more than 10 minutes | Step 5 (alert rules in Bicep); Step 8 (one end-to-end test alert) | **Iteration 002**. The audit and WORM alerts come in iteration 004. Iteration 002 also alerts for a backlog older than five minutes and a lost Ring session. Set `BRIDGE_ALERT_EMAIL`, `BRIDGE_ALERT_SMS_COUNTRY_CODE` and `BRIDGE_ALERT_SMS_NUMBER` in the production environment before deployment |
 | Also in 001: FR-032 (enrollment) | Connector enrolled with its key pair and a code compared on the admin page; a new enrollment revokes the old one | Step 6 | In Option B |
 
+### Pair an official Ring camera with the connector
+
+Pairing makes Ring's signed motion and doorbell callbacks the alert source for one bridge camera. Existing camera permissions stay keyed to its bridge device and household. The connector continues to use its current feed for other devices. A missed partner callback can leave a gap for a paired camera, since community history has a different event identity.
+
+1. In a private directory, save the official account, location and device IDs alongside the existing bridge location and device IDs for each camera you verified. Use a JSON object or an array. A pair has the form `{"accountId":"official-account","ringHouseholdId":"official-location","ringDeviceId":"official-camera","locationId":"bridge-location","deviceId":"bridge-camera"}`.
+2. Choose the switchover time. Configure the connector and account link before that time. Run the following on the home computer. The script writes a new `ring-partner.json` beside the credential CSV, containing credentials and the pairings. Restrict that directory and file to the operator and connector. Keep them outside Git.
+
+   ```powershell
+   ./infra/home/new-ring-partner-config.ps1 -CredentialCsv 'C:\private\ring-app.csv' -CameraPairsFile 'C:\private\camera-pairs.json' -ActiveFrom '2026-12-01T08:00:00Z' -Container
+   ```
+
+3. On a VM created with the updated starter, place the private config at `/srv/ring-bridge/secrets/ring-partner.json` and set `BRIDGE_RING_PARTNER_ENABLED=1` in `/etc/ring-bridge/bridge.env`. The container user needs read access. For an existing Docker starter, pass `-e BRIDGE_RING_PARTNER_FILE=/run/secrets/ring-partner.json -p 127.0.0.1:43821:43821` and mount the private file at that path. For a connector running directly on the host, omit `-Container` when creating the config and set `BRIDGE_RING_PARTNER_FILE` to its path.
+4. Start the updated connector and route the Ring app's existing HTTPS endpoint to its port 43821. During a pilot handover, stop the old callback listener and use a consistent copy of the encrypted `ring-pilot-links-*.sqlite` database in the connector data directory with the same app credentials, or complete Ring account linking on the new endpoint. Keep just one process renewing a given account link.
+5. Read the alert with MCP `get_events`. Its `event_id` identifies the saved Ring recording reference. For a local operator check, point the probe at the connector data directory with `-LinkDirectory` and supply `-BridgeEventId` to `infra/home/start-ring-pilot.ps1`. This retrieves media for that exact callback. The encrypted reference expires 30 days after detection and unlinking removes it. Production MCP media transfer from the connector to the core remains a separate acceptance step.
+
 ### Iteration 003 acceptance run (planned)
 
 Install FFmpeg on the home computer and check that `ffprobe -version` runs in the pilot's shell. The clip probe measures the MP4 container and its audio and video tracks before saving a clip. If the recording extends beyond the event window, the pilot requests one second less from the same start time and lens. It saves the clip only when its measured end fits. The manifest records the actual start, measured end and requested duration in milliseconds. The pilot tests also require `ffmpeg` to generate synthetic recordings.

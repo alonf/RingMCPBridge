@@ -2,7 +2,7 @@ import { mediaLocation } from "./media-location.ts";
 import { z } from "zod";
 import { capabilities, readJpeg } from "./snapshot.ts";
 import { clipDurationMs } from "./clip-timing.ts";
-import { recordingEventId } from "../../src/connector/engines/normalize/index.ts";
+import { recordingEventId } from "../../engines/normalize/index.ts";
 
 export class EventProbeError extends Error {}
 
