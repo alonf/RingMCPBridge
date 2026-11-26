@@ -14,6 +14,8 @@
 // says so, because a revoked key stops the home for good. The core's other reasons are its own,
 // and the home dials again after them (SC2).
 import { randomUUID } from "node:crypto";
+import { MediaTransfer } from "./media-transfer.ts";
+import type { EventMediaSource } from "../../managers/media/index.ts";
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import { isAcceptedLinkVersion } from "../../../utilities/link-transport/index.ts";
 import type {
@@ -159,9 +161,11 @@ export class CoreSession {
   #pendingFrames = 0;
   #releaseFrame: (() => void) | undefined;
   #inventoryAsked = false;
+  readonly #media: MediaTransfer;
 
   constructor(context: CoreSessionContext) {
     this.#context = context;
+    this.#media = new MediaTransfer(context.link);
     this.#logger = context.logger;
   }
 
@@ -174,6 +178,27 @@ export class CoreSession {
   get isOpen(): boolean {
     return this.#state.phase === "open";
   }
+
+  get mediaCapable() {
+    return this.isOpen && this.#media.capable;
+  }
+  readonly mediaSource: EventMediaSource = async (key, signal) => {
+    const keyId = this.keyId;
+    const active = async () => {
+      if (!this.isOpen || !keyId) return false;
+      const key = await this.#checkKey(keyId);
+      if (!key) throw new Error("Cannot verify the home connector key.");
+      return key.kind === "active" && this.isOpen;
+    };
+    if (!(await active())) return { status: "missing" };
+    const result = await this.#media.request(
+      key,
+      AbortSignal.any([signal, this.#signal]),
+    );
+    if (result.status === "available" && !(await active()))
+      return { status: "missing" };
+    return result;
+  };
 
   /** True while an `enroll` request on this link waits for the owner. */
   get isWaitingForOwner(): boolean {
@@ -233,6 +258,7 @@ export class CoreSession {
     if (this.#state.phase === "closed") {
       return;
     }
+    if (this.isOpen && this.#media.receive(frame)) return;
     const receivedAt = this.#context.clock.now();
     if (this.#state.phase !== "open" && this.#pendingFrames > 0) {
       this.#refuse(frame.type);

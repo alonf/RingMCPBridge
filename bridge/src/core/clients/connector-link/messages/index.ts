@@ -3,6 +3,13 @@
 // declarations without reaching the core's components. It exports schemas, types and the
 // reader, and imports only zod and the Link transport.
 
+export {
+  mediaCapable,
+  mediaHeader,
+  mediaReply,
+  MEDIA_CHUNK_BYTES,
+} from "./media-reply.ts";
+
 /** The frame type names, and each message's schema and type. */
 export {
   challengeResponseSchema,

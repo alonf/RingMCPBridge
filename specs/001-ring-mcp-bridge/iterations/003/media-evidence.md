@@ -12,6 +12,12 @@ Replaying that recording through the connector exposed a 140-character Ring even
 
 The owner approved explicit camera pairing with the signed callback as the alert source. The home connector now hosts the Ring callback and account-link handler when configured with a private pairing file. A local test registered a connector, delivered signed callbacks over HTTP and verified that repeat deliveries produced one event under the paired bridge camera. The home recording reference retained the original lens and capture time and was removed on unlink. The unpaired and pre-cutover community paths remain available. Live cutover, production media transfer over the connector link, and ChatGPT and Claude playback with sound remain open. [Pairing procedure](../../quickstart.md#pair-an-official-ring-camera-with-the-connector)
 
+### Event media over an enrolled connector
+
+A local replay exercised the production connector and core with an isolated media store. A signed test callback identified a paired camera, and the Ring HTTP fixture supplied the JPEG and MP4 saved from the 26 November recording. The MCP client read the event, requested each representation separately and passed each item URL to a receiver process with its own OAuth credential. Both downloaded SHA-256 digests matched the original files. A dropped link, truncated transfer, wrong chunk offset or oversized declaration failed before the item reached storage. A muted clip request withheld an MP4 carrying an audio track.
+
+Live cutover and a fresh callback through the deployed core remain open. T064 also requires ChatGPT and Claude playback with sound. [Field procedure](../../quickstart.md#pair-an-official-ring-camera-with-the-connector)
+
 ## Retention limit for interrupted Blob uploads
 
 Delete-now invalidates the media item in the bridge and removes committed objects. If an upload stops before its block list is committed, Azure may still hold individual blocks. The bridge cannot serve those blocks as media, and its committed-object scan cannot confirm their physical removal. Azure documents garbage collection after a week without a successful block upload or block-list commit for that blob. This service-level limit also applies when the configured bridge retention is shorter. The expiry timing has not been measured on live Azure. [Microsoft Azure Storage Put Block remarks](https://learn.microsoft.com/en-us/rest/api/storageservices/put-block#remarks)

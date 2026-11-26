@@ -2,6 +2,12 @@
 // (CD4). A second, narrow entry point beside Core Link's own, so the core can import these
 // declarations without reaching the home's components; it exports schemas, types and the reader.
 
+export {
+  mediaRequest,
+  mediaCancel,
+  type MediaRequest,
+} from "./media-request.ts";
+
 /** The frame type names, the close reasons, and each message's schema and type. */
 export {
   ackSchema,

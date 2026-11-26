@@ -59,6 +59,12 @@ export class LeasedLinks {
     this.#options = options;
   }
 
+  get mediaSource() {
+    return this.#options.lease.held
+      ? this.#term?.link.mediaSession?.mediaSource
+      : undefined;
+  }
+
   /** Whether this instance is running the link now. */
   get serving(): boolean {
     return this.#term !== undefined;

@@ -970,6 +970,26 @@ describe("post-link event media pilot", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  it("withholds a clip when Ring supplies audio despite a muted-camera request", async () => {
+    const probe = fixture(200);
+    const result = await probe.client.callbackMedia(
+      "example",
+      { deviceId: "cam", householdId: "home" },
+      { eventId: "callback", time: START, components: ["1"] },
+      START - 1,
+      START + 20_000,
+      undefined,
+      { kind: "clip", hasSound: false, signal: new AbortController().signal },
+    );
+    expect(result.clip.status).toBe("unmatched");
+    expect(
+      probe.requests
+        .filter((r) => r.path.includes("/media/"))
+        .map((r) => r.body),
+    ).toEqual([
+      expect.objectContaining({ audio_options: { audio_enabled: false } }),
+    ]);
+  });
   it("retries only the pending clip with the same lens and interval after rechecking camera access", async () => {
     const status = vi.fn().mockReturnValueOnce(425).mockReturnValue(200);
     const probe = fixture(() => Number(status()));

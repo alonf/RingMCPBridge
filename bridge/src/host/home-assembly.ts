@@ -10,7 +10,10 @@ import type {
   RingPushPort,
 } from "../connector/access/ring-adapter/index.ts";
 import { CoreLink } from "../connector/clients/core-link/index.ts";
-import type { CoreLinkIdentity } from "../connector/clients/core-link/index.ts";
+import type {
+  CoreLinkIdentity,
+  HomeMediaSource,
+} from "../connector/clients/core-link/index.ts";
 import { HomeScheduler } from "../connector/clients/home-scheduler/index.ts";
 import { PushListener } from "../connector/clients/push-listener/index.ts";
 import type { PushShapeSink } from "../connector/clients/push-listener/index.ts";
@@ -40,6 +43,7 @@ export interface LocalHome {
 
 /** What the home part's components are built over. */
 export interface HomeAssemblyOptions {
+  readonly mediaSource?: HomeMediaSource | undefined;
   readonly pairedCameras?: readonly CameraPair[] | undefined;
   readonly eventRules?: readonly EventRule[] | undefined;
   readonly ring: RingPort;
@@ -85,6 +89,7 @@ export function assembleHome(options: HomeAssemblyOptions): HomeAssembly {
     ...(options.history === undefined ? {} : { history: options.history }),
   });
   const coreLink = new CoreLink({
+    mediaSource: options.mediaSource,
     dial: options.dial,
     slot,
     ingest,

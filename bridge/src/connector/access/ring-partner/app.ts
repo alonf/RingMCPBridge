@@ -610,5 +610,26 @@ export function pilotApp(
         .map(usableAccess),
     );
   }
-  return { app, expire, maintain };
+  async function linkedRecording(pair: CameraPair, eventId: string) {
+    const ticket = [...tickets.values()].find(
+      (t) => t.session && t.account === pair.accountId && active(t),
+    );
+    const receipt = store?.recordingById(pair.accountId, eventId, now());
+    if (
+      ticket?.linkedAt === undefined ||
+      receipt?.deviceId !== pair.ringDeviceId ||
+      receipt.householdId !== pair.ringHouseholdId ||
+      receipt.time < Math.max(ticket.linkedAt, Date.parse(pair.activeFrom))
+    )
+      return;
+    const stillAuthorized = () =>
+      active(ticket) &&
+      (ticket.tokenExpiry ?? 0) > now() &&
+      !!store?.recordingById(pair.accountId, eventId, now());
+    const access = await usableAccess(ticket);
+    return stillAuthorized()
+      ? { receipt, access, linkedAt: ticket.linkedAt, stillAuthorized }
+      : undefined;
+  }
+  return { app, expire, maintain, linkedRecording };
 }

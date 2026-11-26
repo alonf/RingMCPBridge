@@ -79,7 +79,13 @@ function mediaStatus(
   return { status: "upstream-error", httpStatus };
 }
 
+export interface MediaSelection {
+  kind: "frame" | "clip";
+  hasSound: boolean;
+  signal: AbortSignal;
+}
 interface EventWindow {
+  selection: MediaSelection | undefined;
   deviceUrl: string;
   headers: Record<string, string>;
   components: { component_id: string }[] | undefined;
@@ -111,7 +117,7 @@ async function fetchItem(
         timestamp: start,
         duration: window.clipDurationMs,
         video_options: { codec: "avc" },
-        audio_options: { audio_enabled: true },
+        audio_options: { audio_enabled: window.selection?.hasSound ?? true },
       };
   try {
     let response = await request(deviceUrl + "/media/" + kind + "/download", {
@@ -126,7 +132,12 @@ async function fetchItem(
       response = await send(target, {
         method: "GET",
         redirect: "error",
-        signal: AbortSignal.timeout(20000),
+        signal: window.selection
+          ? AbortSignal.any([
+              window.selection.signal,
+              AbortSignal.timeout(20000),
+            ])
+          : AbortSignal.timeout(20000),
       });
     }
     if (
@@ -153,7 +164,11 @@ async function fetchItem(
     const bytes = await boundedBytes(response);
     if (bytes.toString("ascii", 4, 8) !== "ftyp")
       return { status: "unmatched" };
-    const duration = await clipDurationMs(bytes);
+    const duration = await clipDurationMs(
+      bytes,
+      window.selection?.hasSound,
+      window.selection?.signal,
+    );
     if (duration === undefined) return { status: "unmatched" };
     const measuredEnd = time + duration;
     const requestedMs = window.clipDurationMs;
@@ -244,6 +259,7 @@ export async function downloadEventWindow(
   retryHeaders?: (
     attempt: number,
   ) => Promise<Record<string, string> | undefined>,
+  selection?: MediaSelection,
 ) {
   const { start, end } = source;
   const deviceUrl = api + "/devices/" + encodeURIComponent(source.deviceId);
@@ -268,6 +284,7 @@ export async function downloadEventWindow(
     );
   const selected = lenses?.map((lens) => ({ component_id: lens.component_id }));
   const window = {
+    selection,
     deviceUrl,
     headers,
     components: selected,
@@ -276,8 +293,14 @@ export async function downloadEventWindow(
     clipDurationMs: end - start,
     recordingMayBeProcessing: now < end + PROCESSING_WINDOW_MS,
   };
-  let photo = await fetchItem("image", window, request, send);
-  let clip = await fetchItem("video", window, request, send);
+  let photo: Result =
+    selection?.kind === "clip"
+      ? { status: "missing" }
+      : await fetchItem("image", window, request, send);
+  let clip: Result =
+    selection?.kind === "frame"
+      ? { status: "missing" }
+      : await fetchItem("video", window, request, send);
   for (
     let attempt = 0;
     retryHeaders && (photo.status === "pending" || clip.status === "pending");

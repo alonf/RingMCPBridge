@@ -3,6 +3,7 @@ import { z } from "zod";
 import { downloadSnapshot, SnapshotError } from "./snapshot.ts";
 import {
   CALLBACK_MEDIA_DELAY_MS,
+  type MediaSelection,
   downloadEventWindow,
   EventProbeError,
   PROBE_MS,
@@ -54,7 +55,9 @@ export function ringClient(
       ...init,
       headers,
       redirect: "manual",
-      signal: AbortSignal.timeout(8000),
+      signal: init.signal
+        ? AbortSignal.any([init.signal, AbortSignal.timeout(8000)])
+        : AbortSignal.timeout(8000),
     });
   }
   async function request(url: string, init: RequestInit) {
@@ -68,10 +71,14 @@ export function ringClient(
     const result = await request(API + "/devices", { headers: auth(token) });
     return inventory.parse(await result.json());
   }
-  async function currentCameraHousehold(token: string, deviceId: string) {
+  async function currentCameraHousehold(
+    token: string,
+    deviceId: string,
+    signal?: AbortSignal,
+  ) {
     const result = await ringRequest(
       API + "/devices/" + encodeURIComponent(deviceId),
-      { headers: auth(token) },
+      { headers: auth(token), ...(signal && { signal }) },
     );
     if (result.status === 403 || result.status === 404) return undefined;
     if (!result.ok)
@@ -131,6 +138,7 @@ export function ringClient(
       linkedAt: number,
       now: number,
       retryToken?: (attempt: number) => Promise<string | undefined>,
+      selection?: MediaSelection,
     ) {
       if (
         receipt.time < linkedAt ||
@@ -140,8 +148,12 @@ export function ringClient(
           "The recording window must follow linking and finish processing first.",
         );
       async function headersFor(token: string) {
-        const current = await eventCamera(token, { id: camera.deviceId });
-        if (camera.householdId !== current.householdId)
+        const current = await currentCameraHousehold(
+          token,
+          camera.deviceId,
+          selection?.signal,
+        );
+        if (camera.householdId !== current)
           throw new EventProbeError(
             "The camera household changed during the recording watch.",
           );
@@ -158,13 +170,18 @@ export function ringClient(
         API,
         await headersFor(token),
         now,
-        ringRequest,
+        (url, init) =>
+          ringRequest(url, {
+            ...init,
+            ...(selection && { signal: selection.signal }),
+          }),
         send,
         retryToken &&
           (async (attempt) => {
             const fresh = await retryToken(attempt);
             return fresh ? headersFor(fresh) : undefined;
           }),
+        selection,
       );
     },
     async refresh(refreshToken: string) {

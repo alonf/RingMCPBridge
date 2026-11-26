@@ -101,7 +101,7 @@ export interface McpEndpointSettings {
 /** What the endpoint is wired with. */
 export interface McpEndpointDependencies {
   readonly inquiry: InquiryReads;
-  readonly media?: MediaHandoff;
+  readonly media?: MediaHandoff | undefined;
   /** The Issuer, in mode H. */
   readonly tokens: AccessTokens;
   readonly clock: Clock;

@@ -205,7 +205,9 @@ Sources: IA D8 arm table, IA §Rules surfaced 1, CD X2, FR-024, spec Edge Cases,
 
 ### Media chunks (003)
 
-Capture bytes travel over the link, not by a Blob upload from home (CD X2 decided). They are sent in small chunks behind commands, events and heartbeats, so a clip never delays a HIGH event (CD X2, AC B11). The chunk size is set in iteration 003's plan (PT-08).
+After `hello_ok`, a paired connector announces `media_capable` on that session. The core sends one `media_request` at a time with a fresh request ID, the bridge household, camera and event IDs, the representation and the sound policy. Home resolves the signed callback under its current Ring account link. It can reply `pending`, `missing` or `failed`.
+
+For an available item, home sends a `media_reply` with status `start`, capture time and expected byte length. Each binary `media_chunk` carries the request ID and byte offset. Home waits for each write before queuing the next 32 KiB chunk. Events, commands and heartbeats have priority over waiting chunks (CD X2, AC B11). The core accepts `complete` only after receiving the declared length in order on the same session. A deadline, cancellation, or disconnect discards the incomplete item. Only the core stages bytes in private storage.
 
 ### Enrollment and re-enrollment (001)
 

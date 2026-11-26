@@ -1,5 +1,10 @@
 import { createHash, createHmac } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { writeFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { FileMediaObjects } from "../../src/core/access/media/index.ts";
+import { MediaPermissions } from "../../src/core/access/settings/index.ts";
+import { fetchAs } from "../scenarios/fetch-as-receiver.ts";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { PilotLinks } from "../../src/connector/access/ring-partner/links.ts";
@@ -17,7 +22,10 @@ import { linkTestHome } from "./link-test-home.ts";
 import { OTHER_AGENT } from "./core-fixture.ts";
 import { linkAgent } from "./link-agent.ts";
 import { connectOverHttp } from "../support/index.ts";
-import { getEventsTool } from "../../src/contract/index.ts";
+import {
+  getEventsTool,
+  shareEventMediaTool,
+} from "../../src/contract/index.ts";
 
 const cleanups: Cleanups = [];
 afterEach(async () => {
@@ -51,10 +59,46 @@ it("rejects ambiguous pairings on either side", () => {
 
 it("commits one signed detection in the paired household and forgets its private reference on unlink", async () => {
   const store = openSqliteQueryLayer(":memory:", { clock: new SystemClock() });
-  const core = await startTestCore(cleanups, { store, agents: [OTHER_AGENT] });
+  const receiver = {
+    client_id: "receiver",
+    scopes: ["media"],
+    redirect_uris: ["https://receiver.example.test/callback"],
+  };
+  const folder = await mkdtemp(join(tmpdir(), "paired-media-"));
+  cleanups.push(() => rm(folder, { recursive: true, force: true }));
+  const mediaObjects = new FileMediaObjects(folder);
+  const core = await startTestCore(cleanups, {
+    store,
+    mediaObjects,
+    agents: [{ ...OTHER_AGENT, scopes: ["read", "media"] }, receiver],
+  });
+  const sample = process.env.RING_PILOT_EVENT_DIRECTORY;
+  const photo = sample
+    ? await readFile(join(sample, "event.jpg"))
+    : Buffer.concat([
+        Buffer.from([255, 216]),
+        Buffer.alloc(98_000),
+        Buffer.from([255, 217]),
+      ]);
+  if (!sample)
+    execFileSync("ffmpeg", [
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=s=16x16:r=10",
+      "-t",
+      "1",
+      "-c:v",
+      "mpeg4",
+      join(folder, "event.mp4"),
+    ]);
+  const clip = await readFile(join(sample ?? folder, "event.mp4"));
+  const requested: string[] = [];
   const signal = new AbortController().signal;
   const port = await freePort(),
-    time = Date.now();
+    time = Date.now() - 15_000;
   const shared = {
     ...pair,
     ringDeviceId: "other-partner-camera",
@@ -122,8 +166,40 @@ it("commits one signed detection in the paired household and forgets its private
         );
         return path;
       },
-      send: (url) => {
+      send: (url, init) => {
         const target = new URL(url instanceof Request ? url.url : url);
+        if (target.pathname.endsWith("/capabilities"))
+          return Promise.resolve(
+            Response.json({
+              data: {
+                attributes: {
+                  components: {
+                    items: [{ component_id: "lens", component_type: "lens" }],
+                  },
+                },
+              },
+            }),
+          );
+        if (target.pathname.includes("/media/")) {
+          const image = target.pathname.endsWith("/image/download");
+          if (typeof init?.body !== "string")
+            throw new Error("Expected a media request body.");
+          const options = JSON.parse(init.body) as {
+            components: unknown;
+            audio_options?: { audio_enabled: boolean };
+          };
+          expect(options.components).toEqual([{ component_id: "lens" }]);
+          if (!image) expect(options.audio_options?.audio_enabled).toBe(true);
+          requested.push(image ? "photo" : "clip");
+          return Promise.resolve(
+            new Response(Uint8Array.from(image ? photo : clip), {
+              headers: {
+                "content-type": image ? "image/jpeg" : "video/mp4",
+                "x-media-timestamp": String(time + 1),
+              },
+            }),
+          );
+        }
         const device = [pair, shared].find(
           (p) => target.pathname === "/v1/devices/" + p.ringDeviceId,
         );
@@ -256,7 +332,7 @@ it("commits one signed detection in the paired household and forgets its private
   });
   const endpoint = new URL("/mcp", core.url);
   const client = await connectOverHttp(endpoint, {
-    accessToken: await linkAgent(endpoint),
+    accessToken: await linkAgent(endpoint, undefined, "read media"),
   });
   cleanups.push(() => client.close());
   const history = await client.client.callTool({
@@ -272,6 +348,41 @@ it("commits one signed detection in the paired household and forgets its private
     device: { id: pair.deviceId },
     occurred_at: new Date(time).toISOString(),
   });
+  await new MediaPermissions(store).save(
+    pair.locationId,
+    pair.deviceId,
+    receiver.client_id,
+    { enabled: true, approved: true, sound: true },
+    signal,
+  );
+  const receiverToken = await linkAgent(
+    endpoint,
+    receiver.redirect_uris[0],
+    "media",
+  );
+  for (const kind of ["photo", "clip"] as const) {
+    const result = await client.client.callTool({
+      name: "share_event_media",
+      arguments: {
+        location_id: pair.locationId,
+        device_id: pair.deviceId,
+        event_id: id,
+        kind,
+        receiver_id: receiver.client_id,
+      },
+    });
+    const item = shareEventMediaTool.reply.parse(result.structuredContent).data;
+    if (item.status !== "ready")
+      throw new Error("Expected a complete event item.");
+    const received = await fetchAs(core.url, item.uri, receiverToken);
+    expect(received).toMatchObject({
+      status: 200,
+      digest: createHash("sha256")
+        .update(kind === "photo" ? photo : clip)
+        .digest("hex"),
+    });
+    expect(requested).toEqual(kind === "photo" ? ["photo"] : ["photo", "clip"]);
+  }
   expect(
     await post({ ...payload, data: { type: "app_integration_removed" } }),
   ).toBe(200);

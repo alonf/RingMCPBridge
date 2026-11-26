@@ -53,6 +53,11 @@ export class ConnectorLink {
     this.#logger = options.logger.with({ component: "connector_link" });
   }
 
+  get mediaSession() {
+    const open = [...this.#openByKey.values()];
+    return open.length === 1 && open[0]?.mediaCapable ? open[0] : undefined;
+  }
+
   /** How many links are open now, proved or not. */
   get linkCount(): number {
     return this.#sessions.size;

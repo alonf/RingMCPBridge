@@ -1,10 +1,9 @@
 import { expect, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { fetchAs } from "./fetch-as-receiver.ts";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { clipDurationMs } from "../../src/connector/access/ring-partner/clip-timing.ts";
 import {
@@ -24,12 +23,6 @@ import type { Cleanups } from "../host/core-fixture.ts";
 import { linkAgent } from "../host/link-agent.ts";
 
 const signal = new AbortController().signal;
-const received = z.object({
-  status: z.number(),
-  type: z.string().nullable(),
-  length: z.number(),
-  digest: z.string(),
-});
 const evidence = z.object({
   householdId: z.string().min(1),
   deviceId: z.string().min(1),
@@ -110,31 +103,6 @@ async function sample(directory?: string) {
     eventAt: start,
     clipAt: video.time,
   };
-}
-async function fetchAs(
-  origin: string,
-  url: string,
-  token: string,
-  range?: string,
-) {
-  const proc = spawn(
-    process.execPath,
-    [fileURLToPath(new URL("./media-receiver.mjs", import.meta.url))],
-    { stdio: ["pipe", "pipe", "ignore"], windowsHide: true },
-  );
-  const result = new Promise<string>((resolve, reject) => {
-    let output = "";
-    proc.stdout.on("data", (b: Buffer) => {
-      output += b.toString();
-    });
-    proc.once("error", reject);
-    proc.once("close", (code) => {
-      if (code === 0) resolve(output);
-      else reject(new Error("Receiver failed."));
-    });
-  });
-  proc.stdin.end(JSON.stringify({ origin, url, token, range }));
-  return received.parse(JSON.parse(await result));
 }
 export async function verifyEventHandoff(
   cleanups: Cleanups,

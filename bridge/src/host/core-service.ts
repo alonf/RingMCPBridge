@@ -247,7 +247,11 @@ export async function startCoreService(
       publicUrl,
       eventMatches: (home, camera, event, signal) =>
         eventLog.fromCamera(store, home, camera, event, signal),
-      ...(resources.eventMediaSource && { source: resources.eventMediaSource }),
+      source:
+        resources.eventMediaSource ??
+        ((key, signal) =>
+          core.links.mediaSource?.(key, signal) ??
+          Promise.resolve({ status: "pending" })),
     });
   const downloadLimit = new ReadLimit(settings.readsPerHour, clock);
   const download =
@@ -273,7 +277,11 @@ export async function startCoreService(
       clock,
       logger,
       events: delivery,
-      ...(media && resources.eventMediaSource && { media }),
+      get media() {
+        return resources.eventMediaSource || core.links.mediaSource
+          ? media
+          : undefined;
+      },
     },
   );
   const mcpListener = getRequestListener((request) => mcp.fetch(request));

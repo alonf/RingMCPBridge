@@ -90,7 +90,14 @@ export async function startConnector(
       "The Secrets File holds no enrollment code: it was made before the setup kept one. Delete it and run the setup again.",
     );
   }
+  let partnerService:
+    Awaited<ReturnType<typeof startPartnerWebhook>> | undefined;
   const homeSide = assembleHome({
+    ...(partner && {
+      mediaSource: (request, signal) =>
+        partnerService?.mediaSource(request, signal) ??
+        Promise.resolve({ status: "missing" as const }),
+    }),
     pairedCameras: partner?.pairs,
     ring: home.ring,
     eventRules: settings.eventRules,
@@ -124,10 +131,10 @@ export async function startConnector(
       ? {}
       : { intervalMs: parts.healthWriteIntervalMs }),
   });
-  let stopPartner: (() => Promise<void>) | undefined;
+
   try {
     if (partner)
-      stopPartner = await startPartnerWebhook(
+      partnerService = await startPartnerWebhook(
         partner,
         homeSettings.dataDir,
         homeSide.ingest,
@@ -145,7 +152,7 @@ export async function startConnector(
   logger.info("bridge_started", { mode: "connector" });
   return {
     stop: async () => {
-      await stopPartner?.();
+      await partnerService?.close();
       await homeSide.stop();
       await health.stop();
       await home.close();

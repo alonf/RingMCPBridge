@@ -10,6 +10,7 @@
 // next connection does (SC2, `LINK_CLOSE_REASONS`).
 import type { Cancel, Clock } from "../../../utilities/clock/index.ts";
 import { LINK_PROTOCOL_VERSION } from "../../../utilities/link-transport/index.ts";
+import { HomeMedia, type HomeMediaSource } from "./home-media.ts";
 import type {
   LinkClosed,
   LinkConnection,
@@ -57,6 +58,7 @@ export interface CoreLinkIdentity {
 
 /** What one session works with. */
 export interface HomeSessionContext {
+  readonly mediaSource?: HomeMediaSource | undefined;
   readonly link: LinkConnection;
   readonly slot: LinkSlot;
   readonly ingest: Ingest;
@@ -82,10 +84,13 @@ export class HomeSession {
   readonly #logger: Logger;
   #phase: Phase;
   #opened = false;
+  readonly #media: HomeMedia | undefined;
   #cancelHandshake: Cancel = () => undefined;
 
   constructor(context: HomeSessionContext) {
     this.#context = context;
+    if (context.mediaSource)
+      this.#media = new HomeMedia(context.link, context.mediaSource);
     this.#logger = context.logger.with({ session_id: context.sessionId });
     this.#phase = context.enroll ? "enrolling" : "awaiting_challenge";
   }
@@ -99,6 +104,7 @@ export class HomeSession {
       });
       link.onClose((closed) => {
         this.#cancelHandshake();
+        this.#media?.close();
         this.#context.slot.clear(link);
         resolve(this.#ended(closed));
       });
@@ -116,6 +122,7 @@ export class HomeSession {
   }
 
   #received(frame: LinkFrame, signal: AbortSignal): void {
+    if (this.#phase === "open" && this.#media?.receive(frame)) return;
     const message = readCoreMessage(frame);
     if (message === undefined) {
       this.#logger.warn("core_link_message_refused", {
@@ -250,6 +257,8 @@ export class HomeSession {
     }
     this.#phase = "open";
     this.#opened = true;
+    if (this.#media)
+      void this.#context.link.send({ type: "media_capable", body: {} });
     this.#context.slot.put(this.#context.link);
     this.#logger.info("core_link_session_open");
     this.#settle(

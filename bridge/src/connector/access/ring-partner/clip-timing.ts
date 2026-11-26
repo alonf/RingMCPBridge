@@ -21,6 +21,8 @@ const report = z.object({
 
 export async function clipDurationMs(
   bytes: Buffer,
+  allowAudio = true,
+  signal?: AbortSignal,
 ): Promise<number | undefined> {
   const output = await new Promise<string | undefined>((resolve, reject) => {
     const child = execFile(
@@ -39,6 +41,7 @@ export async function clipDurationMs(
         "pipe:0",
       ],
       {
+        signal,
         timeout: 10_000,
         killSignal: "SIGKILL",
         windowsHide: true,
@@ -58,7 +61,11 @@ export async function clipDurationMs(
   const parsed = report.safeParse(JSON.parse(output));
   if (!parsed.success) return undefined;
   const { format, streams } = parsed.data;
-  if (format.start_time !== 0 || !streams.some((s) => s.codec_type === "video"))
+  if (
+    (!allowAudio && streams.some((s) => s.codec_type === "audio")) ||
+    format.start_time !== 0 ||
+    !streams.some((s) => s.codec_type === "video")
+  )
     return undefined;
   return Math.ceil(
     Math.max(

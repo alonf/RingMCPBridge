@@ -8,6 +8,9 @@
 #   docker build -f bridge/Dockerfile -t ring-mcp-bridge .
 FROM node:24.13.0-bookworm-slim
 
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV NODE_ENV=production
 WORKDIR /app
 
