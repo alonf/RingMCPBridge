@@ -5,7 +5,10 @@ import { z } from "zod";
 import { errorEnvelope } from "./envelopes.ts";
 import { eventShape } from "./event.ts";
 import { TOOL_CATALOG } from "./inquiry-tools.ts";
-import { shareEventMediaTool } from "./share-event-media.ts";
+import {
+  shareEventMediaTool,
+  testMediaImageTool,
+} from "./share-event-media.ts";
 import type { ToolContract } from "./inquiry-tools.ts";
 
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
@@ -51,7 +54,11 @@ function toolDefinitions(
 
 /** The documents `schemas/` publishes, built from the tool catalog. */
 export function contractDocuments(
-  tools: readonly ToolContract[] = [...TOOL_CATALOG, shareEventMediaTool],
+  tools: readonly ToolContract[] = [
+    ...TOOL_CATALOG,
+    shareEventMediaTool,
+    testMediaImageTool,
+  ],
 ): readonly ContractDocument[] {
   return [
     {

@@ -121,6 +121,9 @@ test.describe("the admin page", () => {
     await add.selectOption({ label: "Test receiver (receiver)" });
     await page.getByRole("button", { name: "Save camera permissions" }).click();
     await expect(approved).toBeVisible();
+    await expect(
+      page.getByText("Test receiver (receiver) — Allowed:", { exact: false }),
+    ).toBeVisible();
     await add.selectOption({ label: "Test receiver (second-receiver)" });
     await page.getByRole("button", { name: "Save camera permissions" }).click();
     await expect(other).toBeVisible();

@@ -17,6 +17,7 @@ import { CAMERA_PERSON_EVENTS } from "./0014-camera-person-events.ts";
 import { OWNER_MEDIA_CHANGES } from "./0015-owner-media-changes.ts";
 import { CAMERA_APPROVAL_IDENTITY } from "./0016-camera-approval-identity.ts";
 import { CAMERA_APPROVAL_REVISION } from "./0017-camera-approval-revision.ts";
+import { MEDIA_DENIAL_REASON } from "./0018-media-denial-reason.ts";
 import type { Migration } from "./migration.ts";
 
 export const CORE_MIGRATIONS: readonly Migration[] = [
@@ -37,4 +38,5 @@ export const CORE_MIGRATIONS: readonly Migration[] = [
   OWNER_MEDIA_CHANGES,
   CAMERA_APPROVAL_IDENTITY,
   CAMERA_APPROVAL_REVISION,
+  MEDIA_DENIAL_REASON,
 ];

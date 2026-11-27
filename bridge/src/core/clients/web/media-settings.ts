@@ -1,5 +1,8 @@
 import { html } from "hono/html";
-import type { MediaHandoff } from "../../managers/media/index.ts";
+import {
+  effectiveReceiverAccess,
+  type MediaHandoff,
+} from "../../managers/media/index.ts";
 
 export const MEDIA_SETTINGS = "/admin/cameras";
 export const cameraSettingsUnavailable = () =>
@@ -14,8 +17,14 @@ export async function cameraSettings(
   formToken: string,
   signal: AbortSignal,
 ) {
-  const { locations, cameras, receivers, sharedPersonEventsAllowed } =
-    await media.options(signal);
+  const {
+    locations,
+    cameras,
+    receivers,
+    agents,
+    denials,
+    sharedPersonEventsAllowed,
+  } = await media.options(signal);
   const receiverLabels = new Map(
     receivers.map(({ client_id: id, platform }) => [
       id,
@@ -141,6 +150,33 @@ export async function cameraSettings(
                 />
                 Include recorded sound in clips</label
               >
+              <h3>Effective access</h3>
+              <p>
+                Saved camera and service permissions. Each request also requires
+                a media-scoped sign-in.
+              </p>
+              <ul>
+                ${Array.from(
+                  new Set([
+                    ...agents.map((a) => a.client_id),
+                    ...policy.approvals.keys(),
+                  ]),
+                ).map((id) => {
+                  const agent = agents.find((a) => a.client_id === id);
+                  const reason = effectiveReceiverAccess(
+                    agent,
+                    policy.enabled,
+                    policy.approvals.has(id),
+                  );
+                  const name = agent?.platform
+                    ? agent.platform + " (" + id + ")"
+                    : id;
+                  return html`<li>
+                    ${name} —
+                    ${reason ? "Blocked: " + reason : "Allowed: camera enabled and receiving service approved."}
+                  </li>`;
+                })}
+              </ul>
               <fieldset>
                 <legend>Services allowed to receive photos and clips</legend>
                 ${Array.from(policy.approvals.keys(), (id) => {
@@ -173,5 +209,12 @@ export async function cameraSettings(
           </form>`
         : ""
     }
+    <details>
+      <summary>Recent denied media handoffs</summary>
+      <p>Latest 20 across all households. Times are UTC.</p>
+      <ul>
+        ${denials.map((d) => html`<li>${new Date(Number(d.ts)).toISOString()} · ${d.requester_id} → ${d.receiver_id} · household ${d.location_id} · camera ${d.device_id} · event ${d.event_id} · ${d.denial_reason ?? "Reason was not recorded"}</li>`)}
+      </ul>
+    </details>
   </section>`;
 }

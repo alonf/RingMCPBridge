@@ -160,6 +160,28 @@
         "kind"
       ],
       "additionalProperties": false
+    },
+    "test_media_image": {
+      "type": "object",
+      "properties": {
+        "location_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Source household identifier."
+        },
+        "device_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Source camera identifier."
+        }
+      },
+      "required": [
+        "location_id",
+        "device_id"
+      ],
+      "additionalProperties": false
     }
   }
 }

@@ -1,5 +1,6 @@
 export {
   MediaHandoff,
+  effectiveReceiverAccess,
   MediaDenied,
   MediaSettingsUnavailable,
 } from "./media-handoff.ts";

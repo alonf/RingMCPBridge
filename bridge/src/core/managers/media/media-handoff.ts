@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { MediaRepresentationUnavailable } from "../../access/media/index.ts";
 import type {
   EventMedia,
@@ -7,6 +8,7 @@ import type {
   MediaTickets,
 } from "../../access/media/index.ts";
 import type {
+  ListedAgent,
   MediaPermissions,
   CameraChange,
   SettingsStore,
@@ -33,7 +35,50 @@ export type EventMediaSource = (
       load: (signal: AbortSignal) => Promise<MediaContent>;
     }
 >;
-export class MediaDenied extends Error {}
+const MAX_INLINE_PHOTO_BYTES = 1024 * 1024;
+const denialReasons = {
+  item_unavailable: "The event media item is no longer available.",
+  item_grant_invalid: "The item grant expired or no longer matches.",
+  recorded_sound_disabled: "Recorded sound is disabled for this camera.",
+  household_unknown: "Household is unknown.",
+  camera_unknown: "Camera is unknown.",
+  device_not_camera: "Device is not a camera or doorbell.",
+  household_mismatch: "Camera belongs to another household.",
+  receiver_unknown: "Receiving service is not registered.",
+  receiver_revoked: "Receiving service was revoked.",
+  receiver_missing_media: "Receiving service is not listed for media.",
+  camera_disabled: "Media is disabled for this camera.",
+  approval_missing: "No saved approval for this camera and service.",
+  approval_changed: "Permission changed during the handoff.",
+} as const;
+type DenialReason = keyof typeof denialReasons;
+export class MediaDenied extends Error {
+  readonly reason: DenialReason | undefined;
+  constructor(message?: string, reason?: DenialReason) {
+    super(message);
+    this.reason = reason;
+  }
+}
+function denied(reason: DenialReason) {
+  return new MediaDenied(denialReasons[reason], reason);
+}
+function receiverReason(
+  agent: ListedAgent | undefined,
+): DenialReason | undefined {
+  if (!agent) return "receiver_unknown";
+  if (agent.revoked_at !== undefined) return "receiver_revoked";
+  if (!agent.scopes.includes("media")) return "receiver_missing_media";
+  return undefined;
+}
+function cameraReason(
+  enabled: boolean,
+  approved: boolean,
+): DenialReason | undefined {
+  if (!enabled) return "camera_disabled";
+  if (!approved) return "approval_missing";
+  return undefined;
+}
+
 export class MediaSettingsUnavailable extends Error {}
 interface Dependencies {
   lifetime: {
@@ -58,6 +103,14 @@ interface Dependencies {
 function isCamera(type: string) {
   return type === "camera" || type === "doorbell";
 }
+export function effectiveReceiverAccess(
+  agent: ListedAgent | undefined,
+  enabled: boolean,
+  approved: boolean,
+) {
+  const reason = receiverReason(agent) ?? cameraReason(enabled, approved);
+  return reason ? denialReasons[reason] : undefined;
+}
 /** Coordinates the same owner policy for issuance, cached hits and each receiver read. */
 export class MediaHandoff {
   private readonly deps: Dependencies;
@@ -67,14 +120,17 @@ export class MediaHandoff {
   }
   async options(signal: AbortSignal) {
     const { state, settings } = this.deps;
-    const [locations, devices, agents] = await Promise.all([
+    const [locations, devices, agents, denials] = await Promise.all([
       state.locations(signal),
       state.devices({}, signal),
       settings.agents(signal),
+      this.deps.tickets.recentShareDenials(signal),
     ]);
     return {
       sharedPersonEventsAllowed: this.deps.sharedPersonEventsAllowed,
       locations,
+      denials,
+      agents,
       cameras: devices.filter((d) => isCamera(d.type)),
       receivers: agents.filter(
         (a) => a.revoked_at === undefined && a.scopes.includes("media"),
@@ -117,23 +173,16 @@ export class MediaHandoff {
       this.deps.state.location(home, signal),
       this.deps.state.device(device, signal),
     ]);
-    if (
-      !location ||
-      !camera ||
-      !isCamera(camera.type) ||
-      camera.location_id !== home
-    )
-      throw new MediaDenied();
+    if (!location) throw denied("household_unknown");
+    if (!camera) throw denied("camera_unknown");
+    if (!isCamera(camera.type)) throw denied("device_not_camera");
+    if (camera.location_id !== home) throw denied("household_mismatch");
     return location;
   }
   private async checkReceiver(receiver: string, signal: AbortSignal) {
     const agent = await this.deps.settings.agent(receiver, signal);
-    if (
-      !agent ||
-      agent.revoked_at !== undefined ||
-      !agent.scopes.includes("media")
-    )
-      throw new MediaDenied();
+    const reason = receiverReason(agent);
+    if (reason) throw denied(reason);
   }
   private async access(
     home: string,
@@ -147,8 +196,44 @@ export class MediaHandoff {
       this.checkReceiver(receiver, signal),
     ]);
     const approval = policy.approvals.get(receiver);
-    if (!policy.enabled || !approval) throw new MediaDenied();
+    if (!policy.enabled) throw denied("camera_disabled");
+    if (!approval) throw denied("approval_missing");
     return { policy, approval, zone: location.time_zone };
+  }
+  async testImage(
+    home: string,
+    camera: string,
+    receiver: string,
+    signal: AbortSignal,
+  ) {
+    const entry = {
+      location_id: home,
+      device_id: camera,
+      requester: receiver,
+      receiver,
+      operation: "test_image" as const,
+    };
+    let zone: string;
+    try {
+      ({ zone } = await this.access(home, camera, receiver, signal));
+    } catch (error) {
+      if (error instanceof MediaDenied)
+        await this.deps.tickets.audit(
+          {
+            ...entry,
+            outcome: "denied",
+            ...(error.reason && { denialReason: error.reason }),
+          },
+          AbortSignal.timeout(30_000),
+        );
+      throw error;
+    }
+    const image = await readFile(
+      new URL("./delivery-test.jpg", import.meta.url),
+      { signal },
+    );
+    await this.deps.tickets.audit({ ...entry, outcome: "allowed" }, signal);
+    return { image, zone };
   }
   async share(
     input: ShareRequest,
@@ -170,6 +255,7 @@ export class MediaHandoff {
                 requester,
                 operation: "share",
                 outcome: "denied",
+                ...(error.reason && { denialReason: error.reason }),
               },
               AbortSignal.timeout(30_000),
             );
@@ -220,7 +306,7 @@ export class MediaHandoff {
       current.approval !== access.approval ||
       current.policy.generation !== access.policy.generation
     )
-      throw new MediaDenied();
+      throw denied("approval_changed");
     const ticket = await this.deps.tickets.issue(
       item.id,
       receiver_id,
@@ -242,7 +328,28 @@ export class MediaHandoff {
       },
       signal,
     );
+    // Inline bytes only for the authenticated receiver itself. External services use
+    // the protected item URL. Bound the inline response independently of storage.
+    let image: Buffer | undefined;
+    if (
+      receiver_id === requester &&
+      item.kind === "frame" &&
+      item.length <= MAX_INLINE_PHOTO_BYTES
+    ) {
+      const bytes = await this.read(
+        item,
+        requester,
+        ticket.token,
+        0,
+        item.length,
+        signal,
+      );
+      if (bytes.byteLength !== item.length)
+        throw new Error("Incomplete inline photo.");
+      image = Buffer.from(bytes);
+    }
     return {
+      image,
       zone: current.zone,
       data: {
         ...identity,
@@ -303,15 +410,15 @@ export class MediaHandoff {
     signal: AbortSignal,
   ) {
     const item = await this.deps.media.ready(itemId, signal);
-    if (!item) throw new MediaDenied();
+    if (!item) throw denied("item_unavailable");
     const { policy, approval } = await this.access(
       item.householdId,
       item.cameraId,
       receiver,
       signal,
     );
+    if (item.hasSound && !policy.sound) throw denied("recorded_sound_disabled");
     if (
-      (item.hasSound && !policy.sound) ||
       !(await this.deps.tickets.valid(
         grant,
         itemId,
@@ -321,7 +428,7 @@ export class MediaHandoff {
         signal,
       ))
     )
-      throw new MediaDenied();
+      throw denied("item_grant_invalid");
     return item;
   }
   async auditFetch(
@@ -359,7 +466,7 @@ export class MediaHandoff {
     firstChunk = true,
   ) {
     const bytes = await this.deps.media.read(item.id, start, length, signal);
-    if (!bytes) throw new MediaDenied();
+    if (!bytes) throw denied("item_unavailable");
     // Commit access just before the first bytes. The store still checks the
     // item's retention and deletion state on every subsequent read.
     if (firstChunk) {

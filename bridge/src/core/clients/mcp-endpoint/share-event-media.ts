@@ -1,5 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/server";
-import { shareEventMediaTool } from "../../../contract/index.ts";
+import {
+  shareEventMediaTool,
+  testMediaImageTool,
+} from "../../../contract/index.ts";
 import { formatInTimeZone, formatUtc } from "../../../utilities/clock/index.ts";
 import type { Clock } from "../../../utilities/clock/index.ts";
 import { MediaDenied } from "../../managers/media/index.ts";
@@ -82,6 +85,15 @@ export function registerMediaTool(
           structuredContent: reply,
           content: [
             { type: "text" as const, text: JSON.stringify(reply) },
+            ...("image" in result && result.image
+              ? [
+                  {
+                    type: "image" as const,
+                    mimeType: "image/jpeg",
+                    data: result.image.toString("base64"),
+                  },
+                ]
+              : []),
             ...(result.data.status === "ready"
               ? [
                   {
@@ -120,6 +132,82 @@ export function registerMediaTool(
           {
             code: "BRIDGE_UNAVAILABLE",
             message: "The bridge could not prepare this event media.",
+            retryable: true,
+          },
+          clock,
+        );
+      }
+    },
+  );
+  server.registerTool(
+    testMediaImageTool.name,
+    {
+      description: testMediaImageTool.description,
+      inputSchema: listedOnly(testMediaImageTool.input),
+      outputSchema: testMediaImageTool.reply,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (raw, ctx) => {
+      const args = testMediaImageTool.input.safeParse(raw);
+      if (!args.success)
+        return errorResult(
+          {
+            code: "INVALID_ARGUMENT",
+            message: "Choose a household and camera.",
+            retryable: false,
+          },
+          clock,
+        );
+      const allowance = limits.requests.take(clientId);
+      if (!allowance.allowed)
+        return errorResult(
+          {
+            code: "RATE_LIMITED",
+            message: "Media request limit reached.",
+            retryable: true,
+            retry_after_s: allowance.retryAfterS,
+          },
+          clock,
+        );
+      try {
+        const { image, zone } = await media.testImage(
+          args.data.location_id,
+          args.data.device_id,
+          clientId,
+          AbortSignal.any([ctx.mcpReq.signal, AbortSignal.timeout(30_000)]),
+        );
+        const now = clock.now();
+        return {
+          structuredContent: testMediaImageTool.reply.parse({
+            data: { source: "synthetic" },
+            as_of: formatUtc(now),
+            as_of_local: formatInTimeZone(now, zone),
+            freshness: "live",
+          }),
+          content: [
+            { type: "text" as const, text: "Synthetic image delivery test." },
+            {
+              type: "image" as const,
+              mimeType: "image/jpeg",
+              data: image.toString("base64"),
+            },
+          ],
+        };
+      } catch (error) {
+        if (error instanceof MediaDenied)
+          return errorResult(
+            {
+              code: "ACTION_DISABLED",
+              message: "This media handoff is not approved.",
+              retryable: false,
+            },
+            clock,
+          );
+        logger.error("media_image_test_failed", { client_id: clientId }, error);
+        return errorResult(
+          {
+            code: "BRIDGE_UNAVAILABLE",
+            message: "The bridge could not return the test image.",
             retryable: true,
           },
           clock,

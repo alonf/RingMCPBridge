@@ -225,7 +225,7 @@ export async function verifyEventHandoff(
   cleanups.push(() => mediaClient.close());
   expect(
     (await mediaClient.client.listTools()).tools.map((tool) => tool.name),
-  ).toEqual(["share_event_media"]);
+  ).toEqual(["share_event_media", "test_media_image"]);
   for (const method of ["subscriptions/listen", "resources/subscribe"]) {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -389,10 +389,63 @@ export async function verifyEventHandoff(
     expect(Date.parse(item.captured_at)).toBe(
       kind === "photo" ? data.photoAt : data.clipAt,
     );
+    expect(answer.content).not.toContainEqual(
+      expect.objectContaining({ type: "image" }),
+    );
     return item.uri;
   };
   const photo = await issue("photo"),
     clip = await issue("clip");
+  const receivingAgent = await connectOverHttp(endpoint, {
+    accessToken: receiverToken,
+  });
+  cleanups.push(() => receivingAgent.close());
+  const receive = (testImage: boolean, cameraId = data.device) =>
+    receivingAgent.client.callTool({
+      name: testImage ? "test_media_image" : "share_event_media",
+      arguments: testImage
+        ? { ...source, device_id: cameraId }
+        : {
+            ...source,
+            device_id: cameraId,
+            event_id: data.event,
+            kind: "photo",
+            receiver_id: receiver,
+          },
+    });
+  const synthetic = await receive(true);
+  expect(synthetic.structuredContent).toMatchObject({
+    data: { source: "synthetic" },
+  });
+  const pattern = await readFile(
+    new URL("../../src/core/managers/media/delivery-test.jpg", import.meta.url),
+  );
+  expect(synthetic.content).toContainEqual({
+    type: "image",
+    mimeType: "image/jpeg",
+    data: pattern.toString("base64"),
+  });
+  expect((await receive(true, "other")).structuredContent).toMatchObject({
+    error: { code: "ACTION_DISABLED" },
+  });
+  expect(
+    (
+      await store.get(
+        {
+          sql: "SELECT denial_reason FROM media_access_log WHERE device_id='other' AND outcome='denied'",
+          params: {},
+        },
+        signal,
+      )
+    )?.denial_reason,
+  ).toBe("camera_unknown");
+  if (data.frame.length <= 1024 * 1024) {
+    expect((await receive(false)).content).toContainEqual({
+      type: "image",
+      mimeType: "image/jpeg",
+      data: data.frame.toString("base64"),
+    });
+  }
   for (const [link, bytes, mime] of [
     [photo, data.frame, "image/jpeg"],
     [clip, data.clip, "video/mp4"],
@@ -430,6 +483,9 @@ export async function verifyEventHandoff(
     403,
   );
   expect((await share("photo")).isError).toBe(true);
+  expect((await receive(true)).structuredContent).toMatchObject({
+    error: { code: "ACTION_DISABLED" },
+  });
   await set(true);
   expect((await fetchAs(url, clip, receiverToken)).status).toBe(403);
   expect((await fetchAs(url, await issue("clip"), receiverToken)).status).toBe(
@@ -507,6 +563,9 @@ export async function verifyEventHandoff(
     signal,
   );
   expect((await share("photo")).isError).toBe(true);
+  expect((await receive(true)).structuredContent).toMatchObject({
+    error: { code: "ACTION_DISABLED" },
+  });
   if (!directory) {
     await withShareDeadline(async (expire) => {
       const run = store.run.bind(store);

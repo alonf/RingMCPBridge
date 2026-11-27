@@ -19,7 +19,10 @@ export {
 } from "./inquiry-tools.ts";
 export type { ToolContract } from "./inquiry-tools.ts";
 
-export { shareEventMediaTool } from "./share-event-media.ts";
+export {
+  shareEventMediaTool,
+  testMediaImageTool,
+} from "./share-event-media.ts";
 
 /** `get_events` (T052). */
 export {

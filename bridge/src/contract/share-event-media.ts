@@ -57,3 +57,17 @@ export const shareEventMediaTool = {
     })
     .describe("The event media handoff reply."),
 } satisfies ToolContract;
+
+/** Tests the signed-in receiver's camera permission without reading any event. */
+export const testMediaImageTool = {
+  name: "test_media_image",
+  scope: "media",
+  description: toolDescription(
+    "Return a synthetic JPEG to test the signed-in service's camera permission and inline image delivery. This reads no camera footage.",
+  ),
+  input: input.pick({ location_id: true, device_id: true }),
+  reply: replyEnvelope(
+    z.object({ source: z.literal("synthetic") }),
+    "Synthetic receiver image test.",
+  ),
+} satisfies ToolContract;

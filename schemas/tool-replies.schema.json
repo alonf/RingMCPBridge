@@ -1278,6 +1278,59 @@
       ],
       "additionalProperties": false,
       "description": "The event media handoff reply."
+    },
+    "test_media_image": {
+      "type": "object",
+      "properties": {
+        "as_of": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When the data was true, in UTC."
+        },
+        "as_of_local": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "description": "The same instant in the location's time zone, with its offset."
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "live",
+            "cached",
+            "stale"
+          ],
+          "description": "live: read now; cached: recent enough for this read; stale: the last known state while the home link is down. Stale data is never current."
+        },
+        "stale_since": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When the data became stale, in UTC. Present only when freshness is stale."
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string",
+              "const": "synthetic"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "as_of",
+        "as_of_local",
+        "freshness",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Synthetic receiver image test."
     }
   }
 }

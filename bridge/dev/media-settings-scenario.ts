@@ -37,6 +37,8 @@ export function mediaSettingsScenario(): MediaAdmin {
         locations,
         cameras,
         receivers,
+        agents: receivers,
+        denials: [],
         sharedPersonEventsAllowed: true,
       }),
     camera: (_home, id) => {

@@ -75,23 +75,37 @@ export class MediaTickets {
       ),
     );
   }
+  /** Bounded owner-only history includes mistyped receiver and camera IDs. */
+  recentShareDenials(signal: AbortSignal) {
+    const top = this.db.dialect === "tsql" ? "TOP (20) " : "";
+    const limit = this.db.dialect === "sqlite" ? " LIMIT 20" : "";
+    return this.db.all(
+      {
+        sql: `SELECT ${top}ts,requester_id,receiver_id,location_id,device_id,event_id,denial_reason FROM media_access_log WHERE operation IN ('share','test_image') AND outcome='denied' ORDER BY ts DESC,access_id DESC${limit}`,
+        params: {},
+      },
+      signal,
+    );
+  }
   async audit(
     entry: {
       item?: string;
       receiver: string;
       requester: string;
-      operation: "share" | "fetch";
+      operation: "share" | "fetch" | "test_image";
       outcome: "allowed" | "denied" | "incomplete" | "range_rejected";
       location_id?: string;
       device_id?: string;
       event_id?: string;
+      denialReason?: string;
     },
     signal: AbortSignal,
   ) {
     await this.db.run(
       {
-        sql: "INSERT INTO media_access_log(access_id,media_id,receiver_id,operation,ts,requester_id,outcome,location_id,device_id,event_id) VALUES (@id,@item,@receiver,@operation,@now,@requester,@outcome,@location_id,@device_id,@event_id)",
+        sql: "INSERT INTO media_access_log(access_id,media_id,receiver_id,operation,ts,requester_id,outcome,location_id,device_id,event_id,denial_reason) VALUES (@id,@item,@receiver,@operation,@now,@requester,@outcome,@location_id,@device_id,@event_id,@reason)",
         params: {
+          reason: entry.denialReason ?? null,
           id: randomUUID(),
           item: entry.item ?? "",
           receiver: entry.receiver,
