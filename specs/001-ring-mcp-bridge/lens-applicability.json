@@ -1,0 +1,203 @@
+{
+  "workshop_intake": true,
+  "confirmation_required": true,
+  "selected": [
+    "requirements-nfr",
+    "architecture-core",
+    "integration-api",
+    "security-compliance",
+    "data-storage",
+    "observability-resilience",
+    "devops-operations",
+    "ui-ux",
+    "component-design",
+    "code-implementation"
+  ],
+  "agenda": {
+    "confirmed": "2026-10-23",
+    "confirmation": "human-confirmed",
+    "depths": {
+      "requirements-nfr": "medium",
+      "architecture-core": "full",
+      "integration-api": "full",
+      "security-compliance": "full",
+      "data-storage": "medium",
+      "observability-resilience": "medium",
+      "devops-operations": "medium",
+      "ui-ux": "light",
+      "component-design": "full",
+      "code-implementation": "medium"
+    },
+    "skipped": []
+  },
+  "product_domain_record": "specs/001-ring-mcp-bridge/workshop/product-domain.yml",
+  "workshop": {
+    "requirements-nfr": {
+      "agenda": [
+        "Is the quality-attribute priority order right (safety > timeliness > completeness > unattended > security/privacy > agent economy > compatibility > adaptability > setup ease > battery-cam care)?",
+        "Are the thresholds right (latency, 7-day unattended, 30-day retention, 2-minute confirmation window)? Can 10 s be shorter?",
+        "Are the event priority rules right, especially motion while disarmed?",
+        "At what level should sensor battery alerts fire?",
+        "What mandatory requirements are missing?"
+      ],
+      "decision": "Priority order approved as proposed, with safety of control winning every trade-off. Latency: bridge-internal <= 0.5 s p95 (hard, CI-tested); HIGH events end-to-end goal p95 <= 5 s (assumed until pilot measurement), acceptance ceiling 10 s; MEDIUM <= 30 s; snapshots never delay the event. Unattended >= 7 days without re-login; reconnect <= 60 s; stale detected <= 2 min; 30-day event retention; confirmation token 2-minute expiry, client-bound. Motion is always recorded and queryable (motion in last N min, active rooms, occupancy summary); motion while ARMED is HIGH; motion while DISARMED and non-person camera motion are not pushed by default but are opt-in per sensor and per client via config; a built-in rules engine (motion -> lights) is vision, not v1, and the bridge exposes a filterable motion stream instead. Sensor battery alert below a configurable threshold (default 20%, global and per device) or when Ring flags low, once per crossing plus a periodic digest. The human had no additions of their own and accepted all 8 proposed additions: freshness honesty (as_of, stale marker), Ring-lost HIGH health event after 2 min, outgoing Ring rate limiting with backoff, 90-day audit log of every control action and confirmation, event log and cursors durable across restarts, every pushed event delivered to each concurrent client with confirmations bound to the requesting client, any-language device names with location time zone plus UTC, and 7-day configurable media cache retention.",
+      "depth": "medium",
+      "moved_on": true,
+      "confirmation": "human-confirmed",
+      "confirmation_scope": "lens-question",
+      "diagram": "specs/001-ring-mcp-bridge/workshop/requirements-nfr.md - quality-attribute priority table, latency budget, event priority and motion policy table"
+    },
+    "architecture-core": {
+      "agenda": [
+        "Which decomposition style governs the structure?",
+        "Which stack: C#/.NET 10 as preferred, or another language or a polyglot design?",
+        "Which topology: all at home (A), hybrid home connector plus Azure core (H), or all in Azure (C)? Which home box?",
+        "Are the building blocks (IDesign clients, managers, engines, resource access, utilities) and the HIGH-event flow right?",
+        "Which constraints are binding and which are preferences?",
+        "What is deliberately out of scope for v1 (including the yard-gate requirement raised by the human)?",
+        "Which option best balances simplicity, reversibility and future cost?"
+      ],
+      "decision": "IDesign (volatility-based) decomposition, binding. Stack: TypeScript on Node everywhere, confirmed on the condition that the MCP SDK serves the latest protocol (verified: TS SDK v2 @modelcontextprotocol/server 2.4.0 serves 2026-07-28 plus the legacy handshake); MS DI superseded, TS DI container deferred to code-implementation. Topology H for the author's deployment (Azure core with the MCP endpoint, a home connector that alone talks to Ring and only connects out, a local stdio channel shim for Claude Code on the legacy handshake); A kept as an all-in-one, local-only mode of the same code; C out. Home box: a dedicated Linux VM on the Hyper-V server running the connector in Docker. Building-block map accepted unchanged: clients (MCP endpoint, channel shim, connector link, scheduler), managers (Inquiry, Control, Media, Event), engines (Summary, Safety, Capture, Classify), resource access (Ring, State, Event Log, Audit, Media Cache, Subscriptions, Delivery), utilities; managers never call managers except via queued Pub/Sub. Binding constraints B1-B15 (new and approved: B7 one connector per Ring account and one core replica, B14 OAuth 2.1 on the remote endpoint, B15 licenses read from the repository's license file); preferences P1-P10; assumptions A1-A5. v1 scope IN1-IN7 (IN7: no anyOf in tool input schemas); out or later O1-O12 (O1 MCP Apps live viewer is a stretch, O4 push into Foundry later, raw stream URLs never, official adapter only after S1). Yard gate: G1, latest gate images on request through the frame tool; gate vision is a separate app acting as an MCP client; no outdoor contact sensor; B16 withdrawn by the agent. Balance check: v3 holds; one-way doors B1, B2, B4/B5, B8, B10. Spikes S1 and S2 still await the human's separate go.",
+      "depth": "full",
+      "moved_on": true,
+      "confirmation": "human-confirmed",
+      "confirmation_scope": "lens-question",
+      "diagram": "specs/001-ring-mcp-bridge/workshop/architecture-core.md - hybrid topology, IDesign building-block map, connector box, HIGH-event flow, constraints tables, v1 scope tables, yard-gate options, balance check"
+    },
+    "integration-api": {
+      "agenda": [
+        "What is the integration style for each boundary, including the home-to-Azure link transport (P7) and whether home apps get a LAN path?",
+        "Who owns each contract and how is it versioned?",
+        "Which operations are synchronous, asynchronous or streaming?",
+        "Which requests are safe, idempotent, cacheable or replayable, and how is control made safe?",
+        "How are auth, scopes, throttling and API management handled per boundary?",
+        "How are compatibility and schema evolution tested?",
+        "What are the contract shape, reply envelope, event shape and error codes?",
+        "How do the key control sequences (arm Away, disarm) run through the boundaries?"
+      ],
+      "decision": "D1: MCP tools and resources toward every agent and app; a direct WebSocket over TLS dialed from the home connector to the core (not Web PubSub or Relay); the gate app goes through Azure, with no LAN shortcut in v1; the channel shim only relays push (the agent's lean, stated back to the human, changeable). D2: the MCP tool list is the contract; changes are additive, and a tool is deprecated before removal; the link is versioned at hello, and the core accepts N and N-1. D3: tools are synchronous with a 60 s deadline; push is a hint, and the event log and cursor are the truth; the link is one duplex stream. D4: reads are cacheable through max_age_s. Events are at least once, with an event_id. Commands are at most once, with a command_id. Tier a (arm Home/Away, lights) uses a one-time, client-bound, plan-bound 2-minute token, or elicitation where the client supports it. Tier b (disarm) runs only on clients that speak 2026-07-28 MRTR and declare URL elicitation; the PIN goes through a signed-in confirm page on the core and never through the client or the model. Other clients get ACTION_DISABLED. D5: scopes are read, media and control; per-client rate limits; only the connector calls Ring; no APIM. D6: tests cover both MCP eras, the shim, a ChatGPT Events fixture, the link at N and N-1, and Ring fixtures plus a live canary. D7: 13 tools (inquiry, events, media, control) with a common reply envelope (as_of, as_of_local, freshness, stale_since), an error envelope (code, retryable, retry_after_s, outcome for control) and an event shape; 13 error codes (RING_REJECTED added in D8); 7 rules, including reads degrading to stale, no automatic control retry, flat input schemas, inline JPEG images and authenticated clip links, and Ring strings marked untrusted; the siren stays out of v1 (the human declined the amendment). D8: the arm Away and disarm sequences were walked as proposed; the arm summary states that after the exit delay any opened contact, including a shutter moved by another system, sounds the alarm, and shows the monitoring state; disarm was revised to the MRTR flow.",
+      "depth": "full",
+      "moved_on": true,
+      "confirmation": "human-confirmed",
+      "confirmation_scope": "lens-question",
+      "diagram": "specs/001-ring-mcp-bridge/workshop/integration-api.md - integration map, contracts and auth per boundary, D1-D8 table, tool catalog, envelopes, error codes, arm Away and disarm sequences, lens summary"
+    },
+    "security-compliance": {
+      "agenda": [
+        "SC1: Who authenticates the agents and the human, and where is identity established (issuer, sign-in, token lifetimes)?",
+        "SC2: How do machines prove who they are (connector, shim, gate app, Azure-hosted agents, the core)?",
+        "SC3: Who may do what (scopes, which clients get control, disarm, shared locations, revocation)?",
+        "SC4: Where do secrets and sensitive data live, and how are they protected (Ring token, keys, PIN, logs)?",
+        "SC5: What is audited, how is the audit made tamper-evident, and what does it cost?",
+        "SC6: Which risks do we accept, and what rate limits apply per agent?",
+        "SC7: What compliance and privacy obligations apply (Ring terms, people on camera, sound, agent platforms' retention, shared locations, retention and deletion, open source)?"
+      ],
+      "decision": "SC1: an own OAuth issuer in the core on node-oidc-provider, CIMD or DCR for listed agents only; the human signs in with Entra ID in their organization tenant; access tokens 1 h, refresh tokens rotating, 30 days unused, 90 days at most; the confirm page asks Entra for a fresh sign-in; the core reaches Entra through a managed-identity federated credential (to confirm on Container Apps); Auth0 and AWS not used. SC2: the connector enrolls with a key pair made on the VM and a code checked on the admin page, signs a challenge at each hello, and a new enrollment revokes the old (B7); the shim uses PKCE through Entra with its refresh token in Windows Credential Manager; the gate app uses private-key client credentials; Azure-hosted agents (Foundry, ACA) use their own managed identity and the core accepts Entra tokens from listed identities; the core uses managed identity to Key Vault and Entra. SC3: scopes read, media, control, with config switches beating scopes; control (arm, lights) for ChatGPT including the dot and every Claude surface including Duet (T10 accepted); shim read; gate app and Azure-hosted agents read and media; disarm off unless switched on, then MRTR with URL elicitation and the PIN; lights take an optional auto-off time (additive to D7); tokens and confirmations bound to sub and client; shared locations off unless enabled, read-only, with the owners' agreement; revoke-all on the admin page. SC4: Ring token, push credentials, device ID and connector key only at home in an encrypted file keyed from a Docker secret; core secrets in Key Vault via managed identity (issuer keys rotated every 90 days, requestState and plan-token keys, PIN hash, S1 secrets entered by the human); no client secret toward Entra; refresh grants stored hashed; PIN argon2id, 5 wrong tries lock disarm for 15 minutes and raise a HIGH event; logs never hold tokens, the PIN, keys or images. SC5: append-only hash-chained audit with a database copy and WORM blob storage (audit-90d for control and media access, audit-1y for security and config; one append blob a day; append-only for the core; unlocked during the pilot); get_history also returns the bridge's control entries (additive); under $0.10 a month. SC6: risk register R1-R8 accepted (R4 for the dot and Duet); per-agent limits control 20 an hour counted on confirm, reads 600, fresh frames and bursts 60, clips 20, one shared Ring limiter at the connector; config defaults tuned in the pilot. SC7: Ring ToS 2(h) accepted earlier plus a README disclaimer; per-camera 'media to agents' switch; clips keep the sound Ring recorded (human-changed; a per-camera switch can drop it); README and admin page point to the platforms' training and memory settings; shared-location owners' agreement recorded before a location turns on, their media off by default; delete-now on the admin page; MIT, secure defaults, SECURITY.md, no telemetry; an admin-page clip player if S7 shows clients cannot play clips.",
+      "depth": "full",
+      "moved_on": true,
+      "confirmation": "human-confirmed",
+      "confirmation_scope": "lens-question",
+      "diagram": "specs/001-ring-mcp-bridge/workshop/security-compliance.md - trust boundaries and attack surface (lens open and as decided), threats T1-T11, SC1 sign-in flow and options, option B issuer, SC2 identities and enrollment, SC3 grants, SC4 secrets map and Azure-agent ways, SC5 audit and WORM with cost, SC6 risks and rate limits, SC7 media flow and C1-C7, lens summary"
+    },
+    "data-storage": {
+      "agenda": [
+        "DS1: Is persistent storage required, and what can stay in memory?",
+        "DS2: What owns each data type?",
+        "DS3: Which storage model and Azure store (P4 widened: does the Azure side speak SQL)?",
+        "DS4: What consistency is needed (event transaction, tokens, pending disarm, media, audit chain, rate counters)?",
+        "DS5: Schema, migrations, backup, restore and retention (epoch, audit anchor, Ring token backup)?",
+        "DS6: No direct access to another component's data?"
+      ],
+      "decision": "DS1: persistent storage required; kept across restarts: event log, device state, cursors, sign-in records, config, audit copy; memory only: rate-limit counters (reset on restart) and open listen streams. DS2: one owning component per kind of data (inventory); owners of commands, used tokens and the pending disarm set in component-design. DS3: Azure core on Azure SQL Database Basic (~$6.5 a month; chosen after the human's cost question over PostgreSQL B1ms ~$21, Tables, the SQL free tier and SQLite in Azure), Blob for media (7 days) and the WORM audit (SC5); connector: SQLite outbox and the encrypted secrets file; Mode A: the same schema on SQLite (not SQL Server Express); the query layer speaks SQLite and T-SQL. DS4: one transaction per event (dedupe on event_id, next seq, append, state update, audit chain link), then ack the connector and push; used one-time tokens and command_ids stored; a pending disarm is cancelled on restart; media blob first, then its row; audit shipped to WORM at least once. DS5: additive, forward-only migrations at start; CI upgrade test on SQLite and SQL Server; point-in-time restore and one restore drill in the pilot; cursor epoch, seq never reused; audit purge keeps an anchor; the Ring token is never backed up (losing the VM means redoing the Ring login and 2FA). DS6: only the core's identity has database and blob rights; each component reads only its own tables; the connector and agents never touch the core database.",
+      "depth": "medium",
+      "moved_on": true,
+      "confirmation": "human-confirmed",
+      "confirmation_scope": "lens-question",
+      "diagram": "specs/001-ring-mcp-bridge/workshop/data-storage.md - inventory and ownership, entities and keys (ERD), Azure store options (lens open and revised for cost), SQLite vs a server database, where the data lives (as decided), lens summary"
+    },
+    "observability-resilience": {
+      "agenda": [
+        "OR1: What must be logged, measured or reported, and at what level (Reasonable or By the book)?",
+        "OR2: What correlation flows through logs, link messages and events?",
+        "OR3: Which health checks and alerts, and how does the human hear about a dead core (out of band)?",
+        "OR4: Which failures are expected and which exceptional, and what happens in each?",
+        "OR5: Which retry, timeout, idempotency, circuit and recovery patterns apply?",
+        "OR6: What does observability cost, and what is never logged?"
+      ],
+      "decision": "OR1: Reasonable level; structured JSON logs from the core to Log Analytics (one line per tool call, event, command, minute tick); metrics from the logs and event timestamps; connector logs stay at home, a health summary rides the 15 s heartbeat. OR2: event_id end to end; request_id, command_id, client_id through the link to the Ring call; a connector session id on every line. OR3: /livez and /readyz (database, lease, secrets) for Container Apps; Docker health check at home; get_health and HIGH health events (carried); out of band by email and SMS through one Azure Monitor action group, from free metric alerts (replicas, restarts, DB size, DTU) and one 5-minute log alert (no minute tick for 10 min, or home offline over 10 min, Ring session lost, audit mismatch, WORM over 1 h behind). OR4: the 11-row failure table (home link, Ring session lost, Ring degraded, push lost or restart, core crash, database, Blob, Entra, agent delivery, security events, database limits). OR5: reconnect backoff 1-30 s with jitter; outbox resend after 10 s; Ring circuit after 5 failures, one probe a minute; history catch-up after a gap (up to 24 h, late: true, through the shared limiter); commands never retried. OR6: about $1.50 a month plus cents of SMS; logs carry IDs, not content. Amendments confirmed: BRIDGE_UNAVAILABLE (D7, additive); reads fail when the database is down (B12 not extended); the history catch-up; the B7 lease in the database (15 s renewal, 45 s expiry, fail closed).",
+      "depth": "medium",
+      "moved_on": true,
+      "confirmation": "human-confirmed",
+      "confirmation_scope": "lens-question",
+      "diagram": "specs/001-ring-mcp-bridge/workshop/observability-resilience.md - one event's journey and who watches what (lens open and as decided), failure-mode table, cost table, lens summary"
+    },
+    "devops-operations": {
+      "agenda": [
+        "DO1: What is the hosting model for the core, the connector and the gate (P1, P2, P3)? Is Foundry agent hosting suitable?",
+        "DO2: What infrastructure is code-owned, and what stays manual?",
+        "DO3: Which environments, and where may they differ?",
+        "DO4: How are secrets and configuration handled?",
+        "DO5: Which CI/CD stages, gates, rollout and rollback, on which forge lane?",
+        "DO6: Which identities and permissions, and how does the core reach the database?",
+        "DO7: Which repository governance (branch model, protection, review gate, visibility)?"
+      ],
+      "decision": "DO1: core on App Service B1 Linux in Israel Central (P1 changed from Container Apps on cost: about $14.45 flat vs about $20 while connections stay open; Foundry hosted agents considered and rejected: agent protocols not an MCP endpoint, per-session sandboxes with idle timeout, Python and C# only, no Israel Central), as a container from the human's existing registry pulled by managed identity; home: Ubuntu 24.04 VM on Hyper-V with Docker, out of backups, own switch if possible; gate: the bridge only reads the status from the human's FliessGateControl Azure Function (amends G1; SC2 gate-app client dropped; function key in Key Vault). DO2: Bicep deployed by GitHub Actions (what-if on PRs, deploy on main after approval), no azd; manual runbook steps. DO3: dev on the human's Windows desktop (and maybe laptop), throwaway CI, production; no staging, pilot on production with disarm off. DO4: runtime secrets in Key Vault; pipeline values in GitHub Actions secrets and variables; OIDC to Azure; no secret in the code (secret scan in CI and pre-commit; push protection when public). DO5: GitHub Actions PR checks, core image to the human's registry, connector image to ghcr.io, deploy after approval, smoke test, rollback to the previous image; connector never auto-updated. DO6: core identity Key Vault Secrets User, Blob Data Contributor, a read-write-migrate database user, AcrPull; deploy identity Contributor plus limited role assignment on the resource group and AcrPush on the registry only; SQL Entra admin an empty break-glass group; service endpoints only, Entra-only SQL sign-in, no private endpoint. DO7: GitHub, private until ready then public; trunk, main protected by rulesets, required checks, Copilot reviews every PR with comment resolution required, no force pushes, single repository; written to .specrew/repository-governance.yml (schema-valid).",
+      "depth": "medium",
+      "moved_on": true,
+      "confirmation": "human-confirmed",
+      "confirmation_scope": "lens-question",
+      "diagram": "specs/001-ring-mcp-bridge/workshop/devops-operations.md - deployment topology and promotion path (lens open, with answers, and as decided), hosting cost table, lens summary; .specrew/repository-governance.yml"
+    },
+    "ui-ux": {
+      "agenda": [
+        "U1: What is the source of UX truth and the page technology, and which look and devices?",
+        "U2: Which journeys and recovery paths do the two pages cover?",
+        "U3: Where does page state live, and how do pages refresh and page through data?",
+        "U4: Which loading, error, offline and confirmation states are shown?",
+        "U5: Which accessibility, language and theme rules apply?"
+      ],
+      "decision": "Two small surfaces served by the core: the admin page (the human only) and the confirm page (disarm with the PIN, usually on the phone), both behind a fresh Entra sign-in. U1: no design assets; plain server-rendered HTML with the bridge's own CSS design tokens (colour, spacing, type), cards and status badges, a little script, no front-end framework; dark by default with a dark/light switch remembered per browser; a modern, slick look; responsive for three widths: Galaxy Z Fold 6 folded (one column, menu button), unfolded (side menu), PC (side menu, card grid, full-width tables); unfolding mid-task keeps page state. U2: journeys disarm, first setup (enroll connector by code, PIN, agent scopes), daily health glance, incident (revoke one or all, delete now), clip player only if S7 needs it. U3: all state on the server; health polls every 15 s while open; audit paged and filtered on the server. U4: banners for home offline, Ring session lost, database down with what to do; as of on every value; risky actions need a sign-in under 5 minutes old and a typed confirmation; the confirm page shows a countdown and plain reasons. U5: English only in v1; keyboard use, readable contrast in both themes, large touch targets; status as a word and an icon, never colour alone. Nothing missing from either page.",
+      "depth": "light",
+      "moved_on": true,
+      "confirmation": "human-confirmed",
+      "confirmation_scope": "lens-question",
+      "diagram": "specs/001-ring-mcp-bridge/workshop/ui-ux.md - admin page and confirm page sketch, the as-decided layout at three widths (Fold 6 folded, unfolded, PC)"
+    },
+    "component-design": {
+      "agenda": [
+        "CD1: What belongs together and what stays separate (the component map)?",
+        "CD2: Which way do dependencies point, with the two exceptions X1 (Issuer to Grants) and X2 (the shared Link transport)?",
+        "CD3: Where is an interface the right abstraction?",
+        "CD4: How are schemas and DTOs kept apart from internal models (Q1: the event shape agents see; Q2: IDs and timestamps)?",
+        "CD5: What is the extension mechanism?",
+        "A1-A4: changes to closed lenses (Key Vault writes, the PIN lock, the gate, late events)",
+        "C1-C10: what earlier lenses left for this lens"
+      ],
+      "decision": "IDesign component map v3 for both halves (Azure core and home connector), one package in two modes. A3: the bridge stays Ring-only; gate logic is composed outside over MCP; later an analyser seam on the post-event frame. CD1: map v3; Lease and Secrets stay separate. CD2: clients call managers, managers call engines and resource access, no manager-to-manager except queued via Pub/Sub, engines do no I/O, utilities from any layer; X1 the Issuer calls Grants directly; X2 the Link transport is a shared utility owned by Host, and a link drop fails in-flight commands with BRIDGE_UNAVAILABLE (never retried). CD3: an interface only where there is more than one implementation (a TS type taken in the constructor, bound by Host, no base classes); six production seams (Ring Access, Delivery, Media Cache, Audit, Secrets, Query layer) and four test-only (Clock, Link transport, the simulated home, the fake Entra sign-in). CD4: each component exports its own DTOs from its one entry file, the callee declares, no shared types file, a CI dependency check; over the link the receiver declares; Q1 (a) the Public Contract module (agent-visible tool schemas and event shape, published as JSON Schema, imported only by MCP Endpoint and Delivery); Q2 (c) per-component string-named brands applied at edge parsers. CD5: composition at start, policy as data, Pub/Sub for queued manager calls, no inheritance trees and no plugins. A1 (a): Key Vault Secrets Officer on pin-hash and issuer-signing-keys only; the PIN changed on the admin page; the 90-day key rotation by the Scheduler and Admin. A2 (a): the PIN tries and the lock in one database row owned by Command. A4 (a): late events (recovered by the catch-up, or held at home over 2 minutes) are stored and readable with late: true but not pushed one by one; one bridge.events_recovered push with the highest priority among them. C1-C8 settled through the map accepted in CD1; C9 by A4; C10 by A3. Needs recorded, not built: a bootstrap script the human runs once; git-ignore or clean .specrew/handover/ before the first commit. All $0.",
+      "depth": "full",
+      "moved_on": true,
+      "confirmation": "human-confirmed",
+      "confirmation_scope": "lens-question",
+      "diagram": "specs/001-ring-mcp-bridge/workshop/component-design.md - component map v3 (IDesign layers for the Azure core and the home connector) with the as-decided component list in the lens 9 summary"
+    },
+    "code-implementation": {
+      "agenda": [
+        "I1: Is there a coding guideline or example project to emulate, or do Specrew's defaults apply (checked against the web)?",
+        "I2: Which stack posture: Node and TypeScript versions, how the TypeScript runs, strictness, modules, lint and format?",
+        "I3: How is error handling done inside the code, and where do errors become D7's codes?",
+        "I4: What is the testing posture (stand-ins, runner, coverage bar, test-first, where each layer runs)?",
+        "I5: What is the code layout (one package, bridge plus shim, or one per deployable) and the dependency-check rules?",
+        "I6: Which dependencies, with 'no new dependency' first, and what supply-chain policy (FR-013)?",
+        "I7: Which baseline exceptions, lighter choices, naming and export rules and context rules (including the SQLite posture)?",
+        "I8: Which host reviews the code?"
+      ],
+      "decision": "I1 (a): Specrew's defaults with the agent's corrections (rows 2-10), no outside style guide; the stale items are a need to report to Specrew. I2: Node 26 LTS everywhere (fallback Node 24.11 or later); TypeScript 6.0.3 alone with 7-ready settings, 7.1 later once typescript-eslint supports it; erasable syntax only, Node runs the .ts while coding and tsc builds JS for the images; strict plus the extras; ES modules with nodenext; ESLint 10 flat config with typescript-eslint strictTypeChecked and stylisticTypeChecked; Prettier. I3: exceptions for the unexpected and for errors meant for the caller; one error class per component with a closed kind union; control errors require outcome; each client maps by kind; the four points. I4: a stand-in for every real device or service (scenario engine, a second oidc-provider as the fake Entra), scrubbed payloads committed after the human's review, Vitest 5, 90% lines and 85% branches, weekly Stryker, test-first for engines, parsers, Normalize and bug fixes; about 1,830 CI minutes a month, $0 extra. I5 (b): one npm workspace, bridge/ and shim/; one wiring file per run mode; the I5.3 reachability rules. I6: groups A, B and C as proposed with devEngines (Hono 4.13 with the SDK's Hono adapter, ws 8.22, dependency-cruiser 18.7 new; nine choices add nothing; exact pins, install scripts off in CI and image commands, npm audit fails on high with the ip exception, license allow-list, Dependabot, gitleaks binary); FR-013 records in implementation-rules.yml. I7: the 19 baseline rules except dtos-between-services (CD4 wins); max-depth 3; magic numbers by review; L1-L5; N1-N5 with #private fields; the context rules; SQLite posture (a), synchronous calls accepted with the 0.5 s p95 test in mode A as the guard. I8: codex reviews the code, no model pinned. Open after close, not answered by 'move on': question 15 (may the agent run specrew review --host codex --authorization-ref workshop-001-ring-mcp-bridge, so authorization_ref is null for now) and question 16 (may the agent write code-rules.local.yml). All $0 in Azure.",
+      "depth": "medium",
+      "moved_on": true,
+      "confirmation": "human-confirmed",
+      "confirmation_scope": "lens-question",
+      "diagram": "specs/001-ring-mcp-bridge/workshop/code-implementation.md - lens at a glance, Specrew defaults check, I2 toolchain, I3 error flow, I4 stand-ins table, I5 layout, I6 groups A-C and the engine table, I7 baseline and rules, lens summary",
+      "implementation_rules": "specs/001-ring-mcp-bridge/implementation-rules.yml"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "fact_type": "review-signoff-partial-override",
+  "request_id": "override-950ce6743907f50a05e643d5",
+  "target_tree_id": "af526c0c4bdc8d3c56b35edf58b235557f0e9668",
+  "campaign_id": "cmp-001-ring-mcp-bridge-i002",
+  "run_id": "run-20261121-213350389-0f2fa4c7",
+  "authority_kind": "human",
+  "authorized_by": "unattributed-human",
+  "verdict_text": "approved for partial review signoff - The only changes since round eleven are the tested, backward-compatible launcher fix and two handoff documents.",
+  "rationale": "The only changes since round eleven are the tested, backward-compatible launcher fix and two handoff documents.",
+  "response_hash": "2281803ee50e62fb292f7334bf24903a8649707c853ee3d0463ecda84053dd43",
+  "evidence_source": "hook-captured-user-prompt",
+  "source_event": "UserPromptSubmit",
+  "host_kind": "codex",
+  "observed_at": "2026-11-22T20:21:17.0235641Z"
+}

@@ -1,0 +1,981 @@
+{
+  "schemaVersion": "v1",
+  "featureRef": "specs/001-ring-mcp-bridge/spec.md",
+  "iterationRef": "specs/001-ring-mcp-bridge/iterations/002",
+  "generatedAt": "2026-11-20T19:59:58Z",
+  "generator": {
+    "name": "specrew-mechanical-checks",
+    "version": "0.40.0"
+  },
+  "findings": [
+    {
+      "findingId": "mf-001",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'keyNotEnrolled' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/connector/clients/core-link/messages/core-messages.ts",
+        "line": 26,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-002",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'keyRevoked' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/connector/clients/core-link/messages/core-messages.ts",
+        "line": 27,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-003",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'versionNotAccepted' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/connector/clients/core-link/messages/core-messages.ts",
+        "line": 28,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-004",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'challengeFailed' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/connector/clients/core-link/messages/core-messages.ts",
+        "line": 29,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-005",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'request_id' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/connector/clients/core-link/messages/core-messages.ts",
+        "line": 48,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-006",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'table' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/access/subscriptions/cursor-store.ts",
+        "line": 86,
+        "column": 13
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-007",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'key' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/access/subscriptions/cursor-store.ts",
+        "line": 87,
+        "column": 13
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-008",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'values' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/access/subscriptions/cursor-store.ts",
+        "line": 88,
+        "column": 13
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-009",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'updated_at' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/access/subscriptions/cursor-store.ts",
+        "line": 93,
+        "column": 15
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-010",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'onConflict' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/access/subscriptions/cursor-store.ts",
+        "line": 95,
+        "column": 13
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-011",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'table' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/access/subscriptions/subscriptions-store.ts",
+        "line": 153,
+        "column": 11
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-012",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'values' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/access/subscriptions/subscriptions-store.ts",
+        "line": 155,
+        "column": 11
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-013",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'created_at' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/access/subscriptions/subscriptions-store.ts",
+        "line": 160,
+        "column": 13
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-014",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'onConflict' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/access/subscriptions/subscriptions-store.ts",
+        "line": 163,
+        "column": 11
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-015",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'received_at' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.test.ts",
+        "line": 86,
+        "column": 5
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-016",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'power_mode' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.test.ts",
+        "line": 95,
+        "column": 5
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-017",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'online' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.test.ts",
+        "line": 96,
+        "column": 5
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-018",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'state' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.test.ts",
+        "line": 97,
+        "column": 5
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-019",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'as_of' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.test.ts",
+        "line": 98,
+        "column": 5
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-020",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'room' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.test.ts",
+        "line": 110,
+        "column": 9
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-021",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'data' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.test.ts",
+        "line": 113,
+        "column": 9
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-022",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'key_id' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 37,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-023",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'connector_version' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 38,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-024",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'signature' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 45,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-025",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'public_key' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 51,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-026",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'time_zone' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 60,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-027",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'alarm_mode' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 61,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-028",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'ownership' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 62,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-029",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'battery_pct' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 88,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-030",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'battery_low' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 89,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-031",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'power_mode' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 90,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-032",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'online' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 91,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-033",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'locations' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 107,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-034",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'devices' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 108,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-035",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'occurred_at' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 135,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-036",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'received_at' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 136,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-037",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'ring_session' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 154,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-038",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'outbox_depth' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 158,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-039",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'event_backlog' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 163,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-040",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'count' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 165,
+        "column": 7
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-041",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'oldest_age_ms' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 166,
+        "column": 7
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-042",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'inventory_owed_after' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 175,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-043",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'last_ring_event_at' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 177,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-044",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'error_counts' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/core/clients/connector-link/messages/home-messages.ts",
+        "line": 179,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-045",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'shut' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/utilities/link-transport/socket-link.ts",
+        "line": 41,
+        "column": 7
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-046",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'version' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/utilities/query-layer/migrations/0008-webhook-subscriptions.ts",
+        "line": 18,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-047",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'name' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/utilities/query-layer/migrations/0008-webhook-subscriptions.ts",
+        "line": 19,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-048",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'statements' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/utilities/query-layer/migrations/0008-webhook-subscriptions.ts",
+        "line": 20,
+        "column": 3
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-049",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'sqlite' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/utilities/query-layer/migrations/0008-webhook-subscriptions.ts",
+        "line": 21,
+        "column": 5
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-050",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'tsql' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/src/utilities/query-layer/migrations/0008-webhook-subscriptions.ts",
+        "line": 33,
+        "column": 5
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    },
+    {
+      "findingId": "mf-051",
+      "gateId": "dead-field",
+      "ruleId": "dead-field.websocket-payload-unused",
+      "surfaceId": "project-default-surface",
+      "severity": "error",
+      "message": "Websocket payload field 'sub_id' is declared but never read.",
+      "remediation": "Remove the dead payload field or document a reviewed rationale before it drifts further.",
+      "source": {
+        "path": "bridge/test/core-access/subscriptions-store.test.ts",
+        "line": 100,
+        "column": 7
+      },
+      "requirementRefs": [
+        "mechanical quality bar",
+        "unused-state hygiene"
+      ],
+      "demoted": false
+    }
+  ]
+}

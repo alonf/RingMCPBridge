@@ -1,0 +1,15 @@
+{
+  "selected": [
+    "requirements-nfr",
+    "architecture-core",
+    "integration-api",
+    "security-compliance",
+    "data-storage",
+    "observability-resilience",
+    "devops-operations",
+    "ui-ux",
+    "component-design",
+    "code-implementation"
+  ],
+  "co_design": true
+}

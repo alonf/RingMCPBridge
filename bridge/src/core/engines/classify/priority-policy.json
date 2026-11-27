@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "late_after_s": 120,
+  "default_priority": "LOW",
+  "rules": [
+    {
+      "kinds": ["flood", "alarm.triggered", "doorbell.ding", "intercom.ding"],
+      "priority": "HIGH"
+    },
+    {
+      "kinds": [
+        "ring.session_lost",
+        "health.ring_unavailable",
+        "health.ring_restored",
+        "health.home_offline",
+        "health.home_online"
+      ],
+      "priority": "HIGH"
+    },
+    {
+      "kinds": ["contact.open", "contact.closed"],
+      "when": { "armed": true },
+      "priority": "HIGH"
+    },
+    {
+      "kinds": ["contact.open", "contact.closed"],
+      "when": { "armed": false },
+      "priority": "LOW"
+    },
+    {
+      "kinds": ["motion"],
+      "when": { "device_types": ["motion"], "armed": true },
+      "priority": "HIGH"
+    },
+    {
+      "kinds": ["motion"],
+      "when": { "device_types": ["motion"], "armed": false },
+      "priority": "LOW"
+    },
+    {
+      "kinds": ["motion"],
+      "when": { "device_types": ["camera", "doorbell"], "person": true },
+      "priority": "MEDIUM"
+    },
+    {
+      "kinds": ["motion"],
+      "priority": "LOW"
+    }
+  ],
+  "shared_locations": {
+    "defaults": "by_source"
+  }
+}

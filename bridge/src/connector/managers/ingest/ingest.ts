@@ -1,0 +1,1043 @@
+// Ingest (CP-08a, T014; sending, T016): what fills the core's State (PT-30), through the Outbox
+// Store, and the sending of it over the link.
+//
+// - `inventory`, a full snapshot of every location and device, at every session start and on the
+//   core's `inventory_request`, and again when a location's alarm mode changes, because no other
+//   iteration 001 message carries a location. When Ring reports a device added or removed, the home
+//   is read again for it, because only a fresh read lists the devices as they are now (DRIFT-001-41);
+// - `device_state`, a device's full current entry, never only the changed fields, when it changes
+//   (DRIFT-001-06);
+// - `heartbeat`, the home's health summary, every 15 s on the Home Scheduler's tick.
+//
+// Every entry gets its own `state_version` from the outbox's counter (DRIFT-001-08). The outbox's
+// work runs one step at a time in the order it was asked for: a later state always has the higher
+// version, and a new session's "everything is due again" is done before anything is sent on its
+// link. A change that arrives while a read is running goes into that read's snapshot, because the
+// read's answer may be older than the change.
+//
+// An inventory names a session only when the Ring read it carries began in that session and the
+// session is still open as it is written (CP-14 review round 4): the core keeps a new session's data
+// stale until it stores such an inventory, so a picture read before the reconnect, or sent on an
+// alarm mode change while the session's own read runs, does not end that. Of two reads that overlap,
+// the one begun later holds the newer picture: an earlier read that finishes after it is dropped.
+//
+// A change Ring reports that cannot be written to the outbox (a full disk) leaves the core's data
+// behind with no message to show it, so the heartbeat says so (CP-14 review round 5): it carries the
+// newest `state_version` written before that change, until an inventory read in the session is
+// queued. Any inventory written after the change has a higher `snapshot_version`, and only such an
+// inventory, named with the session, ends the core's refresh. An inventory that is not queued, for
+// any reason, leaves the same debt (CP-06 review): a device added or removed at Ring reaches the
+// core only in the fresh read that failed.
+//
+// Messages go out on the link in the `LinkSlot`, which Core Link fills once a session is open. A
+// message is sent when it is written, and the 10 s tick sends again what has waited 10 s without
+// its ack (T016).
+//
+// Catch-up (T053): each owned camera resumes from its last complete history scan. The first
+// run sets the installation's starting time. Recovery is bounded to 24 hours and event IDs
+// deduplicate overlapping reads. Pushes and incomplete scans cannot advance a camera checkpoint.
+//
+// Events (T044; FR-008, FR-042): each push the Push Listener hands over is normalized (T042) and
+// written to the outbox under its event id, held there until the core's ack for it, then sent.
+// Events go before state messages, as the link contract orders them, within the outbox's send
+// window and backoff (T043). A push Normalize cannot use is logged by its device and counted, and
+// nothing is queued. The heartbeat says push is on, when the last push came, and how many events
+// wait and for how long. Catch-up and the late marker come with T053.
+import {
+  eventAction,
+  type EventRule,
+} from "../../../utilities/config/index.ts";
+import type { Clock } from "../../../utilities/clock/index.ts";
+import { formatUtc } from "../../../utilities/clock/index.ts";
+import type {
+  LinkConnection,
+  LinkSlot,
+  SendOutcome,
+} from "../../../utilities/link-transport/index.ts";
+import type { Logger, LogFields } from "../../../utilities/logging/index.ts";
+import { HOME_MESSAGE_TYPES } from "../../../core/clients/connector-link/messages/index.ts";
+import type {
+  EventMessage,
+  HeartbeatMessage,
+} from "../../../core/clients/connector-link/messages/index.ts";
+import { OutboxStoreError } from "../../access/outbox-store/index.ts";
+import type {
+  EventBacklog,
+  OutboxBody,
+  OutboxDraft,
+  OutboxStore,
+  StateVersions,
+} from "../../access/outbox-store/index.ts";
+import { RingAdapterError } from "../../access/ring-adapter/index.ts";
+import type {
+  RingChange,
+  RingDevice,
+  RingHistoryPort,
+  RingPort,
+  RingPush,
+  StopWatching,
+} from "../../access/ring-adapter/index.ts";
+import {
+  alarmEvent,
+  armedAt,
+  deviceChangeEvents,
+  historyEvent,
+  modeChangeEvent,
+  normalizePush,
+  recordingEventId,
+} from "../../engines/normalize/index.ts";
+import type {
+  CameraPair,
+  RecordingCallback,
+} from "../../access/ring-partner/index.ts";
+import type { NormalizedEvent } from "../../engines/normalize/index.ts";
+import { deviceEntry, HomeView } from "./home-view.ts";
+import type { TimedChange } from "./home-view.ts";
+
+/**
+ * What became of an inventory. Each is a case the caller handles on the spot, by trying again
+ * later:
+ * - `queued`: written to the outbox;
+ * - `superseded`: a read begun later finished first, so this older picture was dropped;
+ * - `ring_unavailable` or `session_lost`: Ring could not be read (the Ring Adapter's kinds);
+ * - `outbox_unavailable`: the outbox could not be written.
+ */
+export type InventoryOutcome =
+  | "queued"
+  | "superseded"
+  | "ring_unavailable"
+  | "session_lost"
+  | "outbox_unavailable";
+
+/** What Ingest is wired with. */
+export interface IngestOptions {
+  readonly pairedCameras?: readonly CameraPair[] | undefined;
+  readonly eventRules?: readonly EventRule[] | undefined;
+  readonly ring: RingPort;
+  readonly outbox: OutboxStore;
+  /** The open link to send on, which Core Link fills; empty while there is no session. */
+  readonly link: LinkSlot;
+  readonly clock: Clock;
+  readonly logger: Logger;
+  /** Whether Ring's push reaches the home (the Push Listener is wired): the heartbeat says so. */
+  readonly pushOn?: boolean;
+  /** Ring's camera history, for the catch-up after a gap (T053); none: no catch-up. */
+  readonly history?: RingHistoryPort;
+}
+
+/** What a catch-up run did. */
+export type CatchUpOutcome =
+  | { readonly outcome: "started" }
+  | { readonly outcome: "no_history" }
+  | { readonly outcome: "ring_unavailable" }
+  | { readonly outcome: "outbox_unavailable" }
+  | {
+      readonly outcome: "recovered";
+      readonly recovered: number;
+      readonly duplicates: number;
+      /** True when the gap was over 24 hours or Ring's history stopped short: events may be missing. */
+      readonly limited: boolean;
+    };
+
+/** How far back a catch-up reads (FR-042), and how often it is due after its first run. */
+const CATCHUP_WINDOW_MS = 24 * 3_600_000;
+const CATCHUP_EVERY_MS = 3_600_000;
+
+// The newest picture of the home: the number of the read it came from, in the order reads began,
+// and the session open as that read began.
+interface LatestView {
+  readonly view: HomeView;
+  readonly read: number;
+  readonly readFor: string | undefined;
+}
+
+/** How many due messages one step sends, one at a time, before another step continues. */
+const SEND_BATCH = 100;
+
+// A change Ring reports has no caller to cancel it; Ingest's own writes run to the end.
+const UNCANCELLED = new AbortController().signal;
+
+/** The home's state path into the outbox and onto the link. One instance per connector process. */
+export class Ingest {
+  readonly #paired: readonly CameraPair[];
+  readonly #eventRules: readonly EventRule[] | undefined;
+  readonly #ring: RingPort;
+  readonly #outbox: OutboxStore;
+  readonly #link: LinkSlot;
+  readonly #clock: Clock;
+  readonly #logger: Logger;
+  readonly #pushOn: boolean;
+  readonly #history: RingHistoryPort | undefined;
+  // When the catch-up last ran in this process; none yet.
+  #lastCatchUpAt: number | undefined;
+  // When the home last received a live event from a camera or hub.
+  #lastRingEventAt: number | undefined;
+  readonly #readsRunning = new Set<TimedChange[]>();
+  readonly #errorCounts = new Map<string, number>();
+  #latest: LatestView | undefined;
+  #readsBegun = 0;
+  #steps: Promise<void> = Promise.resolve();
+  #stopWatching: StopWatching | undefined;
+  // The read a device list change started, and whether another change came during it.
+  #readingAgain: Promise<void> | undefined;
+  #readAgainOwed = false;
+  #inventoryOwed = false;
+  // The newest `state_version` the outbox has kept, and, while a change could not be written, the
+  // newest one kept before it: the version the inventory that pays the debt must be above.
+  #lastVersion: number | undefined;
+  #owedAfter: number | undefined;
+  // The session last opened. An inventory read since it opened names it while its link is in the
+  // slot.
+  #sessionId: string | undefined;
+  // True from a session's start until its "everything is due again" step is done: nothing is sent
+  // meanwhile, so a send step queued before the session cannot overtake older unacked messages.
+  #sessionStarting = false;
+
+  constructor(options: IngestOptions) {
+    this.#paired = options.pairedCameras ?? [];
+    this.#eventRules = options.eventRules;
+    this.#ring = options.ring;
+    this.#outbox = options.outbox;
+    this.#link = options.link;
+    this.#clock = options.clock;
+    this.#logger = options.logger.with({ component: "ingest" });
+    this.#pushOn = options.pushOn ?? false;
+    this.#history = options.history;
+  }
+
+  /** Starts taking Ring's changes. The Host calls it before the first session starts. */
+  start(): void {
+    this.#stopWatching ??= this.#ring.watch((change) => {
+      this.#received(change);
+    });
+  }
+
+  /** Stops taking Ring's changes and resolves once the work already accepted is done. */
+  async stop(): Promise<void> {
+    this.#stopWatching?.();
+    this.#stopWatching = undefined;
+    await this.flush();
+  }
+
+  /**
+   * A session opened, and its link is in the slot. Every unacked message becomes due again before
+   * anything is sent on the new link, and an inventory read from Ring since this session opened is
+   * owed until it is queued. Then what is due is sent.
+   */
+  async sessionOpened(sessionId: string, signal: AbortSignal): Promise<void> {
+    this.#sessionId = sessionId;
+    this.#lastCatchUpAt = undefined;
+    this.#inventoryOwed = true;
+    this.#sessionStarting = true;
+    try {
+      await this.#step(() => this.#outbox.markAllUnsent(signal));
+    } catch (error) {
+      this.#outboxFailed("ingest_resend_not_marked", error);
+    } finally {
+      this.#sessionStarting = false;
+    }
+    await this.sendDue(signal);
+  }
+
+  /** The core asked for a fresh inventory: queue it and send it. */
+  async inventoryRequested(signal: AbortSignal): Promise<InventoryOutcome> {
+    const outcome = await this.#queueInventory(signal);
+    await this.#sendDueSafely(signal);
+    return outcome;
+  }
+
+  /**
+   * The 10 s tick: queues an inventory still owed for this session, then sends every message that
+   * was never sent or has waited 10 s without its ack.
+   */
+  async sendDue(signal: AbortSignal): Promise<void> {
+    if (this.#inventoryOwed && this.#link.current !== undefined) {
+      await this.#queueInventory(signal);
+    }
+    await this.#sendDueSafely(signal);
+  }
+
+  /** The core committed a message: clear it from the outbox. A repeated ack changes nothing. */
+  async acknowledged(messageId: string, signal: AbortSignal): Promise<void> {
+    try {
+      await this.#step(async () => {
+        await this.#outbox.acknowledge(messageId, signal);
+      });
+    } catch (error) {
+      this.#outboxFailed("ingest_ack_not_recorded", error);
+    }
+  }
+
+  /**
+   * One push from Ring (T044): normalized, written to the outbox under its event id, then sent.
+   * It never throws: what cannot be used or written is logged and counted here.
+   */
+  pushReceived(push: RingPush): void {
+    const receivedAt = this.#clock.now();
+    const normalized = normalizePush(push, receivedAt);
+    if (!normalized.ok) {
+      this.#count("push_unusable");
+      this.#logger.warn("ingest_push_unusable", {
+        device_id: push.device_id,
+        error_code: normalized.reason,
+      });
+      return;
+    }
+    if (
+      !this.#usesCallback(normalized.event) &&
+      this.#keeps(normalized.event, push.ownership)
+    )
+      this.#queueEvent(normalized.event, receivedAt);
+  }
+
+  #usesCallback(event: NormalizedEvent) {
+    return (
+      (event.kind === "motion" || event.kind === "doorbell.ding") &&
+      this.#paired.some(
+        (p) =>
+          p.deviceId === event.device_id &&
+          p.locationId === event.location_id &&
+          event.occurred_at >= Date.parse(p.activeFrom),
+      )
+    );
+  }
+
+  /** Acknowledge a signed callback only after its private reference and outbox entry are durable. */
+  async pairedRecording(
+    pair: CameraPair,
+    receipt: RecordingCallback,
+    remember: (id: string) => void,
+  ) {
+    const now = this.#clock.now();
+    const view = this.#latest?.view;
+    if (!view) throw new Error("Waiting for home inventory.");
+    const device = view.device(pair.deviceId),
+      location = view.location(pair.locationId);
+    if (
+      !location ||
+      device?.location_id !== pair.locationId ||
+      (device.type !== "camera" && device.type !== "doorbell")
+    )
+      return;
+    const event: NormalizedEvent = {
+      event_id: recordingEventId({
+        householdId: pair.ringHouseholdId,
+        deviceId: receipt.deviceId,
+        eventId: receipt.eventId,
+      }),
+      location_id: location.location_id,
+      device_id: device.device_id,
+      device_type: device.type,
+      name: device.name,
+      occurred_at: receipt.time,
+      kind: receipt.kind === "ding" ? "doorbell.ding" : "motion",
+      ...(receipt.kind === "motion" &&
+        receipt.subType === "human" && { person: true }),
+      summary:
+        receipt.kind === "ding"
+          ? `The doorbell ${device.name} was pressed.`
+          : receipt.subType === "human"
+            ? `A person was seen by ${device.name}.`
+            : `Motion at ${device.name}.`,
+    };
+    if (eventAction(this.#eventRules, location.ownership, event) === "drop")
+      return;
+    await this.#step(async () => {
+      remember(event.event_id);
+      await this.#outbox.appendEvent(
+        event.event_id,
+        () => eventBody(event, now),
+        UNCANCELLED,
+      );
+    });
+    this.#lastRingEventAt = now;
+    this.#continueSending(UNCANCELLED);
+  }
+
+  /**
+   * Catch-up when it is due: at the first check of a process, then at most once an hour. The
+   * scheduler calls it on a short tick; it never throws.
+   */
+  async catchUpIfDue(signal: AbortSignal): Promise<void> {
+    const now = this.#clock.now();
+    if (
+      this.#lastCatchUpAt !== undefined &&
+      now - this.#lastCatchUpAt < CATCHUP_EVERY_MS
+    ) {
+      return;
+    }
+    this.#lastCatchUpAt = now;
+    const result = await this.catchUp(signal);
+    if (result.outcome === "outbox_unavailable") {
+      this.#lastCatchUpAt = undefined;
+      return;
+    }
+    try {
+      await this.#step(() => this.#outbox.finishCatchup(signal));
+    } catch (error) {
+      signal.throwIfAborted();
+      this.#lastCatchUpAt = undefined;
+      this.#outboxFailed("ingest_recovery_marker_failed", error);
+      return;
+    }
+    await this.#sendDueSafely(signal);
+  }
+
+  /**
+   * Reads Ring's camera history from the catch-up mark and queues what the gap lost as late
+   * events. With no mark it only starts tracking. It never throws: Ring's and the outbox's failures
+   * are logged and returned, and change nothing the next run cannot repeat.
+   */
+  async catchUp(signal: AbortSignal): Promise<CatchUpOutcome> {
+    const history = this.#history;
+    if (history === undefined) {
+      return { outcome: "no_history" };
+    }
+    const now = this.#clock.now();
+    try {
+      const mark = await this.#outbox.catchupStart(signal);
+      if (mark === undefined) {
+        await this.#outbox.startCatchup(now, signal);
+        return { outcome: "started" };
+      }
+      const floor = now - CATCHUP_WINDOW_MS;
+      const checkpoints = await this.#outbox.cameraCheckpoints(signal);
+      let oldest = now;
+      const read = await history.cameraHistory((cameraId) => {
+        const since = checkpoints.get(cameraId) ?? mark;
+        oldest = Math.min(oldest, since);
+        return Math.max(since, floor);
+      }, signal);
+      const limited = oldest < floor || read.truncated;
+      if (limited) {
+        this.#logger.warn("ingest_catchup_limited", {
+          gap_hours: Math.round((now - oldest) / 3_600_000),
+          history_short: read.truncated ? 1 : 0,
+        });
+      }
+      let recovered = 0;
+      let duplicates = 0;
+      for (const found of [...read.entries].sort(
+        (a, b) => a.occurred_at - b.occurred_at,
+      )) {
+        const event = historyEvent(found);
+        if (event === undefined) {
+          this.#count("push_unusable");
+          continue;
+        }
+        if (this.#usesCallback(event) || !this.#keeps(event, found.ownership))
+          continue;
+        const body = eventBody(event, now, true);
+        const written = await this.#step(() =>
+          this.#outbox.appendEvent(body.event_id, () => body, signal),
+        );
+        if (written === "written") {
+          recovered += 1;
+        } else {
+          duplicates += 1;
+        }
+      }
+      // All entries are durable before any checkpoint moves, including same-time siblings.
+      for (const cameraId of read.completeCameras) {
+        await this.#outbox.checkpointCamera(cameraId, now, signal);
+      }
+      if (recovered + duplicates > 0) {
+        this.#logger.info("ingest_catchup_done", { recovered, duplicates });
+        await this.#sendDueSafely(signal);
+      }
+      return { outcome: "recovered", recovered, duplicates, limited };
+    } catch (error) {
+      signal.throwIfAborted();
+      if (error instanceof RingAdapterError) {
+        this.#logger.warn("ingest_catchup_failed", {
+          error_code: error.kind,
+        });
+        return { outcome: "ring_unavailable" };
+      }
+      this.#count("outbox_unavailable");
+      this.#logger.error(
+        "ingest_catchup_failed",
+        { error_code: "outbox_unavailable" },
+        error,
+      );
+      return { outcome: "outbox_unavailable" };
+    }
+  }
+
+  #keeps(event: NormalizedEvent, ownership?: "shared"): boolean {
+    const source =
+      ownership ??
+      this.#latest?.view.location(event.location_id)?.ownership ??
+      "owned";
+    return eventAction(this.#eventRules, source, event) !== "drop";
+  }
+
+  // Writes an event to the outbox under its id, then sends what is due. It never throws.
+  #queueEvent(event: NormalizedEvent, receivedAt: number): void {
+    this.#lastRingEventAt = receivedAt;
+    const body = eventBody(event, receivedAt);
+    const fields: LogFields = {
+      event_id: body.event_id,
+      ...(event.device_id === undefined ? {} : { device_id: event.device_id }),
+      location_id: event.location_id,
+      kind: body.kind,
+    };
+    void this.#step(() =>
+      this.#outbox.appendEvent(body.event_id, () => body, UNCANCELLED),
+    ).then(
+      (written) => {
+        this.#logger.info("ingest_event_queued", {
+          ...fields,
+          outcome: written,
+        });
+        return this.#sendDueSafely(UNCANCELLED).catch((error: unknown) => {
+          this.#count("internal");
+          this.#logger.error(
+            "ingest_not_sent",
+            { ...fields, error_code: "internal" },
+            error,
+          );
+        });
+      },
+      (error: unknown) => {
+        this.#eventNotQueued(fields, error);
+      },
+    );
+  }
+
+  /** The 15 s tick: sends the home's health summary, if a session is open. */
+  async sendHeartbeat(signal: AbortSignal): Promise<void> {
+    const link = this.#link.current;
+    if (link === undefined) {
+      return;
+    }
+    const heartbeat: HeartbeatMessage = {
+      ring_session: this.#ring.sessionStatus(),
+      push: this.#pushOn ? "ok" : "off",
+      outbox_depth: await this.#depth(signal),
+      event_backlog: await this.#backlog(signal),
+      inventory_owed_after: this.#owedAfter ?? null,
+      last_ring_event_at:
+        this.#lastRingEventAt === undefined
+          ? null
+          : formatUtc(this.#lastRingEventAt),
+      error_counts: Object.fromEntries(this.#errorCounts),
+      as_of: formatUtc(this.#clock.now()),
+    };
+    void link.send({ type: HOME_MESSAGE_TYPES.heartbeat, body: heartbeat });
+  }
+
+  // The session open now: none while no link is in the slot.
+  #composingFor(): string | undefined {
+    return this.#link.current === undefined ? undefined : this.#sessionId;
+  }
+
+  // The session an inventory names as it is written: the one its read began in, if that one is
+  // still open then. A picture read before a session opened is not that session's refresh.
+  #nameFor(readFor: string | undefined): () => string | undefined {
+    return () =>
+      readFor !== undefined && readFor === this.#composingFor()
+        ? readFor
+        : undefined;
+  }
+
+  /**
+   * Resolves once every step accepted so far is done, or has failed and been logged, including the
+   * read a device list change started.
+   */
+  async flush(): Promise<void> {
+    await this.#readingAgain;
+    await this.#steps;
+  }
+
+  // The inventory owed is the open session's own: one read before it opened does not pay it. One
+  // that is not queued, for any reason, is a debt the heartbeat reports (CP-06 review): a device
+  // added or removed at Ring reaches the core only in a fresh inventory.
+  async #queueInventory(signal: AbortSignal): Promise<InventoryOutcome> {
+    const readFor = this.#composingFor();
+    let outcome: InventoryOutcome;
+    try {
+      outcome = await this.#writeInventory(readFor, signal);
+    } catch (error) {
+      this.#oweInventory();
+      throw error;
+    }
+    if (outcome === "queued") {
+      if (readFor !== undefined && readFor === this.#composingFor()) {
+        this.#inventoryOwed = false;
+        this.#owedAfter = undefined;
+      }
+    } else if (outcome !== "superseded") {
+      this.#oweInventory();
+      this.#count(outcome);
+    }
+    return outcome;
+  }
+
+  // The debt names the newest version kept so far, the latest one if writes keep failing, so an
+  // inventory written between two failures does not pay the second.
+  #oweInventory(): void {
+    this.#inventoryOwed = true;
+    this.#owedAfter = this.#lastVersion ?? 0;
+  }
+
+  async #writeInventory(
+    readFor: string | undefined,
+    signal: AbortSignal,
+  ): Promise<InventoryOutcome> {
+    this.#readsBegun += 1;
+    const read = this.#readsBegun;
+    const seenDuringRead: TimedChange[] = [];
+    this.#readsRunning.add(seenDuringRead);
+    let view: HomeView;
+    try {
+      view = await this.#readHome(signal);
+    } catch (error) {
+      return ringFailure(error);
+    } finally {
+      this.#readsRunning.delete(seenDuringRead);
+    }
+    if (this.#latest !== undefined && read < this.#latest.read) {
+      return "superseded";
+    }
+    for (const change of seenDuringRead) {
+      view.apply(change);
+    }
+    if (this.#latest !== undefined) {
+      view.keepPanelsOf(this.#latest.view);
+    }
+    this.#latest = { view, read, readFor };
+    try {
+      await this.#write(inventoryDraft(view, this.#nameFor(readFor)), signal);
+      return "queued";
+    } catch (error) {
+      if (error instanceof OutboxStoreError) {
+        return "outbox_unavailable";
+      }
+      throw error;
+    }
+  }
+
+  // One location at a time: the Ring Adapter's gate runs one call at a time anyway (FR-026).
+  async #readHome(signal: AbortSignal): Promise<HomeView> {
+    const locations = await this.#ring.locations(signal);
+    const devices: RingDevice[] = [];
+    for (const location of locations) {
+      devices.push(...(await this.#ring.devices(location.location_id, signal)));
+    }
+    return HomeView.fromRead(locations, devices, this.#clock.now());
+  }
+
+  #received(change: RingChange): void {
+    if (change.kind === "session") {
+      return;
+    }
+    if (change.kind === "device_list") {
+      this.#readAgain();
+      return;
+    }
+    const timed: TimedChange = { change, at: this.#clock.now() };
+    const events = this.#hubEvents(timed);
+    for (const seen of this.#readsRunning) {
+      seen.push(timed);
+    }
+    this.#latest?.view.apply(timed);
+    for (const event of events) {
+      this.#queueEvent(event, timed.at);
+    }
+    if (change.kind === "device") {
+      const { device } = change;
+      this.#writeChange(
+        (versions) => ({
+          kind: "device_state",
+          body: deviceEntry(device, timed.at, versions.next()),
+        }),
+        { message_type: "device_state", device_id: device.device_id },
+      );
+      return;
+    }
+    if (change.kind === "location" && this.#latest !== undefined) {
+      const { view, readFor } = this.#latest;
+      this.#writeChange(inventoryDraft(view, this.#nameFor(readFor)), {
+        message_type: "inventory",
+        location_id: change.location.location_id,
+      });
+    }
+  }
+
+  /**
+   * The events a hub change makes (T062), from the entry it replaces in the view, so read before the
+   * view takes the change in. None before the first read, when nothing is known to have changed.
+   * Household rules select which events to queue. Shared hub events also carry the home name.
+   */
+  #hubEvents({ change, at }: TimedChange): NormalizedEvent[] {
+    const view = this.#latest?.view;
+    if (view === undefined) {
+      return [];
+    }
+    // An owned home's events as they are; a shared home's filtered and named; none from a location
+    // the view does not hold.
+    const asSent = (
+      locationId: string,
+      events: readonly NormalizedEvent[],
+    ): NormalizedEvent[] => {
+      const location = view.location(locationId);
+      if (location === undefined) {
+        return [];
+      }
+      return events
+        .filter((event) => this.#keeps(event))
+        .map((event) =>
+          location.ownership === "shared"
+            ? { ...event, summary: location.name + ": " + event.summary }
+            : event,
+        );
+    };
+    switch (change.kind) {
+      case "device": {
+        const { location_id: locationId } = change.device;
+        return asSent(
+          locationId,
+          deviceChangeEvents(
+            view.device(change.device.device_id),
+            change.device,
+            {
+              at,
+              armed: armedAt(
+                view.location(locationId),
+                view.panel(locationId),
+                at,
+              ),
+            },
+          ),
+        );
+      }
+      case "location": {
+        const { location } = change;
+        const event = modeChangeEvent(
+          view.location(location.location_id),
+          location,
+          at,
+        );
+        return asSent(location.location_id, event === undefined ? [] : [event]);
+      }
+      case "panel": {
+        const { panel } = change;
+        const event = alarmEvent(view.panel(panel.location_id), panel, {
+          at,
+          nameOf: (deviceId) => view.device(deviceId)?.name,
+        });
+        return asSent(panel.location_id, event === undefined ? [] : [event]);
+      }
+      case "device_list":
+      case "session":
+        return [];
+    }
+  }
+
+  // A device added or removed at Ring: a fresh read, as on the core's `inventory_request`. Changes
+  // that arrive during it ask for one read more, not one each, since a read lists every device. A
+  // read that fails, or cannot be written, leaves an inventory owed, which the 10 s tick reads again
+  // while a session is open, and which the heartbeat reports meanwhile (CP-06 review).
+  #readAgain(): void {
+    this.#readAgainOwed = true;
+    if (this.#readingAgain !== undefined) {
+      return;
+    }
+    this.#readingAgain = this.#readUntilCurrent().finally(() => {
+      this.#readingAgain = undefined;
+      // A change between the last read's end and this point still gets its read.
+      if (this.#readAgainOwed) {
+        this.#readAgain();
+      }
+    });
+  }
+
+  async #readUntilCurrent(): Promise<void> {
+    while (this.#takeReadAgain()) {
+      try {
+        await this.inventoryRequested(UNCANCELLED);
+      } catch (error) {
+        this.#count("internal");
+        this.#logger.error(
+          "ingest_inventory_not_read",
+          { message_type: "inventory", error_code: "internal" },
+          error,
+        );
+      }
+    }
+  }
+
+  // Whether a read is owed; from now none is, until the next change.
+  #takeReadAgain(): boolean {
+    const owed = this.#readAgainOwed;
+    this.#readAgainOwed = false;
+    return owed;
+  }
+
+  // Ingest handles a change's failure itself: no caller waits for it. A fresh inventory is then owed,
+  // so the next 10 s tick sends the device's state again, with no other change needed (round 3).
+  #writeChange(
+    compose: (versions: StateVersions) => OutboxDraft,
+    fields: LogFields,
+  ): void {
+    void this.#write(compose, UNCANCELLED).then(
+      () =>
+        this.#sendDueSafely(UNCANCELLED).catch((error: unknown) => {
+          this.#count("internal");
+          this.#logger.error(
+            "ingest_not_sent",
+            { ...fields, error_code: "internal" },
+            error,
+          );
+        }),
+      (error: unknown) => {
+        this.#stateNotQueued(fields, error);
+      },
+    );
+  }
+
+  // An event that cannot be written is lost to the core until the catch-up (T053) finds it again.
+  #eventNotQueued(fields: LogFields, error: unknown): void {
+    const code =
+      error instanceof OutboxStoreError ? "outbox_unavailable" : "internal";
+    this.#count(code);
+    this.#logger.error(
+      "ingest_event_not_queued",
+      { ...fields, error_code: code },
+      error,
+    );
+  }
+
+  // The debt names the newest version kept before this change.
+  #stateNotQueued(fields: LogFields, error: unknown): void {
+    this.#oweInventory();
+    if (error instanceof OutboxStoreError) {
+      this.#count("outbox_unavailable");
+      this.#logger.warn(
+        "ingest_state_not_queued",
+        { ...fields, error_code: "outbox_unavailable" },
+        error,
+      );
+      return;
+    }
+    this.#count("internal");
+    this.#logger.error(
+      "ingest_state_not_queued",
+      { ...fields, error_code: "internal" },
+      error,
+    );
+  }
+
+  // Sends what is due on the current link, one step after the work already accepted. The outbox's
+  // own failure is logged here; anything else passes to the caller.
+  async #sendDueSafely(signal: AbortSignal): Promise<void> {
+    try {
+      await this.#step(() => this.#sendDue(signal));
+    } catch (error) {
+      this.#outboxFailed("ingest_not_sent", error);
+    }
+  }
+
+  // One message at a time: each is taken from the outbox, and so stamped as sent, only when the
+  // previous one has been written, so the rest of a backlog stays on disk and the 10 s resend
+  // counts from the actual write (round 3). After `SEND_BATCH` messages the work continues in a
+  // new step, behind the acks that arrived meanwhile.
+  async #sendDue(signal: AbortSignal): Promise<void> {
+    if (this.#sessionStarting) {
+      return;
+    }
+    if ((await this.#sendDueEvents(signal)) === "closed") {
+      return;
+    }
+    for (let sent = 0; sent < SEND_BATCH; sent += 1) {
+      const link = this.#link.current;
+      if (link === undefined) {
+        return;
+      }
+      const [item] = await this.#outbox.takeDue(1, signal);
+      if (item === undefined) {
+        return;
+      }
+      const body = { ...item.body, message_id: item.messageId };
+      const outcome = await this.#send(link, item.kind, body, item.messageId);
+      if (outcome === "closed") {
+        return;
+      }
+      await this.#outbox.markWritten(item.messageId, signal);
+    }
+    this.#continueSending(signal);
+  }
+
+  // The events due, within the outbox's window, before any state message: an event's own body is
+  // the link's `event` message, its event id the `message_id` the core acks.
+  async #sendDueEvents(signal: AbortSignal): Promise<SendOutcome> {
+    const link = this.#link.current;
+    if (link === undefined) {
+      return "closed";
+    }
+    for (const event of await this.#outbox.takeDueEvents(signal)) {
+      const outcome = await this.#send(
+        link,
+        HOME_MESSAGE_TYPES.event,
+        event.body,
+        event.eventId,
+      );
+      if (outcome === "closed") {
+        return "closed";
+      }
+      await this.#outbox.markWritten(event.eventId, signal);
+    }
+    return "sent";
+  }
+
+  #continueSending(signal: AbortSignal): void {
+    this.#sendDueSafely(signal).catch((error: unknown) => {
+      this.#count("internal");
+      this.#logger.error("ingest_not_sent", { error_code: "internal" }, error);
+    });
+  }
+
+  // A message too large for one frame can never be sent; it is logged once and cleared, so it
+  // cannot block or repeat (DRIFT-001-22). Its state goes again in the next inventory.
+  async #send(
+    link: LinkConnection,
+    type: string,
+    body: OutboxBody,
+    messageId: string,
+  ): Promise<SendOutcome> {
+    let written: Promise<SendOutcome>;
+    try {
+      written = link.send({ type, body });
+    } catch (error) {
+      if (!(error instanceof RangeError)) {
+        throw error;
+      }
+      this.#count("message_too_large");
+      this.#logger.error("ingest_message_dropped", {
+        message_type: type,
+        message_id: messageId,
+        error_code: "message_too_large",
+      });
+      await this.#outbox.acknowledge(messageId, UNCANCELLED);
+      return "sent";
+    }
+    return written;
+  }
+
+  async #backlog(signal: AbortSignal): Promise<{
+    readonly count: number;
+    readonly oldest_age_ms: number | null;
+  } | null> {
+    let backlog: EventBacklog;
+    try {
+      backlog = await this.#outbox.eventBacklog(signal);
+    } catch (error) {
+      // The depth's read, just before, already counted and logged an unreadable outbox.
+      if (!(error instanceof OutboxStoreError)) {
+        throw error;
+      }
+      return null;
+    }
+    return { count: backlog.count, oldest_age_ms: backlog.oldestAgeMs };
+  }
+
+  async #depth(signal: AbortSignal): Promise<number | null> {
+    try {
+      return await this.#outbox.depth(signal);
+    } catch (error) {
+      this.#outboxFailed("ingest_depth_not_read", error);
+      return null;
+    }
+  }
+
+  // The outbox's failure is a case Ingest handles: counted, logged once, and the work is retried
+  // by the next tick or session. Anything else is not, and passes on.
+  #outboxFailed(event: string, error: unknown): void {
+    if (!(error instanceof OutboxStoreError)) {
+      throw error;
+    }
+    this.#count("outbox_unavailable");
+    this.#logger.warn(event, { error_code: "outbox_unavailable" }, error);
+  }
+
+  #count(code: string): void {
+    this.#errorCounts.set(code, (this.#errorCounts.get(code) ?? 0) + 1);
+  }
+
+  // Notes the last version a message drew once the outbox kept it; a failed write keeps none.
+  #write(
+    compose: (versions: StateVersions) => OutboxDraft,
+    signal: AbortSignal,
+  ): Promise<string> {
+    return this.#step(async () => {
+      let drawn: number | undefined;
+      const messageId = await this.#outbox.append(
+        (versions) =>
+          compose({
+            next: () => {
+              drawn = versions.next();
+              return drawn;
+            },
+          }),
+        signal,
+      );
+      this.#lastVersion = drawn ?? this.#lastVersion;
+      return messageId;
+    });
+  }
+
+  // The outbox's work runs one step at a time, in the order it was asked for.
+  #step<T>(work: () => Promise<T>): Promise<T> {
+    const done = this.#steps.then(work);
+    this.#steps = done.then(
+      () => undefined,
+      () => undefined,
+    );
+    return done;
+  }
+}
+
+// The body is built when the write runs, so it holds every change taken in before then, and names
+// the session `sessionId` gives then.
+function inventoryDraft(
+  view: HomeView,
+  sessionId: () => string | undefined,
+): (versions: StateVersions) => OutboxDraft {
+  return (versions) => ({
+    kind: "inventory",
+    body: view.inventory(versions, sessionId()),
+  });
+}
+
+// The link's `event` message for a normalized push, received at `receivedAt` on the home's clock.
+function eventBody(
+  event: NormalizedEvent,
+  receivedAt: number,
+  fromHistory = false,
+): EventMessage {
+  return {
+    event_id: event.event_id,
+    location_id: event.location_id,
+    kind: event.kind,
+    occurred_at: formatUtc(event.occurred_at),
+    received_at: formatUtc(receivedAt),
+    ...(event.device_id === undefined ? {} : { device_id: event.device_id }),
+    ...(event.device_type === undefined
+      ? {}
+      : { device_type: event.device_type }),
+    summary: event.summary,
+    from_history: fromHistory,
+    ...(event.name === undefined ? {} : { name: event.name }),
+    ...(event.person === undefined ? {} : { person: event.person }),
+    ...(event.data === undefined ? {} : { data: { ...event.data } }),
+    ...(event.armed === undefined ? {} : { armed: event.armed }),
+  };
+}
+
+function ringFailure(error: unknown): InventoryOutcome {
+  if (error instanceof RingAdapterError) {
+    return error.kind;
+  }
+  throw error;
+}

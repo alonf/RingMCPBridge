@@ -1,0 +1,206 @@
+// The core's components over a migrated database, shared by mode H's core and mode A (T027): the
+// stores, the managers, the single-instance lease, and the connector link with Event while the
+// lease is held. It reaches no Azure library, oidc-provider or SQL Server driver: those are mode
+// H's, wired in core.ts. Hand-wired, with no container (CD3, CD5).
+import { Audit } from "../core/access/audit/index.ts";
+import { EventMedia } from "../core/access/media/index.ts";
+import type { MediaObjects } from "../core/access/media/index.ts";
+import { EventLog } from "../core/access/event-log/index.ts";
+import { CursorStore } from "../core/access/subscriptions/index.ts";
+import { GrantsStore } from "../core/access/grants/index.ts";
+import { Lease } from "../core/access/lease/index.ts";
+import type { LeaseStore, LeaseTiming } from "../core/access/lease/index.ts";
+import { SettingsStore } from "../core/access/settings/index.ts";
+import { StateStore } from "../core/access/state/index.ts";
+import type { PriorityPolicy } from "../core/engines/classify/index.ts";
+import { AdminManager } from "../core/managers/admin/index.ts";
+import { EventManager } from "../core/managers/event/index.ts";
+import type {
+  EventManagerOptions,
+  EventTopics,
+} from "../core/managers/event/index.ts";
+import { InquiryManager } from "../core/managers/inquiry/index.ts";
+import type { Clock } from "../utilities/clock/index.ts";
+import type { CommonSettings } from "../utilities/config/index.ts";
+import type { Logger } from "../utilities/logging/index.ts";
+import { PubSub } from "../utilities/pub-sub/index.ts";
+import type { QueryLayer } from "../utilities/query-layer/index.ts";
+import { LeasedLinks } from "./leased-links.ts";
+import { readPriorityPolicy } from "./priority-policy.ts";
+
+/**
+ * The lease's name. One deployment serves one Ring account, with one home part, and the core keeps
+ * no Ring account key, so the name is fixed (DRIFT-001-46).
+ */
+export const LEASE_NAME = "ring-account";
+
+const MEDIA_SWEEP_INTERVAL_MS = 60_000;
+const MEDIA_SWEEP_TIMEOUT_MS = 45_000;
+
+/** What the core's components are built over. */
+export interface CoreAssemblyOptions {
+  readonly mediaObjects?: MediaObjects;
+  /** The core's database, already migrated. */
+  readonly store: QueryLayer;
+  readonly clock: Clock;
+  readonly logger: Logger;
+  readonly settings: CommonSettings;
+  readonly reportMonitorSample?: NonNullable<
+    EventManagerOptions["reportMonitorSample"]
+  >;
+  /** The database as the lease reaches it; the core's database unless a test takes it down. */
+  readonly leaseStore?: LeaseStore;
+  /** This instance's id in the lease row; random when left out. */
+  readonly leaseHolder?: string;
+  /** The lease's timing; the recorded 15 s and 45 s when left out. */
+  readonly leaseTiming?: LeaseTiming;
+  /** The event priorities; read from the Classify engine's policy file when left out. */
+  readonly priorityPolicy?: PriorityPolicy;
+}
+
+/** The core's components, built once per process. */
+export interface CoreAssembly {
+  readonly media?: EventMedia;
+  readonly state: StateStore;
+  readonly settings: SettingsStore;
+  readonly grants: GrantsStore;
+  readonly inquiry: InquiryManager;
+  /** The owner's use cases, for the admin page (T029) and Connector Link. */
+  readonly admin: AdminManager;
+  readonly lease: Lease;
+  /** The connector link, run only while the lease is held: `accept` is the `LinkServer`'s `onLink`. */
+  readonly links: LeasedLinks;
+  /** What the Event manager publishes: `health.changed`, and `event.stored` for Delivery (T048). */
+  readonly events: PubSub<EventTopics>;
+  /** The event priorities and the late limit, checked at start (T045); the Event manager's from T047. */
+  readonly priorityPolicy: PriorityPolicy;
+  /** Takes the lease, and runs the link while it is held. */
+  start(): void;
+  /** Ends the link's term, lets the lease go, and waits for queued events; the caller closes the database after. */
+  stop(): Promise<void>;
+}
+
+/** Builds the core's components. Nothing runs until `start`. */
+export function assembleCore(options: CoreAssemblyOptions): CoreAssembly {
+  const { store, clock, logger } = options;
+  // First, so a bad policy file stops the start before anything is built.
+  const priorityPolicy = options.priorityPolicy ?? readPriorityPolicy();
+  const state = new StateStore({ store });
+  const settings = new SettingsStore({
+    store,
+    clock,
+    defaultBatteryThresholdPct: options.settings.batteryThresholdPct,
+  });
+  const grants = new GrantsStore({ store, clock });
+  const media =
+    options.mediaObjects &&
+    new EventMedia(
+      store,
+      options.mediaObjects,
+      clock,
+      options.settings.mediaRetentionDays,
+    );
+  const eventLog = new EventLog({ clock });
+  const inquiry = new InquiryManager({
+    state,
+    settings,
+    clock,
+    homeOfflineAfterMs: options.settings.staleAfterMs,
+    store,
+    eventLog,
+    cursors: new CursorStore({ store, clock }),
+  });
+  const lease = new Lease({
+    store: options.leaseStore ?? store,
+    clock,
+    name: LEASE_NAME,
+    ...(options.leaseHolder === undefined
+      ? {}
+      : { holder: options.leaseHolder }),
+    ...(options.leaseTiming === undefined
+      ? {}
+      : { timing: options.leaseTiming }),
+  });
+  const events = new PubSub<EventTopics>((topic, error) => {
+    logger.error("pub_sub_handler_failed", { kind: topic }, error);
+  });
+  const audit = new Audit({ clock });
+  const admin = new AdminManager({ settings, ...(media && { media }) });
+  const cleanup = new AbortController();
+  let sweep: Promise<void> | undefined;
+  let cancelSweep: (() => void) | undefined;
+  function sweepMedia(): void {
+    if (!media || sweep) return;
+    const deadline = new AbortController();
+    const cancelDeadline = clock.schedule(MEDIA_SWEEP_TIMEOUT_MS, () => {
+      deadline.abort(new Error("Media cleanup timed out."));
+    });
+    sweep = media
+      .sweep(AbortSignal.any([cleanup.signal, deadline.signal]))
+      .catch((error: unknown) => {
+        if (!cleanup.signal.aborted)
+          logger.error("media_cleanup_failed", undefined, error);
+      })
+      .finally(() => {
+        cancelDeadline();
+        sweep = undefined;
+      });
+  }
+  const links = new LeasedLinks({
+    lease,
+    clock,
+    logger,
+    newEvent: () =>
+      new EventManager({
+        state,
+        events,
+        ...(options.reportMonitorSample && {
+          reportMonitorSample: options.reportMonitorSample,
+        }),
+        clock,
+        homeOfflineAfterMs: options.settings.staleAfterMs,
+        reportFailure: (error) => {
+          logger.error("event_silence_check_failed", undefined, error);
+        },
+        store,
+        eventLog,
+        audit,
+        priorityPolicy,
+        eventRetentionDays: options.settings.eventRetentionDays,
+        eventRules: options.settings.eventRules,
+      }),
+    link: { admin, clock, logger },
+  });
+
+  return {
+    ...(media && { media }),
+    state,
+    settings,
+    grants,
+    inquiry,
+    admin,
+    lease,
+    links,
+    events,
+    priorityPolicy,
+    start: () => {
+      if (media && !cancelSweep) {
+        sweepMedia();
+        cancelSweep = clock.every(MEDIA_SWEEP_INTERVAL_MS, sweepMedia);
+      }
+      lease.start();
+      void lease.settled().then(() => {
+        links.start();
+      });
+    },
+    stop: async () => {
+      cancelSweep?.();
+      cleanup.abort();
+      await media?.stop();
+      await sweep;
+      await links.stop();
+      await lease.stop();
+      await events.drain();
+    },
+  };
+}

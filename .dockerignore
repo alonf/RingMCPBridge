@@ -1,0 +1,10 @@
+# The image (bridge/Dockerfile) takes only what it runs: the package files for `npm ci`, and the
+# bridge's source without its tests. Everything else, the dev script and the records included,
+# stays out.
+**
+!package.json
+!package-lock.json
+!bridge/package.json
+!shim/package.json
+!bridge/src/**
+bridge/src/**/*.test.ts

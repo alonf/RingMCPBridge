@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "boundary_type": "review-signoff",
+  "recorded_at": "2026-11-15T01:14:59Z",
+  "decision": {
+    "schema_version": "1.0",
+    "decision": "allow",
+    "reason": "human-authorized-partial-override",
+    "message": "Signoff allowed under a recorded human-authorized partial-coverage override.",
+    "current_tree_id": "",
+    "matched_run_id": "",
+    "anchor_ref": "",
+    "override": {
+      "schema_version": "1.0",
+      "fact_type": "review-signoff-partial-override",
+      "request_id": "override-2431da7731c64528f3df87b1",
+      "target_tree_id": "cffa3358df6a271aa340cc00b74e8ce1be70d8ff",
+      "campaign_id": "cmp-001-ring-mcp-bridge-i001",
+      "run_id": "run-20261115-001543845-f07189c4",
+      "authority_kind": "human",
+      "authorized_by": "unattributed-human",
+      "verdict_text": "approved for partial review signoff - the only change since the reviewed files is cef1144, the test-first fix of the review's own finding, and later reviews will cover it",
+      "rationale": "the only change since the reviewed files is cef1144, the test-first fix of the review's own finding, and later reviews will cover it",
+      "response_hash": "6107a28b254f16ad294a3676445eb343bdc4cdd86be51fabb3600c7591d8c2c9",
+      "evidence_source": "hook-captured-user-prompt",
+      "source_event": "UserPromptSubmit",
+      "host_kind": "claude",
+      "observed_at": "2026-11-15T01:11:20.4727136Z"
+    },
+    "evidence_labels": null,
+    "acknowledgement": null
+  }
+}
