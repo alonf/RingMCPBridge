@@ -77,6 +77,7 @@ const EXPECTED_TABLES: Readonly<
     ["event_id", false],
     ["requester_id", false],
     ["outcome", false],
+    ["denial_reason", false],
   ],
   media: [
     ["media_id", true],
