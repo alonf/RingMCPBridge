@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "boundary_type": "review-signoff",
+  "recorded_at": "2026-11-02T22:43:23Z",
+  "decision": {
+    "schema_version": "1.0",
+    "decision": "block",
+    "reason": "latest-result-not-current",
+    "message": "The latest campaign result remains useful evidence but targets a moved or earlier snapshot and cannot authorize the current tree. That result belongs to this review (cmp-001-ring-mcp-bridge-i001) - whatever its run name suggests - so it is about your own earlier snapshot, not another project. If you are not the person running reviews for this project, this is advisory: there is nothing here for you to run, and it does not block your work. If you intentionally accept partial coverage for this exact tree, do these three things in order, with NO commits anywhere between them: (1) run this same command once, which refreshes the pending request against your files as they are right now - an approval binds to a specific state, and a request from before your last commit is already stale; (2) type, as a normal chat message and as the WHOLE message with nothing after it: approved for partial review signoff - <why accepting it is safe>; (3) run this same command again immediately. Writing records - a drift entry, a plan note - between (1) and (3) moves the state your approval was bound to and it will refuse again, which is not a rejection of your reasoning. Specrew captures that typed reply before the next attempt; command-line identity fields are not authority.",
+    "current_tree_id": "c414767e00489181ab4a5c624a4e67b26c76218d",
+    "matched_run_id": "run-20261102-220201538-797ac437",
+    "anchor_ref": "",
+    "override": null,
+    "evidence_labels": null,
+    "acknowledgement": null,
+    "route": "review-stale",
+    "campaign_id": "cmp-001-ring-mcp-bridge-i001",
+    "render_boundary_packet": false,
+    "render_verdict_marker": false,
+    "gate_allows": false,
+    "ask_narrow_question": false,
+    "implementer_action": "request-current-digest-review",
+    "reviewed_digest": "",
+    "reviewed_commit": "",
+    "finalization_commit": "",
+    "override_request": {
+      "schema_version": "1.0",
+      "request_id": "override-6dfe8e878c8bfc8cbc53a5cb",
+      "target_tree_id": "c414767e00489181ab4a5c624a4e67b26c76218d",
+      "campaign_id": "cmp-001-ring-mcp-bridge-i001",
+      "run_id": "run-20261102-220201538-797ac437",
+      "required_phrase": "approved for partial review signoff - <why accepting partial coverage is safe>",
+      "created_at": "2026-11-02T22:43:23.5490381+00:00"
+    }
+  }
+}

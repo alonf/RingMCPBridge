@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "boundary_type": "review-signoff",
+  "recorded_at": "2026-11-16T01:27:34Z",
+  "decision": {
+    "schema_version": "1.0",
+    "decision": "allow",
+    "reason": "human-authorized-partial-override",
+    "message": "Signoff allowed under a recorded human-authorized partial-coverage override.",
+    "current_tree_id": "",
+    "matched_run_id": "",
+    "anchor_ref": "",
+    "override": {
+      "schema_version": "1.0",
+      "fact_type": "review-signoff-partial-override",
+      "request_id": "override-7381a1cf4380fd12160bbfed",
+      "target_tree_id": "4f877f01da7a948989e4de3b8ad1ed7b93158c7e",
+      "campaign_id": "cmp-001-ring-mcp-bridge-i001",
+      "run_id": "run-20261115-170156800-64511f10",
+      "authority_kind": "human",
+      "authorized_by": "unattributed-human",
+      "verdict_text": "approved for partial review signoff - the only change since co-review round 34 in the reviewed code is plan.md's Status line, set back from reviewing to executing at the iteration-state gate's instruction; Specrew writes it back to reviewing when the sign-off is approved, and no code changed",
+      "rationale": "the only change since co-review round 34 in the reviewed code is plan.md's Status line, set back from reviewing to executing at the iteration-state gate's instruction; Specrew writes it back to reviewing when the sign-off is approved, and no code changed",
+      "response_hash": "5a9b06407402aeb76fcb0a193477e9a251c0d77b077f3f270fcd3056cad83241",
+      "evidence_source": "hook-captured-user-prompt",
+      "source_event": "UserPromptSubmit",
+      "host_kind": "claude",
+      "observed_at": "2026-11-16T01:26:08.02728Z"
+    },
+    "evidence_labels": null,
+    "acknowledgement": null
+  }
+}

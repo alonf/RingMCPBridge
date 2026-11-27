@@ -1,0 +1,26 @@
+# Review Result
+
+- **Campaign**: `cmp-001-ring-mcp-bridge-i003`
+- **Run**: `run-20261124-001137618-ea22d80c`
+- **Harness**: `claude-code-file-primary`
+- **Target digest**: `9335063f21d4e557b6945ccc120e622d51beb523`
+- **Completion**: `complete`
+- **Verdict**: `findings`
+- **Runtime outcome**: `completed`
+- **Currentness**: `current`
+- **Can approve current snapshot**: `false`
+
+## Summary
+
+Static risk-based review of the iteration 003 media handoff: staging, item grants, receiver downloads, approvals, audit, admin settings and deletion, OAuth scope gating, Blob/file storage, migrations and pilot media fetching. Two contract violations: deleting all cached media skips the required recent sign-in and typed confirmation, and an authorized transfer is cut off by withdrawal or grant expiry between chunks although the owner-approved decision lets it finish. Two minor findings cover unobserved mid-stream failures and unaudited invalid-range or chunk reads. Not inspected in depth: connector internals, CI, unrelated infrastructure. No tests were run by the reviewer; the only controller verification command was the governance validator, which exited 0. Planned tasks not yet implemented were not treated as defects.
+
+## Findings
+
+| ID | Severity | Relevance | Location | Finding |
+| --- | --- | --- | --- | --- |
+| `finding-15ea02029fa16e1d` | minor | current | bridge/src/core/clients/web/web.ts:297 | Delete-now for all cached media lacks the required fresh sign-in and typed confirmation: [demoted to minor: no concrete failure scenario, so it cannot gate; reported as major by the reviewer] contracts/web-endpoints.md lists the Data section (delete cached media and events now) as risky: it requires a sign-in under 5 minutes old plus a typed confirmation. The implemented media-delete route only checks origin, session, form token and a checkbox-supplied literal confirm=delete. It never calls #fresh(session), which #approval does call, and the page offers a checkbox instead of typed text. Anyone using a still-open owner session can irreversibly delete cached media for every household without re-authenticating. The admin-page test submits confirm=delete and does not exercise a stale sign-in. The contract scheduled this section for iteration 004, but the operation ships now without its control. Check #fresh before deletion, require typed confirmation, and test a stale session. |
+| `finding-199c88d08faff852` | minor | current | bridge/src/core/managers/media/media-handoff.ts:343 | Per-chunk grant checks abort transfers the approved design allows to finish: [demoted to minor: no concrete failure scenario, so it cannot gate; reported as major by the reviewer] The recorded owner decision says withdrawal denies the next GET or Range request and that an already authorized transfer may finish; plan.md Notes says a transfer already authorized can finish while each subsequent GET or Range must recheck. MediaHandoff.read calls authorize for every 256 KiB chunk, and authorize requires the ticket expires_at to be in the future and the current policy and approval generations to match. After the 200/206 headers and Content-Length have been sent, withdrawal, a sound or camera setting change, or simply reaching the five-minute grant expiry makes pull() reject and truncates the response. A slow receiver that starts a clip of up to 32 MiB shortly before expiry therefore receives a broken download although its GET was authorized in time. No design amendment was found in the iteration 003 records inspected; quality-evidence.md only describes the new behavi… |
+| `finding-208f9dd7ee399f09` | minor | current | bridge/src/core/clients/web/media-download.ts:127 | Failures after the first chunk are neither audited as denied nor logged by the download handler: The catch that records denied fetches and logs media_download_failed covers only work before the Response is returned. Later chunks run in ReadableStream.pull without error handling there. A MediaDenied, storage failure, short read or 30-second timeout on a later chunk errors the stream, but mediaDownload writes no denied audit row and no operational log. The access log shows only the initial allowed fetch, so an operator cannot distinguish a truncated or revoked delivery from a complete one. Handle errors in pull: audit denials and log other failures with the item identifier before erroring the stream. |
+| `finding-6e5253290e42d3ed` | minor | current | bridge/src/core/clients/web/media-download.ts:85 | Authorized requests with an unsatisfiable or unsupported range leave no access record: After authorize succeeds, an invalid byte range returns 416 with the item length in Content-Range, without calling auditFetch. The allowed audit is written only inside media.read for the first chunk. An authenticated receiver can thus confirm a live grant and learn the item size with no media-access entry, unlike the denied paths for known items. The same branch rejects multi-range and syntactically invalid Range headers with 416 rather than serving the full representation. Record the outcome before returning 416. |
+
+_This Markdown is a controller-generated projection. Authority is the sibling immutable `result.json`._

@@ -10,7 +10,7 @@
       "review_class_rank": 85,
       "model_source": "human-entered",
       "cost_class": "non-default",
-      "authorization_ref": "owner-reviewer-switch-2026-11-19",
+      "authorization_ref": "cmp-001-ring-mcp-bridge-i002-round-4",
       "fallback_allowed": false,
       "timeout_seconds": 0
     },

@@ -1,18 +1,23 @@
 # Iteration State: 003
 
 **Schema**: v2
-**Current Phase**: planning
-**Iteration Status**: planning
+**Current Phase**: before-implement
+**Iteration Status**: not-started
 **Last Completed Task**: (none)
-**Tasks Remaining**: M01–M06, F01, Q01–Q02, V01–V02, RV, RW (proposed)
+**Tasks Remaining**: M01, M02, M03, M04, M05, M06, F01, Q01, Q02, V01, V02, RV, RW
 **In Progress**: (none)
 **Baseline Ref**: 4ba7755b0ce0005ea6b115bc0e73d1af864760e9
-**Updated**: 2026-11-23T01:03:07Z
+**Updated**: 2026-11-25T07:29:55.4241402Z
 
 ## Execution Summary
 
-- Option B and the screen layout passed the pre-plan gate. The 42-point iteration plan is awaiting a separate scope decision.
+<!-- specrew:task-progress-summary:begin -->
+- Execution has not started yet.
+- Task progress: 0 complete, 0 in-progress, 13 pending, 0 blocked.
+- Latest completed task: (none)
+<!-- specrew:task-progress-summary:end -->
 
+- Option B and the screen layout passed the pre-plan gate. The 42-point iteration plan is awaiting a separate scope decision.
 ## Notes
 
 - The feature map puts frames, bursts, clips, per-camera media and battery limits, confirmed arm/light control, motion and history queries, low-battery notifications and per-agent event filters in this planning stage. Keep the household settings page and the existing shared-home defaults.

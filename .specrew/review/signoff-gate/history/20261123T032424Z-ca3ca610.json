@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "boundary_type": "review-signoff",
+  "recorded_at": "2026-11-23T03:24:24Z",
+  "decision": {
+    "schema_version": "1.0",
+    "decision": "allow",
+    "reason": "complete-current-findings-human-accepted",
+    "message": "The exact current result has an explicit identity-bound human disposition accepting its findings.",
+    "current_tree_id": "f56c07b8461f96c925004f235e7faafdf1b91e81",
+    "matched_run_id": "run-20261123-024603234-c8d0446d",
+    "anchor_ref": "",
+    "override": null,
+    "evidence_labels": null,
+    "acknowledgement": null,
+    "route": "boundary-human-disposition",
+    "campaign_id": "cmp-001-ring-mcp-bridge-i003",
+    "render_boundary_packet": true,
+    "render_verdict_marker": true,
+    "gate_allows": true,
+    "ask_narrow_question": false,
+    "implementer_action": "render-boundary-packet",
+    "reviewed_digest": "",
+    "reviewed_commit": "",
+    "finalization_commit": ""
+  }
+}

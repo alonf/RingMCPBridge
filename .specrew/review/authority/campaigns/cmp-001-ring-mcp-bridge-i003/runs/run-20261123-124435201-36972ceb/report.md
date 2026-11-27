@@ -1,0 +1,28 @@
+# Review Result
+
+- **Campaign**: `cmp-001-ring-mcp-bridge-i003`
+- **Run**: `run-20261123-124435201-36972ceb`
+- **Harness**: `claude-code-file-primary`
+- **Target digest**: `3152d869001a6f0de750b627cbfa7008d7d893bc`
+- **Completion**: `complete`
+- **Verdict**: `findings`
+- **Runtime outcome**: `completed`
+- **Currentness**: `current`
+- **Can approve current snapshot**: `false`
+
+## Summary
+
+Risk-based review of the iteration 003 work present in the frozen tree: the T064 event probe and T065/T066 private media staging, expiry and delete-now, with host wiring, migration, storage infrastructure and tests. T067-T079 are unchecked in tasks.md and their planned behavior was not reviewed; earlier-iteration code was read only where this work touches it. Reading the claim, publish, delete, sweep and read-race paths found no route that serves partial, expired or deleted bytes through EventMedia. The findings concern shared-claim cancellation, cleanup error handling, the lack of a staged-size bound, deployment configuration of retention, and probe coverage and records. No tests were run by this reviewer. The controller evidence contains one command, the governance validator (exit 0); it carries no unit, integration, SQL Server or Azurite result, so those outcomes are not established here.
+
+## Findings
+
+| ID | Severity | Relevance | Location | Finding |
+| --- | --- | --- | --- | --- |
+| `finding-a91cc9186ff71e61` | minor | current | bridge/src/core/access/media/event-media.ts:149 | One caller's cancellation aborts the staging that duplicate callers rely on: The claim owner's AbortSignal is combined into writeSignal and drives load, the object write and the publish. Duplicate requests return the same pending item without joining the work. If the first caller disconnects, the catch path deletes the row and object, so the others hold an id that silently becomes unavailable and must restage under a new id. T067 returns pending for the same item, so a client disconnect could repeatedly cancel staging for others. No test covers cancellation of the owner while a duplicate holds the pending item. Decouple the shared work from the individual request signal, or define and test that a duplicate must restage. |
+| `finding-18202e663d9e9aa5` | minor | current | bridge/src/core/access/media/event-media.ts:166 | A failed staging cleanup replaces the original error and has no deadline: In the catch block the tombstone update and remove run before `throw error`. If either rejects (for example during the same storage outage), the caller receives the cleanup error and the original cause is lost. Both calls use a fresh AbortController signal that is never aborted, so stage itself sets no deadline on them and a cancelled request can wait on slow storage. Durable state is still recoverable: a tombstone, or the pending row after write_until, is collected by the sweep. Guard the cleanup so the original error is preserved and bound it with a timeout. |
+| `finding-7586d2f79ff5832f` | minor | current | bridge/src/core/access/media/event-media.ts:51 | Staging accepts any announced media length: checkedChunks only requires a positive safe integer and enforces the stream against that announced value, which comes from the loader. EventMedia imposes no per-item ceiling, so an erroneous or hostile upstream length can consume local disk or Blob storage until the 10-minute timeout. The pilot probe, by contrast, caps clips at 32 MiB and JPEGs at 8 MiB. EventMedia.read also buffers the whole requested range in memory. There is no production caller of stage yet; enforce a per-kind limit here before T067 connects one. |
+| `finding-3bf150bf4c1242e1` | minor | current | infra/main.bicep:155 | The cloud deployment exposes no media retention setting: FR-021 requires a configurable seven-day default. settings.ts reads BRIDGE_MEDIA_RETENTION_DAYS, but main.bicep has no media retention parameter and a case-insensitive search for 'retention' across infra finds no such app setting in app-service.bicep. The declared deployment therefore always uses seven days, and a value set by hand is outside the template's declared settings. Add an optional parameter and pass it through. |
+| `finding-c90e1446de4b854f` | minor | current | bridge/dev/ring-pilot/event-media.ts:145 | The probe's 206 partial-clip acceptance branch has no test: fetchItem accepts a video 206 when x-media-timestamp is inside the window and x-media-length ends by the window end. In ring-pilot.test.ts the event-media fixtures are invoked with video statuses 200, 416, 425 and 503 only and never set x-media-length. Neither acceptance of a valid shorter recording nor rejection of a missing, non-positive or overrunning length is exercised. Add those cases, since this branch decides whether a clip is bound to the event. |
+| `finding-338557153b17ef2f` | note | current | specs/001-ring-mcp-bridge/tasks.md:11 | T064 is recorded open while dependent tasks are marked done: tasks.md says T065 follows T064 and marks T065 and T066 complete, but T064 remains unchecked. Commit 1dff4f9 is titled 'verify T064 on recorded motion and doorbell media', while a search of iterations/003 finds no T064 entry. The iteration plan also still lists M01 and M02 as planned. Record the sanitized T064 evidence and reconcile its status, or state what remains open. |
+
+_This Markdown is a controller-generated projection. Authority is the sibling immutable `result.json`._
