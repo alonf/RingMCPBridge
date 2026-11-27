@@ -519,7 +519,12 @@ async function authorize(
       resource: new URL(rig.resource),
     },
   );
-  const reply = await browse(authorizationUrl, redirectUri, jars);
+  const reply = await browse(
+    authorizationUrl,
+    redirectUri,
+    jars,
+    scope.split(" ").includes("media"),
+  );
   const code = reply.get("code");
   if (code === null) {
     throw new Error(`The link failed: ${reply.get("error") ?? "no code"}`);
@@ -638,6 +643,39 @@ describe("the Issuer", () => {
     );
 
     expect(tokens.scope?.split(" ").sort()).toEqual(["media", "read"]);
+    expect(rig.signInStarts()).toEqual([{ fresh: true }]);
+  });
+
+  it("waits for an explicit same-origin media confirmation before starting owner sign-in", async () => {
+    const redirectUrl = textOf(DOCUMENT_AGENT.redirect_uris[0]);
+    const { authorizationUrl } = await startAuthorization(rig.issuerUrl, {
+      metadata: await metadataOf(rig),
+      clientInformation: { client_id: DOCUMENT_AGENT.client_id },
+      redirectUrl,
+      scope: "read media",
+      resource: new URL(rig.resource),
+    });
+    const jars: Jars = new Map();
+    const interaction = await walk(
+      authorizationUrl,
+      rig.issuerUrl + "/interaction/",
+      jars,
+    );
+    const cookie = cookiesOf(jars, rig.origin);
+    const consent = await fetch(interaction, { headers: { cookie } });
+    expect(await consent.text()).toContain("Allow camera media and sign in");
+    for (const origin of ["null", "https://other.example.test"]) {
+      expect(
+        (
+          await fetch(interaction, {
+            method: "POST",
+            redirect: "manual",
+            headers: { cookie, origin },
+          })
+        ).status,
+      ).toBe(403);
+    }
+    expect(rig.signInStarts()).toEqual([]);
   });
 
   it("sends every link to the owner's Entra sign-in, even in a browser that linked before", async () => {

@@ -16,8 +16,10 @@ export async function walk(
   start: URL | string,
   stopAt: string,
   jars: Jars = new Map(),
+  allowMedia = false,
 ): Promise<URL> {
   let next = new URL(start);
+  let confirm = false;
   for (let hop = 0; hop < MAX_HOPS; hop += 1) {
     if (next.href.startsWith(stopAt)) {
       return next;
@@ -25,8 +27,10 @@ export async function walk(
     const jar = jars.get(next.origin) ?? new Map<string, string>();
     jars.set(next.origin, jar);
     const response = await fetch(next, {
+      method: confirm ? "POST" : "GET",
       redirect: "manual",
       headers: {
+        ...(confirm ? { origin: next.origin } : {}),
         cookie: [...jar].map(([name, value]) => `${name}=${value}`).join("; "),
       },
     });
@@ -36,6 +40,18 @@ export async function walk(
       jar.set(pair.slice(0, separator).trim(), pair.slice(separator + 1));
     }
     const location = response.headers.get("location");
+    if (
+      allowMedia &&
+      !confirm &&
+      response.status === 200 &&
+      next.origin === new URL(start).origin &&
+      next.pathname.includes("/interaction/") &&
+      (await response.text()).includes("Allow camera media and sign in")
+    ) {
+      confirm = true;
+      continue;
+    }
+    confirm = false;
     if (location === null) {
       throw new Error(
         `The browser stopped at ${next.pathname} with ${String(response.status)}: ${await response.text()}`,
@@ -59,6 +75,7 @@ export async function browse(
   start: URL | string,
   redirectUri: string,
   jars?: Jars,
+  allowMedia = false,
 ): Promise<URLSearchParams> {
-  return (await walk(start, redirectUri, jars)).searchParams;
+  return (await walk(start, redirectUri, jars, allowMedia)).searchParams;
 }

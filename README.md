@@ -1,19 +1,12 @@
 # Ring MCP Bridge
 
-An MCP bridge that lets AI agents, such as Claude and ChatGPT, read a Ring home: its alarm state, its devices and their health.
+The Ring MCP Bridge connects ChatGPT, Claude and other MCP clients to a Ring home. Hosted clients reach an Azure core. An enrolled home connector supplies device state, events and recorded media from paired cameras.
 
-> **Work in progress: not ready to use yet.** The first of four planned iterations is built and tested. Its pilot is running for the owner: the core is deployed in Azure, and a home connector is linked to a real Ring account. You're welcome to clone it, read it and run its tests. Full setup instructions for running it at home come in iteration 004. [Connect an agent](#connect-an-agent) covers the step after a deployment.
+**Deploy or manage a bridge:** follow the [operator README](infra/README.md) for first installation, upgrades, rollback, health checks and camera permissions.
 
 ## Status
 
-| Iteration | What it adds | State |
-| --- | --- | --- |
-| 001 | Agents sign in and read the home: an overview, the devices, one device, the bridge's health, and how fresh each answer is | Built and tested in CI against stand-ins. In the owner's pilot, the core is deployed in Azure and the home connector runs on a Hyper-V VM. The first agent trials are next |
-| 002 | Events: pushed to agents as they happen, read later from a cursor, nothing lost across an outage, and alerts when the bridge itself is down | Planned |
-| 003 | Camera media, and control such as arming the alarm or switching a light, with the rest of the reads and events | Planned |
-| 004 | The full admin page, disarm with a PIN the model never sees (shipped switched off), shared Ring locations, and a README for running it at home | Planned |
-
-In iteration 001 an agent has four read-only tools: `get_overview`, `list_devices`, `get_device` and `get_health`.
+The hybrid pilot runs on Azure and a home VM. Agents can read alarm status, device state and event history. ChatGPT also supports event subscriptions. Recorded photos and clips use the official Ring integration and require camera-specific receiver approval. Media tool discovery and end-to-end playback in hosted clients are still under verification. [Media opt-in and verification](infra/README.md#find-and-test-the-media-tool)
 
 ## How it works
 
@@ -27,6 +20,16 @@ AI agent --HTTPS, OAuth--> core (Azure) <--WebSocket, dialled out-- home connect
 ```
 
 In mode H, the Azure resources cost about $21.50 a month (an estimate, from Israel Central list prices read in October 2026), mostly App Service B1 and Azure SQL Basic. Mode A costs nothing to run.
+
+## Update the home connector after an Azure deployment
+
+Run this on the Hyper-V host using PowerShell 7, an Azure CLI login with read access to the production App Service, and key-based SSH access to the VM. It reads the production image's full commit tag, compares it with the running home container, and calls the VM's installed updater when needed. It checks Docker health after an update. A healthy matching container keeps running.
+
+```powershell
+pwsh -File infra/home/update-home-connector.ps1 -AppName <your-app-service-name>
+```
+
+Use `-CheckOnly` to compare without updating. By default the script asks Hyper-V for the current IPv4 address of the VM named `ring-bridge`; use `-VMName` for another name. On another PC, pass `-SshHost` with the VM's DNS name or reserved address. If the host cannot read Hyper-V, `-FallbackHost` supplies an alternate address. SSH checks the VM's host key. If its DHCP address changes, `-HostKeyAlias` can identify its existing trusted key by the old name or address.
 
 ## Set up bridge health alerts
 

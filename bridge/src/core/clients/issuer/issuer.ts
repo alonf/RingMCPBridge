@@ -34,6 +34,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Provider } from "oidc-provider";
+import { html } from "hono/html";
 import type { Interaction, InteractionResults } from "oidc-provider";
 import { GrantsStoreError } from "../../access/grants/index.ts";
 import type { GrantsStore } from "../../access/grants/index.ts";
@@ -275,7 +276,10 @@ export class Issuer {
     const url = request.url ?? "/";
     const path = url.slice(this.#basePath.length) || "/";
     const interaction = INTERACTION_PATH.exec(path.split("?")[0] ?? "");
-    if (interaction?.[1] !== undefined && request.method === "GET") {
+    if (
+      interaction?.[1] !== undefined &&
+      (request.method === "GET" || request.method === "POST")
+    ) {
       this.#beginSignIn(interaction[1], request, response).catch(
         (error: unknown) => {
           this.#failed(response, error);
@@ -415,8 +419,62 @@ export class Issuer {
       answer(response, HTTP_BAD_REQUEST, "This sign-in link is not valid.");
       return;
     }
+    const media =
+      typeof details.params.scope === "string" &&
+      details.params.scope.split(" ").includes("media");
+    if (media && request.method === "GET") {
+      const clientId =
+        typeof details.params.client_id === "string"
+          ? details.params.client_id
+          : "";
+      const agent =
+        (await this.#agents.byDocument(clientId, this.#lifetime.signal)) ??
+        (await this.#registeredAgent(clientId, this.#lifetime.signal));
+      if (!agent || !grantableScopes(agent).includes("media")) {
+        answer(
+          response,
+          403,
+          "Camera media access is unavailable for this client.",
+        );
+        return;
+      }
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "content-security-policy":
+          "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+        "referrer-policy": "strict-origin",
+      });
+      response.end(
+        (
+          await html`<!doctype html>
+            <html lang="en">
+              <title>Approve camera media access</title>
+              <h1>Allow camera media access for ${agent.platform}?</h1>
+              <p>
+                Client <code>${clientId}</code> is requesting access to recorded
+                event photos and clips. Each receiving service still needs
+                approval for the household and camera.
+              </p>
+              <form method="post">
+                <button>Allow camera media and sign in</button>
+              </form>
+              <p>Close this page to decline.</p>
+            </html>`
+        ).valueOf(),
+      );
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      (!media ||
+        request.headers.origin !== new URL(this.#settings.issuer).origin)
+    ) {
+      answer(response, 403, "Confirm access in the bridge sign-in page.");
+      return;
+    }
     const redirect = await this.#dependencies.ownerSignIn.begin(
-      { fresh: false },
+      { fresh: media },
       AbortSignal.any([
         this.#lifetime.signal,
         AbortSignal.timeout(SIGN_IN_TIMEOUT_MS),
@@ -475,7 +533,12 @@ export class Issuer {
       requested.split(" ").includes(scope),
     );
     if (resourceScopes.length)
-      grant.addResourceScope(this.#settings.resource, resourceScopes.join(" "));
+      grant.addResourceScope(
+        params.resource === this.#settings.resource + "/media"
+          ? params.resource
+          : this.#settings.resource,
+        resourceScopes.join(" "),
+      );
     for (const scope of requested.split(" ")) {
       if (OPENID_SCOPES.has(scope)) {
         grant.addOIDCScope(scope);

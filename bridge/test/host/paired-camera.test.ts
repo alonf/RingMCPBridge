@@ -328,10 +328,30 @@ it("commits one signed detection in the paired household and forgets its private
     time,
   });
   const endpoint = new URL("/mcp", core.url);
-  const client = await connectOverHttp(endpoint, {
-    accessToken: await linkAgent(endpoint, undefined, "read media"),
+  const mediaEndpoint = new URL("/mcp/media", core.url);
+  const readToken = await linkAgent(endpoint);
+  const readerClient = await connectOverHttp(endpoint, {
+    accessToken: readToken,
+  });
+  cleanups.push(() => readerClient.close());
+  expect(
+    (await readerClient.client.listTools({})).tools.map((tool) => tool.name),
+  ).not.toContain("share_event_media");
+  const upgrade = await fetch(mediaEndpoint, {
+    method: "POST",
+    headers: { authorization: "Bearer " + readToken },
+  });
+  expect(upgrade.status).toBe(403);
+  expect(upgrade.headers.get("www-authenticate")).toContain(
+    'scope="read media"',
+  );
+  const client = await connectOverHttp(mediaEndpoint, {
+    accessToken: await linkAgent(mediaEndpoint),
   });
   cleanups.push(() => client.close());
+  expect(
+    (await client.client.listTools({})).tools.map((tool) => tool.name),
+  ).toContain("share_event_media");
   const history = await client.client.callTool({
     name: "get_events",
     arguments: { location_id: pair.locationId, device_id: pair.deviceId },

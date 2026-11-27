@@ -137,7 +137,10 @@ export function providerConfiguration(parts: ProviderParts): Configuration {
           Promise.resolve(oneOf ?? parts.resource),
         useGrantedResource: () => Promise.resolve(true),
         getResourceServerInfo: (_context, resource) => {
-          if (resource !== parts.resource) {
+          if (
+            resource !== parts.resource &&
+            resource !== parts.resource + "/media"
+          ) {
             return Promise.reject(new errors.InvalidTarget());
           }
           return Promise.resolve({

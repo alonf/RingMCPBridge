@@ -10,11 +10,13 @@ import { browse } from "../support/index.ts";
 export async function linkAgent(
   mcpUrl: URL,
   redirectUri = String(OTHER_AGENT.redirect_uris[0]),
-  scope = "read",
+  requestedScope?: string,
 ): Promise<string> {
   const unauthorized = await fetch(mcpUrl, { method: "POST" });
   expect(unauthorized.status).toBe(401);
   const challenge = unauthorized.headers.get("www-authenticate") ?? "";
+  const scope =
+    requestedScope ?? /\bscope="([^"]+)"/.exec(challenge)?.[1] ?? "";
   const resourceMetadataUrl = /resource_metadata="([^"]+)"/.exec(
     challenge,
   )?.[1];
@@ -50,7 +52,12 @@ export async function linkAgent(
       resource: mcpUrl,
     },
   );
-  const reply = await browse(authorizationUrl, redirectUri);
+  const reply = await browse(
+    authorizationUrl,
+    redirectUri,
+    undefined,
+    scope.split(" ").includes("media"),
+  );
   const code = reply.get("code");
   if (code === null) {
     throw new Error(`The link failed: ${reply.get("error") ?? "no code"}`);

@@ -373,6 +373,7 @@ export async function startCoreService(
       await webListener(request, response);
     } else if (
       url.pathname === MCP_PATH ||
+      url.pathname === MCP_PATH + "/media" ||
       url.pathname.startsWith(PROTECTED_RESOURCE_METADATA_PREFIX)
     ) {
       await mcpListener(request, response);

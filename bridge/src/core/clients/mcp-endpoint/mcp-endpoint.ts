@@ -196,6 +196,17 @@ export class McpEndpoint {
       }),
     );
     app.all(resource.pathname, (context) => this.#serve(context.req.raw));
+    const mediaResource = new URL(settings.resource + "/media");
+    const mediaMetadataUrl =
+      getOAuthProtectedResourceMetadataUrl(mediaResource);
+    app.get(new URL(mediaMetadataUrl).pathname, (context) =>
+      context.json({ ...this.#metadata(), resource: mediaResource.href }, 200, {
+        "access-control-allow-origin": "*",
+      }),
+    );
+    app.all(mediaResource.pathname, (context) =>
+      this.#serve(context.req.raw, mediaMetadataUrl),
+    );
     this.#app = app;
   }
 
@@ -220,17 +231,22 @@ export class McpEndpoint {
     return serveStdio((context) => this.#server(context));
   }
 
-  async #serve(request: Request): Promise<Response> {
+  async #serve(request: Request, mediaMetadataUrl?: string): Promise<Response> {
+    if (mediaMetadataUrl && !this.#dependencies.media)
+      return Response.json({ error: "media_unavailable" }, { status: 503 });
     const challenge = {
-      requiredScopes: [READ_SCOPE],
-      resourceMetadataUrl: this.#metadataUrl,
+      requiredScopes: mediaMetadataUrl ? [READ_SCOPE, "media"] : [READ_SCOPE],
+      resourceMetadataUrl: mediaMetadataUrl ?? this.#metadataUrl,
     };
     let authInfo: AuthInfo;
     try {
       authInfo = await verifyBearerToken(request.headers.get("authorization"), {
         verifier: this.#verifier,
         ...challenge,
-        requiredScopes: this.#dependencies.media ? [] : [READ_SCOPE],
+        requiredScopes:
+          mediaMetadataUrl || !this.#dependencies.media
+            ? challenge.requiredScopes
+            : [],
       });
       if (
         !authInfo.scopes.includes(READ_SCOPE) &&
