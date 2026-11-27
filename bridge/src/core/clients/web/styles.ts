@@ -131,6 +131,22 @@ main { padding: 1rem; display: grid; gap: 1rem; align-content: start; min-width:
 .as-of { color: var(--muted); font-size: 0.9rem; }
 .card-head .button { margin-left: auto; }
 
+.camera-household { margin-block: 1.25rem; }
+.camera-household h3, .camera-panel h4 { margin: 0; }
+.camera-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 0.85rem; }
+.camera-panel { min-width: 0; display: flex; flex-direction: column; gap: 0.8rem; padding: 0.9rem; border: 1px solid var(--border); border-radius: 12px; background: var(--raised); scroll-margin-block-start: 1rem; }
+.camera-panel:target { outline: 2px solid var(--ok); outline-offset: 2px; }
+.camera-panel fieldset { min-width: 0; border: 0; border-top: 1px solid var(--border); padding: 0.35rem 0 0; margin: 0; }
+.camera-panel legend { padding-right: 0.5rem; font-weight: 600; }
+.camera-panel label { display: flex; align-items: center; gap: 0.45rem; min-height: 2.4rem; margin: 0; }
+.camera-panel input { width: auto; margin: 0; }
+.camera-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.15rem 0.65rem; }
+.camera-panel > .camera-actions { margin-top: auto; }
+.camera-receiver { padding-bottom: 0.5rem; min-width: 0; overflow-wrap: anywhere; }
+.camera-receiver small { display: block; margin-inline-start: 1.4rem; }
+.camera-audit { overflow-wrap: anywhere; }
+
+
 .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
 .row {
   display: grid; grid-template-columns: minmax(6.5rem, auto) 1fr; gap: 0.25rem 0.75rem;

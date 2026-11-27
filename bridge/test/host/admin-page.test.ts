@@ -180,6 +180,11 @@ describe("the admin page end to end", () => {
     try {
       const core = await startTestCore(cleanups, {
         mediaObjects: new FileMediaObjects(directory),
+        agents: ["receiver-one", "receiver-two"].map((clientId) => ({
+          client_id: clientId,
+          scopes: ["media"],
+          redirect_uris: ["https://" + clientId + ".example.test/callback"],
+        })),
       });
       const now = Date.now();
       await core.running.core.state.applyInventory(
@@ -213,8 +218,10 @@ describe("the admin page end to end", () => {
       );
       const owner = await signIn(core);
       const shown = await page(core, owner);
-      expect(shown).toMatch(/name="person_action"\s+disabled/);
-      expect(shown).toContain("deployment policy drops person detections");
+      expect(shown).not.toContain('name="person_action"');
+      expect(shown).toContain(
+        "Blocked by the deployment policy for shared households",
+      );
       const fields = {
         form_token: field(shown, "form_token"),
         camera_form: "settings",
@@ -225,28 +232,46 @@ describe("the admin page end to end", () => {
         device_id: "door",
         receiver_id: "",
       };
-      const submit = (extra: Record<string, string>) =>
+      const submit = (extra: Record<string, string>, receivers?: string[]) =>
         fetch(core.url + "/admin/cameras", {
           method: "POST",
           redirect: "manual",
           headers: { cookie: owner, origin: core.url },
-          body: new URLSearchParams({ ...fields, ...extra }),
+          body: new URLSearchParams([
+            ...Object.entries({ ...fields, ...extra }),
+            ...(receivers ?? []).map((id) => ["receiver[]", id]),
+          ]),
         });
       for (const choice of ["push", "store_only"])
         expect((await submit({ person_action: choice })).status).toBe(400);
-      expect((await submit({ enabled: "on", sound: "on" })).status).toBe(303);
+      expect(
+        (
+          await submit({ camera_form: "matrix", enabled: "on", sound: "on" }, [
+            "receiver-one",
+            "receiver-two",
+          ])
+        ).status,
+      ).toBe(303);
       const enabledPage = await page(core, owner);
       expect(enabledPage).toContain("Camera permissions saved.");
+      expect(enabledPage.match(/Allowed · Photos and clips/g)).toHaveLength(2);
       const enabledGeneration = field(enabledPage, "expected_generation");
+      const enabledRevision = field(enabledPage, "expected_approval_revision");
       expect(enabledGeneration).not.toBe("");
       expect(
-        (await submit({ expected_generation: enabledGeneration })).status,
+        (
+          await submit({
+            expected_generation: enabledGeneration,
+            expected_approval_revision: enabledRevision,
+          })
+        ).status,
       ).toBe(303);
       // The earlier tab still shows media enabled. Its save must not re-enable access.
       expect(
         (
           await submit({
             expected_generation: enabledGeneration,
+            expected_approval_revision: enabledRevision,
             enabled: "on",
             sound: "on",
           })

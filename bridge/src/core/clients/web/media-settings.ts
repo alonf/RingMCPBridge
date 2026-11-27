@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { html } from "hono/html";
 import {
   effectiveReceiverAccess,
@@ -11,76 +12,82 @@ export const cameraSettingsUnavailable = () =>
     <p>Camera settings could not be loaded.</p>
   </section>`;
 export type CameraAdmin = Pick<MediaHandoff, "options" | "camera" | "save">;
+
+const personActions = [
+  ["inherit", "Use default"],
+  ["push", "Push"],
+  ["store_only", "Store only"],
+  ["drop", "Drop"],
+] as const;
+
+export function cameraAnchor(home: string, device: string) {
+  const key = createHash("sha256").update(JSON.stringify([home, device]));
+  return "camera-" + key.digest("hex").slice(0, 16);
+}
+
 export async function cameraSettings(
   media: CameraAdmin,
-  query: URLSearchParams,
   formToken: string,
   signal: AbortSignal,
 ) {
-  const {
-    locations,
-    cameras,
-    receivers,
-    agents,
-    denials,
-    sharedPersonEventsAllowed,
-  } = await media.options(signal);
-  const receiverLabels = new Map(
-    receivers.map(({ client_id: id, platform }) => [
-      id,
-      platform && platform !== id ? `${platform} (${id})` : id,
-    ]),
+  const { locations, cameras, agents, denials, sharedPersonEventsAllowed } =
+    await media.options(signal);
+  const agentsById = new Map(agents.map((agent) => [agent.client_id, agent]));
+  const policies = await Promise.all(
+    cameras.map(
+      async (camera) =>
+        [
+          camera.device_id,
+          await media.camera(camera.location_id, camera.device_id, signal),
+        ] as const,
+    ),
   );
-  const home =
-    locations.find((l) => l.location_id === query.get("location_id")) ??
-    locations[0];
-  const inHome = cameras.filter((c) => c.location_id === home?.location_id);
-  const camera =
-    inHome.find((c) => c.device_id === query.get("device_id")) ?? inHome[0];
-  const policy =
-    home &&
-    camera &&
-    (await media.camera(home.location_id, camera.device_id, signal));
-  const blocksPerson =
-    home?.ownership === "shared" && !sharedPersonEventsAllowed;
+  const byCamera = new Map(policies);
   return html`<section
     id="cameras"
     class="card"
     aria-labelledby="cameras-title"
   >
     <h2 id="cameras-title">Camera permissions</h2>
-    <form action="/admin#cameras" method="get">
-      <label
-        >Household
-        <select name="location_id">
-          ${locations.map((l) => html`<option value="${l.location_id}" ${l === home ? "selected" : ""}>${l.name}</option>`)}
-        </select></label
-      ><button>Show household</button>
-    </form>
-    ${
-      home && camera
-        ? html`<form action="/admin#cameras" method="get">
-            <input
-              type="hidden"
-              name="location_id"
-              value="${home.location_id}"
-            />
-            <label
-              >Camera
-              <select name="device_id">
-                ${inHome.map((c) => html`<option value="${c.device_id}" ${c === camera ? "selected" : ""}>${c.name}</option>`)}
-              </select></label
+    <p class="as-of">
+      Manage event notifications, recorded media and receiving services for each
+      camera. Save each camera independently.
+    </p>
+    ${locations.length === 0 ? html`<p>No households are available.</p>` : ""}
+    ${locations.map((home) => {
+      const devices = cameras
+        .filter((camera) => camera.location_id === home.location_id)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const blocksPerson =
+        home.ownership === "shared" && !sharedPersonEventsAllowed;
+      return html`<section class="camera-household">
+        <header class="card-head">
+          <h3>${home.name}</h3>
+          <span class="as-of"
+            >${home.ownership === "shared" ? "Shared household" : "Owned household"}
+            · ${devices.length}
+            ${devices.length === 1 ? "camera" : "cameras"}</span
+          >
+        </header>
+        ${devices.length === 0 ? html`<p>No cameras in this household.</p>` : ""}
+        <div class="camera-grid">
+          ${devices.map((camera) => {
+            const policy = byCamera.get(camera.device_id);
+            if (!policy) return "";
+            const anchor = cameraAnchor(home.location_id, camera.device_id);
+            const ids = new Set([
+              ...agents.map((agent) => agent.client_id),
+              ...policy.approvals.keys(),
+            ]);
+            return html`<form
+              class="camera-panel"
+              id="${anchor}"
+              aria-labelledby="${anchor}-name"
+              action="${MEDIA_SETTINGS}"
+              method="post"
             >
-            <button>Show permissions</button>
-          </form>`
-        : html`<p>No cameras in this household.</p>`
-    }
-    ${
-      home && camera && policy
-        ? html`<form action="${MEDIA_SETTINGS}" method="post">
-            <fieldset>
-              <legend>${camera.name}</legend>
-              <input type="hidden" name="camera_form" value="settings" />
+              <h4 id="${anchor}-name">${camera.name}</h4>
+              <input type="hidden" name="camera_form" value="matrix" />
               <input
                 type="hidden"
                 name="expected_generation"
@@ -96,11 +103,8 @@ export async function cameraSettings(
                 name="expected_person_action"
                 value="${policy.personAction ?? "inherit"}"
               />
+              <input type="hidden" name="form_token" value="${formToken}" />
               <input
-                type="hidden"
-                name="form_token"
-                value="${formToken}"
-              /><input
                 type="hidden"
                 name="location_id"
                 value="${home.location_id}"
@@ -110,106 +114,80 @@ export async function cameraSettings(
                 name="device_id"
                 value="${camera.device_id}"
               />
-              <label
-                >Person-detection events
-                <select name="person_action" ${blocksPerson ? "disabled" : ""}>
-                  ${(
-                    [
-                      ["inherit", "Use deployment setting"],
-                      ["push", "Push"],
-                      ["store_only", "Store only"],
-                      ["drop", "Drop"],
-                    ] as const
-                  ).map(
-                    ([v, label]) =>
-                      html`<option
-                        value="${v}"
-                        ${(blocksPerson ? "drop" : (policy.personAction ?? "inherit")) === v ? "selected" : ""}
-                      >
-                        ${label}
-                      </option>`,
-                  )}
-                </select>
-              </label>
-              <p>
-                ${blocksPerson ? "The deployment policy drops person detections from shared households." : "Applies to detections forwarded by the home connector."}
-              </p>
-              <label
-                ><input
-                  type="checkbox"
-                  name="enabled"
-                  ${policy.enabled ? "checked" : ""}
-                />
-                Allow agent media access to this camera</label
-              >
-              <label
-                ><input
-                  type="checkbox"
-                  name="sound"
-                  ${policy.sound ? "checked" : ""}
-                />
-                Include recorded sound in clips</label
-              >
-              <h3>Effective access</h3>
-              <p>
-                Saved camera and service permissions. Each request also requires
-                a media-scoped sign-in.
-              </p>
-              <ul>
-                ${Array.from(
-                  new Set([
-                    ...agents.map((a) => a.client_id),
-                    ...policy.approvals.keys(),
-                  ]),
-                ).map((id) => {
-                  const agent = agents.find((a) => a.client_id === id);
+              <fieldset>
+                <legend>Person detection</legend>
+                ${
+                  blocksPerson
+                    ? html`<p>
+                        Blocked by the deployment policy for shared households.
+                      </p>`
+                    : html`<div class="camera-actions">
+                        ${personActions.map(([value, label]) => html`<label><input type="radio" name="person_action" value="${value}" ${(policy.personAction ?? "inherit") === value ? "checked" : ""} />${label}</label>`)}
+                      </div>`
+                }
+              </fieldset>
+              <fieldset>
+                <legend>Recorded media</legend>
+                <label
+                  ><input
+                    type="checkbox"
+                    name="enabled"
+                    ${policy.enabled ? "checked" : ""}
+                  />
+                  Allow media access</label
+                >
+                <label
+                  ><input
+                    type="checkbox"
+                    name="sound"
+                    ${policy.sound ? "checked" : ""}
+                  />
+                  Include sound in clips</label
+                >
+              </fieldset>
+              <fieldset>
+                <legend>Receiving services</legend>
+                ${ids.size === 0 ? html`<p>No receiving services are registered.</p>` : ""}
+                ${Array.from(ids, (id) => {
+                  const agent = agentsById.get(id);
+                  const name = agent?.platform ?? id;
+                  const checked = policy.approvals.has(id);
                   const reason = effectiveReceiverAccess(
                     agent,
                     policy.enabled,
-                    policy.approvals.has(id),
+                    checked,
                   );
-                  const name = agent?.platform
-                    ? agent.platform + " (" + id + ")"
-                    : id;
-                  return html`<li>
-                    ${name} —
-                    ${reason ? "Blocked: " + reason : "Allowed: camera enabled and receiving service approved."}
-                  </li>`;
+                  const canSelect =
+                    checked ||
+                    effectiveReceiverAccess(agent, true, true) === undefined;
+                  return html`<div class="camera-receiver">
+                    <label
+                      ><input
+                        type="checkbox"
+                        name="receiver[]"
+                        value="${id}"
+                        ${checked ? "checked" : ""}
+                        ${canSelect ? "" : "disabled"}
+                      />
+                      ${name}</label
+                    >
+                    ${name !== id ? html`<small>${id}</small>` : ""}
+                    <small class="${reason ? "as-of" : "tone-ok"}"
+                      >${reason ? "Blocked · " + reason : "Allowed · Photos and clips"}</small
+                    >
+                  </div>`;
                 })}
-              </ul>
-              <fieldset>
-                <legend>Services allowed to receive photos and clips</legend>
-                ${Array.from(policy.approvals.keys(), (id) => {
-                  const name = receiverLabels.get(id) ?? id;
-                  return html`<label
-                    ><input
-                      type="checkbox"
-                      name="remove[]"
-                      value="${id}"
-                    />Remove approval from ${name}</label
-                  >`;
-                })}
-                ${policy.approvals.size === 0 ? html`<p>No services approved.</p>` : ""}
-                <label
-                  >Add receiving service
-                  <select name="receiver_id">
-                    <option value="">Select a service</option>
-                    ${Array.from(receiverLabels)
-                      .filter(([id]) => !policy.approvals.has(id))
-                      .map(
-                        ([id, label]) =>
-                          html`<option value="${id}">${label}</option>`,
-                      )}
-                  </select>
-                </label>
               </fieldset>
-              <button type="submit">Save camera permissions</button>
-              <button type="reset">Cancel</button>
-            </fieldset>
-          </form>`
-        : ""
-    }
-    <details>
+              <div class="camera-actions">
+                <button type="submit">Save permissions</button
+                ><button type="reset">Reset edits</button>
+              </div>
+            </form>`;
+          })}
+        </div>
+      </section>`;
+    })}
+    <details class="camera-audit">
       <summary>Recent denied media handoffs</summary>
       <p>Latest 20 across all households. Times are UTC.</p>
       <ul>

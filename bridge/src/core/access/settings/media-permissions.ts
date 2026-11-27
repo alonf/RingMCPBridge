@@ -24,6 +24,8 @@ export interface CameraChange {
   readonly enabled: boolean;
   readonly sound: boolean;
   readonly approved: boolean;
+  readonly add?: readonly string[];
+  readonly receivers?: readonly string[];
   readonly remove?: readonly string[];
   readonly personAction?: EventAction;
 }
@@ -155,7 +157,6 @@ export class MediaPermissions {
     signal: AbortSignal,
   ): Promise<"saved" | "stale"> {
     const cameraKey = key(home, camera);
-    const approvalKey = key(home, camera, receiver);
     const enabled = Number(change.enabled),
       sound = Number(change.sound);
     return this.db.transaction(async (tx) => {
@@ -250,14 +251,20 @@ export class MediaPermissions {
         }
       };
       for (const removed of change.remove ?? []) await removeApproval(removed);
-      if (!receiver) return "saved" as const;
-      if (change.approved) {
+      if (receiver && !change.approved) await removeApproval(receiver);
+      const additions = [
+        ...new Set([
+          ...(change.add ?? []),
+          ...(receiver && change.approved ? [receiver] : []),
+        ]),
+      ];
+      for (const receiver of additions) {
         const added = await tx.run(
           upsertStatement(tx.dialect, {
             table: "camera_media_approval",
             key: ["approval_key"],
             values: {
-              approval_key: approvalKey,
+              approval_key: key(home, camera, receiver),
               camera_key: cameraKey,
               receiver_id: receiver,
               location_id: home,
@@ -277,8 +284,6 @@ export class MediaPermissions {
             signal,
           );
         }
-      } else {
-        await removeApproval(receiver);
       }
       return "saved" as const;
     }, signal);

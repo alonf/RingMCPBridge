@@ -158,7 +158,18 @@ export class MediaHandoff {
           "The shared-household deployment setting blocks person detections.",
         );
       }
-      if (change.approved) await this.checkReceiver(receiver, signal);
+      if (change.approved && receiver)
+        await this.checkReceiver(receiver, signal);
+      if (change.receivers !== undefined) {
+        const current = await this.camera(home, device, signal);
+        const desired = new Set(change.receivers);
+        const add = [...desired].filter((id) => !current.approvals.has(id));
+        const remove = [...current.approvals.keys()].filter(
+          (id) => !desired.has(id),
+        );
+        await Promise.all(add.map((id) => this.checkReceiver(id, signal)));
+        change = { ...change, add, remove };
+      }
     } catch (cause) {
       if (cause instanceof MediaDenied) throw cause;
       throw new MediaSettingsUnavailable(

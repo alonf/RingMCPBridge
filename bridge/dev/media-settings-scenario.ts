@@ -62,12 +62,18 @@ export function mediaSettingsScenario(): MediaAdmin {
       )
         return Promise.resolve("stale");
       const approvals = new Map(current?.approvals);
-      for (const removed of change.remove ?? []) {
+      const desired = change.receivers && new Set(change.receivers);
+      const removedIds = desired
+        ? [...approvals.keys()].filter((id) => !desired.has(id))
+        : (change.remove ?? []);
+      for (const removed of removedIds) {
         if (approvals.delete(removed)) approvalRevision = randomUUID();
       }
-      if (receiver && change.approved && !approvals.has(receiver)) {
+      for (const id of desired ??
+        (receiver && change.approved ? [receiver] : [])) {
+        if (approvals.has(id)) continue;
         approvalRevision = randomUUID();
-        approvals.set(receiver, approvalRevision);
+        approvals.set(id, approvalRevision);
       }
       choices.set(device, {
         ...change,

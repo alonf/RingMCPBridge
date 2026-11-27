@@ -71,27 +71,21 @@ test.describe("the admin page", () => {
     await open(page, "cameras=1");
     const oldTab = await context.newPage();
     await oldTab.goto("/admin");
-    const receiver = "Test receiver (receiver)";
+    const form = (tab: Page) => tab.getByRole("form", { name: "Front door" });
+    const receiver = (tab: Page) =>
+      form(tab).getByRole("checkbox", { name: "Test receiver" }).first();
     const save = (tab: Page) =>
-      tab.getByRole("button", { name: "Save camera permissions" }).click();
-    await oldTab
-      .getByLabel("Add receiving service")
-      .selectOption({ label: receiver });
-    await page
-      .getByLabel("Add receiving service")
-      .selectOption({ label: receiver });
+      form(tab).getByRole("button", { name: "Save permissions" }).click();
+    await receiver(oldTab).check();
+    await receiver(page).check();
     await save(page);
-    await page
-      .getByLabel("Remove approval from " + receiver, { exact: true })
-      .check();
+    await receiver(page).uncheck();
     await save(page);
     await save(oldTab);
     await expect(notice(oldTab)).toContainText(
       "Camera settings changed since you opened this form",
     );
-    await expect(
-      oldTab.getByLabel("Remove approval from " + receiver, { exact: true }),
-    ).toHaveCount(0);
+    await expect(receiver(oldTab)).not.toBeChecked();
   });
   test("the owner approves photos and clips for one camera", async ({
     page,
@@ -101,49 +95,33 @@ test.describe("the admin page", () => {
       page.getByRole("heading", { name: "Camera permissions" }),
     ).toHaveCount(0);
     await page.getByRole("link", { name: "Sign in" }).click();
-    for (const section of ["cameras", "media-storage"]) {
-      await expect(page.locator(`nav a[href="/admin#${section}"]`)).toHaveCount(
-        2,
-      );
-      await expect(page.locator(`#${section}`)).toHaveCount(1);
-    }
-    const approved = page.getByLabel(
-      "Remove approval from Test receiver (receiver)",
-      { exact: true },
-    );
-    const other = page.getByLabel(
-      "Remove approval from Test receiver (second-receiver)",
-      { exact: true },
-    );
-    const add = page.getByLabel("Add receiving service");
-    await expect(approved).toHaveCount(0);
-    await page.getByLabel("Allow agent media access to this camera").check();
-    await add.selectOption({ label: "Test receiver (receiver)" });
-    await page.getByRole("button", { name: "Save camera permissions" }).click();
-    await expect(approved).toBeVisible();
+    const front = page.getByRole("form", { name: "Front door" });
+    const garden = page.getByRole("form", { name: "Garden" });
+    await expect(garden).toBeVisible();
+    const receiver = front.locator('input[value="receiver"]');
+    const other = front.locator('input[value="second-receiver"]');
+    const save = () =>
+      front.getByRole("button", { name: "Save permissions" }).click();
+    await front.getByLabel("Allow media access").check();
+    await receiver.check();
+    await other.check();
+    await save();
+    await expect(receiver).toBeChecked();
+    await expect(other).toBeChecked();
+    await expect(front.getByText("Allowed · Photos and clips")).toHaveCount(2);
+    await expect(garden.getByLabel("Allow media access")).not.toBeChecked();
+    await receiver.uncheck();
+    await front.getByRole("button", { name: "Reset edits" }).click();
+    await expect(receiver).toBeChecked();
+    await receiver.uncheck();
+    await front.getByRole("radio", { name: "Store only" }).check();
+    await save();
+    await expect(receiver).not.toBeChecked();
+    await expect(other).toBeChecked();
     await expect(
-      page.getByText("Test receiver (receiver) — Allowed:", { exact: false }),
-    ).toBeVisible();
-    await add.selectOption({ label: "Test receiver (second-receiver)" });
-    await page.getByRole("button", { name: "Save camera permissions" }).click();
-    await expect(other).toBeVisible();
-    await approved.check();
-    await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(approved).not.toBeChecked();
-    await approved.check();
-    await page.getByLabel("Person-detection events").selectOption("store_only");
-    await page.getByRole("button", { name: "Save camera permissions" }).click();
-    await expect(approved).toHaveCount(0);
-    await expect(other).toBeVisible();
-    await expect(
-      add.getByRole("option", {
-        name: "Test receiver (receiver)",
-        exact: true,
-      }),
-    ).toHaveAttribute("value", "receiver");
-    await expect(page.getByLabel("Person-detection events")).toHaveValue(
-      "store_only",
-    );
+      front.getByRole("radio", { name: "Store only" }),
+    ).toBeChecked();
+    await expect(garden.locator('input[value="receiver"]')).not.toBeChecked();
     await page
       .getByRole("textbox", {
         name: "Type DELETE to delete cached photos and clips for all households",
@@ -153,14 +131,6 @@ test.describe("the admin page", () => {
       .getByRole("button", { name: "Delete all cached camera media" })
       .click();
     await expect(page.getByText("Cached camera media deleted.")).toBeVisible();
-    await page
-      .getByRole("combobox", { name: "Camera", exact: true })
-      .selectOption({ label: "Garden" });
-    await page.getByRole("button", { name: "Show permissions" }).click();
-    await expect(approved).toHaveCount(0);
-    await expect(
-      page.getByLabel("Allow agent media access to this camera"),
-    ).not.toBeChecked();
   });
   test("signed out: the sign-in page", async ({ page }, testInfo) => {
     await open(page, "sign_in=none");

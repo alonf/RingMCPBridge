@@ -39,6 +39,7 @@ import type {
 } from "../../managers/inquiry/index.ts";
 import { AdminSignIns } from "./admin-sign-ins.ts";
 import {
+  cameraAnchor,
   cameraSettings,
   cameraSettingsUnavailable,
   MEDIA_SETTINGS,
@@ -333,11 +334,12 @@ export class Web {
       SESSION_FORM.extend({
         location_id: z.string().min(1).max(256),
         device_id: z.string().min(1).max(256),
-        receiver_id: z.string().max(400),
+        receiver_id: z.string().max(400).default(""),
         enabled: z.literal("on").optional(),
         sound: z.literal("on").optional(),
         approved: z.literal("on").optional(),
-        camera_form: z.literal("settings").optional(),
+        camera_form: z.enum(["settings", "matrix"]).optional(),
+        "receiver[]": z.array(z.string().min(1).max(400)).optional(),
         expected_generation: z.string().max(128),
         expected_approval_revision: z.string().max(36),
         expected_person_action: z.enum([
@@ -375,6 +377,9 @@ export class Web {
             checked.form.camera_form || checked.form.person_action
               ? !!receiver_id
               : !!approved,
+          ...(checked.form.camera_form === "matrix" && {
+            receivers: checked.form["receiver[]"] ?? [],
+          }),
           ...(checked.form["remove[]"] && { remove: checked.form["remove[]"] }),
           ...(checked.form.person_action && {
             personAction: checked.form.person_action,
@@ -409,13 +414,8 @@ export class Web {
             : "media_save_unknown",
       });
     }
-    const selected = new URLSearchParams({
-      location_id,
-      device_id,
-      receiver_id,
-    });
     return context.redirect(
-      ADMIN_PATH + "?" + selected.toString() + "#cameras",
+      ADMIN_PATH + "#" + cameraAnchor(location_id, device_id),
       HTTP_SEE_OTHER,
     );
   }
@@ -448,7 +448,6 @@ export class Web {
         ...(this.#dependencies.media && {
           cameras: await cameraSettings(
             this.#dependencies.media,
-            new URL(context.req.url).searchParams,
             session.formToken,
             AbortSignal.timeout(MANAGER_TIMEOUT_MS),
           ).catch(() => {
